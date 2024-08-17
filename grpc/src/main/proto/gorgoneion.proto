@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.hellblazer.delos.gorgoneion.proto";
+option java_outer_classname = "GorgoneionProto";
+option objc_class_prefix = "Gp";
+
+import "google/protobuf/any.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+import "stereotomy.proto";
+import "crypto.proto";
+
+package gorgoneion;
+
+service Admissions {
+  rpc apply (stereotomy.KERL_) returns (SignedNonce) {}
+  rpc register (Credentials) returns (Establishment) {}
+}
+
+service Endorsement {
+  rpc endorse (Nonce)returns (MemberSignature) {}
+  rpc validate (Credentials)returns (stereotomy.Validation_) {}
+  rpc enroll (Notarization) returns (google.protobuf.Empty) {}
+}
+
+message MemberSignature {
+  crypto.Digeste id = 1;
+  crypto.Sig signature = 2;
+}
+
+message SignedNonce {
+  Nonce nonce = 1;
+  repeated MemberSignature signatures = 2;
+}
+
+message Nonce {
+  stereotomy.Ident member = 1;
+  crypto.Digeste issuer = 2;
+  crypto.Digeste noise = 3;
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+message Credentials {
+  SignedNonce nonce = 1;
+  SignedAttestation attestation = 2;
+  PublicKey_ sessionKey = 3;
+}
+
+message Attestation {
+  stereotomy.KERL_ kerl = 1;
+  crypto.Sig nonce = 2;
+  google.protobuf.Timestamp timestamp = 3;
+  google.protobuf.Any attestation = 4;
+}
+
+message SignedAttestation {
+  Attestation attestation = 1;
+  crypto.Sig signature = 2;
+}
+
+message Notarization {
+  stereotomy.KERL_ kerl = 1;
+  stereotomy.Validations validations = 2;
+}
+
+message Establishment {
+  stereotomy.Validations validations = 1;
+  google.protobuf.Any provisioning = 2;
+}
+
+message PublicKey_ {
+  enum algo {
+    INVALID = 0;
+    X25519 = 1;
+    X448 = 2;
+  }
+  algo algorithm = 1;
+  bytes publicKey = 2;
+}

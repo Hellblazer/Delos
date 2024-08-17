@@ -1,0 +1,49 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.hellblazer.delos</groupId>
+        <artifactId>delos.app</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+    <artifactId>gorgoneion</artifactId>
+    <name>Gorgoneion</name>
+    <description>Identity bootstrapping for Stereotomy through remote attestation</description>
+
+    <properties>
+        <h2.db.url>jdbc:h2:file:${project.build.directory}/data/jooq</h2.db.url>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.hellblazer.delos</groupId>
+            <artifactId>memberships</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.hellblazer.delos</groupId>
+            <artifactId>grpc</artifactId>
+        </dependency>
+
+        <!-- Test only deps below this line -->
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

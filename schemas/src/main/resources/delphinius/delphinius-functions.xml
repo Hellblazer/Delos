@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.4.xsd
+      http://www.liquibase.org/xml/ns/pro http://www.liquibase.org/xml/ns/pro/liquibase-pro-4.5.xsd">
+    <changeSet author="hhildebrand" id="2">
+
+        <sql>create trigger delphinius.delete_object
+            after delete on
+            delphinius.object for each row
+            call
+            "com.hellblazer.delos.delphinius.DomainMaintenance"
+        </sql>
+
+        <sql>create trigger delphinius.delete_relation
+            after delete on
+            delphinius.relation for each row
+            call
+            "com.hellblazer.delos.delphinius.DomainMaintenance"
+        </sql>
+
+        <sql>create trigger delphinius.delete_subject
+            after delete on
+            delphinius.subject for each row
+            call
+            "com.hellblazer.delos.delphinius.DomainMaintenance"
+        </sql>
+        
+        
+        
+        <!-- Add API -->
+
+        <sql>create alias delphinius.addAssertion for
+            "com.hellblazer.delos.delphinius.AbstractOracle.addAssertion"
+        </sql>
+
+        <sql>create alias delphinius.addNamespace for
+            "com.hellblazer.delos.delphinius.AbstractOracle.addNamespace"
+        </sql>
+
+        <sql>create alias delphinius.addObject for
+            "com.hellblazer.delos.delphinius.AbstractOracle.addObject"
+        </sql>
+
+        <sql>create alias delphinius.addRelation for
+            "com.hellblazer.delos.delphinius.AbstractOracle.addRelation"
+        </sql>
+
+        <sql>create alias delphinius.addSubject for
+            "com.hellblazer.delos.delphinius.AbstractOracle.addSubject"
+        </sql>
+
+
+        <!-- Delete API -->
+        
+        <sql>create alias delphinius.deleteAssertion for
+            "com.hellblazer.delos.delphinius.AbstractOracle.deleteAssertion"
+        </sql>
+
+        <sql>create alias delphinius.deleteNamespace for
+            "com.hellblazer.delos.delphinius.AbstractOracle.deleteNamespace"
+        </sql>
+
+        <sql>create alias delphinius.deleteObject for
+            "com.hellblazer.delos.delphinius.AbstractOracle.deleteObject"
+        </sql>
+
+        <sql>create alias delphinius.deleteRelation for
+            "com.hellblazer.delos.delphinius.AbstractOracle.deleteRelation"
+        </sql>
+
+        <sql>create alias delphinius.deleteSubject for
+            "com.hellblazer.delos.delphinius.AbstractOracle.deleteSubject"
+        </sql>
+
+
+        <!-- Map API -->
+
+        <sql>create alias delphinius.mapObject for
+            "com.hellblazer.delos.delphinius.AbstractOracle.mapObject"
+        </sql>
+
+        <sql>create alias delphinius.mapRelation for
+            "com.hellblazer.delos.delphinius.AbstractOracle.mapRelation"
+        </sql>
+
+        <sql>create alias delphinius.mapSubject for
+            "com.hellblazer.delos.delphinius.AbstractOracle.mapSubject"
+        </sql>
+
+
+        <!-- Remove API -->
+
+        <sql>create alias delphinius.removeObject for
+            "com.hellblazer.delos.delphinius.AbstractOracle.removeObject"
+        </sql>
+
+        <sql>create alias delphinius.removeRelation for
+            "com.hellblazer.delos.delphinius.AbstractOracle.removeRelation"
+        </sql>
+
+        <sql>create alias delphinius.removeSubject for
+            "com.hellblazer.delos.delphinius.AbstractOracle.removeSubject"
+        </sql>
+    </changeSet>
+</databaseChangeLog>

@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <parent>
+    <artifactId>delos.app</artifactId>
+    <groupId>com.hellblazer.delos</groupId>
+    <version>0.0.1-SNAPSHOT</version>
+  </parent>
+  <modelVersion>4.0.0</modelVersion>
+  <artifactId>h2-deterministic</artifactId>
+  <name>Deterministic H2</name>
+  <description>H2 modified to be a deterministic SQL DB</description>
+  <build>
+    <plugins>
+      <plugin>
+        <artifactId>maven-shade-plugin</artifactId>
+        <executions>
+          <execution>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <useDependencyReducedPomInJar>true</useDependencyReducedPomInJar>
+              <transformers>
+                <transformer />
+                <transformer />
+                <transformer />
+              </transformers>
+              <relocations>
+                <relocation>
+                  <pattern>org.h2.</pattern>
+                  <shadedPattern>deterministic.org.h2.</shadedPattern>
+                  <excludes>
+                    <exclude>org.h2.api.Aggregate</exclude>
+                    <exclude>org.h2.api.AggregateFunction</exclude>
+                    <exclude>org.h2.api.CredentialsValidator</exclude>
+                    <exclude>org.h2.api.DatabaseEventListener</exclude>
+                    <exclude>org.h2.api.ErrorCodes</exclude>
+                    <exclude>org.h2.api.H2Type</exclude>
+                    <exclude>org.h2.api.JavaObjectSerializer</exclude>
+                    <exclude>org.h2.api.TableEngine</exclude>
+                    <exclude>org.h2.api.Trigger</exclude>
+                    <exclude>org.h2.api.UserToRolesMapper</exclude>
+                    <exclude>org.h2.mvstore</exclude>
+                    <exclude>org.h2.store</exclude>
+                    <exclude>org.h2.bnf.context</exclude>
+                  </excludes>
+                </relocation>
+              </relocations>
+              <filters>
+                <filter>
+                  <artifact>com.h2database:h2</artifact>
+                  <excludes>
+                    <exclude>org/h2/server/**</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+            </configuration>
+          </execution>
+        </executions>
+        <configuration>
+          <createDependencyReducedPom>true</createDependencyReducedPom>
+          <filters>
+            <filter>
+              <artifact>*:*</artifact>
+              <excludes>
+                <exclude>META-INF/*.SF</exclude>
+                <exclude>META-INF/*.DSA</exclude>
+                <exclude>META-INF/*.RSA</exclude>
+              </excludes>
+            </filter>
+          </filters>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>
