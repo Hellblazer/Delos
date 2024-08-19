@@ -173,6 +173,19 @@ public class Digest implements Comparable<Digest> {
         return folded;
     }
 
+    public long[] fold2() {
+        long[] folded = new long[hash.length];
+
+        do {
+            folded = new long[folded.length / 2];
+
+            for (var l = 0; l < hash.length / 2; l++) {
+                folded[l] ^= BUZ.buzhash(hash[l]) % Hash.MERSENNE_31;
+            }
+        } while (folded.length != 2);
+        return folded;
+    }
+
     public DigestAlgorithm getAlgorithm() {
         return algorithm;
     }

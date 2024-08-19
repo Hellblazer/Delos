@@ -13,10 +13,7 @@ import org.joou.ULong;
 
 import java.io.InputStream;
 import java.nio.ByteBuffer;
-import java.security.KeyPair;
-import java.security.PrivateKey;
-import java.security.PublicKey;
-import java.security.SecureRandom;
+import java.security.*;
 import java.security.interfaces.EdECPrivateKey;
 import java.security.interfaces.EdECPublicKey;
 import java.security.spec.NamedParameterSpec;
@@ -243,6 +240,10 @@ public enum SignatureAlgorithm {
         }
 
     };
+
+    static {
+        Security.setProperty("crypto.policy", "unlimited");
+    }
 
     public static final SignatureAlgorithm DEFAULT = ED_25519;
 

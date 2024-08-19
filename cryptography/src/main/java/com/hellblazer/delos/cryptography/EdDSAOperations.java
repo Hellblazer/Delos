@@ -11,6 +11,8 @@ import org.bouncycastle.asn1.edec.EdECObjectIdentifiers;
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.joou.ULong;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -42,6 +44,7 @@ public class EdDSAOperations {
             }
         }
     };
+    private static final Logger                 log             = LoggerFactory.getLogger(EdDSAOperations.class);
     private final        ASN1ObjectIdentifier   curveId;
     private final        KeyFactory             keyFactory;
     private final        KeyPairGenerator       keyPairGenerator;
@@ -178,13 +181,15 @@ public class EdDSAOperations {
                     sig.update(buf, 0, read);
                 }
             } catch (IOException e) {
+                log.error("Unexpected error", e);
                 throw new IllegalStateException("Io error", e);
             }
             return sig.verify(bytes);
         } catch (GeneralSecurityException e) {
-            // TODO handle better
+            log.error("Unexpected error", e);
             throw new RuntimeException(e);
         } catch (Throwable t) {
+            log.error("Unexpected error", t);
             throw new RuntimeException(t);
         }
     }

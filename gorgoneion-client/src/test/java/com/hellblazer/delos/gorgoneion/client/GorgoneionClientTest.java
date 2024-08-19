@@ -74,7 +74,7 @@ public class GorgoneionClientTest {
         var observer = mock(ProtoEventObserver.class);
         final var parameters = Parameters.newBuilder().setKerl(kerl).build();
         @SuppressWarnings("unused")
-        var gorgon = new Gorgoneion(true, t -> true, (c, v) -> Any.pack(testMessage), parameters, member, context,
+        var gorgon = new Gorgoneion(t -> true, (c, v) -> Any.pack(testMessage), parameters, member, context,
                                     observer, gorgonRouter, null);
 
         // The registering client
@@ -159,7 +159,7 @@ public class GorgoneionClientTest {
                                            router.start();
                                            return router;
                                        })
-                                       .map(r -> new Gorgoneion(r.getFrom().equals(members.getFirst()), t -> true,
+                                       .map(r -> new Gorgoneion(t -> true,
                                                                 (c, v) -> Any.pack(testMessage), parameters,
                                                                 (ControlledIdentifierMember) r.getFrom(), context,
                                                                 observer, r, null))
