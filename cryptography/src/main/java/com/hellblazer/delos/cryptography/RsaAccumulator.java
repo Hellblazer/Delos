@@ -24,9 +24,9 @@ public class RsaAccumulator {
     private       BigInteger                  A;
 
     public RsaAccumulator(SecureRandom entropy) {
-        tuple bigIntegerPair = generateTwoLargeDistinctPrimes(PRIME_SIZE, entropy);
-        BigInteger p = bigIntegerPair.a();
-        BigInteger q = bigIntegerPair.b();
+        var pair = generateTwo(PRIME_SIZE, entropy);
+        var p = pair.a();
+        var q = pair.b();
         N = p.multiply(q);
         A0 = next(BigInteger.ZERO, entropy, N);
         A = A0;
@@ -36,7 +36,7 @@ public class RsaAccumulator {
         return next(BigInteger.valueOf(2).pow(256), entropy);
     }
 
-    public static tuple generateTwoLargeDistinctPrimes(int bitLength, Random entropy) {
+    public static tuple generateTwo(int bitLength, Random entropy) {
         BigInteger first = generate(bitLength, entropy);
         while (true) {
             BigInteger second = generate(bitLength, entropy);
@@ -62,10 +62,10 @@ public class RsaAccumulator {
         return verify(A, primeHash(x, ACCUMULATED_SIZE, nonce).a(), proof, n);
     }
 
-    public static tuple primeHash(BigInteger x, int bitLength, BigInteger initNonce) {
-        BigInteger nonce = initNonce;
+    public static tuple primeHash(BigInteger x, int bitLength, BigInteger initial) {
+        var nonce = initial;
         while (true) {
-            BigInteger num = hash(x.add(nonce), bitLength);
+            var num = hash(x.add(nonce), bitLength);
             if (num.isProbablePrime(CERTAINTY)) {
                 return new tuple(num, nonce);
             }
@@ -75,9 +75,9 @@ public class RsaAccumulator {
 
     public static BigInteger hash(BigInteger x, int bitLength) {
         var hex = new StringBuilder();
-        int numOfBlocks = (int) Math.ceil(bitLength / 256.00);
+        var numOfBlocks = (int) Math.ceil(bitLength / 256.00);
 
-        for (int i = 0; i < numOfBlocks; i++) {
+        for (var i = 0; i < numOfBlocks; i++) {
             hex.append(BaseEncoding.base16()
                                    .lowerCase()
                                    .encode(Hashing.sha256()
@@ -120,7 +120,7 @@ public class RsaAccumulator {
 
     public BigInteger add(BigInteger x) {
         if (!data.containsKey(x)) {
-            tuple bigIntegerPair = primeHash(x, ACCUMULATED_SIZE);
+            var bigIntegerPair = primeHash(x, ACCUMULATED_SIZE);
             var hashPrime = bigIntegerPair.a();
             var nonce = bigIntegerPair.b();
             A = A.modPow(hashPrime, N);
