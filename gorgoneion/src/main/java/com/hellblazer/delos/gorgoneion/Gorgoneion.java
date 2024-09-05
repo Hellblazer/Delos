@@ -72,22 +72,20 @@ public class Gorgoneion {
     private final ProtoEventObserver                                    observer;
     private final Parameters                                            parameters;
     private final Predicate<SignedAttestation>                          verifier;
-    private final boolean                                               bootstrap;
     private final ScheduledExecutorService                              scheduler;
     private final BiFunction<Credentials, Validations, Any>             provisioner;
+    private final Endorse                                               service = new Endorse();
 
-    public Gorgoneion(boolean bootstrap, Predicate<SignedAttestation> verifier,
-                      BiFunction<Credentials, Validations, Any> provisioner, Parameters parameters,
-                      ControlledIdentifierMember member, Context<Member> context, ProtoEventObserver observer,
-                      Router router, GorgoneionMetrics metrics) {
-        this(bootstrap, verifier, provisioner, parameters, member, context, observer, router, metrics, router);
+    public Gorgoneion(Predicate<SignedAttestation> verifier, BiFunction<Credentials, Validations, Any> provisioner,
+                      Parameters parameters, ControlledIdentifierMember member, Context<Member> context,
+                      ProtoEventObserver observer, Router router, GorgoneionMetrics metrics) {
+        this(verifier, provisioner, parameters, member, context, observer, router, metrics, router);
     }
 
-    public Gorgoneion(boolean bootstrap, Predicate<SignedAttestation> verifier,
-                      BiFunction<Credentials, Validations, Any> provisioner, Parameters parameters,
-                      ControlledIdentifierMember member, Context<Member> context, ProtoEventObserver observer,
-                      Router admissionsRouter, GorgoneionMetrics metrics, Router endorsementRouter) {
-        this.bootstrap = bootstrap;
+    public Gorgoneion(Predicate<SignedAttestation> verifier, BiFunction<Credentials, Validations, Any> provisioner,
+                      Parameters parameters, ControlledIdentifierMember member, Context<Member> context,
+                      ProtoEventObserver observer, Router admissionsRouter, GorgoneionMetrics metrics,
+                      Router endorsementRouter) {
         this.verifier = verifier;
         this.member = member;
         this.context = context;
@@ -99,8 +97,6 @@ public class Gorgoneion {
         admissionsComm = admissionsRouter.create(member, context.getId(), new Admit(), ":admissions",
                                                  r -> new AdmissionsServer(admissionsRouter.getClientIdentityProvider(),
                                                                            r, metrics));
-
-        final var service = new Endorse();
         endorsementComm = endorsementRouter.create(member, context.getId(), service, ":endorsement",
                                                    r -> new EndorsementServer(
                                                    admissionsRouter.getClientIdentityProvider(), r, metrics),
@@ -112,8 +108,7 @@ public class Gorgoneion {
         if (futureSailor.isEmpty()) {
             return true;
         }
-        var v = futureSailor;
-        validations.add(v.get());
+        validations.add(futureSailor.get());
         return true;
     }
 
@@ -121,7 +116,6 @@ public class Gorgoneion {
         if (futureSailor.isEmpty()) {
             return true;
         }
-        futureSailor.get();
         completed.add(m);
         return true;
     }
@@ -129,7 +123,7 @@ public class Gorgoneion {
     private boolean completeVerification(Optional<Validation_> futureSailor, Member m,
                                          HashSet<Validation_> verifications) {
         if (futureSailor.isEmpty()) {
-            return true;
+            return false;
         }
         var v = futureSailor.get();
         verifications.add(v);
@@ -267,6 +261,13 @@ public class Gorgoneion {
         var validated = new CompletableFuture<Validations>();
 
         var successors = context.bftSubset(digestOf(identifier.toIdent(), parameters.digestAlgorithm()));
+        if (context.size() == 1) {
+            var validations = Validations.newBuilder().addValidations(validate(request)).build();
+            return Establishment.newBuilder()
+                                .setValidations(validations)
+                                .setProvisioning(provisioner.apply(request, validations))
+                                .build();
+        }
         final var majority = context.size() == 1 ? 1 : context.majority();
         final var redirecting = new SliceIterator<>("Credential verification", member, successors, endorsementComm,
                                                     scheduler);
@@ -305,12 +306,14 @@ public class Gorgoneion {
     private Validation_ validate(Credentials credentials) {
         var event = (InceptionEvent) ProtobufEventFactory.from(
         credentials.getAttestation().getAttestation().getKerl().getEvents(0)).event();
-        log.info("Validating credentials for: {} on: {}", event.getIdentifier(), member.getId());
         Signer signer = member.getIdentifier().getSigner();
-        return Validation_.newBuilder()
-                          .setValidator(member.getIdentifier().getCoordinates().toEventCoords())
-                          .setSignature(signer.sign(event.toKeyEvent_().toByteString()).toSig())
-                          .build();
+        var johnHancock = signer.sign(event.toKeyEvent_().toByteString());
+        log.info("Signed credentials for: {} on: {}", event.getIdentifier(), member.getId());
+        var validation = Validation_.newBuilder()
+                                    .setValidator(member.getIdentifier().getCoordinates().toEventCoords())
+                                    .setSignature(johnHancock.toSig())
+                                    .build();
+        return validation;
     }
 
     private Validation_ verificationOf(Credentials credentials) {

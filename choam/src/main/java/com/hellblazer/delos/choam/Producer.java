@@ -367,7 +367,13 @@ public class Producer {
     }
 
     private void serial(List<ByteString> preblock, Boolean last) {
-        serialize.execute(Utils.wrapped(() -> create(preblock, last), log));
+        try {
+            serialize.execute(Utils.wrapped(() -> create(preblock, last), log));
+        } catch (Throwable e) {
+            if (!(e instanceof RejectedExecutionException ree)) {
+                log.error("cannot serialize preblock processing: {} on: {}", preblock, params().member().getId(), e);
+            }
+        }
     }
 
     private PendingBlock validate(Validate v) {

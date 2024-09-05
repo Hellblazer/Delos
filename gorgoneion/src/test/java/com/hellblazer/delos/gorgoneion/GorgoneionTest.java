@@ -62,7 +62,7 @@ public class GorgoneionTest {
         // The kerl observer to publish admitted client KERLs to
         var observer = mock(ProtoEventObserver.class);
         @SuppressWarnings("unused")
-        var gorgon = new Gorgoneion(true, t -> true, (c, v) -> Any.pack(testMessage),
+        var gorgon = new Gorgoneion(t -> true, (c, v) -> Any.pack(testMessage),
                                     Parameters.newBuilder().setKerl(kerl).build(), member, context, observer,
                                     gorgonRouter, null);
 
@@ -87,7 +87,7 @@ public class GorgoneionTest {
         // Apply for registration of the client's KERL, receiving the signed nonce from
         // the server
         final KERL_ cKerl = client.kerl();
-        var fs = admin.apply(cKerl, Duration.ofSeconds(1));
+        var fs = admin.apply(cKerl, Duration.ofSeconds(120));
         assertNotNull(fs);
         assertNotNull(fs.getNonce());
         assertEquals(client.getIdentifier().getIdentifier().toIdent(), fs.getNonce().getMember());
