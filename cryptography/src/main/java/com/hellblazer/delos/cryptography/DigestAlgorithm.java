@@ -365,16 +365,8 @@ public enum DigestAlgorithm {
         return name();
     }
 
-    /**
-     * Calculates the commutative hash of the two inputs
-     *
-     * @param s1
-     * @param s2
-     * @return the commutative Digest of the two inputs
-     */
-    public Digest commutative(final byte[] s1, final byte[] s2) {
-        return (Arrays.compare(s1, s2) > 0) ? digest(ByteBuffer.wrap(s2), ByteBuffer.wrap(s1))
-                                            : digest(ByteBuffer.wrap(s1), ByteBuffer.wrap(s2));
+    public byte[] commutative(final byte[] s1, final byte[] s2) {
+        return (Arrays.compare(s1, s2) > 0) ? hashOf(s2, s1) : hashOf(s1, s2);
     }
 
     public Digest digest(byte[]... bytes) {
