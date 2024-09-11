@@ -365,6 +365,10 @@ public enum DigestAlgorithm {
         return name();
     }
 
+    public byte[] commutative(final byte[] s1, final byte[] s2) {
+        return (Arrays.compare(s1, s2) > 0) ? hashOf(s2, s1) : hashOf(s1, s2);
+    }
+
     public Digest digest(byte[]... bytes) {
         return new Digest(this, hashOf(bytes));
     }
