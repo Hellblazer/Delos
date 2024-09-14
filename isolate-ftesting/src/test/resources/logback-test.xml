@@ -20,12 +20,7 @@
     <logger name="liquibase" level="warn" additivity="false">
         <appender-ref ref="STDOUT" />
     </logger>
-
-    <logger name="com.hellblazer.delos.model" level="info" additivity="false">
-        <appender-ref ref="STDOUT" />
-    </logger>
-
-    <root level="INFO">
+    <root level="trace">
         <appender-ref ref="STDOUT" />
     </root>
 

@@ -9,6 +9,7 @@ package com.hellblazer.delos.demesnes;
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import com.hellblazer.delos.archipelago.*;
+import com.hellblazer.delos.archipelago.RouterImpl.CommonCommunications;
 import com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
@@ -16,6 +17,7 @@ import com.hellblazer.delos.cryptography.proto.Digeste;
 import com.hellblazer.delos.demesne.proto.DemesneParameters;
 import com.hellblazer.delos.demesne.proto.SubContext;
 import com.hellblazer.delos.membership.Member;
+import com.hellblazer.delos.membership.impl.SigningMemberImpl;
 import com.hellblazer.delos.membership.stereotomy.ControlledIdentifierMember;
 import com.hellblazer.delos.model.demesnes.DemesneImpl;
 import com.hellblazer.delos.model.demesnes.comm.DemesneKERLServer;
@@ -37,6 +39,7 @@ import com.hellblazer.delos.test.proto.ByteMessage;
 import com.hellblazer.delos.test.proto.TestItGrpc;
 import com.hellblazer.delos.test.proto.TestItGrpc.TestItBlockingStub;
 import com.hellblazer.delos.test.proto.TestItGrpc.TestItImplBase;
+import com.hellblazer.delos.utils.Utils;
 import io.grpc.*;
 import io.grpc.ForwardingClientCall.SimpleForwardingClientCall;
 import io.grpc.netty.DomainSocketNegotiatorHandler.DomainSocketNegotiator;
@@ -47,6 +50,10 @@ import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.unix.DomainSocketAddress;
 import io.netty.channel.unix.ServerDomainSocketChannel;
+import org.joou.ULong;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -54,6 +61,7 @@ import java.nio.file.Path;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.Executor;
@@ -62,17 +70,33 @@ import java.util.concurrent.TimeUnit;
 
 import static com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor.IMPL;
 import static com.hellblazer.delos.cryptography.QualifiedBase64.qb64;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * @author hal.hildebrand
  */
-public class DemesneSmoke {
-
+public class DemesneTest {
     private final static Class<? extends io.netty.channel.Channel>  clientChannelType = IMPL.getChannelType();
     private static final Class<? extends ServerDomainSocketChannel> serverChannelType = IMPL.getServerDomainSocketChannelClass();
+    private final static Executor                                   executor          = Executors.newVirtualThreadPerTaskExecutor();
 
-    private final static Executor       executor = Executors.newVirtualThreadPerTaskExecutor();
-    private              EventLoopGroup eventLoopGroup;
+    private final TestItService  local = new TestItService() {
+
+        @Override
+        public void close() throws IOException {
+        }
+
+        @Override
+        public Member getMember() {
+            return null;
+        }
+
+        @Override
+        public Any ping(Any request) {
+            return null;
+        }
+    };
+    private       EventLoopGroup eventLoopGroup;
 
     public static ClientInterceptor clientInterceptor(Digest ctx) {
         return new ClientInterceptor() {
@@ -91,28 +115,84 @@ public class DemesneSmoke {
         };
     }
 
-    public static void main(String[] argv) throws Exception {
-        var t = new DemesneSmoke();
-        t.before();
-        t.smokin();
-        t.after();
-        System.exit(0);
-    }
-
+    @AfterEach
     public void after() throws Exception {
         if (eventLoopGroup != null) {
-            var fs = eventLoopGroup.shutdownGracefully(0, 10, TimeUnit.SECONDS);
-            fs.get();
-            var success = eventLoopGroup.awaitTermination(10, TimeUnit.SECONDS);
-            System.out.println("Shutdown: " + success);
+            eventLoopGroup.shutdownGracefully();
+            eventLoopGroup.awaitTermination(1, TimeUnit.SECONDS);
             eventLoopGroup = null;
         }
     }
 
+    @BeforeEach
     public void before() {
         eventLoopGroup = IMPL.getEventLoopGroup();
     }
 
+    @Test
+    public void portal() throws Exception {
+        final var ctxA = DigestAlgorithm.DEFAULT.getOrigin().prefix(0x666);
+        final var ctxB = DigestAlgorithm.DEFAULT.getLast().prefix(0x666);
+        var serverMember1 = new SigningMemberImpl(Utils.getMember(0), ULong.MIN);
+        var serverMember2 = new SigningMemberImpl(Utils.getMember(1), ULong.MIN);
+
+        final var bridge = new DomainSocketAddress(Path.of("target").resolve(UUID.randomUUID().toString()).toFile());
+
+        final var portalEndpoint = new DomainSocketAddress(
+        Path.of("target").resolve(UUID.randomUUID().toString()).toFile());
+        final var routes = new HashMap<String, DomainSocketAddress>();
+        final var portal = new Portal<>(serverMember1.getId(), NettyServerBuilder.forAddress(portalEndpoint)
+                                                                                 .protocolNegotiator(
+                                                                                 new DomainSocketNegotiator(IMPL))
+                                                                                 .channelType(
+                                                                                 IMPL.getServerDomainSocketChannelClass())
+                                                                                 .workerEventLoopGroup(
+                                                                                 IMPL.getEventLoopGroup())
+                                                                                 .bossEventLoopGroup(
+                                                                                 IMPL.getEventLoopGroup())
+                                                                                 .intercept(
+                                                                                 new DomainSocketServerInterceptor())
+                                                                                 .withChildOption(
+                                                                                 ChannelOption.TCP_NODELAY, true),
+                                        s -> handler(portalEndpoint), bridge, Duration.ofMillis(1), s -> routes.get(s));
+
+        final var endpoint1 = new DomainSocketAddress(Path.of("target").resolve(UUID.randomUUID().toString()).toFile());
+        var enclave1 = new Enclave(serverMember1, endpoint1, bridge, d -> routes.put(qb64(d), endpoint1));
+        var router1 = enclave1.router();
+        CommonCommunications<TestItService, TestIt> commsA = router1.create(serverMember1, ctxA, new ServerA(), "A",
+                                                                            r -> new Server(r),
+                                                                            c -> new TestItClient(c), local);
+
+        final var endpoint2 = new DomainSocketAddress(Path.of("target").resolve(UUID.randomUUID().toString()).toFile());
+        var enclave2 = new Enclave(serverMember2, endpoint2, bridge, d -> routes.put(qb64(d), endpoint2));
+        var router2 = enclave2.router();
+        CommonCommunications<TestItService, TestIt> commsB = router2.create(serverMember2, ctxB, new ServerB(), "B",
+                                                                            r -> new Server(r),
+                                                                            c -> new TestItClient(c), local);
+
+        portal.start();
+        router1.start();
+        router2.start();
+
+        var clientA = commsA.connect(serverMember2);
+
+        var resultA = clientA.ping(Any.getDefaultInstance());
+        assertNotNull(resultA);
+        var msg = resultA.unpack(ByteMessage.class);
+        assertEquals("Hello Server A", msg.getContents().toStringUtf8());
+
+        var clientB = commsB.connect(serverMember1);
+        var resultB = clientB.ping(Any.getDefaultInstance());
+        assertNotNull(resultB);
+        msg = resultB.unpack(ByteMessage.class);
+        assertEquals("Hello Server B", msg.getContents().toStringUtf8());
+
+        portal.close(Duration.ofSeconds(0));
+        router1.close(Duration.ofSeconds(0));
+        router2.close(Duration.ofSeconds(0));
+    }
+
+    @Test
     public void smokin() throws Exception {
         Digest context = DigestAlgorithm.DEFAULT.getOrigin();
         final var commDirectory = Path.of("target").resolve(UUID.randomUUID().toString());
@@ -171,6 +251,7 @@ public class DemesneSmoke {
                                                 .setParent(parentAddress)
                                                 .setCommDirectory(commDirectory.toString())
                                                 .setMaxTransfer(100)
+                                                .setFalsePositiveRate(.00125)
                                                 .build();
         final var demesne = new DemesneImpl(parameters);
         Builder<SelfAddressingIdentifier> specification = IdentifierSpecification.newBuilder();
@@ -187,12 +268,24 @@ public class DemesneSmoke {
         demesne.start();
         Thread.sleep(Duration.ofSeconds(2));
         demesne.stop();
+        assertEquals(1, registered.size());
+        assertTrue(registered.contains(context));
+        assertEquals(0, deregistered.size());
+        assertNotNull(demesne.getId());
+        var stored = kerl.getKeyEvent(incp.getCoordinates());
+        assertNotNull(stored);
+        var attached = kerl.getAttachment(incp.getCoordinates());
+        assertNotNull(attached);
+        assertEquals(1, attached.seals().size());
+        final var extracted = attached.seals().get(0);
+        assertInstanceOf(Seal.EventSeal.class, extracted);
+        //        assertEquals(1, attached.endorsements().size());
     }
 
     private ManagedChannel handler(DomainSocketAddress address) {
         return NettyChannelBuilder.forAddress(address)
-                                  .executor(executor)
                                   .withOption(ChannelOption.TCP_NODELAY, true)
+                                  .executor(executor)
                                   .eventLoopGroup(eventLoopGroup)
                                   .channelType(clientChannelType)
                                   .keepAliveTime(1, TimeUnit.SECONDS)
