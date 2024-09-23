@@ -36,16 +36,16 @@
 
     <properties>
         <micrometer.version>1.9.5</micrometer.version>
-        <jackson.version>2.15.2</jackson.version>
-        <dropwizard.version>4.0.5</dropwizard.version>
+        <jackson.version>2.17.2</jackson.version>
+        <dropwizard.version>4.0.8</dropwizard.version>
         <h2.version>2.2.224</h2.version>
         <jooq.version>3.18.15</jooq.version>
         <bc.version>1.78.1</bc.version>
-        <logback.version>1.4.12</logback.version>
-        <grpc.version>1.64.0</grpc.version>
-        <protobuf.version>4.27.0</protobuf.version>
+        <logback.version>1.5.8</logback.version>
+        <grpc.version>1.68.0</grpc.version>
+        <protobuf.version>4.28.2</protobuf.version>
         <liquibase.version>4.8.0</liquibase.version>
-        <netty.version>4.1.100.Final</netty.version>
+        <netty.version>4.1.110.Final</netty.version>
         <native.maven.plugin.version>0.9.27</native.maven.plugin.version>
         <junit.version>5.9.1</junit.version>
         <slf4j.version>2.0.3</slf4j.version>
@@ -262,6 +262,40 @@
                 </exclusions>
             </dependency>
             <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-all</artifactId>
+                <version>${netty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-common</artifactId>
+                <version>${netty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-transport-native-unix-common</artifactId>
+                <version>${netty.version}</version>
+                <classifier>${os.detected.classifier}</classifier>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-transport-native-kqueue</artifactId>
+                <version>${netty.version}</version>
+                <classifier>${os.detected.classifier}</classifier>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-transport-native-epoll</artifactId>
+                <version>${netty.version}</version>
+                <classifier>${os.detected.classifier}</classifier>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-transport-native-unix-common</artifactId>
+                <version>${netty.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>io.grpc</groupId>
                 <artifactId>grpc-api</artifactId>
                 <version>${grpc.version}</version>
@@ -293,11 +327,6 @@
                 <artifactId>protoc-gen-grpc-java</artifactId>
                 <version>${grpc.version}</version>
                 <type>pom</type>
-            </dependency>
-            <dependency>
-                <groupId>io.grpc</groupId>
-                <artifactId>grpc-netty-shaded</artifactId>
-                <version>${grpc.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.grpc</groupId>
@@ -513,30 +542,6 @@
                         <artifactId>error_prone_annotations</artifactId>
                     </exclusion>
                 </exclusions>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-common</artifactId>
-                <version>${netty.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-transport-native-unix-common</artifactId>
-                <version>${netty.version}</version>
-                <classifier>${os.detected.classifier}</classifier>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-transport-native-kqueue</artifactId>
-                <version>${netty.version}</version>
-                <classifier>${os.detected.classifier}</classifier>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-transport-native-epoll</artifactId>
-                <version>${netty.version}</version>
-                <classifier>${os.detected.classifier}</classifier>
-                <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>com.macasaet.fernet</groupId>
@@ -824,7 +829,7 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-shade-plugin</artifactId>
-                    <version>3.5.2</version>
+                    <version>3.6.0</version>
                 </plugin>
                 <plugin>
                     <groupId>org.codehaus.mojo</groupId>

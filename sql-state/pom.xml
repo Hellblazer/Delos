@@ -44,6 +44,10 @@
             <groupId>com.hellblazer.delos</groupId>
             <artifactId>liquibase-deterministic</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
 
         <!-- Test only deps below this line -->
         <dependency>
