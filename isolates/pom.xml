@@ -17,12 +17,10 @@
         <dependency>
             <groupId>com.hellblazer.delos</groupId>
             <artifactId>domain-kqueue</artifactId>
-            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>com.hellblazer.delos</groupId>
             <artifactId>domain-epoll</artifactId>
-            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>com.hellblazer.delos</groupId>
@@ -87,13 +85,6 @@
                         </goals>
                         <configuration>
                             <rules>
-                                <requireMavenVersion>
-                                    <version>[3.8.1,)</version>
-                                </requireMavenVersion>
-                                <dependencyConvergence/>
-                                <requireJavaVersion>
-                                    <version>[22,)</version>
-                                </requireJavaVersion>
                                 <requireJavaVendor>
                                     <includes>
                                         <include>GraalVM Community</include>
@@ -118,15 +109,6 @@
             <build>
                 <plugins>
                     <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-surefire-plugin</artifactId>
-                        <configuration>
-                            <argLine>
-                                -agentlib:native-image-agent=config-merge-dir=src/main/resources/META-INF/native-image,access-filter-file=src/test/resources/filter.json,caller-filter-file=src/test/resources/filter.json
-                            </argLine>
-                        </configuration>
-                    </plugin>
-                    <plugin>
                         <groupId>org.graalvm.buildtools</groupId>
                         <artifactId>native-maven-plugin</artifactId>
                         <extensions>true</extensions>
@@ -148,18 +130,21 @@
                             <buildArgs>
                                 <buildArg>-Djava.awt.headless=true</buildArg>
                                 <buildArg>-H:+UnlockExperimentalVMOptions</buildArg>
-                                <buildArg>-H:+BuildReport</buildArg>
                                 <buildArg>-H:+ReportExceptionStackTraces</buildArg>
+                                <buildArg>--emit build-report</buildArg>
                                 <buildArg>--enable-http</buildArg>
                                 <buildArg>--no-fallback</buildArg>
                                 <buildArg>--add-modules java.sql.rowset</buildArg>
-                                <buildArg>--allow-incomplete-classpath</buildArg>
                                 <buildArg>--enable-sbom</buildArg>
                                 <buildArg>--enable-monitoring=jfr</buildArg>
                                 <buildArg>-Ob</buildArg>
                                 <buildArg>-march=native</buildArg>
+                                <buildArg>--initialize-at-build-time=com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor</buildArg>
                                 <buildArg>--initialize-at-build-time=javax.sql.rowset.RowSetProvider</buildArg>
+                                <buildArg>--initialize-at-build-time=com.hellblazer.delos.comm.grpc.DomainSocketsOSX</buildArg>
                                 <buildArg>--initialize-at-run-time=org.h2.store.fs.FilePath</buildArg>
+
+                                <buildArg>--exact-reachability-metadata</buildArg>
                             </buildArgs>
                             <verbose>true</verbose>
                             <metadataRepository>

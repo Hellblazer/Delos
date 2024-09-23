@@ -1,0 +1,1175 @@
+{
+  "reflection": [
+    {
+      "type": "android.app.Application"
+    },
+    {
+      "type": "ch.qos.logback.classic.encoder.PatternLayoutEncoder",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "ch.qos.logback.classic.joran.SerializedModelConfigurator",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "ch.qos.logback.classic.pattern.DateConverter",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "ch.qos.logback.classic.pattern.LineSeparatorConverter",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "ch.qos.logback.classic.pattern.LoggerConverter",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "ch.qos.logback.classic.pattern.MessageConverter",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "ch.qos.logback.classic.spi.LogbackServiceProvider"
+    },
+    {
+      "type": "ch.qos.logback.classic.util.DefaultJoranConfigurator",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "ch.qos.logback.core.ConsoleAppender",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "ch.qos.logback.core.OutputStreamAppender",
+      "methods": [
+        {
+          "name": "setEncoder",
+          "parameterTypes": [
+            "ch.qos.logback.core.encoder.Encoder"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "ch.qos.logback.core.encoder.Encoder"
+    },
+    {
+      "type": "ch.qos.logback.core.encoder.LayoutWrappingEncoder",
+      "methods": [
+        {
+          "name": "setParent",
+          "parameterTypes": [
+            "ch.qos.logback.core.spi.ContextAware"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "ch.qos.logback.core.pattern.PatternLayoutEncoderBase",
+      "methods": [
+        {
+          "name": "setPattern",
+          "parameterTypes": [
+            "java.lang.String"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "ch.qos.logback.core.spi.ContextAware"
+    },
+    {
+      "type": "ch.qos.logback.core.status.NopStatusListener",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.chiralbehaviors.tron.FsmExecutor",
+      "methods": [
+        {
+          "name": "fsm",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.google.common.util.concurrent.AbstractFuture",
+      "fields": [
+        {
+          "name": "listeners"
+        },
+        {
+          "name": "value"
+        },
+        {
+          "name": "waiters"
+        }
+      ]
+    },
+    {
+      "type": "com.google.common.util.concurrent.AbstractFuture$Waiter",
+      "fields": [
+        {
+          "name": "next"
+        },
+        {
+          "name": "thread"
+        }
+      ]
+    },
+    {
+      "type": "com.google.protobuf.ExtensionRegistry",
+      "methods": [
+        {
+          "name": "getEmptyRegistry",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.hellblazer.delos.archipelago.Link"
+    },
+    {
+      "type": "com.hellblazer.delos.archipelago.RouterImpl$CommonCommunications"
+    },
+    {
+      "type": "com.hellblazer.delos.archipelago.UnsafeExecutors$VTB",
+      "fields": [
+        {
+          "name": "executor"
+        }
+      ]
+    },
+    {
+      "type": "com.hellblazer.delos.choam.comm.Concierge"
+    },
+    {
+      "type": "com.hellblazer.delos.choam.comm.Terminal"
+    },
+    {
+      "type": "com.hellblazer.delos.choam.fsm.Combine$Mercantile$2",
+      "methods": [
+        {
+          "name": "combine",
+          "parameterTypes": []
+        },
+        {
+          "name": "synchronizing",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.hellblazer.delos.choam.fsm.Combine$Mercantile$3",
+      "methods": [
+        {
+          "name": "finishCheckpoint",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.hellblazer.delos.choam.fsm.Combine$Mercantile$4",
+      "methods": [
+        {
+          "name": "start",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.hellblazer.delos.choam.fsm.Combine$Mercantile$5",
+      "methods": [
+        {
+          "name": "beginCheckpoint",
+          "parameterTypes": []
+        },
+        {
+          "name": "combine",
+          "parameterTypes": []
+        },
+        {
+          "name": "rotateViewKeys",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.hellblazer.delos.choam.fsm.Combine$Mercantile$7",
+      "methods": [
+        {
+          "name": "bootstrap",
+          "parameterTypes": [
+            "com.hellblazer.delos.choam.support.HashedCertifiedBlock"
+          ]
+        },
+        {
+          "name": "cancelTimer",
+          "parameterTypes": []
+        },
+        {
+          "name": "combine",
+          "parameterTypes": []
+        },
+        {
+          "name": "regenerate",
+          "parameterTypes": []
+        },
+        {
+          "name": "synchronizeContext",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.hellblazer.delos.choam.fsm.Combine$Mercantile$8",
+      "methods": [
+        {
+          "name": "combine",
+          "parameterTypes": []
+        },
+        {
+          "name": "regenerateView",
+          "parameterTypes": []
+        },
+        {
+          "name": "rotateViewKeys",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.hellblazer.delos.choam.fsm.Combine$Mercantile$9",
+      "methods": [
+        {
+          "name": "synchd",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.hellblazer.delos.choam.fsm.Driven$Earner$1",
+      "methods": [
+        {
+          "name": "assemble",
+          "parameterTypes": []
+        },
+        {
+          "name": "assembled",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.hellblazer.delos.choam.fsm.Driven$Earner$2",
+      "methods": [
+        {
+          "name": "check",
+          "parameterTypes": []
+        },
+        {
+          "name": "checkpointed",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.hellblazer.delos.choam.fsm.Driven$Earner$4",
+      "methods": [
+        {
+          "name": "checkpoint",
+          "parameterTypes": []
+        },
+        {
+          "name": "start",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.hellblazer.delos.choam.fsm.Driven$Earner$5",
+      "methods": [
+        {
+          "name": "newEpoch",
+          "parameterTypes": [
+            "int",
+            "boolean"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "com.hellblazer.delos.choam.fsm.Driven$Earner$7",
+      "methods": [
+        {
+          "name": "viewComplete",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.hellblazer.delos.choam.fsm.Driven$Transitions",
+      "methods": [
+        {
+          "name": "newEpoch",
+          "parameterTypes": [
+            "int",
+            "boolean"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "com.hellblazer.delos.choam.fsm.Genesis$BrickLayer$1",
+      "methods": [
+        {
+          "name": "certify",
+          "parameterTypes": []
+        },
+        {
+          "name": "process",
+          "parameterTypes": [
+            "java.util.List",
+            "boolean"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "com.hellblazer.delos.choam.fsm.Genesis$BrickLayer$3",
+      "methods": [
+        {
+          "name": "gather",
+          "parameterTypes": []
+        },
+        {
+          "name": "gathered",
+          "parameterTypes": []
+        },
+        {
+          "name": "nextEpoch",
+          "parameterTypes": [
+            "java.lang.Integer"
+          ]
+        },
+        {
+          "name": "process",
+          "parameterTypes": [
+            "java.util.List",
+            "boolean"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "com.hellblazer.delos.choam.fsm.Reconfiguration$Reconfigure$1",
+      "methods": [
+        {
+          "name": "proposed",
+          "parameterTypes": []
+        },
+        {
+          "name": "publish",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.hellblazer.delos.choam.fsm.Reconfiguration$Reconfigure$2",
+      "methods": [
+        {
+          "name": "conviene",
+          "parameterTypes": []
+        },
+        {
+          "name": "proposed",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.hellblazer.delos.choam.fsm.Reconfiguration$Reconfigure$3",
+      "methods": [
+        {
+          "name": "certified",
+          "parameterTypes": []
+        },
+        {
+          "name": "certify",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.hellblazer.delos.choam.fsm.Reconfiguration$Reconfigure$4",
+      "methods": [
+        {
+          "name": "certified",
+          "parameterTypes": []
+        },
+        {
+          "name": "checkAssembly",
+          "parameterTypes": []
+        },
+        {
+          "name": "chill",
+          "parameterTypes": []
+        },
+        {
+          "name": "gather",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.hellblazer.delos.choam.fsm.Reconfiguration$Reconfigure$5",
+      "methods": [
+        {
+          "name": "certified",
+          "parameterTypes": []
+        },
+        {
+          "name": "checkAssembly",
+          "parameterTypes": []
+        },
+        {
+          "name": "vibin",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.hellblazer.delos.choam.fsm.Reconfiguration$Reconfigure$7",
+      "methods": [
+        {
+          "name": "complete",
+          "parameterTypes": []
+        },
+        {
+          "name": "completion",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.hellblazer.delos.choam.fsm.Reconfiguration$Reconfigure$8",
+      "methods": [
+        {
+          "name": "viewAcquired",
+          "parameterTypes": []
+        },
+        {
+          "name": "viewConsensus",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.sun.org.apache.xerces.internal.jaxp.SAXParserFactoryImpl",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "io.grpc.census.InternalCensusStatsAccessor"
+    },
+    {
+      "type": "io.grpc.census.InternalCensusTracingAccessor"
+    },
+    {
+      "type": "io.grpc.inprocess.InProcessChannelBuilder",
+      "methods": [
+        {
+          "name": "delegate",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "io.grpc.internal.DnsNameResolverProvider"
+    },
+    {
+      "type": "io.grpc.internal.PickFirstLoadBalancerProvider"
+    },
+    {
+      "type": "io.grpc.internal.SerializingExecutor",
+      "fields": [
+        {
+          "name": "runState"
+        }
+      ]
+    },
+    {
+      "type": "io.grpc.netty.UdsNameResolverProvider"
+    },
+    {
+      "type": "io.grpc.override.ContextStorageOverride"
+    },
+    {
+      "type": "io.grpc.util.OutlierDetectionLoadBalancerProvider"
+    },
+    {
+      "type": "io.grpc.util.SecretRoundRobinLoadBalancerProvider$Provider"
+    },
+    {
+      "type": "io.perfmark.impl.SecretPerfMarkImpl$PerfMarkImpl"
+    },
+    {
+      "type": "java.io.Closeable"
+    },
+    {
+      "type": "java.io.FilePermission"
+    },
+    {
+      "type": "java.lang.Object",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "java.lang.RuntimePermission"
+    },
+    {
+      "type": "java.lang.Thread",
+      "fields": [
+        {
+          "name": "threadLocalRandomProbe"
+        }
+      ]
+    },
+    {
+      "type": "java.net.NetPermission"
+    },
+    {
+      "type": "java.net.SocketPermission"
+    },
+    {
+      "type": "java.net.URLPermission",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "java.lang.String",
+            "java.lang.String"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "java.nio.Buffer",
+      "fields": [
+        {
+          "name": "address"
+        }
+      ]
+    },
+    {
+      "type": "java.security.AlgorithmParametersSpi"
+    },
+    {
+      "type": "java.security.AllPermission"
+    },
+    {
+      "type": "java.security.MessageDigestSpi"
+    },
+    {
+      "type": "java.security.SecurityPermission"
+    },
+    {
+      "type": "java.security.interfaces.DSAPrivateKey"
+    },
+    {
+      "type": "java.security.interfaces.DSAPublicKey"
+    },
+    {
+      "type": "java.security.interfaces.RSAPrivateKey"
+    },
+    {
+      "type": "java.security.interfaces.RSAPublicKey"
+    },
+    {
+      "type": "java.security.spec.DSAParameterSpec"
+    },
+    {
+      "type": "java.util.PropertyPermission"
+    },
+    {
+      "type": "java.util.concurrent.ForkJoinTask",
+      "fields": [
+        {
+          "name": "aux"
+        },
+        {
+          "name": "status"
+        }
+      ]
+    },
+    {
+      "type": "java.util.concurrent.ScheduledThreadPoolExecutor",
+      "methods": [
+        {
+          "name": "setRemoveOnCancelPolicy",
+          "parameterTypes": [
+            "boolean"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "java.util.concurrent.atomic.AtomicBoolean",
+      "fields": [
+        {
+          "name": "value"
+        }
+      ]
+    },
+    {
+      "type": "java.util.concurrent.atomic.LongAdder",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        },
+        {
+          "name": "add",
+          "parameterTypes": [
+            "long"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "java.util.concurrent.atomic.Striped64",
+      "fields": [
+        {
+          "name": "base"
+        },
+        {
+          "name": "cellsBusy"
+        }
+      ]
+    },
+    {
+      "type": "java.util.concurrent.atomic.Striped64$Cell",
+      "fields": [
+        {
+          "name": "value"
+        }
+      ]
+    },
+    {
+      "type": "javax.smartcardio.CardPermission"
+    },
+    {
+      "type": "jdk.internal.misc.Unsafe"
+    },
+    {
+      "type": "libcore.io.Memory"
+    },
+    {
+      "type": "org.h2.mvstore.MVStore$TxCounter",
+      "fields": [
+        {
+          "name": "counter"
+        }
+      ]
+    },
+    {
+      "type": "org.h2.mvstore.Page",
+      "fields": [
+        {
+          "name": "pos"
+        }
+      ]
+    },
+    {
+      "type": "org.robolectric.Robolectric"
+    },
+    {
+      "type": "sun.misc.Unsafe",
+      "allDeclaredFields": true,
+      "methods": [
+        {
+          "name": "objectFieldOffset",
+          "parameterTypes": [
+            "java.lang.reflect.Field"
+          ]
+        },
+        {
+          "name": "putObject",
+          "parameterTypes": [
+            "java.lang.Object",
+            "long",
+            "java.lang.Object"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "sun.reflect.ReflectionFactory",
+      "methods": [
+        {
+          "name": "getReflectionFactory",
+          "parameterTypes": []
+        },
+        {
+          "name": "newConstructorForSerialization",
+          "parameterTypes": [
+            "java.lang.Class",
+            "java.lang.reflect.Constructor"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "sun.security.provider.DSA$SHA1withDSA",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "sun.security.provider.DSA$SHA256withDSA",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "sun.security.provider.DSAKeyFactory",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "sun.security.provider.DSAParameters",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "sun.security.provider.NativePRNG",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "java.security.SecureRandomParameters"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "sun.security.provider.NativePRNG$Blocking",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "java.security.SecureRandomParameters"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "sun.security.provider.SHA",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "sun.security.provider.SHA2$SHA256",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "sun.security.provider.SHA5$SHA512",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "sun.security.provider.SecureRandom",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "sun.security.provider.X509Factory",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "sun.security.rsa.RSAKeyFactory$Legacy",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "sun.security.rsa.RSASignature$SHA256withRSA",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "sun.security.x509.AuthorityInfoAccessExtension",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "java.lang.Boolean",
+            "java.lang.Object"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "sun.security.x509.AuthorityKeyIdentifierExtension",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "java.lang.Boolean",
+            "java.lang.Object"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "sun.security.x509.BasicConstraintsExtension",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "java.lang.Boolean",
+            "java.lang.Object"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "sun.security.x509.CRLDistributionPointsExtension",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "java.lang.Boolean",
+            "java.lang.Object"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "sun.security.x509.CertificatePoliciesExtension",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "java.lang.Boolean",
+            "java.lang.Object"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "sun.security.x509.ExtendedKeyUsageExtension",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "java.lang.Boolean",
+            "java.lang.Object"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "sun.security.x509.KeyUsageExtension",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "java.lang.Boolean",
+            "java.lang.Object"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "sun.security.x509.NetscapeCertTypeExtension",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "java.lang.Boolean",
+            "java.lang.Object"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "sun.security.x509.SubjectAlternativeNameExtension",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "java.lang.Boolean",
+            "java.lang.Object"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "sun.security.x509.SubjectKeyIdentifierExtension",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "java.lang.Boolean",
+            "java.lang.Object"
+          ]
+        }
+      ]
+    },
+    {
+      "type": {
+        "proxy": [
+          "com.hellblazer.delos.choam.fsm.Combine$Transitions"
+        ]
+      }
+    },
+    {
+      "type": {
+        "proxy": [
+          "com.hellblazer.delos.choam.fsm.Driven$Transitions"
+        ]
+      }
+    },
+    {
+      "type": {
+        "proxy": [
+          "com.hellblazer.delos.choam.fsm.Genesis$Transitions"
+        ]
+      }
+    },
+    {
+      "type": {
+        "proxy": [
+          "com.hellblazer.delos.choam.fsm.Reconfiguration$Transitions"
+        ]
+      }
+    }
+  ],
+  "resources": [
+    {
+      "glob": "META-INF/services/ch.qos.logback.classic.spi.Configurator"
+    },
+    {
+      "glob": "META-INF/services/io.grpc.LoadBalancerProvider"
+    },
+    {
+      "glob": "META-INF/services/io.grpc.NameResolverProvider"
+    },
+    {
+      "glob": "META-INF/services/java.lang.System$LoggerFinder"
+    },
+    {
+      "glob": "META-INF/services/java.time.zone.ZoneRulesProvider"
+    },
+    {
+      "glob": "META-INF/services/javax.xml.parsers.SAXParserFactory"
+    },
+    {
+      "glob": "META-INF/services/org.apache.maven.surefire.spi.MasterProcessChannelProcessorFactory"
+    },
+    {
+      "glob": "META-INF/services/org.junit.platform.engine.TestEngine"
+    },
+    {
+      "glob": "META-INF/services/org.junit.platform.launcher.LauncherDiscoveryListener"
+    },
+    {
+      "glob": "META-INF/services/org.junit.platform.launcher.LauncherSessionListener"
+    },
+    {
+      "glob": "META-INF/services/org.junit.platform.launcher.PostDiscoveryFilter"
+    },
+    {
+      "glob": "META-INF/services/org.junit.platform.launcher.TestExecutionListener"
+    },
+    {
+      "glob": "META-INF/services/org.slf4j.spi.SLF4JServiceProvider"
+    },
+    {
+      "glob": "junit-platform.properties"
+    },
+    {
+      "glob": "logback-test.scmo"
+    },
+    {
+      "glob": "logback-test.xml"
+    },
+    {
+      "glob": "logback.scmo"
+    },
+    {
+      "glob": "mockito-extensions/org.mockito.plugins.AnnotationEngine"
+    },
+    {
+      "glob": "mockito-extensions/org.mockito.plugins.DoNotMockEnforcer"
+    },
+    {
+      "glob": "mockito-extensions/org.mockito.plugins.InstantiatorProvider2"
+    },
+    {
+      "glob": "mockito-extensions/org.mockito.plugins.MemberAccessor"
+    },
+    {
+      "glob": "mockito-extensions/org.mockito.plugins.MockMaker"
+    },
+    {
+      "glob": "mockito-extensions/org.mockito.plugins.MockResolver"
+    },
+    {
+      "glob": "mockito-extensions/org.mockito.plugins.MockitoLogger"
+    },
+    {
+      "glob": "mockito-extensions/org.mockito.plugins.PluginSwitch"
+    },
+    {
+      "glob": "mockito-extensions/org.mockito.plugins.StackTraceCleanerProvider"
+    },
+    {
+      "module": "java.base",
+      "glob": "jdk/internal/icu/impl/data/icudt74b/nfkc.nrm"
+    },
+    {
+      "module": "java.xml",
+      "glob": "jdk/xml/internal/jdkcatalog/JDKCatalog.xml"
+    }
+  ],
+  
+  "bundles": [],
+  "jni": [
+    {
+      "type": "java.lang.Boolean",
+      "methods": [
+        {
+          "name": "getBoolean",
+          "parameterTypes": [
+            "java.lang.String"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "sun.management.VMManagementImpl",
+      "fields": [
+        {
+          "name": "compTimeMonitoringSupport"
+        },
+        {
+          "name": "currentThreadCpuTimeSupport"
+        },
+        {
+          "name": "objectMonitorUsageSupport"
+        },
+        {
+          "name": "otherThreadCpuTimeSupport"
+        },
+        {
+          "name": "remoteDiagnosticCommandsSupport"
+        },
+        {
+          "name": "synchronizerUsageSupport"
+        },
+        {
+          "name": "threadAllocatedMemorySupport"
+        },
+        {
+          "name": "threadContentionMonitoringSupport"
+        }
+      ]
+    }
+  ]
+}

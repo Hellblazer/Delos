@@ -7,8 +7,7 @@
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
             <Pattern>
-                %d{mm:ss.SSS} [%thread] %-5level %logger{0} -
-  %msg%n
+                %d{mm:ss.SSS} [%thread] %-5level %logger{0} - %msg%n
             </Pattern>
         </encoder>
     </appender>
@@ -20,6 +19,11 @@
     <logger name="liquibase" level="warn" additivity="false">
         <appender-ref ref="STDOUT" />
     </logger>
+
+    <logger name="io.netty.util.internal.PlatformDependent0" level="warn" additivity="false">
+        <appender-ref ref="STDOUT" />
+    </logger>
+
     <root level="trace">
         <appender-ref ref="STDOUT" />
     </root>
