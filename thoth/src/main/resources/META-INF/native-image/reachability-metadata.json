@@ -538,6 +538,15 @@
       "type": "com.google.protobuf.Any"
     },
     {
+      "type": "com.google.protobuf.DescriptorMessageInfoFactory",
+      "methods": [
+        {
+          "name": "getInstance",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
       "type": "com.google.protobuf.ExtensionRegistry",
       "methods": [
         {
@@ -717,6 +726,12 @@
       "fields": [
         {
           "name": "threadLocalRandomProbe"
+        }
+      ],
+      "methods": [
+        {
+          "name": "isVirtual",
+          "parameterTypes": []
         }
       ]
     },
@@ -3087,6 +3102,9 @@
       "glob": "initialize-thoth.xml"
     },
     {
+      "glob": "java/lang/reflect/AccessibleObject.class"
+    },
+    {
       "glob": "jooq-settings.xml"
     },
     {
@@ -3157,6 +3175,10 @@
     },
     {
       "glob": "www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.4.xsd"
+    },
+    {
+      "module": "java.base",
+      "glob": "java/lang/reflect/AccessibleObject.class"
     },
     {
       "module": "java.base",

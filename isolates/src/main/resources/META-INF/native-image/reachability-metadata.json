@@ -3835,6 +3835,9 @@
   ],
   "resources": [
     {
+      "glob": "META-INF/io.netty.versions.properties"
+    },
+    {
       "glob": "META-INF/native/libnetty_transport_native_kqueue_aarch_64.dylib"
     },
     {

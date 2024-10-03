@@ -580,6 +580,15 @@
       ]
     },
     {
+      "type": "com.google.protobuf.DescriptorMessageInfoFactory",
+      "methods": [
+        {
+          "name": "getInstance",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
       "type": "com.google.protobuf.ExtensionRegistry",
       "methods": [
         {
@@ -1518,6 +1527,12 @@
       "fields": [
         {
           "name": "threadLocalRandomProbe"
+        }
+      ],
+      "methods": [
+        {
+          "name": "isVirtual",
+          "parameterTypes": []
         }
       ]
     },
@@ -3995,6 +4010,9 @@
     }
   ],
   "resources": [
+    {
+      "glob": "META-INF/io.netty.versions.properties"
+    },
     {
       "glob": "META-INF/native/libnetty_transport_native_kqueue_aarch_64.dylib"
     },

@@ -152,6 +152,15 @@
       ]
     },
     {
+      "type": "com.google.protobuf.DescriptorMessageInfoFactory",
+      "methods": [
+        {
+          "name": "getInstance",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
       "type": "com.google.protobuf.ExtensionRegistry",
       "methods": [
         {
@@ -581,6 +590,12 @@
       "fields": [
         {
           "name": "threadLocalRandomProbe"
+        }
+      ],
+      "methods": [
+        {
+          "name": "isVirtual",
+          "parameterTypes": []
         }
       ]
     },
@@ -1037,6 +1052,9 @@
   ],
   "resources": [
     {
+      "glob": "META-INF/io.netty.versions.properties"
+    },
+    {
       "glob": "META-INF/native/libnetty_transport_native_kqueue_aarch_64.dylib"
     },
     {
@@ -1088,6 +1106,9 @@
       "glob": "META-INF/services/org.slf4j.spi.SLF4JServiceProvider"
     },
     {
+      "glob": "java/lang/reflect/AccessibleObject.class"
+    },
+    {
       "glob": "junit-platform.properties"
     },
     {
@@ -1125,6 +1146,10 @@
     },
     {
       "glob": "mockito-extensions/org.mockito.plugins.StackTraceCleanerProvider"
+    },
+    {
+      "module": "java.base",
+      "glob": "java/lang/reflect/AccessibleObject.class"
     },
     {
       "module": "java.base",

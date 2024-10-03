@@ -82,7 +82,7 @@ public class DemesneIsolate {
                 log.info("Committing event: {}", Digest.from(coords.getDigest()));
                 d.commit(coords);
             }
-        } catch (RuntimeException e) {
+        } catch (Throwable e) {
             log.error("Unable to commit event", e);
             throw e;
         }

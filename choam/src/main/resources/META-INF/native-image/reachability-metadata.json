@@ -161,6 +161,15 @@
       ]
     },
     {
+      "type": "com.google.protobuf.DescriptorMessageInfoFactory",
+      "methods": [
+        {
+          "name": "getInstance",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
       "type": "com.google.protobuf.ExtensionRegistry",
       "methods": [
         {
@@ -583,6 +592,12 @@
       "fields": [
         {
           "name": "threadLocalRandomProbe"
+        }
+      ],
+      "methods": [
+        {
+          "name": "isVirtual",
+          "parameterTypes": []
         }
       ]
     },
@@ -1081,6 +1096,9 @@
       "glob": "META-INF/services/org.slf4j.spi.SLF4JServiceProvider"
     },
     {
+      "glob": "java/lang/reflect/AccessibleObject.class"
+    },
+    {
       "glob": "junit-platform.properties"
     },
     {
@@ -1118,6 +1136,10 @@
     },
     {
       "glob": "mockito-extensions/org.mockito.plugins.StackTraceCleanerProvider"
+    },
+    {
+      "module": "java.base",
+      "glob": "java/lang/reflect/AccessibleObject.class"
     },
     {
       "module": "java.base",

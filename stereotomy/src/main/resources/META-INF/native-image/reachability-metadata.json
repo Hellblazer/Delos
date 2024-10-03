@@ -526,6 +526,15 @@
       ]
     },
     {
+      "type": "com.google.protobuf.DescriptorMessageInfoFactory",
+      "methods": [
+        {
+          "name": "getInstance",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
       "type": "com.google.protobuf.ExtensionRegistry",
       "methods": [
         {

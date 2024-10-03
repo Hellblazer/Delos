@@ -479,6 +479,15 @@
       ]
     },
     {
+      "type": "com.google.protobuf.DescriptorMessageInfoFactory",
+      "methods": [
+        {
+          "name": "getInstance",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
       "type": "com.google.protobuf.ExtensionRegistry",
       "methods": [
         {
@@ -783,7 +792,28 @@
           "parameterTypes": []
         },
         {
+          "name": "chill",
+          "parameterTypes": []
+        },
+        {
           "name": "gather",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.hellblazer.delos.choam.fsm.Reconfiguration$Reconfigure$5",
+      "methods": [
+        {
+          "name": "certified",
+          "parameterTypes": []
+        },
+        {
+          "name": "checkAssembly",
+          "parameterTypes": []
+        },
+        {
+          "name": "chillin",
           "parameterTypes": []
         }
       ]
@@ -1075,6 +1105,12 @@
       "fields": [
         {
           "name": "threadLocalRandomProbe"
+        }
+      ],
+      "methods": [
+        {
+          "name": "isVirtual",
+          "parameterTypes": []
         }
       ]
     },
@@ -3303,6 +3339,9 @@
       "glob": "deterministic/org/h2/util/data.zip"
     },
     {
+      "glob": "java/lang/reflect/AccessibleObject.class"
+    },
+    {
       "glob": "junit-platform.properties"
     },
     {
@@ -3361,6 +3400,10 @@
     },
     {
       "glob": "www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.4.xsd"
+    },
+    {
+      "module": "java.base",
+      "glob": "java/lang/reflect/AccessibleObject.class"
     },
     {
       "module": "java.base",
