@@ -36,21 +36,21 @@
 
     <properties>
         <micrometer.version>1.9.5</micrometer.version>
-        <jackson.version>2.15.2</jackson.version>
-        <dropwizard.version>4.0.5</dropwizard.version>
+        <jackson.version>2.17.2</jackson.version>
+        <dropwizard.version>4.0.8</dropwizard.version>
         <h2.version>2.2.224</h2.version>
         <jooq.version>3.18.15</jooq.version>
         <bc.version>1.78.1</bc.version>
-        <logback.version>1.4.12</logback.version>
-        <grpc.version>1.64.0</grpc.version>
-        <protobuf.version>4.27.0</protobuf.version>
+        <logback.version>1.5.8</logback.version>
+        <grpc.version>1.68.0</grpc.version>
+        <protobuf.version>4.28.2</protobuf.version>
         <liquibase.version>4.8.0</liquibase.version>
-        <netty.version>4.1.100.Final</netty.version>
+        <netty.version>4.1.110.Final</netty.version>
         <native.maven.plugin.version>0.9.27</native.maven.plugin.version>
         <junit.version>5.9.1</junit.version>
         <slf4j.version>2.0.3</slf4j.version>
-        <version.java>22</version.java>
-        <graal.vm.version>23.1.2</graal.vm.version>
+        <version.java>23</version.java>
+        <graal.vm.version>24.0.2</graal.vm.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <forks>1</forks>
     </properties>
@@ -237,6 +237,11 @@
             </dependency>
             <dependency>
                 <groupId>org.slf4j</groupId>
+                <artifactId>slf4j-simple</artifactId>
+                <version>${slf4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.slf4j</groupId>
                 <artifactId>jul-to-slf4j</artifactId>
                 <version>${slf4j.version}</version>
             </dependency>
@@ -255,6 +260,40 @@
                         <artifactId>guava</artifactId>
                     </exclusion>
                 </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-all</artifactId>
+                <version>${netty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-common</artifactId>
+                <version>${netty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-transport-native-unix-common</artifactId>
+                <version>${netty.version}</version>
+                <classifier>${os.detected.classifier}</classifier>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-transport-native-kqueue</artifactId>
+                <version>${netty.version}</version>
+                <classifier>${os.detected.classifier}</classifier>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-transport-native-epoll</artifactId>
+                <version>${netty.version}</version>
+                <classifier>${os.detected.classifier}</classifier>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-transport-native-unix-common</artifactId>
+                <version>${netty.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.grpc</groupId>
@@ -288,11 +327,6 @@
                 <artifactId>protoc-gen-grpc-java</artifactId>
                 <version>${grpc.version}</version>
                 <type>pom</type>
-            </dependency>
-            <dependency>
-                <groupId>io.grpc</groupId>
-                <artifactId>grpc-netty-shaded</artifactId>
-                <version>${grpc.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.grpc</groupId>
@@ -510,30 +544,6 @@
                 </exclusions>
             </dependency>
             <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-common</artifactId>
-                <version>${netty.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-transport-native-unix-common</artifactId>
-                <version>${netty.version}</version>
-                <classifier>${os.detected.classifier}</classifier>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-transport-native-kqueue</artifactId>
-                <version>${netty.version}</version>
-                <classifier>${os.detected.classifier}</classifier>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-transport-native-epoll</artifactId>
-                <version>${netty.version}</version>
-                <classifier>${os.detected.classifier}</classifier>
-                <scope>provided</scope>
-            </dependency>
-            <dependency>
                 <groupId>com.macasaet.fernet</groupId>
                 <artifactId>fernet-java8</artifactId>
                 <version>1.4.2</version>
@@ -546,7 +556,7 @@
             <dependency>
                 <groupId>com.github.oshi</groupId>
                 <artifactId>oshi-core</artifactId>
-                <version>6.2.2</version>
+                <version>6.6.4</version>
             </dependency>
             <dependency>
                 <groupId>io.yupiik.logging</groupId>
@@ -712,7 +722,7 @@
                                 </requireMavenVersion>
                                 <dependencyConvergence/>
                                 <requireJavaVersion>
-                                    <version>[22,)</version>
+                                    <version>[${version.java},)</version>
                                 </requireJavaVersion>
                             </rules>
                         </configuration>
@@ -791,15 +801,6 @@
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
-                    <artifactId>maven-surefire-plugin</artifactId>
-                    <version>3.2.5</version>
-                    <configuration>
-                        <forkCount>${forks}</forkCount>
-                        <reuseForks>false</reuseForks>
-                    </configuration>
-                </plugin>
-                <plugin>
-                    <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-clean-plugin</artifactId>
                     <version>3.3.2</version>
                 </plugin>
@@ -828,7 +829,7 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-shade-plugin</artifactId>
-                    <version>3.5.2</version>
+                    <version>3.6.0</version>
                 </plugin>
                 <plugin>
                     <groupId>org.codehaus.mojo</groupId>
@@ -925,6 +926,72 @@
                 <module>isolates</module>
                 <module>isolate-ftesting</module>
             </modules>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-enforcer-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>enforce-maven</id>
+                                <goals>
+                                    <goal>enforce</goal>
+                                </goals>
+                                <configuration>
+                                    <rules>
+                                        <requireJavaVendor>
+                                            <includes>
+                                                <include>GraalVM Community</include>
+                                                <include>Oracle Corporation</include>
+                                            </includes>
+                                        </requireJavaVendor>
+                                    </rules>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>agent</id>
+            <build>
+                <pluginManagement>
+                    <plugins>
+                        <plugin>
+                            <groupId>org.apache.maven.plugins</groupId>
+                            <artifactId>maven-surefire-plugin</artifactId>
+                            <configuration>
+                                <argLine>
+                                    -agentlib:native-image-agent=config-merge-dir=src/main/resources/META-INF/native-image,access-filter-file=src/test/resources/filter.json,caller-filter-file=src/test/resources/filter.json
+                                </argLine>
+                            </configuration>
+                        </plugin>
+                        <plugin>
+                            <groupId>org.apache.maven.plugins</groupId>
+                            <artifactId>maven-enforcer-plugin</artifactId>
+                            <executions>
+                                <execution>
+                                    <id>enforce-maven</id>
+                                    <goals>
+                                        <goal>enforce</goal>
+                                    </goals>
+                                    <configuration>
+                                        <rules>
+                                            <requireJavaVendor>
+                                                <includes>
+                                                    <include>GraalVM Community</include>
+                                                    <include>Oracle Corporation</include>
+                                                </includes>
+                                            </requireJavaVendor>
+                                        </rules>
+                                    </configuration>
+                                </execution>
+                            </executions>
+                        </plugin>
+                    </plugins>
+                </pluginManagement>
+            </build>
         </profile>
     </profiles>
 </project>
