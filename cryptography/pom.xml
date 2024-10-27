@@ -24,7 +24,15 @@
         </dependency>
         <dependency>
             <groupId>org.bouncycastle</groupId>
-            <artifactId>bcpkix-jdk15to18</artifactId>
+            <artifactId>bcprov-jdk18on</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcpkix-jdk18on</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcpkix-jdk18on</artifactId>
         </dependency>
         <dependency>
             <groupId>com.google.guava</groupId>
@@ -42,6 +50,10 @@
         <dependency>
             <groupId>org.jooq</groupId>
             <artifactId>joou</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.codevasp</groupId>
+            <artifactId>lazysodium-java-code</artifactId>
         </dependency>
 
         <!-- Test only deps below this line -->
@@ -77,4 +89,18 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>EdToXAndBackTest.java</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>

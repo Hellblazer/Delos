@@ -429,17 +429,17 @@
             </dependency>
             <dependency>
                 <groupId>org.bouncycastle</groupId>
-                <artifactId>bcprov-jdk15to18</artifactId>
+                <artifactId>bcprov-jdk18on</artifactId>
                 <version>${bc.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.bouncycastle</groupId>
-                <artifactId>bcpkix-jdk15to18</artifactId>
+                <artifactId>bcpkix-jdk18on</artifactId>
                 <version>${bc.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.bouncycastle</groupId>
-                <artifactId>bctls-jdk15to18</artifactId>
+                <artifactId>bctls-jdk18on</artifactId>
                 <version>${bc.version}</version>
             </dependency>
             <dependency>
@@ -559,11 +559,6 @@
                 <version>6.6.4</version>
             </dependency>
             <dependency>
-                <groupId>io.yupiik.logging</groupId>
-                <artifactId>yupiik-logging-jul</artifactId>
-                <version>1.0.6</version>
-            </dependency>
-            <dependency>
                 <groupId>org.graalvm.nativeimage</groupId>
                 <artifactId>svm</artifactId>
                 <version>${graal.vm.version}</version>
@@ -573,6 +568,11 @@
                 <groupId>jakarta.xml.bind</groupId>
                 <artifactId>jakarta.xml.bind-api</artifactId>
                 <version>4.0.2</version>
+            </dependency>
+            <dependency>
+                <groupId>com.codevasp</groupId>
+                <artifactId>lazysodium-java-code</artifactId>
+                <version>1.0.1</version>
             </dependency>
 
             <!-- Test dependencies only below this line! -->
