@@ -176,9 +176,7 @@ public class EdToXAndBackTest {
     }
 
     private Key from(java.security.PrivateKey ed25519PrivateKey) {
-        byte[] ed25519PrivateKeyBytes = new byte[32];
-        System.arraycopy(ed25519PrivateKey.getEncoded(), 12, ed25519PrivateKeyBytes, 0, 32);
-        return Key.fromBytes(ed25519PrivateKeyBytes);
+        return Key.fromBytes(ed25519PrivateKey.getEncoded());
     }
 
     private PrivateKey toX25519Private(Key privateKey) throws Exception {// Raw X25519 key to java.security.PrivateKey

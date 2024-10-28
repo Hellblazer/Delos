@@ -32,6 +32,7 @@
         <module>domain-sockets</module>
         <module>leyden</module>
         <module>vm-socket</module>
+        <module>java-noise</module>
     </modules>
 
     <properties>
@@ -573,6 +574,11 @@
                 <groupId>com.codevasp</groupId>
                 <artifactId>lazysodium-java-code</artifactId>
                 <version>1.0.1</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.code.findbugs</groupId>
+                <artifactId>jsr305</artifactId>
+                <version>3.0.2</version>
             </dependency>
 
             <!-- Test dependencies only below this line! -->
