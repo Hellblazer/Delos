@@ -6,15 +6,15 @@
  */
 package com.hellblazer.delos.domain;
 
-import com.hellblazer.delos.cryptography.proto.Digeste;
-import com.hellblazer.delos.demesne.proto.DemesneParameters;
-import com.hellblazer.delos.demesne.proto.SubContext;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.RouterImpl;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
 import com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
+import com.hellblazer.delos.cryptography.proto.Digeste;
+import com.hellblazer.delos.demesne.proto.DemesneParameters;
+import com.hellblazer.delos.demesne.proto.SubContext;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.membership.stereotomy.ControlledIdentifierMember;
 import com.hellblazer.delos.model.demesnes.JniBridge;
@@ -39,6 +39,7 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.unix.DomainSocketAddress;
 import io.netty.channel.unix.ServerDomainSocketChannel;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -60,10 +61,11 @@ public class DemesneIsolateTest {
     private static final Class<? extends ServerDomainSocketChannel> channelType       = IMPL.getServerDomainSocketChannelClass();
     private static final Class<? extends ServerDomainSocketChannel> serverChannelType = IMPL.getServerDomainSocketChannelClass();
 
-    private EventLoopGroup eventLoopGroup = IMPL.getEventLoopGroup();
+    private EventLoopGroup eventLoopGroup;
 
     @Test
     public void smokin() throws Exception {
+        eventLoopGroup = IMPL.getEventLoopGroup();
         Digest context = DigestAlgorithm.DEFAULT.getOrigin();
         var commDirectory = Path.of("target").resolve(UUID.randomUUID().toString());
         Files.createDirectories(commDirectory);
@@ -123,8 +125,10 @@ public class DemesneIsolateTest {
                                           .setMaxTransfer(100)
                                           .setFalsePositiveRate(.00125)
                                           .build();
+        LoggerFactory.getLogger(DemesneIsolateTest.class).info("creating bridge");
         var demesne = new JniBridge(parameters);
         Builder<SelfAddressingIdentifier> specification = IdentifierSpecification.newBuilder();
+        LoggerFactory.getLogger(DemesneIsolateTest.class).info("inception");
         var incp = demesne.inception(identifier.getIdentifier().toIdent(), specification);
 
         var seal = Seal.EventSeal.construct(incp.getIdentifier(), incp.hash(controller.digestAlgorithm()),
@@ -133,9 +137,12 @@ public class DemesneIsolateTest {
         var builder = InteractionSpecification.newBuilder().addAllSeals(Collections.singletonList(seal));
 
         // Commit
+        LoggerFactory.getLogger(DemesneIsolateTest.class).info("commit");
         demesne.commit(identifier.seal(builder).toEventCoords());
+        LoggerFactory.getLogger(DemesneIsolateTest.class).info("start");
         demesne.start();
         Thread.sleep(Duration.ofSeconds(2));
+        LoggerFactory.getLogger(DemesneIsolateTest.class).info("stop");
         demesne.stop();
         assertEquals(1, registered.size());
         assertTrue(registered.contains(context));

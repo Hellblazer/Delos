@@ -35,8 +35,8 @@ public class AuthenticatedSkipList {
         if (!find(elem)) {
             return;
         }
-        Node cur = root;
-        Deque<Node> backtrack = new ArrayDeque<>();
+        var cur = root;
+        var backtrack = new ArrayDeque<Node>();
         while (true) {
             backtrack.push(cur);
             while (cur.right.data < elem) {
@@ -51,7 +51,7 @@ public class AuthenticatedSkipList {
             cur = cur.down;
         }
         while (!backtrack.isEmpty()) {
-            Node nextNode = backtrack.pop();
+            var nextNode = backtrack.pop();
             if (nextNode.right.data == elem) {
                 nextNode.right = nextNode.right.right;
             }
@@ -61,7 +61,7 @@ public class AuthenticatedSkipList {
     }
 
     public boolean find(long key) {
-        Node cur = root;
+        var cur = root;
         while (true) {
             while (cur.right.data < key) {
                 cur = cur.right;

@@ -1,0 +1,15 @@
+{
+  "resources": [
+    {
+      "glob": "META-INF/native/netty_transport_native_kqueue_aarch_64.dylib"
+    },
+    {
+      "glob": "META-INF/native/netty_transport_native_kqueue_aarch_64.jnilib"
+    }
+  ],
+  "jni": [
+    {
+      "type": "io.netty.channel.kqueue.KQueue"
+    }
+  ]
+}

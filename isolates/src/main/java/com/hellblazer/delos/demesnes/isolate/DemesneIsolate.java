@@ -47,7 +47,10 @@ public class DemesneIsolate {
     private static final Logger                       log     = LoggerFactory.getLogger(DemesneIsolate.class);
 
     static {
+        System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "debug");
         System.setProperty(".level", "FINEST");
+        System.setProperty("logback.configurationFile",
+                           new File(System.getProperty("user.dir"), "logback.xml").getAbsolutePath());
     }
 
     @CEntryPoint(name = "Java_com_hellblazer_delos_model_demesnes_JniBridge_createIsolate", builtin = CEntryPoint.Builtin.CREATE_ISOLATE)
@@ -63,43 +66,54 @@ public class DemesneIsolate {
     @CEntryPoint(name = "Java_com_hellblazer_delos_model_demesnes_JniBridge_commit")
     private static void commit(JNIEnvironment jniEnv, JClass clazz, @CEntryPoint.IsolateThreadContext long isolateId,
                                JByteArray eventCoordinates, int eventCoordinatesLen) {
-        final Demesne d = demesne.get();
-        if (d != null) {
-            var coordBuff = CTypeConversion.asByteBuffer(
-            jniEnv.getFunctions().getGetByteArrayElements().call(jniEnv, eventCoordinates, false), eventCoordinatesLen);
-            EventCoords coords;
-            try {
-                coords = EventCoords.parseFrom(coordBuff);
-            } catch (InvalidProtocolBufferException e) {
-                log.error("Unable to parse event coordinates", e);
-                throw new IllegalStateException("Unable to parse event coordinates", e);
+        try {
+            final Demesne d = demesne.get();
+            if (d != null) {
+                var coordBuff = CTypeConversion.asByteBuffer(
+                jniEnv.getFunctions().getGetByteArrayElements().call(jniEnv, eventCoordinates, false),
+                eventCoordinatesLen);
+                EventCoords coords;
+                try {
+                    coords = EventCoords.parseFrom(coordBuff);
+                } catch (InvalidProtocolBufferException e) {
+                    log.error("Unable to parse event coordinates", e);
+                    throw new IllegalStateException("Unable to parse event coordinates", e);
+                }
+                log.info("Committing event: {}", Digest.from(coords.getDigest()));
+                d.commit(coords);
             }
-            d.commit(coords);
+        } catch (Throwable e) {
+            log.error("Unable to commit event", e);
+            throw e;
         }
     }
 
     private static void configureLogging(final DemesneParameters parameters) {
-        final var loggingConfig = parameters.getLoggingConfig();
-        File configFile = new File(loggingConfig);
-        if (!loggingConfig.isBlank() || configFile.exists()) {
-            System.err.println("Using logging configuration: " + configFile.getAbsolutePath());
-            try {
-                final var config = new FileInputStream(configFile);
-                LogManager.getLogManager().updateConfiguration(config, s -> (o, n) -> n);
-            } catch (FileNotFoundException e) {
-                System.err.println("No logging configuration found: " + configFile.getAbsolutePath());
+        try {
+            final var loggingConfig = parameters.getLoggingConfig();
+            File configFile = new File(loggingConfig);
+            if (!loggingConfig.isBlank() || configFile.exists()) {
+                System.err.println("Using logging configuration: " + configFile.getAbsolutePath());
+                try {
+                    final var config = new FileInputStream(configFile);
+                    LogManager.getLogManager().updateConfiguration(config, s -> (o, n) -> n);
+                } catch (FileNotFoundException e) {
+                    System.err.println("No logging configuration found: " + configFile.getAbsolutePath());
+                } catch (SecurityException | IOException e) {
+                    System.setProperty(".level", "FINEST");
+                    log.error("Unable to initialize logging configuration", e);
+                    throw new IllegalStateException("Unable to initialize logging configuration", e);
+                }
+            } else {
+                System.err.println("No logging configuration");
                 System.setProperty(".level", "INFO");
-            } catch (SecurityException | IOException e) {
-                System.setProperty(".level", "FINEST");
-                log.error("Unable to initialize logging configuration", e);
-                throw new IllegalStateException("Unable to initialize logging configuration", e);
             }
-        } else {
-            System.err.println("No logging configuration");
-            System.setProperty(".level", "INFO");
-        }
 
-        log.trace("Testing");
+            log.trace("Testing");
+        } catch (RuntimeException e) {
+            log.error("Unable to commit event", e);
+            throw e;
+        }
     }
 
     private static EventCoordinates coords(byte[] coords) {
@@ -124,36 +138,41 @@ public class DemesneIsolate {
     private static JByteArray inception(JNIEnvironment jniEnv, JClass clazz,
                                         @CEntryPoint.IsolateThreadContext long isolateId, JByteArray ident,
                                         int identLen, JByteArray spec, int specLen) {
-        final Demesne d = demesne.get();
-        if (d != null) {
-            var identBuff = CTypeConversion.asByteBuffer(
-            jniEnv.getFunctions().getGetByteArrayElements().call(jniEnv, ident, false), identLen);
-            var specBuff = CTypeConversion.asByteBuffer(
-            jniEnv.getFunctions().getGetByteArrayElements().call(jniEnv, spec, false), specLen);
-            Ident identifier;
-            try {
-                identifier = Ident.parseFrom(identBuff);
-            } catch (InvalidProtocolBufferException e) {
-                log.error("Unable to parse inception specification", e);
-                return jniEnv.getFunctions().getNewByteArray().call(jniEnv, 0);
+        try {
+            final Demesne d = demesne.get();
+            if (d != null) {
+                var identBuff = CTypeConversion.asByteBuffer(
+                jniEnv.getFunctions().getGetByteArrayElements().call(jniEnv, ident, false), identLen);
+                var specBuff = CTypeConversion.asByteBuffer(
+                jniEnv.getFunctions().getGetByteArrayElements().call(jniEnv, spec, false), specLen);
+                Ident identifier;
+                try {
+                    identifier = Ident.parseFrom(identBuff);
+                } catch (InvalidProtocolBufferException e) {
+                    log.error("Unable to parse inception specification", e);
+                    return jniEnv.getFunctions().getNewByteArray().call(jniEnv, 0);
+                }
+                IdentifierSpecification.Builder<SelfAddressingIdentifier> specification;
+                try {
+                    specification = IdentifierSpecification.Builder.from(IdentifierSpec.parseFrom(specBuff));
+                } catch (InvalidProtocolBufferException e) {
+                    log.error("Unable to parse inception specification", e);
+                    return jniEnv.getFunctions().getNewByteArray().call(jniEnv, 0);
+                }
+                final var inception = d.inception(identifier, specification);
+                log.info("Inception: {}", inception);
+                final var bytes = inception.getBytes();
+                final var returnArray = jniEnv.getFunctions().getNewByteArray().call(jniEnv, bytes.length);
+                final var buf = CTypeConversion.toCBytes(bytes);
+                jniEnv.getFunctions().getSetByteArrayRegion().call(jniEnv, returnArray, 0, bytes.length, buf.get());
+                return returnArray;
             }
-            IdentifierSpecification.Builder<SelfAddressingIdentifier> specification;
-            try {
-                specification = IdentifierSpecification.Builder.from(IdentifierSpec.parseFrom(specBuff));
-            } catch (InvalidProtocolBufferException e) {
-                log.error("Unable to parse inception specification", e);
-                return jniEnv.getFunctions().getNewByteArray().call(jniEnv, 0);
-            }
-            final var inception = d.inception(identifier, specification);
-            log.info("Inception: {}", inception);
-            final var bytes = inception.getBytes();
-            final var returnArray = jniEnv.getFunctions().getNewByteArray().call(jniEnv, bytes.length);
-            final var buf = CTypeConversion.toCBytes(bytes);
-            jniEnv.getFunctions().getSetByteArrayRegion().call(jniEnv, returnArray, 0, bytes.length, buf.get());
-            return returnArray;
+            log.error("No Demesne!");
+            return jniEnv.getFunctions().getNewByteArray().call(jniEnv, 0);
+        } catch (RuntimeException e) {
+            log.error("Failed inception", e);
+            throw e;
         }
-        log.error("No Demesne!");
-        return jniEnv.getFunctions().getNewByteArray().call(jniEnv, 0);
     }
 
     private static void launch(JNIEnvironment jniEnv, ByteBuffer data, JClass clazz)

@@ -43,6 +43,7 @@ public class JniBridge implements Demesne {
 
     static {
         try {
+            log.info("Loading JNI bridge library");
             NativeLoader.loadLibrary(DEMESNE_SHARED_LIB_NAME);
         } catch (IOException e) {
             throw new IllegalStateException("Cannot load shared library: " + DEMESNE_SHARED_LIB_NAME, e);
@@ -52,8 +53,10 @@ public class JniBridge implements Demesne {
     private final long isolateId;
 
     public JniBridge(DemesneParameters parameters) {
+        log.info("Creating isolate");
         isolateId = createIsolate();
         final var serialized = parameters.toByteString().toByteArray();
+        log.info("launching isolate: {}", isolateId);
         launch(isolateId, serialized, serialized.length);
     }
 
