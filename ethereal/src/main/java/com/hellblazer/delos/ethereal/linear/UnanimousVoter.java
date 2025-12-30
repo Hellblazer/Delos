@@ -283,9 +283,12 @@ public record UnanimousVoter(Dag dag, Unit uc, Map<Digest, Vote> votingMemo, Str
                 switch (counted.vote) {
                 case POPULAR:
                     votesOne = true;
+                    break;
                 case UNPOPULAR:
                     votesZero = true;
+                    break;
                 default:
+                    break;
                 }
                 if (finish || (votesOne && votesZero)) {
                     break;
