@@ -9,6 +9,7 @@ package com.hellblazer.delos.cryptography;
 import com.google.protobuf.ByteString;
 import com.hellblazer.delos.cryptography.Verifier.DefaultVerifier;
 import com.hellblazer.delos.utils.BbBackedInputStream;
+import org.bouncycastle.crypto.params.X448PrivateKeyParameters;
 import org.joou.ULong;
 
 import java.io.InputStream;
@@ -17,12 +18,14 @@ import java.nio.ByteBuffer;
 import java.security.*;
 import java.security.interfaces.EdECPrivateKey;
 import java.security.interfaces.EdECPublicKey;
+import java.security.interfaces.XECPublicKey;
 import java.security.spec.NamedParameterSpec;
 import java.security.spec.XECPrivateKeySpec;
 import java.security.spec.XECPublicKeySpec;
 
 import static com.hellblazer.delos.cryptography.EncryptionAlgorithm.XDH;
 import static org.bouncycastle.jcajce.spec.XDHParameterSpec.X25519;
+import static org.bouncycastle.jcajce.spec.XDHParameterSpec.X448;
 
 /**
  * Ye Enumeration of ye olde thyme Signature alorithms.
@@ -154,12 +157,67 @@ public enum SignatureAlgorithm {
 
         @Override
         public PrivateKey toEncryption(PrivateKey edPrivateKey) {
-            throw new UnsupportedOperationException("Not valid for NULL signature algorithm");
+            try {
+                final var edECPrivateKey = (EdECPrivateKey) edPrivateKey;
+                // Use SHAKE256 per RFC 8032, then apply Ed448 scalar pruning
+                byte[] x448Scalar = EdDSAOperations.toX448PrivateKey(edECPrivateKey.getBytes().get());
+                NamedParameterSpec paramSpec = new NamedParameterSpec(X448);
+                var kf = KeyFactory.getInstance(XDH);
+                var privSpec = new XECPrivateKeySpec(paramSpec, x448Scalar);
+                return kf.generatePrivate(privSpec);
+            } catch (Exception e) {
+                throw new IllegalStateException("Unable to convert Ed448 to X448 private key", e);
+            }
         }
 
         @Override
         public PublicKey toEncryption(PublicKey edPublicKey) {
-            throw new UnsupportedOperationException("Not valid for NULL signature algorithm");
+            // Note: Ed448→X448 public key conversion requires that we have
+            // access to the corresponding private key. Unlike Ed25519→X25519,
+            // the direct birational map from Ed448 public to X448 public
+            // doesn't work due to curve differences.
+            //
+            // For Ed448, we must use the toEncryption(KeyPair) method
+            // to get a consistent X448 key pair.
+            throw new UnsupportedOperationException(
+                "Ed448→X448 public key conversion requires the private key. " +
+                "Use toEncryption(KeyPair) instead of toEncryption(PublicKey).");
+        }
+
+        @Override
+        public KeyPair toEncryption(KeyPair edKeyPair) {
+            try {
+                final var edECPrivateKey = (EdECPrivateKey) edKeyPair.getPrivate();
+                // Use SHAKE256 per RFC 8032, then apply Ed448 scalar pruning
+                byte[] x448Scalar = EdDSAOperations.toX448PrivateKey(edECPrivateKey.getBytes().get());
+
+                // Use BouncyCastle to derive the corresponding X448 public key
+                var x448PrivateParams = new X448PrivateKeyParameters(x448Scalar, 0);
+                var x448PublicParams = x448PrivateParams.generatePublicKey();
+                byte[] x448PublicRaw = x448PublicParams.getEncoded();
+
+                // Convert to JDK key types
+                NamedParameterSpec paramSpec = new NamedParameterSpec(X448);
+                var kf = KeyFactory.getInstance(XDH);
+
+                var privSpec = new XECPrivateKeySpec(paramSpec, x448Scalar);
+                var privateKey = kf.generatePrivate(privSpec);
+
+                // Convert little-endian X448 public to BigInteger for XECPublicKeySpec
+                byte[] reversed = new byte[x448PublicRaw.length + 1];
+                reversed[0] = 0; // Ensure positive
+                for (int i = 0; i < x448PublicRaw.length; i++) {
+                    reversed[x448PublicRaw.length - i] = x448PublicRaw[i];
+                }
+                var u = new BigInteger(reversed);
+
+                var pubSpec = new XECPublicKeySpec(paramSpec, u);
+                var publicKey = kf.generatePublic(pubSpec);
+
+                return new KeyPair(publicKey, privateKey);
+            } catch (Exception e) {
+                throw new IllegalStateException("Unable to convert Ed448 to X448 key pair", e);
+            }
         }
 
         @Override
