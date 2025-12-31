@@ -125,7 +125,7 @@ public class View {
         this.params = params;
         this.digestAlgo = digestAlgo;
         this.context = context;
-        this.roundTimers = new RoundScheduler(String.format("Timers for: %s", context.getId()), context.timeToLive());
+        this.roundTimers = new RoundScheduler(String.format("Timers for: %s", context.getId()), context.dynamicTimeToLive());
         this.node = new Node(member, endpoint);
         viewManagement = new ViewManagement(this, context, params, metrics, node, digestAlgo, scheduler);
         var service = new Service();
@@ -508,7 +508,7 @@ public class View {
     }
 
     void reset() {
-        roundTimers.setRoundDuration(context.timeToLive());
+        roundTimers.setRoundDuration(context.dynamicTimeToLive());
 
         // Regenerate for new epoch
         node.nextNote();
