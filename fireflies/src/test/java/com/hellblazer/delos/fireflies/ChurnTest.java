@@ -43,7 +43,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 public class ChurnTest {
 
-    private static final int                                                         CARDINALITY    = 100;
+    private static final boolean                                                     LARGE_TESTS    = Boolean.getBoolean("large_tests");
+    private static final int                                                         CARDINALITY    = LARGE_TESTS ? 100 : 25;
+    private static final int                                                         SEED_COUNT     = CARDINALITY / 4;
+    private static final int                                                         BATCH_SIZE     = CARDINALITY / 4;
     private static final double                                                      P_BYZ          = 0.2;
     private static       Map<Digest, ControlledIdentifier<SelfAddressingIdentifier>> identities;
     private static       KERL.AppendKERL                                             kerl;
@@ -102,7 +105,7 @@ public class ChurnTest {
         var seeds = members.values()
                            .stream()
                            .map(m -> new Seed(m.getIdentifier().getIdentifier(), EndpointProvider.allocatePort()))
-                           .limit(25)
+                           .limit(SEED_COUNT)
                            .toList();
 
         // Bootstrap the kernel
@@ -139,10 +142,13 @@ public class ChurnTest {
         + " members");
 
         // Bring up the remaining members stepwise
-        for (int i = 0; i < 3; i++) {
+        int remaining = CARDINALITY - testViews.size();
+        int batchCount = (remaining + BATCH_SIZE - 1) / BATCH_SIZE; // ceiling division
+        for (int i = 0; i < batchCount; i++) {
             int start = testViews.size();
             var toStart = new ArrayList<View>();
-            for (int j = 0; j < 25; j++) {
+            int batchEnd = Math.min(BATCH_SIZE, views.size() - start);
+            for (int j = 0; j < batchEnd; j++) {
                 final var v = views.get(start + j);
                 testViews.add(v);
                 toStart.add(v);
