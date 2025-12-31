@@ -33,38 +33,47 @@ public enum SignatureAlgorithm {
 
     ED_25519 {
         private final EdDSAOperations ops = new EdDSAOperations(this);
+        // Curve25519 prime: 2^255 - 19
+        private static final BigInteger CURVE25519_PRIME = BigInteger.valueOf(2).pow(255)
+                                                                     .subtract(BigInteger.valueOf(19));
 
         @Override
         public PrivateKey toEncryption(PrivateKey edPrivateKey) {
             try {
-                KeyPairGenerator kpg = KeyPairGenerator.getInstance(XDH);
-                NamedParameterSpec paramSpec = new NamedParameterSpec(X25519);
-                kpg.initialize(paramSpec);
                 final var edECPrivateKey = (EdECPrivateKey) edPrivateKey;
-                var preHash = DigestAlgorithm.SHA2_256.digest(edECPrivateKey.getBytes().get());
+                // Use SHA-512 per RFC 8032 and libsodium, then clamp bits
+                byte[] x25519Scalar = EdDSAOperations.toX25519PrivateKey(edECPrivateKey.getBytes().get());
+                NamedParameterSpec paramSpec = new NamedParameterSpec(X25519);
                 var kf = KeyFactory.getInstance(XDH);
-                var privSpec = new XECPrivateKeySpec(paramSpec, preHash.getBytes());
+                var privSpec = new XECPrivateKeySpec(paramSpec, x25519Scalar);
                 return kf.generatePrivate(privSpec);
             } catch (Exception e) {
-                throw new IllegalStateException("Unable to convert", e);
+                throw new IllegalStateException("Unable to convert Ed25519 to X25519 private key", e);
             }
         }
 
         @Override
         public PublicKey toEncryption(PublicKey edPublicKey) {
             try {
-                KeyPairGenerator kpg = KeyPairGenerator.getInstance(XDH);
-                NamedParameterSpec paramSpec = new NamedParameterSpec(X25519);
-                kpg.initialize(paramSpec);
                 var point = ((EdECPublicKey) edPublicKey).getPoint();
                 var y = point.getY();
-                var one = BigInteger.valueOf(1);
-                var u = one.add(y).divide(one.subtract(y));
+                var one = BigInteger.ONE;
+                // Birational map: u = (1 + y) / (1 - y) mod p
+                // Must use modular arithmetic in finite field GF(2^255 - 19)
+                var numerator = one.add(y).mod(CURVE25519_PRIME);
+                var denominator = one.subtract(y).mod(CURVE25519_PRIME);
+                // Handle negative modular result
+                if (denominator.compareTo(BigInteger.ZERO) < 0) {
+                    denominator = denominator.add(CURVE25519_PRIME);
+                }
+                var u = numerator.multiply(denominator.modInverse(CURVE25519_PRIME)).mod(CURVE25519_PRIME);
+
+                NamedParameterSpec paramSpec = new NamedParameterSpec(X25519);
                 var kf = KeyFactory.getInstance(XDH);
                 var pubSpec = new XECPublicKeySpec(paramSpec, u);
                 return kf.generatePublic(pubSpec);
             } catch (Exception e) {
-                throw new IllegalStateException("Unable to convert", e);
+                throw new IllegalStateException("Unable to convert Ed25519 to X25519 public key", e);
             }
         }
 
