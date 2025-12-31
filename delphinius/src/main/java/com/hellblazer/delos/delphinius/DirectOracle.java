@@ -10,10 +10,15 @@ import org.jooq.DSLContext;
 import org.jooq.SQLDialect;
 import org.jooq.impl.DSL;
 import org.joou.ULong;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 /**
@@ -21,8 +26,11 @@ import java.util.function.Supplier;
  */
 public class DirectOracle extends AbstractOracle {
 
-    private final DSLContext      dslCtx;
-    private final Supplier<ULong> clock;
+    private static final Logger log = LoggerFactory.getLogger(DirectOracle.class);
+
+    private final DSLContext                  dslCtx;
+    private final Supplier<ULong>             clock;
+    private final Map<UUID, WatchListener>    watchers = new ConcurrentHashMap<>();
 
     public DirectOracle(Connection connection) {
         this(connection, () -> ULong.valueOf(System.currentTimeMillis()));
@@ -46,6 +54,9 @@ public class DirectOracle extends AbstractOracle {
     public CompletableFuture<Asserted> add(Assertion assertion) {
         var timestamp = clock.get();
         var added = dslCtx.transactionResult(ctx -> add(DSL.using(ctx), assertion, timestamp.longValue()));
+        if (added) {
+            fireEvent(WatchEvent.assertionAdd(timestamp, assertion));
+        }
         var fs = new CompletableFuture<Asserted>();
         fs.complete(new Asserted(timestamp, added));
         return fs;
@@ -117,6 +128,7 @@ public class DirectOracle extends AbstractOracle {
         dslCtx.transaction(ctx -> {
             delete(DSL.using(ctx), assertion, timestamp.longValue());
         });
+        fireEvent(WatchEvent.assertionDelete(timestamp, assertion));
         var fs = new CompletableFuture<ULong>();
         fs.complete(timestamp);
         return fs;
@@ -128,11 +140,13 @@ public class DirectOracle extends AbstractOracle {
      */
     @Override
     public CompletableFuture<ULong> delete(Namespace namespace) {
+        var timestamp = clock.get();
         dslCtx.transaction(ctx -> {
             delete(DSL.using(ctx), namespace);
         });
+        fireEvent(WatchEvent.namespaceDelete(timestamp, namespace));
         var fs = new CompletableFuture<ULong>();
-        fs.complete(clock.get());
+        fs.complete(timestamp);
         return fs;
     }
 
@@ -140,11 +154,13 @@ public class DirectOracle extends AbstractOracle {
      * Delete an Object. All dependent uses of the object (mappings, Assertions) are removed as well.
      */
     public CompletableFuture<ULong> delete(Object object) {
+        var timestamp = clock.get();
         dslCtx.transaction(ctx -> {
             delete(DSL.using(ctx), object);
         });
+        fireEvent(WatchEvent.objectDelete(timestamp, object));
         var fs = new CompletableFuture<ULong>();
-        fs.complete(clock.get());
+        fs.complete(timestamp);
         return fs;
     }
 
@@ -153,11 +169,13 @@ public class DirectOracle extends AbstractOracle {
      * well.
      */
     public CompletableFuture<ULong> delete(Relation relation) {
+        var timestamp = clock.get();
         dslCtx.transaction(ctx -> {
             delete(DSL.using(ctx), relation);
         });
+        fireEvent(WatchEvent.relationDelete(timestamp, relation));
         var fs = new CompletableFuture<ULong>();
-        fs.complete(clock.get());
+        fs.complete(timestamp);
         return fs;
     }
 
@@ -165,11 +183,13 @@ public class DirectOracle extends AbstractOracle {
      * Delete an Subject. All dependant uses of the subject (mappings and Assertions) are removed as well.
      */
     public CompletableFuture<ULong> delete(Subject subject) {
+        var timestamp = clock.get();
         dslCtx.transaction(ctx -> {
             delete(DSL.using(ctx), subject);
         });
+        fireEvent(WatchEvent.subjectDelete(timestamp, subject));
         var fs = new CompletableFuture<ULong>();
-        fs.complete(clock.get());
+        fs.complete(timestamp);
         return fs;
     }
 
@@ -177,11 +197,13 @@ public class DirectOracle extends AbstractOracle {
      * Map the parent object to the child
      */
     public CompletableFuture<ULong> map(Object parent, Object child) {
+        var timestamp = clock.get();
         dslCtx.transaction(ctx -> {
             map(parent, DSL.using(ctx), child);
         });
+        fireEvent(WatchEvent.objectMap(timestamp, parent, child));
         var fs = new CompletableFuture<ULong>();
-        fs.complete(clock.get());
+        fs.complete(timestamp);
         return fs;
     }
 
@@ -189,11 +211,13 @@ public class DirectOracle extends AbstractOracle {
      * Map the parent relation to the child
      */
     public CompletableFuture<ULong> map(Relation parent, Relation child) {
+        var timestamp = clock.get();
         dslCtx.transaction(ctx -> {
             map(parent, DSL.using(ctx), child);
         });
+        fireEvent(WatchEvent.relationMap(timestamp, parent, child));
         var fs = new CompletableFuture<ULong>();
-        fs.complete(clock.get());
+        fs.complete(timestamp);
         return fs;
     }
 
@@ -201,11 +225,13 @@ public class DirectOracle extends AbstractOracle {
      * Map the parent subject to the child
      */
     public CompletableFuture<ULong> map(Subject parent, Subject child) {
+        var timestamp = clock.get();
         dslCtx.transaction(ctx -> {
             map(parent, DSL.using(ctx), child);
         });
+        fireEvent(WatchEvent.subjectMap(timestamp, parent, child));
         var fs = new CompletableFuture<ULong>();
-        fs.complete(clock.get());
+        fs.complete(timestamp);
         return fs;
     }
 
@@ -213,11 +239,13 @@ public class DirectOracle extends AbstractOracle {
      * Remove the mapping between the parent and the child objects
      */
     public CompletableFuture<ULong> remove(Object parent, Object child) {
+        var timestamp = clock.get();
         dslCtx.transaction(ctx -> {
             remove(parent, DSL.using(ctx), child);
         });
+        fireEvent(WatchEvent.objectUnmap(timestamp, parent, child));
         var fs = new CompletableFuture<ULong>();
-        fs.complete(clock.get());
+        fs.complete(timestamp);
         return fs;
     }
 
@@ -225,11 +253,13 @@ public class DirectOracle extends AbstractOracle {
      * Remove the mapping between the parent and the child relations
      */
     public CompletableFuture<ULong> remove(Relation parent, Relation child) {
+        var timestamp = clock.get();
         dslCtx.transaction(ctx -> {
             remove(parent, DSL.using(ctx), child);
         });
+        fireEvent(WatchEvent.relationUnmap(timestamp, parent, child));
         var fs = new CompletableFuture<ULong>();
-        fs.complete(clock.get());
+        fs.complete(timestamp);
         return fs;
     }
 
@@ -237,11 +267,53 @@ public class DirectOracle extends AbstractOracle {
      * Remove the mapping between the parent and the child subects
      */
     public CompletableFuture<ULong> remove(Subject parent, Subject child) {
+        var timestamp = clock.get();
         dslCtx.transaction(ctx -> {
             remove(parent, DSL.using(ctx), child);
         });
+        fireEvent(WatchEvent.subjectUnmap(timestamp, parent, child));
         var fs = new CompletableFuture<ULong>();
-        fs.complete(clock.get());
+        fs.complete(timestamp);
         return fs;
+    }
+
+    // ==================== Watch API Implementation ====================
+
+    /**
+     * Register a listener for authorization change events.
+     *
+     * @param listener the callback to invoke on changes
+     * @return UUID identifying the registration
+     */
+    @Override
+    public UUID watch(WatchListener listener) {
+        var id = UUID.randomUUID();
+        watchers.put(id, listener);
+        return id;
+    }
+
+    /**
+     * Deregister a watch listener.
+     *
+     * @param id the UUID returned from watch()
+     * @return true if a listener was removed
+     */
+    @Override
+    public boolean unwatch(UUID id) {
+        return watchers.remove(id) != null;
+    }
+
+    /**
+     * Fire an event to all registered watchers.
+     * Events are delivered synchronously; listeners should not block.
+     */
+    private void fireEvent(WatchEvent event) {
+        for (var listener : watchers.values()) {
+            try {
+                listener.onEvent(event);
+            } catch (Exception e) {
+                log.warn("Watch listener threw exception for event: {}", event.type(), e);
+            }
+        }
     }
 }
