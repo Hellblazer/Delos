@@ -788,7 +788,8 @@ public class Adder {
         var signature = JohnHancock.from(c.getSignature());
         var valid = verifier.verify(signature, commit.toByteString());
         if (!valid) {
-            log.debug("Invalid commit signature from source: {} on: {}", source, conf.logLabel());
+            log.warn("Invalid commit signature from source: {} signer algo: {} verifier: {} on: {}",
+                     source, conf.signer().algorithm(), verifier, conf.logLabel());
         }
         return valid;
     }
@@ -809,7 +810,8 @@ public class Adder {
         var signature = JohnHancock.from(pv.getSignature());
         var valid = verifier.verify(signature, vote.toByteString());
         if (!valid) {
-            log.debug("Invalid prevote signature from source: {} on: {}", source, conf.logLabel());
+            log.warn("Invalid prevote signature from source: {} signer algo: {} verifier: {} on: {}",
+                     source, conf.signer().algorithm(), verifier, conf.logLabel());
         }
         return valid;
     }
