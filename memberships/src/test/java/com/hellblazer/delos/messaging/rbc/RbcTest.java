@@ -81,7 +81,8 @@ public class RbcTest {
         entropy.setSeed(new byte[] { 6, 6, 7, 6 });
         var stereotomy = new StereotomyImpl(new MemKeyStore(), new MemKERL(DigestAlgorithm.DEFAULT), entropy);
 
-        var members = IntStream.range(0, 50)
+        int memberCount = LARGE_TESTS ? 50 : 10;
+        var members = IntStream.range(0, memberCount)
                                .mapToObj(i -> stereotomy.newIdentifier())
                                .map(cpk -> new ControlledIdentifierMember(cpk))
                                .map(e -> (SigningMember) e)
