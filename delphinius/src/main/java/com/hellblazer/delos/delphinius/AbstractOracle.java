@@ -973,6 +973,54 @@ abstract public class AbstractOracle implements Oracle {
             }
         }
 
-        return Stream.empty(); // my brain hurts too much currently to construct the sql
+        // Build subject expansion: find groups the subject belongs to.
+        // In EDGE table: PARENT is the member, CHILD is the group (inverted naming).
+        // So to find groups a subject belongs to, query where PARENT=subject and get CHILD.
+        var subjectExpansion = dslCtx.select(EDGE.CHILD)
+                                     .from(EDGE)
+                                     .where(EDGE.TYPE.eq(SUBJECT_TYPE))
+                                     .and(EDGE.PARENT.eq(resolved.id()))
+                                     .union(DSL.select(DSL.val(resolved.id())));
+
+        // Find all objects that any of these subjects have assertions for
+        var assertedObjects = dslCtx.selectDistinct(ASSERTION.OBJECT.as("OBJECT_ID"))
+                                    .from(ASSERTION)
+                                    .where(ASSERTION.SUBJECT.in(subjectExpansion))
+                                    .asTable();
+        var assertedObjectId = assertedObjects.field("OBJECT_ID", Long.class);
+
+        // Expand objects: include children of asserted objects (transitive access)
+        // Use union to include both the direct objects and their children
+        var expandedObjects = dslCtx.select(assertedObjectId.as("OBJECT_ID"))
+                                    .from(assertedObjects)
+                                    .union(
+                                        dslCtx.select(EDGE.CHILD.as("OBJECT_ID"))
+                                              .from(EDGE)
+                                              .where(EDGE.TYPE.eq(OBJECT_TYPE))
+                                              .and(EDGE.PARENT.in(
+                                                  dslCtx.select(assertedObjectId).from(assertedObjects)
+                                              ))
+                                    )
+                                    .asTable();
+        var objectId = expandedObjects.field("OBJECT_ID", Long.class);
+
+        var relNs = NAMESPACE.as("REL_NS");
+        var objNs = NAMESPACE.as("OBJ_NS");
+
+        var base = dslCtx.selectDistinct(objNs.NAME, OBJECT.NAME, relNs.NAME, RELATION.NAME)
+                         .from(OBJECT)
+                         .join(objNs)
+                         .on(objNs.ID.eq(OBJECT.NAMESPACE))
+                         .join(RELATION)
+                         .on(RELATION.ID.eq(OBJECT.RELATION))
+                         .join(relNs)
+                         .on(relNs.ID.eq(RELATION.NAMESPACE))
+                         .join(expandedObjects)
+                         .on(OBJECT.ID.eq(objectId));
+
+        var query = relation == null ? base : base.where(OBJECT.RELATION.eq(relation.id()));
+        return query.stream()
+                    .map(r -> new Object(new Namespace(r.value1()), r.value2(),
+                                         new Relation(new Namespace(r.value3()), r.value4())));
     }
 }

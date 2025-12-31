@@ -160,9 +160,9 @@ public class Questions3Test {
         }
 
         // Transitive grants to view the document
-        //        var inferredViewable = oracle.expand(egin);
-        //        assertEquals(1, inferredViewable.size());
-        //        assertTrue(inferredViewable.contains(object123View), "Should contain: " + object123View);
+        var inferredViewable = oracle.expand(egin);
+        assertEquals(1, inferredViewable.size());
+        assertTrue(inferredViewable.contains(object123View), "Should contain: " + object123View);
 
         // Transitive subjects filtered by flag predicate
         var inferredFlaggedViewers = oracle.expand(flag, object123View);
