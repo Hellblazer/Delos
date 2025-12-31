@@ -44,9 +44,10 @@ public class DirectOracle extends AbstractOracle {
      * @return the time stamp of the addition attempt, and whether the assertion was added or previously existed
      */
     public CompletableFuture<Asserted> add(Assertion assertion) {
-        var added = dslCtx.transactionResult(ctx -> add(DSL.using(ctx), assertion));
+        var timestamp = clock.get();
+        var added = dslCtx.transactionResult(ctx -> add(DSL.using(ctx), assertion, timestamp.longValue()));
         var fs = new CompletableFuture<Asserted>();
-        fs.complete(new Asserted(clock.get(), added));
+        fs.complete(new Asserted(timestamp, added));
         return fs;
     }
 
@@ -100,21 +101,24 @@ public class DirectOracle extends AbstractOracle {
 
     @Override
     public boolean check(Assertion assertion, ULong valid) throws SQLException {
+        // Cannot query the future
         if (valid.compareTo(clock.get()) > 0) {
             return false;
         }
-        return check(assertion);
+        // Use temporal check at the specified timestamp
+        return checkAt(assertion, valid.longValue());
     }
 
     /**
      * Delete an assertion. Only the assertion is deleted, not the subject nor object of the assertion.
      */
     public CompletableFuture<ULong> delete(Assertion assertion) {
+        var timestamp = clock.get();
         dslCtx.transaction(ctx -> {
-            delete(DSL.using(ctx), assertion);
+            delete(DSL.using(ctx), assertion, timestamp.longValue());
         });
         var fs = new CompletableFuture<ULong>();
-        fs.complete(clock.get());
+        fs.complete(timestamp);
         return fs;
     }
 

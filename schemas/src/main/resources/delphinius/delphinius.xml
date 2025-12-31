@@ -157,6 +157,12 @@
             schemaName="delphinius">
             <column name="subject" type="INT8" />
             <column name="object" type="INT8" />
+            <column name="created_at" type="BIGINT" defaultValueNumeric="0">
+                <constraints nullable="false" />
+            </column>
+            <column name="deleted_at" type="BIGINT">
+                <constraints nullable="true" />
+            </column>
         </createTable>
 
         <addForeignKeyConstraint
@@ -174,10 +180,17 @@
             referencedTableSchemaName="delphinius" />
 
         <!-- The NULL assertion -->
-        <sql>insert into delphinius.assertion (subject, object)
+        <sql>insert into delphinius.assertion (subject, object, created_at)
             values
-            (0, 0)
+            (0, 0, 0)
         </sql>
+
+        <!-- Index for temporal queries -->
+        <createIndex indexName="assertion_temporal"
+            schemaName="delphinius" tableName="assertion">
+            <column name="created_at"/>
+            <column name="deleted_at"/>
+        </createIndex>
 
         <createTable tableName="edge"
             schemaName="delphinius">

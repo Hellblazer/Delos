@@ -68,14 +68,14 @@ abstract public class AbstractOracle implements Oracle {
     public static boolean addAssertion(Connection connection, String subjectNamespace, String subjectName,
                                        String subjectRelationNamespace, String subjectRelationName,
                                        String objectNamespace, String objectName, String objectRelationNamespace,
-                                       String objectRelationName) throws SQLException {
+                                       String objectRelationName, long timestamp) throws SQLException {
         var subject = new Subject(new Namespace(subjectNamespace), subjectName,
                                   new Relation(new Namespace(subjectRelationNamespace), subjectRelationName));
         var object = new Object(new Namespace(objectNamespace), objectName,
                                 new Relation(new Namespace(objectRelationNamespace), objectRelationName));
         var assertion = subject.assertion(object);
 
-        return add(DSL.using(connection, SQLDialect.H2), assertion);
+        return add(DSL.using(connection, SQLDialect.H2), assertion, timestamp);
     }
 
     public static void addNamespace(Connection connection, String name) throws SQLException {
@@ -110,14 +110,14 @@ abstract public class AbstractOracle implements Oracle {
     public static void deleteAssertion(Connection connection, String subjectNamespace, String subjectName,
                                        String subjectRelationNamespace, String subjectRelationName,
                                        String objectNamespace, String objectName, String objectRelationNamespace,
-                                       String objectRelationName) throws SQLException {
+                                       String objectRelationName, long timestamp) throws SQLException {
         var subject = new Subject(new Namespace(subjectNamespace), subjectName,
                                   new Relation(new Namespace(subjectRelationNamespace), subjectRelationName));
         var object = new Object(new Namespace(objectNamespace), objectName,
                                 new Relation(new Namespace(objectRelationNamespace), objectRelationName));
         var assertion = subject.assertion(object);
 
-        delete(DSL.using(connection, SQLDialect.H2), assertion);
+        delete(DSL.using(connection, SQLDialect.H2), assertion, timestamp);
     }
 
     public static void deleteNamespace(Connection connection, String name) throws SQLException {
@@ -213,19 +213,39 @@ abstract public class AbstractOracle implements Oracle {
         remove(parent, DSL.using(connection, SQLDialect.H2), child);
     }
 
-    public static boolean add(DSLContext context, Assertion assertion) throws SQLException {
+    public static boolean add(DSLContext context, Assertion assertion, long timestamp) throws SQLException {
         var s = resolveAdd(context, assertion.subject());
         var o = resolveAdd(context, assertion.object());
-        return addAssert(context, s.id(), o.id());
+        return addAssert(context, s.id(), o.id(), timestamp);
     }
 
-    public static boolean addAssert(DSLContext context, long s, long o) {
-        return context.mergeInto(ASSERTION)
-                      .using(context.selectOne())
-                      .on(ASSERTION.SUBJECT.eq(s))
-                      .and(ASSERTION.OBJECT.eq(o))
-                      .whenNotMatchedThenInsert(ASSERTION.OBJECT, ASSERTION.SUBJECT)
-                      .values(o, s)
+    public static boolean addAssert(DSLContext context, long s, long o, long timestamp) {
+        // Check if assertion exists and is active (not deleted)
+        var existing = context.select(ASSERTION.CREATED_AT, ASSERTION.DELETED_AT)
+                              .from(ASSERTION)
+                              .where(ASSERTION.SUBJECT.eq(s))
+                              .and(ASSERTION.OBJECT.eq(o))
+                              .fetchOne();
+
+        if (existing != null) {
+            var deletedAt = existing.value2();
+            if (deletedAt == null) {
+                // Already exists and is active
+                return false;
+            }
+            // Was deleted, re-activate: clear deleted_at but keep original created_at
+            // This preserves the original grant time for temporal queries
+            return context.update(ASSERTION)
+                          .set(ASSERTION.DELETED_AT, (Long) null)
+                          .where(ASSERTION.SUBJECT.eq(s))
+                          .and(ASSERTION.OBJECT.eq(o))
+                          .execute() != 0;
+        }
+
+        // Insert new assertion
+        return context.insertInto(ASSERTION)
+                      .columns(ASSERTION.SUBJECT, ASSERTION.OBJECT, ASSERTION.CREATED_AT)
+                      .values(s, o, timestamp)
                       .execute() != 0;
     }
 
@@ -353,13 +373,19 @@ abstract public class AbstractOracle implements Oracle {
         }
     }
 
-    static void delete(DSLContext context, Assertion assertion) throws SQLException {
+    static void delete(DSLContext context, Assertion assertion, long timestamp) throws SQLException {
         var s = resolve(context, assertion.subject());
         var o = resolve(context, assertion.object());
         if (s == null || o == null) {
             return;
         }
-        context.deleteFrom(ASSERTION).where(ASSERTION.OBJECT.eq(o.id())).and(ASSERTION.SUBJECT.eq(s.id())).execute();
+        // Soft delete: set deleted_at timestamp instead of removing
+        context.update(ASSERTION)
+               .set(ASSERTION.DELETED_AT, timestamp)
+               .where(ASSERTION.SUBJECT.eq(s.id()))
+               .and(ASSERTION.OBJECT.eq(o.id()))
+               .and(ASSERTION.DELETED_AT.isNull())
+               .execute();
     }
 
     static void delete(DSLContext context, Namespace namespace) throws SQLException {
@@ -463,6 +489,10 @@ abstract public class AbstractOracle implements Oracle {
     }
 
     static SelectJoinStep<Record2<Long, Long>> grants(Long s, DSLContext ctx, Long o) throws SQLException {
+        return grants(s, ctx, o, null);
+    }
+
+    static SelectJoinStep<Record2<Long, Long>> grants(Long s, DSLContext ctx, Long o, Long atTimestamp) throws SQLException {
         var subject = ctx.select(EDGE.CHILD.as("SUBJECT_ID"))
                          .from(EDGE)
                          .where(EDGE.TYPE.eq(SUBJECT_TYPE))
@@ -480,10 +510,21 @@ abstract public class AbstractOracle implements Oracle {
 
         var objectId = object.field("OBJECT_ID", Long.class);
 
+        // Build temporal condition: assertion was created <= timestamp and (not deleted or deleted > timestamp)
+        var assertionCondition = subjectId.eq(ASSERTION.SUBJECT).and(objectId.eq(ASSERTION.OBJECT));
+        if (atTimestamp != null) {
+            assertionCondition = assertionCondition
+                .and(ASSERTION.CREATED_AT.le(atTimestamp))
+                .and(ASSERTION.DELETED_AT.isNull().or(ASSERTION.DELETED_AT.gt(atTimestamp)));
+        } else {
+            // Current state: only non-deleted assertions
+            assertionCondition = assertionCondition.and(ASSERTION.DELETED_AT.isNull());
+        }
+
         return ctx.select(subjectId, objectId)
                   .from(subject.crossJoin(object)
                                .innerJoin(ASSERTION)
-                               .on(subjectId.eq(ASSERTION.SUBJECT).and(objectId.eq(ASSERTION.OBJECT))));
+                               .on(assertionCondition));
     }
 
     static void map(Object parent, DSLContext context, Object child) throws SQLException {
@@ -692,7 +733,7 @@ abstract public class AbstractOracle implements Oracle {
     }
 
     /**
-     * Check the assertion.
+     * Check the assertion at current time (only non-deleted assertions).
      *
      * @return true if the assertion is made, false if not
      */
@@ -703,6 +744,22 @@ abstract public class AbstractOracle implements Oracle {
             return false;
         }
         return dslCtx.fetchExists(dslCtx.selectOne().from(grants(s.id(), dslCtx, o.id())));
+    }
+
+    /**
+     * Check the assertion at a specific timestamp.
+     *
+     * @param assertion the assertion to check
+     * @param atTimestamp the timestamp to check at
+     * @return true if the assertion was active at that timestamp, false if not
+     */
+    protected boolean checkAt(Assertion assertion, long atTimestamp) throws SQLException {
+        var s = resolve(dslCtx, assertion.subject());
+        var o = resolve(dslCtx, assertion.object());
+        if (s == null || o == null) {
+            return false;
+        }
+        return dslCtx.fetchExists(dslCtx.selectOne().from(grants(s.id(), dslCtx, o.id(), atTimestamp)));
     }
 
     /**
