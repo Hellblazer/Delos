@@ -80,6 +80,84 @@ public interface Oracle {
     boolean check(Assertion assertion) throws SQLException;
 
     /**
+     * Check if a content change operation is authorized. This implements Zanzibar
+     * content-change check semantics to prevent stale-read attacks (New Enemy Problem).
+     * <p>
+     * Verifies both:
+     * <ol>
+     *   <li>User had read access at readZookie time (when content was loaded)</li>
+     *   <li>User has write access at current time</li>
+     * </ol>
+     * <p>
+     * This prevents the attack where:
+     * <ol>
+     *   <li>User reads document at T1 (gets zookie)</li>
+     *   <li>User's read access is revoked at T2</li>
+     *   <li>User tries to write at T3 using content from T1</li>
+     * </ol>
+     * Without content-change checks, the write might succeed because write access
+     * wasn't revoked - but the user shouldn't be able to write content they could
+     * no longer read.
+     *
+     * @param readAssertion the read permission that was checked when content was loaded
+     * @param writeAssertion the write permission required for the modification
+     * @param readZookie timestamp when content was read (the "zookie" from read operation)
+     * @return result containing authorization decision and reason
+     * @throws SQLException on database error
+     */
+    default ContentChangeResult checkContentChange(Assertion readAssertion, Assertion writeAssertion,
+                                                   ULong readZookie) throws SQLException {
+        throw new UnsupportedOperationException("Content-change checks not implemented");
+    }
+
+    /**
+     * Simplified content-change check when read and write use the same assertion.
+     * Common case: user needs "editor" permission for both read and write.
+     *
+     * @param assertion the permission assertion (same for read and write)
+     * @param readZookie timestamp when content was read
+     * @return result containing authorization decision and reason
+     * @throws SQLException on database error
+     */
+    default ContentChangeResult checkContentChange(Assertion assertion, ULong readZookie) throws SQLException {
+        return checkContentChange(assertion, assertion, readZookie);
+    }
+
+    /** Reasons why a content-change check may be denied */
+    enum ContentChangeDenialReason {
+        /** Content change is authorized */
+        NONE,
+        /** User had read access at zookie time but it was revoked */
+        READ_ACCESS_REVOKED,
+        /** User does not have current write permission */
+        WRITE_ACCESS_DENIED,
+        /** Zookie timestamp is in the future (invalid token) */
+        INVALID_ZOOKIE,
+        /** Both read and write access were denied */
+        BOTH_DENIED
+    }
+
+    /**
+     * Result of a content-change authorization check.
+     *
+     * @param authorized true if the content change is permitted
+     * @param reason if not authorized, the reason for denial
+     * @param currentTimestamp the current timestamp used for write check
+     */
+    record ContentChangeResult(boolean authorized, ContentChangeDenialReason reason, ULong currentTimestamp) {
+
+        /** Create an authorized result */
+        public static ContentChangeResult authorized(ULong timestamp) {
+            return new ContentChangeResult(true, ContentChangeDenialReason.NONE, timestamp);
+        }
+
+        /** Create a denied result */
+        public static ContentChangeResult denied(ContentChangeDenialReason reason, ULong timestamp) {
+            return new ContentChangeResult(false, reason, timestamp);
+        }
+    }
+
+    /**
      * Delete an assertion. Only the assertion is deleted, not the subject nor object of the assertion.
      *
      * @return the future returning the time value when this assertion delete is committed

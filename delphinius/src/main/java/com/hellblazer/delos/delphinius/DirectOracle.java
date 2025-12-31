@@ -121,6 +121,43 @@ public class DirectOracle extends AbstractOracle {
     }
 
     /**
+     * Check if a content change operation is authorized.
+     * Implements Zanzibar content-change check semantics.
+     * <p>
+     * Verifies:
+     * 1. Read zookie is not in the future (invalid token)
+     * 2. User had read access at zookie time
+     * 3. User has write access at current time
+     */
+    @Override
+    public ContentChangeResult checkContentChange(Assertion readAssertion, Assertion writeAssertion,
+                                                  ULong readZookie) throws SQLException {
+        var now = clock.get();
+
+        // Validate zookie is not in the future
+        if (readZookie.compareTo(now) > 0) {
+            return ContentChangeResult.denied(ContentChangeDenialReason.INVALID_ZOOKIE, now);
+        }
+
+        // Check read access at zookie time
+        boolean hadReadAccess = checkAt(readAssertion, readZookie.longValue());
+
+        // Check write access at current time
+        boolean hasWriteAccess = check(writeAssertion);
+
+        // Determine result
+        if (hadReadAccess && hasWriteAccess) {
+            return ContentChangeResult.authorized(now);
+        } else if (!hadReadAccess && !hasWriteAccess) {
+            return ContentChangeResult.denied(ContentChangeDenialReason.BOTH_DENIED, now);
+        } else if (!hadReadAccess) {
+            return ContentChangeResult.denied(ContentChangeDenialReason.READ_ACCESS_REVOKED, now);
+        } else {
+            return ContentChangeResult.denied(ContentChangeDenialReason.WRITE_ACCESS_DENIED, now);
+        }
+    }
+
+    /**
      * Delete an assertion. Only the assertion is deleted, not the subject nor object of the assertion.
      */
     public CompletableFuture<ULong> delete(Assertion assertion) {
