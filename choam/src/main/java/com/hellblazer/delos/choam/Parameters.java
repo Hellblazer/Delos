@@ -698,9 +698,14 @@ public record Parameters(Parameters.RuntimeParameters runtime, ReliableBroadcast
         private boolean                          generateGenesis       = false;
 
         public Parameters build(RuntimeParameters runtime) {
+            // Clone ethereal config to ensure each Parameters gets an isolated copy
+            // This prevents shared mutable state when the same Builder is reused
+            var clonedProducer = new ProducerParameters(producer.ethereal.clone(), producer.gossipDuration,
+                                                        producer.maxBatchByteSize(), producer.batchInterval,
+                                                        producer.maxBatchCount(), producer.maxGossipDelay);
             return new Parameters(runtime, combine, gossipDuration, maxCheckpointSegments, submitTimeout, genesisViewId,
                                   checkpointBlockDelta, crowns, digestAlgorithm, viewSigAlgorithm,
-                                  synchronizationCycles, regenerationCycles, bootstrap, producer, mvBuilder,
+                                  synchronizationCycles, regenerationCycles, bootstrap, clonedProducer, mvBuilder,
                                   txnLimiterBuilder, submitPolicy, checkpointSegmentSize, generateGenesis);
         }
 
