@@ -125,7 +125,9 @@ public class View {
         this.params = params;
         this.digestAlgo = digestAlgo;
         this.context = context;
-        this.roundTimers = new RoundScheduler(String.format("Timers for: %s", context.getId()), context.dynamicTimeToLive());
+        // CRITICAL: Must use static timeToLive() for safety-critical timers (accusations, rebuttals, view changes)
+        // dynamicTimeToLive() can cause timing violations during network growth - see Delos-8b7
+        this.roundTimers = new RoundScheduler(String.format("Timers for: %s", context.getId()), context.timeToLive());
         this.node = new Node(member, endpoint);
         viewManagement = new ViewManagement(this, context, params, metrics, node, digestAlgo, scheduler);
         var service = new Service();
@@ -508,7 +510,8 @@ public class View {
     }
 
     void reset() {
-        roundTimers.setRoundDuration(context.dynamicTimeToLive());
+        // CRITICAL: Must use static timeToLive() - see comment in constructor and Delos-8b7
+        roundTimers.setRoundDuration(context.timeToLive());
 
         // Regenerate for new epoch
         node.nextNote();

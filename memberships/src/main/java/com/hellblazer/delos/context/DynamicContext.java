@@ -94,6 +94,12 @@ public interface DynamicContext<T extends Member> extends Context<T> {
     /**
      * Answer the dynamic time-to-live based on current active membership.
      * Uses dynamicDiameter() for more accurate TTL during membership churn.
+     * <p>
+     * <b>WARNING</b>: Do NOT use for safety-critical consensus timers (accusations,
+     * rebuttals, view changes). Those must use the static {@link Context#timeToLive()}
+     * to prevent timing violations during network growth. See Delos-8b7.
+     * <p>
+     * Appropriate uses: adaptive metrics, non-critical timeouts, monitoring.
      *
      * @return TTL iterations for message propagation based on active membership
      */
