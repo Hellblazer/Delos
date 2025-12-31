@@ -8,6 +8,7 @@ package com.hellblazer.delos.ethereal;
 
 import com.hellblazer.delos.context.DynamicContext;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
+import com.hellblazer.delos.cryptography.Verifier;
 import com.hellblazer.delos.ethereal.Adder.State;
 import com.hellblazer.delos.ethereal.Dag.DagImpl;
 import com.hellblazer.delos.membership.SigningMember;
@@ -37,6 +38,7 @@ public class RbcAdderTest {
     private Config                                   config;
     private List<SigningMember>                      members;
     private HashMap<Short, Map<Integer, List<Unit>>> units;
+    private Verifier[]                               verifiers;
 
     @BeforeEach
     public void before() throws Exception {
@@ -58,6 +60,7 @@ public class RbcAdderTest {
                            .map(e -> (SigningMember) e)
                            .toList();
         members.forEach(m -> context.activate(m));
+        verifiers = members.toArray(new Verifier[0]);
         config = Config.newBuilder()
                        .setnProc((short) members.size())
                        .setSigner(members.get(0))
@@ -69,7 +72,7 @@ public class RbcAdderTest {
     public void dealingAllPids() throws Exception {
         final var dag = new DagImpl(config, 0);
 
-        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>());
+        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>(), verifiers);
 
         // PID 0
         var u = unit(0, 0);
@@ -184,7 +187,7 @@ public class RbcAdderTest {
     public void dealingPid0() throws Exception {
         final var dag = new DagImpl(config, 0);
 
-        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>());
+        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>(), verifiers);
 
         var prime = unit(0, 0);
         var u = prime;
@@ -236,7 +239,7 @@ public class RbcAdderTest {
     @Test
     public void round3() throws Exception {
         final var dag = new DagImpl(config, 0);
-        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>());
+        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>(), verifiers);
 
         round(0, adder);
         round(1, adder);
@@ -270,7 +273,7 @@ public class RbcAdderTest {
     @Test
     public void waitingForParents() {
         final var dag = new DagImpl(config, 0);
-        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>());
+        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>(), verifiers);
         round(0, adder);
 
         // Units from 0, 2, 3 at level 1 proposed. Unit 1 from 0 is added to the DAG, as

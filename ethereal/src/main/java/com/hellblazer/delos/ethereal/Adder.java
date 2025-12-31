@@ -12,6 +12,7 @@ import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.cryptography.JohnHancock;
 import com.hellblazer.delos.cryptography.Signer;
+import com.hellblazer.delos.cryptography.Verifier;
 import com.hellblazer.delos.cryptography.proto.Biff;
 import com.hellblazer.delos.ethereal.proto.*;
 import com.hellblazer.delos.utils.Entropy;
@@ -49,18 +50,20 @@ public class Adder {
     private final        Map<Digest, SignedCommit>  signedCommits   = new TreeMap<>();
     private final        Map<Digest, SignedPreVote> signedPrevotes  = new TreeMap<>();
     private final        int                        threshold;
+    private final        Verifier[]                 verifiers;
     private final        Map<Digest, Waiting>       waiting         = new TreeMap<>();
     private final        Map<Long, Waiting>         waitingById     = new TreeMap<>();
     private final        Map<Digest, Waiting>       waitingForRound = new TreeMap<>();
     private volatile     int                        round           = 0;
 
-    public Adder(int epoch, Dag dag, int maxSize, Config conf, Set<Digest> failed) {
+    public Adder(int epoch, Dag dag, int maxSize, Config conf, Set<Digest> failed, Verifier[] verifiers) {
         this.epoch = epoch;
         this.dag = dag;
         this.conf = conf;
         this.failed = failed;
         this.threshold = Dag.threshold(conf.nProc());
         this.maxSize = maxSize;
+        this.verifiers = verifiers;
     }
 
     public static Signed<SignedCommit> commit(final Long id, final Digest hash, final short pid, Signer signer,
@@ -770,13 +773,45 @@ public class Adder {
     }
 
     private boolean validate(SignedCommit c) {
-        // TODO Auto-generated method stub
-        return true;
+        var commit = c.getCommit();
+        var source = commit.getSource();
+        if (source < 0 || source >= verifiers.length) {
+            log.warn("Invalid commit source: {} (verifiers length: {}) on: {}", source, verifiers.length,
+                     conf.logLabel());
+            return false;
+        }
+        var verifier = verifiers[source];
+        if (verifier == null) {
+            log.warn("No verifier for commit source: {} on: {}", source, conf.logLabel());
+            return false;
+        }
+        var signature = JohnHancock.from(c.getSignature());
+        var valid = verifier.verify(signature, commit.toByteString());
+        if (!valid) {
+            log.debug("Invalid commit signature from source: {} on: {}", source, conf.logLabel());
+        }
+        return valid;
     }
 
     private boolean validate(SignedPreVote pv) {
-        // TODO Auto-generated method stub
-        return true;
+        var vote = pv.getVote();
+        var source = vote.getSource();
+        if (source < 0 || source >= verifiers.length) {
+            log.warn("Invalid prevote source: {} (verifiers length: {}) on: {}", source, verifiers.length,
+                     conf.logLabel());
+            return false;
+        }
+        var verifier = verifiers[source];
+        if (verifier == null) {
+            log.warn("No verifier for prevote source: {} on: {}", source, conf.logLabel());
+            return false;
+        }
+        var signature = JohnHancock.from(pv.getSignature());
+        var valid = verifier.verify(signature, vote.toByteString());
+        if (!valid) {
+            log.debug("Invalid prevote signature from source: {} on: {}", source, conf.logLabel());
+        }
+        return valid;
     }
 
     private boolean validateParents(Waiting wp) {
