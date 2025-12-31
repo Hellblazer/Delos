@@ -147,8 +147,10 @@ public class Bootstrapper {
             if (!cps.validate(crown, Digest.from(checkpoint.block.getHeader().getLastCheckpointHash()))) {
                 throw new IllegalStateException("Cannot validate checkpoint: " + checkpoint.height());
             }
-            log.info("Restored checkpoint: {} diadem: {} on: {}", checkpoint.height(), crown.compactWrapped(),
-                     params.member().getId());
+            // Validate checkpoint chain integrity before restoring state
+            store.validateCheckpointChain(checkpoint.height());
+            log.info("Restored checkpoint: {} diadem: {} chain validated on: {}", checkpoint.height(),
+                     crown.compactWrapped(), params.member().getId());
             checkpointState = cps;
         });
         // reconstruct a chain to genesis
