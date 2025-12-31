@@ -344,6 +344,74 @@ public class Store {
         }
     }
 
+    /**
+     * Validates the checkpoint block that the given block references.
+     * Ensures that the lastCheckpointHash correctly references a valid checkpoint block
+     * at the height specified by lastCheckpoint.
+     * <p>
+     * During bootstrap, prior checkpoints in the chain may not be present (only the most recent
+     * checkpoint is fetched). This method validates available checkpoint references without
+     * requiring the full historical checkpoint chain.
+     *
+     * @param from the starting block height to validate from
+     * @throws IllegalStateException if the referenced checkpoint is invalid
+     */
+    public void validateCheckpointChain(ULong from) throws IllegalStateException {
+        HashedBlock current = getBlock(from);
+        if (current == null) {
+            throw new IllegalStateException(
+            String.format("Invalid checkpoint chain from: %s - block missing", from));
+        }
+
+        var lastCheckpointHeight = ULong.valueOf(current.block.getHeader().getLastCheckpoint());
+        if (lastCheckpointHeight.equals(ULong.valueOf(0))) {
+            // No checkpoint in chain, valid by definition
+            log.debug("Checkpoint chain validated from: {} - no prior checkpoints", from);
+            return;
+        }
+
+        var lastCheckpointHash = new Digest(current.block.getHeader().getLastCheckpointHash());
+        HashedBlock checkpointBlock = getBlock(lastCheckpointHeight);
+
+        if (checkpointBlock == null) {
+            // Prior checkpoint not present - acceptable during bootstrap
+            log.debug("Checkpoint chain from: {} - prior checkpoint at {} not present (bootstrap scenario)",
+                      from, lastCheckpointHeight);
+            return;
+        }
+
+        if (!checkpointBlock.hash.equals(lastCheckpointHash)) {
+            throw new IllegalStateException(
+            String.format("Invalid checkpoint chain from: %s - checkpoint hash mismatch at height %s: expected %s, found %s",
+                          from, lastCheckpointHeight, lastCheckpointHash, checkpointBlock.hash));
+        }
+
+        // Verify the checkpoint block actually contains a checkpoint
+        if (!checkpointBlock.block.hasCheckpoint()) {
+            throw new IllegalStateException(
+            String.format("Invalid checkpoint chain from: %s - block at height %s is not a checkpoint block",
+                          from, lastCheckpointHeight));
+        }
+
+        // Validate checkpoint's own reference if the prior checkpoint is present
+        var priorCheckpointHeight = ULong.valueOf(checkpointBlock.block.getHeader().getLastCheckpoint());
+        if (!priorCheckpointHeight.equals(ULong.valueOf(0))) {
+            HashedBlock priorCheckpoint = getBlock(priorCheckpointHeight);
+            if (priorCheckpoint != null) {
+                var priorCheckpointHash = new Digest(checkpointBlock.block.getHeader().getLastCheckpointHash());
+                if (!priorCheckpoint.hash.equals(priorCheckpointHash)) {
+                    throw new IllegalStateException(
+                    String.format("Invalid checkpoint chain from: %s - prior checkpoint hash mismatch at height %s: expected %s, found %s",
+                                  from, priorCheckpointHeight, priorCheckpointHash, priorCheckpoint.hash));
+                }
+                // Continue validation recursively for available checkpoints
+                validateCheckpointChain(lastCheckpointHeight);
+            }
+        }
+
+        log.debug("Checkpoint chain validated from: {} through checkpoint at: {}", from, lastCheckpointHeight);
+    }
+
     public long version() {
         return blocks.store.getStoreVersion();
     }

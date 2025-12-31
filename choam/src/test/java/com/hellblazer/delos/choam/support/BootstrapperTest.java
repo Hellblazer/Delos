@@ -48,6 +48,47 @@ import static org.mockito.Mockito.when;
 public class BootstrapperTest {
     private static final int CARDINALITY = 10;
 
+    /**
+     * Test that validateCheckpointChain correctly validates checkpoint hash references.
+     * This is a regression test for Delos-868.16.
+     */
+    @Test
+    public void testValidateCheckpointChain() throws Exception {
+        Store store = new Store(DigestAlgorithm.DEFAULT, new MVStore.Builder().open());
+        TestChain testChain = new TestChain(store);
+
+        // Build a chain with multiple checkpoints
+        testChain.genesis()
+                 .checkpoint()    // First checkpoint
+                 .userBlocks(10)
+                 .checkpoint()    // Second checkpoint
+                 .userBlocks(5);
+
+        HashedCertifiedBlock lastBlock = testChain.getLastBlock();
+
+        // Validate checkpoint chain from last block
+        // This should not throw - checkpoint hash references should be valid
+        store.validateCheckpointChain(lastBlock.height());
+    }
+
+    /**
+     * Test that validateCheckpointChain handles blocks with no checkpoint reference.
+     */
+    @Test
+    public void testValidateCheckpointChainNoCheckpoint() throws Exception {
+        Store store = new Store(DigestAlgorithm.DEFAULT, new MVStore.Builder().open());
+        TestChain testChain = new TestChain(store);
+
+        // Build a chain with no checkpoints (just genesis)
+        testChain.genesis()
+                 .userBlocks(5);
+
+        HashedCertifiedBlock lastBlock = testChain.getLastBlock();
+
+        // Should not throw - no checkpoint means validation passes trivially
+        store.validateCheckpointChain(lastBlock.height());
+    }
+
     @Test
     public void smoke() throws Exception {
 

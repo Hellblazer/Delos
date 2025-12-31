@@ -50,18 +50,23 @@ public class BloomWindow<T> {
         var lock = rwLock.writeLock();
         lock.lock();
         try {
-            if (active1.contains(element)) {
+            // Check both buffers for existing membership
+            if (active1.contains(element) || active2.contains(element)) {
                 return false;
             }
             active1.add(element);
-            if (active1.count.get() == capacity) {
+            if (active1.count.incrementAndGet() >= capacity) {
+                // Clear the aging buffer (active2) - it will become the new active buffer
                 active2.clear();
-                // Switch buffers
-                var t = active1;
-                active1 = active2;
-                active2 = t;
 
+                // Swap buffers: full active1 becomes aging (active2), cleared active2 becomes active (active1)
+                var full = active1;
+                active1 = active2;
+                active2 = full;
+
+                // Re-add element to fresh buffer for overlap during transition
                 active1.add(element);
+                active1.count.incrementAndGet();
             }
             return true;
         } finally {

@@ -37,7 +37,8 @@ public class CallOracle extends AbstractOracle {
     public CompletableFuture<Asserted> add(Assertion assertion) {
         var fs = new CompletableFuture<Asserted>();
         try {
-            var call = connection.prepareCall("call delphinius.addAssertion(?, ?, ?, ?, ?, ?, ?, ?) ");
+            var timestamp = clock.get();
+            var call = connection.prepareCall("call delphinius.addAssertion(?, ?, ?, ?, ?, ?, ?, ?, ?) ");
             call.setString(1, assertion.subject().namespace().name());
             call.setString(2, assertion.subject().name());
             call.setString(3, assertion.subject().relation().namespace().name());
@@ -46,10 +47,11 @@ public class CallOracle extends AbstractOracle {
             call.setString(6, assertion.object().name());
             call.setString(7, assertion.object().relation().namespace().name());
             call.setString(8, assertion.object().relation().name());
+            call.setLong(9, timestamp.longValue());
 
             var added = call.executeUpdate() != 0;
             connection.commit();
-            fs.complete(new Asserted(clock.get(), added));
+            fs.complete(new Asserted(timestamp, added));
         } catch (Exception e) {
             fs.completeExceptionally(e);
         }
@@ -129,17 +131,20 @@ public class CallOracle extends AbstractOracle {
 
     @Override
     public boolean check(Assertion assertion, ULong valid) throws SQLException {
+        // Cannot query the future
         if (valid.compareTo(clock.get()) > 0) {
             return false;
         }
-        return check(assertion);
+        // Use temporal check at the specified timestamp
+        return checkAt(assertion, valid.longValue());
     }
 
     @Override
     public CompletableFuture<ULong> delete(Assertion assertion) {
         var fs = new CompletableFuture<ULong>();
         try {
-            var call = connection.prepareCall("call delphinius.deleteAssertion(?, ?, ?, ?, ?, ?, ?, ?) ");
+            var timestamp = clock.get();
+            var call = connection.prepareCall("call delphinius.deleteAssertion(?, ?, ?, ?, ?, ?, ?, ?, ?) ");
             call.setString(1, assertion.subject().namespace().name());
             call.setString(2, assertion.subject().name());
             call.setString(3, assertion.subject().relation().namespace().name());
@@ -148,10 +153,11 @@ public class CallOracle extends AbstractOracle {
             call.setString(6, assertion.object().name());
             call.setString(7, assertion.object().relation().namespace().name());
             call.setString(8, assertion.object().relation().name());
+            call.setLong(9, timestamp.longValue());
 
             call.execute();
             connection.commit();
-            fs.complete(clock.get());
+            fs.complete(timestamp);
         } catch (Exception e) {
             fs.completeExceptionally(e);
         }

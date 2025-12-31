@@ -41,15 +41,16 @@ public class ShardedOracle extends AbstractOracle {
 
     @Override
     public CompletableFuture<Asserted> add(Assertion assertion) {
-        var call = mutator.call("? = call delphinius.addAssertion(?, ?, ?, ?, ?, ?, ?, ?) ",
+        var timestamp = clock.get();
+        var call = mutator.call("? = call delphinius.addAssertion(?, ?, ?, ?, ?, ?, ?, ?, ?) ",
                                 Collections.singletonList(JDBCType.BOOLEAN), assertion.subject().namespace().name(),
                                 assertion.subject().name(), assertion.subject().relation().namespace().name(),
                                 assertion.subject().relation().name(), assertion.object().namespace().name(),
                                 assertion.object().name(), assertion.object().relation().namespace().name(),
-                                assertion.object().relation().name());
+                                assertion.object().relation().name(), timestamp.longValue());
         try {
             return mutator.execute(call, timeout)
-                          .thenApply(r -> new Asserted(clock.get(), (Boolean) r.outValues.getFirst()));
+                          .thenApply(r -> new Asserted(timestamp, (Boolean) r.outValues.getFirst()));
         } catch (InvalidTransaction e) {
             var f = new CompletableFuture<Asserted>();
             f.completeExceptionally(e);
@@ -129,22 +130,25 @@ public class ShardedOracle extends AbstractOracle {
 
     @Override
     public boolean check(Assertion assertion, ULong valid) throws SQLException {
+        // Cannot query the future
         if (valid.compareTo(clock.get()) > 0) {
             return false;
         }
-        return check(assertion);
+        // Use temporal check at the specified timestamp
+        return checkAt(assertion, valid.longValue());
     }
 
     @Override
     public CompletableFuture<ULong> delete(Assertion assertion) {
-        var call = mutator.call("call delphinius.deleteAssertion(?, ?, ?, ?, ?, ?, ?, ?) ",
+        var timestamp = clock.get();
+        var call = mutator.call("call delphinius.deleteAssertion(?, ?, ?, ?, ?, ?, ?, ?, ?) ",
                                 assertion.subject().namespace().name(), assertion.subject().name(),
                                 assertion.subject().relation().namespace().name(),
                                 assertion.subject().relation().name(), assertion.object().namespace().name(),
                                 assertion.object().name(), assertion.object().relation().namespace().name(),
-                                assertion.object().relation().name());
+                                assertion.object().relation().name(), timestamp.longValue());
         try {
-            return mutator.execute(call, timeout).thenApply(r -> clock.get());
+            return mutator.execute(call, timeout).thenApply(r -> timestamp);
         } catch (InvalidTransaction e) {
             var f = new CompletableFuture<ULong>();
             f.completeExceptionally(e);

@@ -176,7 +176,12 @@ public class EdToXAndBackTest {
     }
 
     private Key from(java.security.PrivateKey ed25519PrivateKey) {
-        return Key.fromBytes(ed25519PrivateKey.getEncoded());
+        // Extract the 32-byte raw seed from the PKCS8-encoded private key
+        // EdECPrivateKey stores the seed in getBytes()
+        if (ed25519PrivateKey instanceof java.security.interfaces.EdECPrivateKey edPrivate) {
+            return Key.fromBytes(edPrivate.getBytes().orElseThrow());
+        }
+        throw new IllegalArgumentException("Expected EdECPrivateKey");
     }
 
     private PrivateKey toX25519Private(Key privateKey) throws Exception {// Raw X25519 key to java.security.PrivateKey

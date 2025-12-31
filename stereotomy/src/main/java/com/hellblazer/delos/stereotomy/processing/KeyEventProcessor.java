@@ -6,13 +6,17 @@
  */
 package com.hellblazer.delos.stereotomy.processing;
 
+import com.hellblazer.delos.cryptography.JohnHancock;
 import com.hellblazer.delos.stereotomy.KERL;
 import com.hellblazer.delos.stereotomy.KeyState;
 import com.hellblazer.delos.stereotomy.event.AttachmentEvent;
 import com.hellblazer.delos.stereotomy.event.AttachmentEvent.Attachment;
 import com.hellblazer.delos.stereotomy.event.InceptionEvent;
 import com.hellblazer.delos.stereotomy.event.KeyEvent;
+import com.hellblazer.delos.stereotomy.event.Seal;
 
+import java.util.List;
+import java.util.Map;
 import java.util.function.BiFunction;
 
 /**
@@ -67,6 +71,20 @@ public class KeyEventProcessor implements Validator, KeyEventVerifier {
     }
 
     private Attachment verify(KeyState state, KeyEvent event, Attachment attachments) {
-        return attachments; // TODO
+        if (state.getWitnessThreshold() > 0 && !state.getWitnesses().isEmpty()) {
+            var validEndorsements = verifyEndorsements(state, event, attachments.endorsements());
+            return new Attachment() {
+                @Override
+                public Map<Integer, JohnHancock> endorsements() {
+                    return validEndorsements;
+                }
+
+                @Override
+                public List<Seal> seals() {
+                    return attachments.seals();
+                }
+            };
+        }
+        return attachments;
     }
 }
