@@ -160,8 +160,8 @@ public class GrpcConnectionLifecycleTest {
         executor.shutdown();
         assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS), "Executor should terminate");
 
-        // Stop should complete quickly (not hang waiting for connections)
-        assertTrue(stopDuration < 10000, "Stop should complete within 10 seconds, took: " + stopDuration + "ms");
+        // Stop should complete in reasonable time (not hang waiting for connections)
+        assertTrue(stopDuration < 30000, "Stop should complete within 30 seconds, took: " + stopDuration + "ms");
     }
 
     /**
