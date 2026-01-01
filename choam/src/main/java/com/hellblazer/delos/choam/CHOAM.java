@@ -101,9 +101,9 @@ public class CHOAM {
     private final    ScheduledExecutorService                              scheduler;
     private final    AtomicBoolean                                         ongoingJoin           = new AtomicBoolean();
     private final    ReadWriteLock                                         headLock              = new ReentrantReadWriteLock();
-    private final    Map<Digest, ClientRateLimiter>                        clientRateLimiters    = new ConcurrentHashMap<>();
     private final    ConcurrentHashMap<Digest, Instant>                    executedTransactions  = new ConcurrentHashMap<>();
     private final    ReentrantLock                                         evictionLock          = new ReentrantLock();
+    private final    TransactionRouter                                     transactionRouter;
     private volatile Thread                                                linear;
 
     public CHOAM(Parameters params) {
@@ -157,6 +157,10 @@ public class CHOAM {
                                                                 params.metrics(), r),
                                        TxnSubmitClient.getCreate(params.metrics()),
                                        TxnSubmission.getLocalLoopback(params.member(), txnSubmission));
+
+        // Initialize transaction router
+        transactionRouter = new DefaultTransactionRouter(params, consensusCoordinator, submissionComm);
+
         var fsm = Fsm.construct(new Combiner(), Combine.Transitions.class, Mercantile.INITIAL, true);
         fsm.setName("CHOAM%s on: %s".formatted(params.context().getId(), params.member().getId()));
         transitions = fsm.getTransitions();
@@ -164,7 +168,7 @@ public class CHOAM {
         roundScheduler = new RoundScheduler("CHOAM" + params.member().getId() + params.context().getId(),
                                             params.context().timeToLive());
         combine.register(_ -> roundScheduler.tick());
-        session = new Session(params, service(), scheduler);
+        session = new Session(params, transactionRouter::service, scheduler);
         consensusCoordinator.setSession(session);
 
         // Schedule periodic eviction of expired transactions from the replay prevention cache
@@ -810,25 +814,6 @@ public class CHOAM {
         restore();
     }
 
-
-    private Function<SubmittedTransaction, SubmitResult> service() {
-        return stx -> {
-            //            log.trace("Submitting transaction: {} in service() on: {}", stx.hash(), params.member());
-            final var c = consensusCoordinator.getCurrentCommittee();
-            if (c == null) {
-                return SubmitResult.newBuilder().setResult(Result.NO_COMMITTEE).build();
-            }
-            try {
-                return c.submitTxn(stx.transaction());
-            } catch (StatusRuntimeException e) {
-                return SubmitResult.newBuilder()
-                                   .setResult(Result.ERROR_SUBMITTING)
-                                   .setErrorMsg(e.getStatus().toString())
-                                   .build();
-            }
-        };
-    }
-
     private Digest signatureHash(ByteString any) {
         CertifiedBlock cb;
         try {
@@ -849,27 +834,7 @@ public class CHOAM {
      * @return the SubmitResult describing the outcome
      */
     private SubmitResult submit(Transaction request, Digest from) {
-        if (from == null) {
-            return SubmitResult.getDefaultInstance();
-        }
-        if (params.context().getMember(from) == null) {
-            log.debug("Invalid transaction submission from non member: {} on: {}", from, params.member().getId());
-            return SubmitResult.newBuilder().setResult(Result.INVALID_SUBMIT).build();
-        }
-
-        // Check per-client rate limit
-        var rateLimiter = clientRateLimiters.computeIfAbsent(from, k -> new ClientRateLimiter(10, Duration.ofSeconds(1)));
-        if (!rateLimiter.tryAcquire()) {
-            log.debug("Transaction submission rate limited for client: {} on: {}", from, params.member().getId());
-            return SubmitResult.newBuilder().setResult(Result.RATE_LIMITED).build();
-        }
-
-        final var c = consensusCoordinator.getCurrentCommittee();
-        if (c == null) {
-            log.debug("No committee to submit txn from: {} on: {}", from, params.member().getId());
-            return SubmitResult.newBuilder().setResult(Result.NO_COMMITTEE).build();
-        }
-        return c.submit(request);
+        return transactionRouter.submitFromClient(request, from);
     }
 
     private Initial sync(Synchronize request, Digest from) {
@@ -1701,44 +1666,4 @@ public class CHOAM {
         }
     }
 
-    /**
-     * Per-client rate limiter using token bucket algorithm with sliding window
-     */
-    private static class ClientRateLimiter {
-        private final ReentrantLock lock = new ReentrantLock();
-        private final int maxTokens;
-        private final Duration window;
-        private long windowStart;
-        private int tokens;
-
-        ClientRateLimiter(int maxTokens, Duration window) {
-            this.maxTokens = maxTokens;
-            this.window = window;
-            this.windowStart = System.currentTimeMillis();
-            this.tokens = maxTokens;
-        }
-
-        boolean tryAcquire() {
-            lock.lock();
-            try {
-                var now = System.currentTimeMillis();
-
-                // Reset window if expired
-                if (now - windowStart >= window.toMillis()) {
-                    windowStart = now;
-                    tokens = maxTokens;
-                }
-
-                // Check if tokens available
-                if (tokens <= 0) {
-                    return false;
-                }
-
-                tokens--;
-                return true;
-            } finally {
-                lock.unlock();
-            }
-        }
-    }
 }
