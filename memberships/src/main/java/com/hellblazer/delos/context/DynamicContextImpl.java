@@ -485,7 +485,7 @@ public class DynamicContextImpl<T extends Member> implements DynamicContext<T> {
 
     @Override
     public Iterable<T> predecessors(int ring, T start, Predicate<T> predicate) {
-        return null;
+        return ring(ring).predecessors(start, predicate);
     }
 
     @Override
