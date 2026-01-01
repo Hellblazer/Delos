@@ -62,6 +62,61 @@ public class ViewManagement {
         }
     }
 
+    /**
+     * Rate limiter to prevent Sybil attacks during join operations.
+     * Tracks join attempts per identity within a sliding window.
+     */
+    static class JoinRateLimiter {
+        private final Map<Digest, Deque<Long>> attempts = new ConcurrentSkipListMap<>();
+        private final int maxAttempts;
+        private final long windowMs;
+
+        JoinRateLimiter(int maxAttempts, Duration window) {
+            this.maxAttempts = maxAttempts;
+            this.windowMs = window.toMillis();
+        }
+
+        /**
+         * Check if join is allowed for the given identity.
+         * @return true if allowed, false if rate limited
+         */
+        boolean allowJoin(Digest identity) {
+            var now = System.currentTimeMillis();
+            var cutoff = now - windowMs;
+
+            var history = attempts.computeIfAbsent(identity, _ -> new ConcurrentLinkedDeque<>());
+
+            // Remove expired entries
+            while (!history.isEmpty() && history.peekFirst() < cutoff) {
+                history.pollFirst();
+            }
+
+            // Check if under limit
+            if (history.size() >= maxAttempts) {
+                return false;
+            }
+
+            // Record this attempt
+            history.addLast(now);
+            return true;
+        }
+
+        /**
+         * Cleanup stale entries for identities with no recent activity.
+         */
+        void cleanup() {
+            var now = System.currentTimeMillis();
+            var cutoff = now - windowMs;
+            attempts.entrySet().removeIf(e -> {
+                var history = e.getValue();
+                while (!history.isEmpty() && history.peekFirst() < cutoff) {
+                    history.pollFirst();
+                }
+                return history.isEmpty();
+            });
+        }
+    }
+
     final            AtomicReference<HexBloom>                     diadem       = new AtomicReference<>();
     final            Map<Digest, Integer>                          observers    = new ConcurrentSkipListMap<>();
     private final    AtomicInteger                                 attempt      = new AtomicInteger();
@@ -79,6 +134,7 @@ public class ViewManagement {
     private final    AtomicReference<Digest>                       currentView  = new AtomicReference<>();
     private final    ScheduledExecutorService                      scheduler;
     private final    NonceTracker                                  nonceTracker;
+    private final    JoinRateLimiter                               joinRateLimiter;
     private volatile boolean                                       bootstrap;
     private volatile CompletableFuture<Void>                       onJoined;
 
@@ -92,9 +148,24 @@ public class ViewManagement {
         this.digestAlgo = digestAlgo;
         this.scheduler = scheduler;
         this.nonceTracker = new NonceTracker(params.joinMessageTtl());
+        this.joinRateLimiter = new JoinRateLimiter(params.maxJoinAttemptsPerMinute(), params.joinRateLimitWindow());
         resetBootstrapView();
         bootstrapView = currentView.get();
         schedulePendingJoinsCleanup();
+        scheduleRateLimiterCleanup();
+    }
+
+    /**
+     * Schedule periodic cleanup of rate limiter state
+     */
+    private void scheduleRateLimiterCleanup() {
+        var window = params.joinRateLimitWindow();
+        scheduler.scheduleAtFixedRate(() -> {
+            if (!view.started.get()) {
+                return;
+            }
+            joinRateLimiter.cleanup();
+        }, window.toMillis(), window.toMillis(), TimeUnit.MILLISECONDS);
     }
 
     /**
@@ -462,6 +533,13 @@ public class ViewManagement {
                 log.warn(
                 "Invalid join mask: {} majority: {} from member: {} view: {}  context: {} cardinality: {} on: {}",
                 note.getMask(), context.majority(), from, thisView, context.getId(), cardinality(), node.getId());
+            }
+            // Rate limit check (Sybil attack protection)
+            if (!joinRateLimiter.allowJoin(from)) {
+                log.warn("Rate limited join attempt from: {} on: {}", from, node.getId());
+                responseObserver.onError(
+                new StatusRuntimeException(Status.RESOURCE_EXHAUSTED.withDescription("Join rate limit exceeded")));
+                return;
             }
             if (pendingJoins.size() >= params.maxPending()) {
                 responseObserver.onError(

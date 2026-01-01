@@ -14,7 +14,8 @@ import java.time.Duration;
 public record Parameters(int joinRetries, int minimumBiffCardinality, int rebuttalTimeout, int viewChangeRounds,
                          int finalizeViewRounds, double fpr, int maximumTxfr, Duration retryDelay, int maxPending,
                          Duration seedingTimeout, int validationRetries, int crowns, Duration populateDuration,
-                         Duration joinMessageTtl, Duration pendingJoinTtl) {
+                         Duration joinMessageTtl, Duration pendingJoinTtl,
+                         int maxJoinAttemptsPerMinute, Duration joinRateLimitWindow) {
 
     public static Builder newBuilder() {
         return new Builder();
@@ -79,11 +80,20 @@ public record Parameters(int joinRetries, int minimumBiffCardinality, int rebutt
          * Should be longer than typical cluster formation time.
          */
         private Duration pendingJoinTtl         = Duration.ofMinutes(5);
+        /**
+         * Maximum join attempts per identity within the rate limit window (Sybil protection)
+         */
+        private int      maxJoinAttemptsPerMinute = 10;
+        /**
+         * Time window for join rate limiting (Sybil protection)
+         */
+        private Duration joinRateLimitWindow    = Duration.ofMinutes(1);
 
         public Parameters build() {
             return new Parameters(joinRetries, minimumBiffCardinality, rebuttalTimeout, viewChangeRounds,
                                   finalizeViewRounds, fpr, maximumTxfr, retryDelay, maxPending, seedingTimout,
-                                  validationRetries, crowns, populateDuration, joinMessageTtl, pendingJoinTtl);
+                                  validationRetries, crowns, populateDuration, joinMessageTtl, pendingJoinTtl,
+                                  maxJoinAttemptsPerMinute, joinRateLimitWindow);
         }
 
         public int getCrowns() {
@@ -218,6 +228,24 @@ public record Parameters(int joinRetries, int minimumBiffCardinality, int rebutt
 
         public Builder setPendingJoinTtl(Duration pendingJoinTtl) {
             this.pendingJoinTtl = pendingJoinTtl;
+            return this;
+        }
+
+        public int getMaxJoinAttemptsPerMinute() {
+            return maxJoinAttemptsPerMinute;
+        }
+
+        public Builder setMaxJoinAttemptsPerMinute(int maxJoinAttemptsPerMinute) {
+            this.maxJoinAttemptsPerMinute = maxJoinAttemptsPerMinute;
+            return this;
+        }
+
+        public Duration getJoinRateLimitWindow() {
+            return joinRateLimitWindow;
+        }
+
+        public Builder setJoinRateLimitWindow(Duration joinRateLimitWindow) {
+            this.joinRateLimitWindow = joinRateLimitWindow;
             return this;
         }
     }
