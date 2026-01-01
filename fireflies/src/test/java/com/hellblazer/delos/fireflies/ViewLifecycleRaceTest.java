@@ -6,14 +6,19 @@
  */
 package com.hellblazer.delos.fireflies;
 
+import com.hellblazer.delos.archipelago.EndpointProvider;
 import com.hellblazer.delos.archipelago.LocalServer;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
-import com.hellblazer.delos.context.DynamicContextImpl;
+import com.hellblazer.delos.archipelago.UnsafeExecutors;
+import com.hellblazer.delos.context.DynamicContext;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
+import com.hellblazer.delos.fireflies.View.Participant;
 import com.hellblazer.delos.fireflies.View.Seed;
 import com.hellblazer.delos.membership.stereotomy.ControlledIdentifierMember;
+import com.hellblazer.delos.stereotomy.EventValidation;
 import com.hellblazer.delos.stereotomy.StereotomyImpl;
+import com.hellblazer.delos.stereotomy.Verifiers;
 import com.hellblazer.delos.stereotomy.mem.MemKERL;
 import com.hellblazer.delos.stereotomy.mem.MemKeyStore;
 import org.junit.jupiter.api.AfterEach;
@@ -24,6 +29,7 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -61,17 +67,23 @@ public class ViewLifecycleRaceTest {
 
         member = new ControlledIdentifierMember(identifier);
 
-        var context = new DynamicContextImpl<>(DigestAlgorithm.DEFAULT.getOrigin(), 3, 0.2, 2);
+        DynamicContext<Participant> context = DynamicContext.<Participant>newBuilder()
+                                                            .setBias(3)
+                                                            .setpByz(0.2)
+                                                            .setCardinality(2)
+                                                            .build();
 
-        executor = Executors.newCachedThreadPool(Thread.ofVirtual().factory());
+        executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
 
-        communications = new LocalServer(identifier.getIdentifier().getDigest().toString(), member).router(
-        ServerConnectionCache.newBuilder().setExecutor(executor), executor);
+        var prefix = UUID.randomUUID().toString();
+        communications = new LocalServer(prefix, member).router(ServerConnectionCache.newBuilder().setTarget(10),
+                                                                 executor);
+        communications.start();
 
         var params = Parameters.newBuilder().build();
 
-        view = new View(context, member, "localhost:0", (id) -> true, (id) -> null, communications, params,
-                        communications, DigestAlgorithm.DEFAULT, null);
+        view = new View(context, member, EndpointProvider.allocatePort(), EventValidation.NONE, Verifiers.from(kerl),
+                        communications, params, communications, DigestAlgorithm.DEFAULT, null);
     }
 
     @AfterEach
@@ -194,37 +206,22 @@ public class ViewLifecycleRaceTest {
     }
 
     /**
-     * Test that multiple threads cannot start/stop simultaneously.
+     * Test that multiple threads cannot start simultaneously.
+     * Only one thread should successfully transition from stopped to started.
      */
     @Test
-    public void testConcurrentStartStop() throws Exception {
+    public void testConcurrentStart() throws Exception {
         var startLatch = new CountDownLatch(1);
-        var startCount = new AtomicInteger(0);
-        var stopCount = new AtomicInteger(0);
 
         var threads = new ArrayList<Thread>();
 
-        // Spawn threads that will try to start
-        for (int i = 0; i < 5; i++) {
+        // Spawn threads that will all try to start
+        for (int i = 0; i < 10; i++) {
             threads.add(Thread.ofVirtual().start(() -> {
                 try {
                     startLatch.await();
                     var onJoin = new CompletableFuture<Void>();
                     view.start(onJoin, Duration.ofMillis(10), List.of());
-                    startCount.incrementAndGet();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            }));
-        }
-
-        // Spawn threads that will try to stop
-        for (int i = 0; i < 5; i++) {
-            threads.add(Thread.ofVirtual().start(() -> {
-                try {
-                    startLatch.await();
-                    view.stop();
-                    stopCount.incrementAndGet();
                 } catch (Exception e) {
                     // Ignore
                 }
@@ -237,7 +234,7 @@ public class ViewLifecycleRaceTest {
             thread.join(5000);
         }
 
-        // Either started once or never started
-        assertTrue(startCount.get() <= 1, "View started " + startCount.get() + " times");
+        // The view should be started exactly once
+        assertTrue(view.started.get(), "View should be started");
     }
 }

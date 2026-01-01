@@ -1084,4 +1084,291 @@ abstract public class AbstractOracle implements Oracle {
                     .map(r -> new Object(new Namespace(r.value1()), r.value2(),
                                          new Relation(new Namespace(r.value3()), r.value4())));
     }
+
+    // ==================== Temporal Query Primitive Implementations ====================
+
+    /**
+     * Temporal variant of directObjects - filters assertions by timestamp
+     */
+    private Stream<Object> directObjectsAt(Relation predicate, Subject subject, long atTimestamp) throws SQLException {
+        var resolved = resolve(dslCtx, subject);
+        if (resolved == null) {
+            return Stream.empty();
+        }
+
+        NamespacedId relation = null;
+        if (predicate != null) {
+            relation = resolve(dslCtx, predicate);
+            if (relation == null) {
+                return Stream.empty();
+            }
+        }
+        var relNs = NAMESPACE.as("REL_NS");
+        var objNs = NAMESPACE.as("OBJ_NS");
+        var baseQuery = dslCtx.selectDistinct(objNs.NAME, OBJECT.NAME, relNs.NAME, RELATION.NAME)
+                              .from(OBJECT)
+                              .join(objNs)
+                              .on(objNs.ID.eq(OBJECT.NAMESPACE))
+                              .join(RELATION)
+                              .on(RELATION.ID.eq(OBJECT.RELATION))
+                              .join(relNs)
+                              .on(relNs.ID.eq(RELATION.NAMESPACE))
+                              .join(ASSERTION)
+                              .on(OBJECT.ID.eq(ASSERTION.OBJECT))
+                              .and(ASSERTION.SUBJECT.eq(resolved.id()))
+                              .and(ASSERTION.CREATED_AT.le(atTimestamp))
+                              .and(ASSERTION.DELETED_AT.isNull().or(ASSERTION.DELETED_AT.gt(atTimestamp)));
+
+        var query = baseQuery;
+        if (relation != null) {
+            query = query.and(OBJECT.RELATION.eq(relation.id()));
+        }
+        return query.stream()
+                    .map(r -> new Object(new Namespace(r.value1()), r.value2(),
+                                         new Relation(new Namespace(r.value3()), r.value4())));
+    }
+
+    /**
+     * Temporal variant of directSubjects - filters assertions by timestamp
+     */
+    private Stream<Subject> directSubjectsAt(Relation predicate, Object object, long atTimestamp) throws SQLException {
+        var resolved = resolve(dslCtx, object);
+        if (resolved == null) {
+            return Stream.empty();
+        }
+
+        NamespacedId relation = null;
+        if (predicate != null) {
+            relation = resolve(dslCtx, predicate);
+            if (relation == null) {
+                return Stream.empty();
+            }
+        }
+        var relNs = NAMESPACE.as("REL_NS");
+        var subNs = NAMESPACE.as("SUB_NS");
+        var baseQuery = dslCtx.selectDistinct(subNs.NAME, SUBJECT.NAME, relNs.NAME, RELATION.NAME)
+                              .from(SUBJECT)
+                              .join(subNs)
+                              .on(subNs.ID.eq(SUBJECT.NAMESPACE))
+                              .join(RELATION)
+                              .on(RELATION.ID.eq(SUBJECT.RELATION))
+                              .join(relNs)
+                              .on(relNs.ID.eq(RELATION.NAMESPACE))
+                              .join(ASSERTION)
+                              .on(SUBJECT.ID.eq(ASSERTION.SUBJECT))
+                              .and(ASSERTION.OBJECT.eq(resolved.id()))
+                              .and(ASSERTION.CREATED_AT.le(atTimestamp))
+                              .and(ASSERTION.DELETED_AT.isNull().or(ASSERTION.DELETED_AT.gt(atTimestamp)));
+
+        var query = baseQuery;
+        if (relation != null) {
+            query = query.and(SUBJECT.RELATION.eq(relation.id()));
+        }
+        return query.stream()
+                    .map(r -> new Subject(new Namespace(r.value1()), r.value2(),
+                                          new Relation(new Namespace(r.value3()), r.value4())));
+    }
+
+    /**
+     * Temporal variant of subjects - finds subjects with transitive access at a specific timestamp
+     */
+    private Stream<Subject> subjectsAt(Relation predicate, Object object, long atTimestamp) throws SQLException {
+        var resolved = resolve(dslCtx, object);
+        if (resolved == null) {
+            return Stream.empty();
+        }
+
+        NamespacedId relation = null;
+        if (predicate != null) {
+            relation = resolve(dslCtx, predicate);
+            if (relation == null) {
+                return Stream.empty();
+            }
+        }
+
+        var subject = dslCtx.select(EDGE.PARENT.as("INFERRED"), EDGE.CHILD.as("DIRECT"))
+                            .from(EDGE)
+                            .where(EDGE.TYPE.eq(SUBJECT_TYPE))
+                            .asTable("S");
+
+        var direct = subject.field("DIRECT", Long.class);
+        var inferred = subject.field("INFERRED", Long.class);
+
+        var o = dslCtx.select(EDGE.CHILD.as("OBJECT_ID"))
+                      .from(EDGE)
+                      .where(EDGE.TYPE.eq(OBJECT_TYPE))
+                      .and(EDGE.PARENT.eq(resolved.id()))
+                      .union(DSL.select(DSL.val(resolved.id()).as("OBJECT_ID")))
+                      .asTable();
+        var objectId = o.field("OBJECT_ID", Long.class);
+
+        var relNs = NAMESPACE.as("REL_NS");
+        var subNs = NAMESPACE.as("SUB_NS");
+
+        var base = dslCtx.selectDistinct(subNs.NAME, SUBJECT.NAME, relNs.NAME, RELATION.NAME)
+                         .from(SUBJECT)
+                         .join(subNs)
+                         .on(subNs.ID.eq(SUBJECT.NAMESPACE))
+                         .join(RELATION)
+                         .on(RELATION.ID.eq(SUBJECT.RELATION))
+                         .join(relNs)
+                         .on(relNs.ID.eq(RELATION.NAMESPACE))
+                         .join(dslCtx.select(inferred, direct)
+                                     .from(subject.crossJoin(o)
+                                                  .innerJoin(ASSERTION)
+                                                  .on(direct.eq(ASSERTION.SUBJECT).or(inferred.eq(ASSERTION.SUBJECT)))
+                                                  .and(objectId.eq(ASSERTION.OBJECT))
+                                                  .and(ASSERTION.CREATED_AT.le(atTimestamp))
+                                                  .and(ASSERTION.DELETED_AT.isNull().or(ASSERTION.DELETED_AT.gt(atTimestamp))))
+                                     .asTable("S"))
+                         .on(SUBJECT.ID.eq(direct))
+                         .or(SUBJECT.ID.eq(inferred));
+        var query = relation == null ? base : base.where(SUBJECT.RELATION.eq(relation.id()));
+        return query.stream()
+                    .map(r -> new Subject(new Namespace(r.value1()), r.value2(),
+                                          new Relation(new Namespace(r.value3()), r.value4())));
+    }
+
+    /**
+     * Temporal variant of objects - finds objects with transitive access at a specific timestamp
+     */
+    private Stream<Object> objectsAt(Relation predicate, Subject subject, long atTimestamp) throws SQLException {
+        var resolved = resolve(dslCtx, subject);
+        if (resolved == null) {
+            return Stream.empty();
+        }
+
+        NamespacedId relation = null;
+        if (predicate != null) {
+            relation = resolve(dslCtx, predicate);
+            if (relation == null) {
+                return Stream.empty();
+            }
+        }
+
+        var subjectExpansion = dslCtx.select(EDGE.CHILD)
+                                     .from(EDGE)
+                                     .where(EDGE.TYPE.eq(SUBJECT_TYPE))
+                                     .and(EDGE.PARENT.eq(resolved.id()))
+                                     .union(DSL.select(DSL.val(resolved.id())));
+
+        var assertedObjects = dslCtx.selectDistinct(ASSERTION.OBJECT.as("OBJECT_ID"))
+                                    .from(ASSERTION)
+                                    .where(ASSERTION.SUBJECT.in(subjectExpansion))
+                                    .and(ASSERTION.CREATED_AT.le(atTimestamp))
+                                    .and(ASSERTION.DELETED_AT.isNull().or(ASSERTION.DELETED_AT.gt(atTimestamp)))
+                                    .asTable();
+        var assertedObjectId = assertedObjects.field("OBJECT_ID", Long.class);
+
+        var expandedObjects = dslCtx.select(assertedObjectId.as("OBJECT_ID"))
+                                    .from(assertedObjects)
+                                    .union(
+                                        dslCtx.select(EDGE.CHILD.as("OBJECT_ID"))
+                                              .from(EDGE)
+                                              .where(EDGE.TYPE.eq(OBJECT_TYPE))
+                                              .and(EDGE.PARENT.in(
+                                                  dslCtx.select(assertedObjectId).from(assertedObjects)
+                                              ))
+                                    )
+                                    .asTable();
+        var objectId = expandedObjects.field("OBJECT_ID", Long.class);
+
+        var relNs = NAMESPACE.as("REL_NS");
+        var objNs = NAMESPACE.as("OBJ_NS");
+
+        var base = dslCtx.selectDistinct(objNs.NAME, OBJECT.NAME, relNs.NAME, RELATION.NAME)
+                         .from(OBJECT)
+                         .join(objNs)
+                         .on(objNs.ID.eq(OBJECT.NAMESPACE))
+                         .join(RELATION)
+                         .on(RELATION.ID.eq(OBJECT.RELATION))
+                         .join(relNs)
+                         .on(relNs.ID.eq(RELATION.NAMESPACE))
+                         .join(expandedObjects)
+                         .on(OBJECT.ID.eq(objectId));
+
+        var query = relation == null ? base : base.where(OBJECT.RELATION.eq(relation.id()));
+        return query.stream()
+                    .map(r -> new Object(new Namespace(r.value1()), r.value2(),
+                                         new Relation(new Namespace(r.value3()), r.value4())));
+    }
+
+    // Public temporal query API implementations
+
+    @Override
+    public List<Subject> read(org.joou.ULong atTimestamp, Object... objects) throws SQLException {
+        var timestamp = atTimestamp.longValue();
+        return Arrays.asList(objects).stream().flatMap(object -> {
+            try {
+                return directSubjectsAt(null, object, timestamp);
+            } catch (SQLException e) {
+                log.error("error getting direct subjects of: {} at timestamp: {}", object, atTimestamp, e);
+                return null;
+            }
+        }).filter(s -> s != null).toList();
+    }
+
+    @Override
+    public List<Subject> read(org.joou.ULong atTimestamp, Relation predicate, Object... objects) throws SQLException {
+        var timestamp = atTimestamp.longValue();
+        return Arrays.asList(objects).stream().flatMap(object -> {
+            try {
+                return directSubjectsAt(predicate, object, timestamp);
+            } catch (SQLException e) {
+                log.error("error getting direct subjects (#{}) of: {} at timestamp: {}", predicate, object, atTimestamp, e);
+                return null;
+            }
+        }).filter(s -> s != null).toList();
+    }
+
+    @Override
+    public List<Object> read(org.joou.ULong atTimestamp, Subject... subjects) throws SQLException {
+        var timestamp = atTimestamp.longValue();
+        return Arrays.asList(subjects).stream().flatMap(subject -> {
+            try {
+                return directObjectsAt(null, subject, timestamp);
+            } catch (SQLException e) {
+                log.error("error getting direct objects of: {} at timestamp: {}", subject, atTimestamp, e);
+                return null;
+            }
+        }).filter(o -> o != null).toList();
+    }
+
+    @Override
+    public List<Object> read(org.joou.ULong atTimestamp, Relation predicate, Subject... subjects) throws SQLException {
+        var timestamp = atTimestamp.longValue();
+        return Arrays.asList(subjects).stream().flatMap(subject -> {
+            try {
+                return directObjectsAt(predicate, subject, timestamp);
+            } catch (SQLException e) {
+                log.error("error getting direct objects (#{}) of: {} at timestamp: {}", predicate, subject, atTimestamp, e);
+                return null;
+            }
+        }).filter(o -> o != null).toList();
+    }
+
+    @Override
+    public List<Subject> expand(org.joou.ULong atTimestamp, Object object) throws SQLException {
+        return subjectsAt(null, object, atTimestamp.longValue()).toList();
+    }
+
+    @Override
+    public List<Subject> expand(org.joou.ULong atTimestamp, Relation predicate, Object object) throws SQLException {
+        return subjectsAt(predicate, object, atTimestamp.longValue()).toList();
+    }
+
+    @Override
+    public List<Object> expand(org.joou.ULong atTimestamp, Subject subject) throws SQLException {
+        return objectsAt(null, subject, atTimestamp.longValue()).toList();
+    }
+
+    @Override
+    public List<Object> expand(org.joou.ULong atTimestamp, Relation predicate, Subject subject) throws SQLException {
+        return objectsAt(predicate, subject, atTimestamp.longValue()).toList();
+    }
+
+    @Override
+    public Stream<Subject> subjects(org.joou.ULong atTimestamp, Relation predicate, Object object) throws SQLException {
+        return subjectsAt(predicate, object, atTimestamp.longValue());
+    }
 }

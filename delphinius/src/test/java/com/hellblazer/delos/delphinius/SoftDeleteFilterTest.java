@@ -60,8 +60,9 @@ public class SoftDeleteFilterTest {
 
         alice = ns.subject("alice");
         bob = ns.subject("bob");
-        doc1 = ns.object("doc1", viewer);
-        doc2 = ns.object("doc2", viewer);
+        // Create objects with NO_RELATION for simple tests
+        doc1 = ns.object("doc1", Oracle.Relation.NO_RELATION);
+        doc2 = ns.object("doc2", Oracle.Relation.NO_RELATION);
 
         // Add entities
         oracle.add(ns).get();
@@ -159,37 +160,53 @@ public class SoftDeleteFilterTest {
 
     @Test
     public void testExpandSubjectsFiltersDeletedAssertions() throws Exception {
-        // Given: Alice and Bob have access to doc1
-        oracle.add(alice.assertion(doc1)).get();
-        oracle.add(bob.assertion(doc1)).get();
+        // Given: Create a group hierarchy - editors group with alice and bob as members
+        var editors = ns.subject("editors");
+        oracle.add(editors).get();
+        oracle.map(alice, editors).get(); // alice is member of editors
+        oracle.map(bob, editors).get();   // bob is member of editors
 
-        // When: We expand subjects for doc1
+        // editors group has access to doc1
+        oracle.add(editors.assertion(doc1)).get();
+
+        // When: We expand subjects for doc1 (should include editors, alice, bob transitively)
         var subjectsBefore = oracle.expand(doc1);
-        assertEquals(2, subjectsBefore.size(), "doc1 should have 2 subjects");
+        assertEquals(3, subjectsBefore.size(), "doc1 should have 3 subjects (editors + alice + bob)");
+        assertTrue(subjectsBefore.contains(editors), "editors should be in results");
+        assertTrue(subjectsBefore.contains(alice), "alice should be in results");
+        assertTrue(subjectsBefore.contains(bob), "bob should be in results");
 
-        // And: We delete Alice's assertion
-        oracle.delete(alice.assertion(doc1)).get();
+        // And: We delete the editors group's assertion
+        oracle.delete(editors.assertion(doc1)).get();
 
-        // Then: Expand should only return Bob
+        // Then: Expand should return no subjects (group access removed, transitive access gone)
         var subjectsAfter = oracle.expand(doc1);
-        assertEquals(1, subjectsAfter.size(), "doc1 should have 1 subject after deletion");
+        assertEquals(0, subjectsAfter.size(), "doc1 should have no subjects after deletion");
         assertFalse(subjectsAfter.contains(alice), "alice should not be in results after deletion");
-        assertTrue(subjectsAfter.contains(bob), "bob should still be in results");
+        assertFalse(subjectsAfter.contains(bob), "bob should not be in results after deletion");
+        assertFalse(subjectsAfter.contains(editors), "editors should not be in results after deletion");
     }
 
     @Test
     public void testExpandWithPredicateFiltersDeletedAssertions() throws Exception {
-        // Given: Alice has viewer access to doc1
+        // Given: Create viewer group with alice (as viewer) as member
+        var viewers = ns.subject("viewers", viewer);
         var aliceViewer = ns.subject("alice", viewer);
+        oracle.add(viewers).get();
         oracle.add(aliceViewer).get();
-        oracle.add(aliceViewer.assertion(doc1)).get();
+        oracle.map(aliceViewer, viewers).get(); // aliceViewer is member of viewers group
+
+        // viewers group has access to doc1
+        oracle.add(viewers.assertion(doc1)).get();
 
         // When: We expand with viewer predicate
         var subjectsBefore = oracle.expand(viewer, doc1);
-        assertEquals(1, subjectsBefore.size(), "doc1 should have 1 viewer subject");
+        assertEquals(2, subjectsBefore.size(), "doc1 should have 2 viewer subjects (viewers + aliceViewer)");
+        assertTrue(subjectsBefore.contains(viewers), "viewers should be in results");
+        assertTrue(subjectsBefore.contains(aliceViewer), "aliceViewer should be in results");
 
         // And: We delete the assertion
-        oracle.delete(aliceViewer.assertion(doc1)).get();
+        oracle.delete(viewers.assertion(doc1)).get();
 
         // Then: Expand should return no subjects
         var subjectsAfter = oracle.expand(viewer, doc1);
@@ -198,22 +215,31 @@ public class SoftDeleteFilterTest {
 
     @Test
     public void testSubjectsStreamFiltersDeletedAssertions() throws Exception {
-        // Given: Alice and Bob have access to doc1
-        oracle.add(alice.assertion(doc1)).get();
-        oracle.add(bob.assertion(doc1)).get();
+        // Given: Create group with alice and bob as members
+        var team = ns.subject("team");
+        oracle.add(team).get();
+        oracle.map(alice, team).get();
+        oracle.map(bob, team).get();
+
+        // team has access to doc1
+        oracle.add(team.assertion(doc1)).get();
 
         // When: We get subjects stream for doc1
         var subjectsBefore = oracle.subjects(null, doc1).toList();
-        assertEquals(2, subjectsBefore.size(), "doc1 should have 2 subjects");
+        assertEquals(3, subjectsBefore.size(), "doc1 should have 3 subjects (team + alice + bob)");
+        assertTrue(subjectsBefore.contains(team), "team should be in results");
+        assertTrue(subjectsBefore.contains(alice), "alice should be in results");
+        assertTrue(subjectsBefore.contains(bob), "bob should be in results");
 
-        // And: We delete Alice's assertion
-        oracle.delete(alice.assertion(doc1)).get();
+        // And: We delete team's assertion
+        oracle.delete(team.assertion(doc1)).get();
 
-        // Then: Subjects stream should only return Bob
+        // Then: Subjects stream should return nothing
         var subjectsAfter = oracle.subjects(null, doc1).toList();
-        assertEquals(1, subjectsAfter.size(), "doc1 should have 1 subject after deletion");
+        assertEquals(0, subjectsAfter.size(), "doc1 should have no subjects after deletion");
         assertFalse(subjectsAfter.contains(alice), "alice should not be in results after deletion");
-        assertTrue(subjectsAfter.contains(bob), "bob should still be in results");
+        assertFalse(subjectsAfter.contains(bob), "bob should not be in results after deletion");
+        assertFalse(subjectsAfter.contains(team), "team should not be in results after deletion");
     }
 
     @Test
