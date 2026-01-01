@@ -55,6 +55,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -88,7 +89,7 @@ public class CHOAM {
     private final    AtomicReference<nextView>                             next                  = new AtomicReference<>();
     private final    AtomicReference<Digest>                               nextViewId            = new AtomicReference<>();
     private final    Parameters                                            params;
-    private final    PriorityBlockingQueue<HashedCertifiedBlock>           pending               = new PriorityBlockingQueue<>();
+    private final    BoundedPriorityBlockingQueue<HashedCertifiedBlock>    pending;
     private final    RoundScheduler                                        roundScheduler;
     private final    Session                                               session;
     private final    AtomicBoolean                                         started               = new AtomicBoolean();
@@ -100,6 +101,7 @@ public class CHOAM {
     private final    PendingViews                                          pendingViews          = new PendingViews();
     private final    ScheduledExecutorService                              scheduler;
     private final    AtomicBoolean                                         ongoingJoin           = new AtomicBoolean();
+    private final    ReentrantLock                                         viewStateLock         = new ReentrantLock();
     private final    ReadWriteLock                                         headLock              = new ReentrantReadWriteLock();
     private volatile Thread                                                linear;
 
@@ -107,6 +109,7 @@ public class CHOAM {
         scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
         this.store = new Store(params.digestAlgorithm(), params.mvBuilder().clone().build());
         this.params = params;
+        this.pending = new BoundedPriorityBlockingQueue<>(params.maxPendingBlocks());
         pendingViews.add(params.context().getId(), params.context().delegate());
 
         rotateViewKeys();
@@ -451,7 +454,11 @@ public class CHOAM {
         HashedCertifiedBlock hcb = new HashedCertifiedBlock(params.digestAlgorithm(), block);
         log.trace("Received block: {} hash: {} height: {} from {} on: {}", hcb.block.getBodyCase(), hcb.hash,
                   hcb.height(), m.source(), params.member().getId());
-        pending.add(hcb);
+        if (!pending.offer(hcb)) {
+            log.warn("Pending queue full, rejecting block: {} hash: {} height: {} size: {}/{} on: {}",
+                     hcb.block.getBodyCase(), hcb.hash, hcb.height(), pending.size(), pending.capacity(),
+                     params.member().getId());
+        }
     }
 
     private BlockProducer constructBlock() {
@@ -570,7 +577,12 @@ public class CHOAM {
                 log.trace("Wait for reconfiguration @ {} block: {} hash: {} height: {} current: {} on: {}",
                           next.block.getHeader().getLastReconfig(), next.block.getBodyCase(), next.hash, next.height(),
                           h.height(), params.member().getId());
-                pending.add(next);
+                if (!pending.offer(next)) {
+                    log.warn(
+                    "Pending queue full, rejecting reconfiguration block: {} hash: {} height: {} size: {}/{} on: {}",
+                    next.block.getBodyCase(), next.hash, next.height(), pending.size(), pending.capacity(),
+                    params.member().getId());
+                }
             } else {
                 // invalid view
                 log.trace("Invalid view @ {} current: {} block: {} hash: {} height: {} current: {} on: {}", nlc, view,
@@ -601,7 +613,11 @@ public class CHOAM {
         } else if (h.height().compareTo(next.height()) < 0) {
             log.trace("Premature block: {} : {} height: {} current: {} on: {}", next.block.getBodyCase(), next.hash,
                       next.height(), cur.height(), params.member().getId());
-            pending.add(next);
+            if (!pending.offer(next)) {
+                log.warn("Pending queue full, rejecting premature block: {} hash: {} height: {} size: {}/{} on: {}",
+                         next.block.getBodyCase(), next.hash, next.height(), pending.size(), pending.capacity(),
+                         params.member().getId());
+            }
         } else {
             log.trace("Stale block: {} : {} height: {} current: {} on: {}", next.block.getBodyCase(), next.hash,
                       next.height(), cur.height(), params.member().getId());
@@ -629,7 +645,12 @@ public class CHOAM {
                 }
                 continue;
             }
-            consume(next);
+            try {
+                consume(next);
+            } catch (Throwable t) {
+                log.error("Error consuming block: {} hash: {} height: {} on: {}", next.block.getBodyCase(), next.hash,
+                          next.height(), params.member().getId(), t);
+            }
         }
     }
 
@@ -759,44 +780,49 @@ public class CHOAM {
     }
 
     private void reconfigure(Digest hash, Reconfigure reconfigure) {
-        log.info("Setting next view id: {} on: {}", hash, params.member().getId());
-        nextViewId.set(hash);
-        var pv = pendingViews.advance();
-        if (pv != null) {
-            params.context().setContext(pv.context);
-        }
-        final Committee c = current.get();
-        c.complete();
-        var validators = validatorsOf(reconfigure, params.context(), params.member().getId(), log);
-        final var currentView = next.get();
-        transitions.rotateViewKeys();
-        final HashedCertifiedBlock h = head.get();
-        view.set(h);
-        session.setView(h);
-        if (validators.containsKey(params.member())) {
-            if (Dag.validate(validators.size())) {
-                current.set(new Associate(h, validators, currentView));
-            } else {
-                log.warn("Reconfiguration to associate failed: {} committee: {} in view: {} on:{}", validators.size(),
-                         new Digest(reconfigure.getId()), current.get().getClass().getSimpleName(),
-                         params.member().getId());
-                transitions.fail();
+        viewStateLock.lock();
+        try {
+            log.info("Setting next view id: {} on: {}", hash, params.member().getId());
+            nextViewId.set(hash);
+            var pv = pendingViews.advance();
+            if (pv != null) {
+                params.context().setContext(pv.context);
             }
-        } else {
-            current.set(new Client(validators, getViewId()));
+            final Committee c = current.get();
+            c.complete();
+            var validators = validatorsOf(reconfigure, params.context(), params.member().getId(), log);
+            final var currentView = next.get();
+            transitions.rotateViewKeys();
+            final HashedCertifiedBlock h = head.get();
+            view.set(h);
+            session.setView(h);
+            if (validators.containsKey(params.member())) {
+                if (Dag.validate(validators.size())) {
+                    current.set(new Associate(h, validators, currentView));
+                } else {
+                    log.warn("Reconfiguration to associate failed: {} committee: {} in view: {} on:{}", validators.size(),
+                             new Digest(reconfigure.getId()), current.get().getClass().getSimpleName(),
+                             params.member().getId());
+                    transitions.fail();
+                }
+            } else {
+                current.set(new Client(validators, getViewId()));
+            }
+            if (ongoingJoin.compareAndSet(true, false)) {
+                log.trace("Halting ongoing join on: {}", params.member().getId());
+            }
+            log.info("Reconfigured to view: {} committee: {} validators: {} on: {}", new Digest(reconfigure.getId()),
+                     current.get().getClass().getSimpleName(), validators.entrySet()
+                                                                         .stream()
+                                                                         .map(e -> String.format("id: %s key: %s",
+                                                                                                 e.getKey().getId(),
+                                                                                                 params.digestAlgorithm()
+                                                                                                       .digest(
+                                                                                                       e.toString())))
+                                                                         .toList(), params.member().getId());
+        } finally {
+            viewStateLock.unlock();
         }
-        if (ongoingJoin.compareAndSet(true, false)) {
-            log.trace("Halting ongoing join on: {}", params.member().getId());
-        }
-        log.info("Reconfigured to view: {} committee: {} validators: {} on: {}", new Digest(reconfigure.getId()),
-                 current.get().getClass().getSimpleName(), validators.entrySet()
-                                                                     .stream()
-                                                                     .map(e -> String.format("id: %s key: %s",
-                                                                                             e.getKey().getId(),
-                                                                                             params.digestAlgorithm()
-                                                                                                   .digest(
-                                                                                                   e.toString())))
-                                                                     .toList(), params.member().getId());
     }
 
     private void recover(HashedCertifiedBlock anchor) {
@@ -1015,23 +1041,37 @@ public class CHOAM {
             ULong prevHeight = previousBlock.height();
             if (prevHeight == null) {
                 if (!hcb.height().equals(ULong.valueOf(0))) {
-                    pending.add(hcb);
-                    log.debug("Deferring block: {} hash: {} height should be {} and block height is {} on: {}",
-                              hcb.block.getBodyCase(), hcb.hash, 0, header.getHeight(), params.member().getId());
+                    if (!pending.offer(hcb)) {
+                        log.warn("Pending queue full, discarding deferred block: {} hash: {} height: {} size: {}/{} on: {}",
+                                 hcb.block.getBodyCase(), hcb.hash, hcb.height(), pending.size(), pending.capacity(),
+                                 params.member().getId());
+                    } else {
+                        log.debug("Deferring block: {} hash: {} height should be {} and block height is {} on: {}",
+                                  hcb.block.getBodyCase(), hcb.hash, 0, header.getHeight(), params.member().getId());
+                    }
                     return;
                 }
             } else {
                 if (hcb.height().compareTo(prevHeight) <= 0) {
                     log.trace("Discarding previously committed block: {} height: {} current height: {} on: {}",
                               hcb.hash, hcb.height(), prevHeight, params.member().getId());
-                    pending.add(hcb);
+                    if (!pending.offer(hcb)) {
+                        log.warn("Pending queue full, discarding previously committed block: {} hash: {} height: {} size: {}/{} on: {}",
+                                 hcb.block.getBodyCase(), hcb.hash, hcb.height(), pending.size(), pending.capacity(),
+                                 params.member().getId());
+                    }
                     return;
                 }
                 if (!hcb.height().equals(prevHeight.add(1))) {
-                    pending.add(hcb);
-                    log.debug("Deferring block: {} hash: {} height should be {} and block height is {} on: {}",
-                              hcb.block.getBodyCase(), hcb.hash, previousBlock.height().add(1), header.getHeight(),
-                              params.member().getId());
+                    if (!pending.offer(hcb)) {
+                        log.warn("Pending queue full, discarding deferred block: {} hash: {} height: {} size: {}/{} on: {}",
+                                 hcb.block.getBodyCase(), hcb.hash, hcb.height(), pending.size(), pending.capacity(),
+                                 params.member().getId());
+                    } else {
+                        log.debug("Deferring block: {} hash: {} height should be {} and block height is {} on: {}",
+                                  hcb.block.getBodyCase(), hcb.hash, previousBlock.height().add(1), header.getHeight(),
+                                  params.member().getId());
+                    }
                     return;
                 }
             }
@@ -1049,9 +1089,14 @@ public class CHOAM {
             }
         } else {
             if (!block.hasGenesis()) {
-                pending.add(hcb);
-                log.info("Deferring block on: {}.  Block: {} hash: {} height should be {} and block height is {}",
-                         params.member().getId(), hcb.block.getBodyCase(), hcb.hash, 0, header.getHeight());
+                if (!pending.offer(hcb)) {
+                    log.warn("Pending queue full, discarding deferred genesis block: {} hash: {} height: {} size: {}/{} on: {}",
+                             hcb.block.getBodyCase(), hcb.hash, hcb.height(), pending.size(), pending.capacity(),
+                             params.member().getId());
+                } else {
+                    log.info("Deferring block on: {}.  Block: {} hash: {} height should be {} and block height is {}",
+                             params.member().getId(), hcb.block.getBodyCase(), hcb.hash, 0, header.getHeight());
+                }
                 return;
             }
             if (!current.get().validateRegeneration(hcb)) {
@@ -1060,9 +1105,14 @@ public class CHOAM {
                 return;
             }
         }
-        log.info("Deferring block on: {}. Block: {} hash: {} height is {}", params.member().getId(),
-                 hcb.block.getBodyCase(), hcb.hash, header.getHeight());
-        pending.add(hcb);
+        if (!pending.offer(hcb)) {
+            log.warn("Pending queue full, discarding synchronized block: {} hash: {} height: {} size: {}/{} on: {}",
+                     hcb.block.getBodyCase(), hcb.hash, hcb.height(), pending.size(), pending.capacity(),
+                     params.member().getId());
+        } else {
+            log.info("Deferring block on: {}. Block: {} hash: {} height is {}", params.member().getId(),
+                     hcb.block.getBodyCase(), hcb.hash, header.getHeight());
+        }
     }
 
     public interface BlockProducer {
