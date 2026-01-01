@@ -440,7 +440,6 @@ public class View {
                      viewManagement.observersList(), currentView(), node.getId());
             HashMultiset<Ballot> ballots = HashMultiset.create();
             observations.values().forEach(svu -> tally(svu, ballots));
-            viewManagement.clearVote();
             var max = ballots.entrySet()
                              .stream()
                              .max(Ordering.natural().onResultOf(Multiset.Entry::getCount))
@@ -448,6 +447,7 @@ public class View {
             if (max != null && max.getCount() >= majority) {
                 log.info("View consensus successful: {} required: {} cardinality: {} for: {} on: {}", max, majority,
                          viewManagement.cardinality(), currentView(), node.getId());
+                viewManagement.clearVote();  // Only clear vote on successful consensus
                 viewManagement.install(max.getElement());
                 scheduleViewChange();
                 scheduleClearObservations();
