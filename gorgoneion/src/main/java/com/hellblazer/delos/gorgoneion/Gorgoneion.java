@@ -466,6 +466,14 @@ public class Gorgoneion {
                              establishment.getIdentifier(), member.getId());
                     return false;
                 }
+                // Check for replay attack using the attestation signature as unique identifier
+                var attestationDigest = parameters.digestAlgorithm().digest(signedAtt.getSignature().toByteString());
+                var aInstant = Instant.ofEpochSecond(signedAtt.getAttestation().getTimestamp().getSeconds(),
+                                                     signedAtt.getAttestation().getTimestamp().getNanos());
+                if (checkAndRecordAttestation(attestationDigest, aInstant)) {
+                    log.warn("Replay attack detected for credentials from: {} on: {}", from, member.getId());
+                    return false;
+                }
                 return true;
             } else {
                 return false;
