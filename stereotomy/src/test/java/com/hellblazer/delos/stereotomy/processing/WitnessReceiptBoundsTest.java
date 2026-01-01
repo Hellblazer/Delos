@@ -7,20 +7,21 @@
 package com.hellblazer.delos.stereotomy.processing;
 
 import com.hellblazer.delos.cryptography.*;
-import com.hellblazer.delos.stereotomy.EventCoordinates;
-import com.hellblazer.delos.stereotomy.KeyState;
+import com.hellblazer.delos.stereotomy.*;
 import com.hellblazer.delos.stereotomy.event.KeyEvent;
 import com.hellblazer.delos.stereotomy.identifier.BasicIdentifier;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
+import com.hellblazer.delos.stereotomy.identifier.spec.IdentifierSpecification;
+import com.hellblazer.delos.stereotomy.mem.MemKERL;
+import com.hellblazer.delos.stereotomy.mem.MemKeyStore;
 import org.joou.ULong;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.security.KeyPair;
+import java.security.SecureRandom;
 import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
 
 /**
  * Test witness receipt bounds checking
@@ -29,53 +30,56 @@ import static org.mockito.Mockito.*;
  */
 public class WitnessReceiptBoundsTest {
 
-    private KeyState state;
-    private KeyEvent event;
+    private Stereotomy stereotomy;
+    private ControlledIdentifier<Identifier> identifier;
     private List<BasicIdentifier> witnesses;
-    private List<KeyPair> witnessKeyPairs;
-    private byte[] eventBytes;
+    private List<Signer> witnessSigners;
+    private KERL.AppendKERL kerl;
 
     @BeforeEach
-    public void setup() {
+    public void setup() throws Exception {
+        var secureRandom = SecureRandom.getInstance("SHA1PRNG");
+        secureRandom.setSeed(new byte[] { 1, 2, 3 });
+        kerl = new MemKERL(DigestAlgorithm.DEFAULT);
+        var keyStore = new MemKeyStore();
+        stereotomy = new StereotomyImpl(keyStore, kerl, secureRandom);
+
         // Create 3 witness identities
-        witnessKeyPairs = new ArrayList<>();
+        witnessSigners = new ArrayList<>();
         witnesses = new ArrayList<>();
 
         for (int i = 0; i < 3; i++) {
             var keyPair = SignatureAlgorithm.ED_25519.generateKeyPair();
-            witnessKeyPairs.add(keyPair);
+            witnessSigners.add(new Signer.SignerImpl(keyPair.getPrivate(), ULong.valueOf(0)));
             witnesses.add(new BasicIdentifier(keyPair.getPublic()));
         }
 
-        // Mock KeyState with 3 witnesses and threshold of 2
-        state = mock(KeyState.class);
-        when(state.getWitnesses()).thenReturn(witnesses);
-        when(state.getWitnessThreshold()).thenReturn(2);
+        // Create identifier with 3 witnesses and threshold of 2
+        var spec = IdentifierSpecification.newBuilder()
+                                          .setWitnessThreshold(2);
+        for (var witness : witnesses) {
+            spec.setWitness(witness);
+        }
 
-        // Mock KeyEvent
-        event = mock(KeyEvent.class);
-        eventBytes = "test event data".getBytes();
-        when(event.getBytes()).thenReturn(eventBytes);
-
-        var coords = mock(EventCoordinates.class);
-        when(coords.getIdentifier()).thenReturn(mock(Identifier.class));
-        when(coords.getSequenceNumber()).thenReturn(ULong.valueOf(1));
-        when(event.getCoordinates()).thenReturn(coords);
+        identifier = stereotomy.newIdentifier(spec);
     }
 
     @Test
-    public void testValidWitnessReceipts() {
+    public void testValidWitnessReceipts() throws Exception {
+        // Get the inception event
+        var inceptionEvent = kerl.getKeyEvent(identifier.getLastEstablishmentEvent());
+        var state = kerl.getKeyState(identifier.getLastEstablishmentEvent());
+
         // Create valid receipts from witnesses 0 and 1 (meeting threshold of 2)
         var receipts = new HashMap<Integer, JohnHancock>();
-
         for (int i = 0; i < 2; i++) {
-            var signature = SignatureAlgorithm.ED_25519.sign(witnessKeyPairs.get(i).getPrivate(), eventBytes);
+            var signature = witnessSigners.get(i).sign(inceptionEvent.getBytes());
             receipts.put(i, signature);
         }
 
         // Verify - should succeed
         var verifier = new KeyEventVerifier() {};
-        var validReceipts = verifier.verifyEndorsements(state, event, receipts);
+        var validReceipts = verifier.verifyEndorsements(state, inceptionEvent, receipts);
 
         assertEquals(2, validReceipts.size());
         assertTrue(validReceipts.containsKey(0));
@@ -83,32 +87,40 @@ public class WitnessReceiptBoundsTest {
     }
 
     @Test
-    public void testNegativeWitnessIndex() {
+    public void testNegativeWitnessIndex() throws Exception {
+        // Get the inception event
+        var inceptionEvent = kerl.getKeyEvent(identifier.getLastEstablishmentEvent());
+        var state = kerl.getKeyState(identifier.getLastEstablishmentEvent());
+
         // Create a receipt with negative index
         var receipts = new HashMap<Integer, JohnHancock>();
-        var signature = SignatureAlgorithm.ED_25519.sign(witnessKeyPairs.get(0).getPrivate(), eventBytes);
+        var signature = witnessSigners.get(0).sign(inceptionEvent.getBytes());
         receipts.put(-1, signature);
 
         // Should throw InvalidWitnessReceiptException
         var verifier = new KeyEventVerifier() {};
         var exception = assertThrows(InvalidWitnessReceiptException.class, () -> {
-            verifier.verifyEndorsements(state, event, receipts);
+            verifier.verifyEndorsements(state, inceptionEvent, receipts);
         });
 
         assertTrue(exception.getMessage().contains("Invalid witness receipt index -1"));
     }
 
     @Test
-    public void testWitnessIndexTooHigh() {
+    public void testWitnessIndexTooHigh() throws Exception {
+        // Get the inception event
+        var inceptionEvent = kerl.getKeyEvent(identifier.getLastEstablishmentEvent());
+        var state = kerl.getKeyState(identifier.getLastEstablishmentEvent());
+
         // Create a receipt with index >= witness count (3 witnesses, so index 3 is invalid)
         var receipts = new HashMap<Integer, JohnHancock>();
-        var signature = SignatureAlgorithm.ED_25519.sign(witnessKeyPairs.get(0).getPrivate(), eventBytes);
+        var signature = witnessSigners.get(0).sign(inceptionEvent.getBytes());
         receipts.put(3, signature);
 
         // Should throw InvalidWitnessReceiptException
         var verifier = new KeyEventVerifier() {};
         var exception = assertThrows(InvalidWitnessReceiptException.class, () -> {
-            verifier.verifyEndorsements(state, event, receipts);
+            verifier.verifyEndorsements(state, inceptionEvent, receipts);
         });
 
         assertTrue(exception.getMessage().contains("Invalid witness receipt index 3"));
@@ -116,89 +128,106 @@ public class WitnessReceiptBoundsTest {
     }
 
     @Test
-    public void testWitnessIndexAtBoundary() {
-        // Test index exactly at witness count boundary
+    public void testWitnessIndexAtBoundary() throws Exception {
+        // Get the inception event
+        var inceptionEvent = kerl.getKeyEvent(identifier.getLastEstablishmentEvent());
+        var state = kerl.getKeyState(identifier.getLastEstablishmentEvent());
+
+        // Test index way beyond witness count boundary
         var receipts = new HashMap<Integer, JohnHancock>();
-        var signature = SignatureAlgorithm.ED_25519.sign(witnessKeyPairs.get(0).getPrivate(), eventBytes);
+        var signature = witnessSigners.get(0).sign(inceptionEvent.getBytes());
         receipts.put(10, signature); // Way beyond bounds
 
         // Should throw InvalidWitnessReceiptException
         var verifier = new KeyEventVerifier() {};
         assertThrows(InvalidWitnessReceiptException.class, () -> {
-            verifier.verifyEndorsements(state, event, receipts);
+            verifier.verifyEndorsements(state, inceptionEvent, receipts);
         });
     }
 
     @Test
-    public void testMixedValidAndInvalidIndices() {
+    public void testMixedValidAndInvalidIndices() throws Exception {
+        // Get the inception event
+        var inceptionEvent = kerl.getKeyEvent(identifier.getLastEstablishmentEvent());
+        var state = kerl.getKeyState(identifier.getLastEstablishmentEvent());
+
         // Mix of valid and invalid indices - first invalid should cause exception
         var receipts = new HashMap<Integer, JohnHancock>();
 
         // Valid receipt from witness 0
-        var sig0 = SignatureAlgorithm.ED_25519.sign(witnessKeyPairs.get(0).getPrivate(), eventBytes);
+        var sig0 = witnessSigners.get(0).sign(inceptionEvent.getBytes());
         receipts.put(0, sig0);
 
         // Valid receipt from witness 1
-        var sig1 = SignatureAlgorithm.ED_25519.sign(witnessKeyPairs.get(1).getPrivate(), eventBytes);
+        var sig1 = witnessSigners.get(1).sign(inceptionEvent.getBytes());
         receipts.put(1, sig1);
 
         // Invalid receipt with out-of-bounds index
-        var sigInvalid = SignatureAlgorithm.ED_25519.sign(witnessKeyPairs.get(0).getPrivate(), eventBytes);
+        var sigInvalid = witnessSigners.get(0).sign(inceptionEvent.getBytes());
         receipts.put(5, sigInvalid);
 
         // Should throw InvalidWitnessReceiptException
         var verifier = new KeyEventVerifier() {};
         assertThrows(InvalidWitnessReceiptException.class, () -> {
-            verifier.verifyEndorsements(state, event, receipts);
+            verifier.verifyEndorsements(state, inceptionEvent, receipts);
         });
     }
 
     @Test
-    public void testAllWitnessesValid() {
+    public void testAllWitnessesValid() throws Exception {
+        // Get the inception event
+        var inceptionEvent = kerl.getKeyEvent(identifier.getLastEstablishmentEvent());
+        var state = kerl.getKeyState(identifier.getLastEstablishmentEvent());
+
         // All 3 witnesses provide valid receipts
         var receipts = new HashMap<Integer, JohnHancock>();
-
         for (int i = 0; i < 3; i++) {
-            var signature = SignatureAlgorithm.ED_25519.sign(witnessKeyPairs.get(i).getPrivate(), eventBytes);
+            var signature = witnessSigners.get(i).sign(inceptionEvent.getBytes());
             receipts.put(i, signature);
         }
 
         // Verify - should succeed with all 3
         var verifier = new KeyEventVerifier() {};
-        var validReceipts = verifier.verifyEndorsements(state, event, receipts);
+        var validReceipts = verifier.verifyEndorsements(state, inceptionEvent, receipts);
 
         assertEquals(3, validReceipts.size());
     }
 
     @Test
-    public void testInsufficientValidReceipts() {
+    public void testInsufficientValidReceipts() throws Exception {
+        // Get the inception event
+        var inceptionEvent = kerl.getKeyEvent(identifier.getLastEstablishmentEvent());
+        var state = kerl.getKeyState(identifier.getLastEstablishmentEvent());
+
         // Only 1 valid receipt when threshold is 2
         var receipts = new HashMap<Integer, JohnHancock>();
-        var signature = SignatureAlgorithm.ED_25519.sign(witnessKeyPairs.get(0).getPrivate(), eventBytes);
+        var signature = witnessSigners.get(0).sign(inceptionEvent.getBytes());
         receipts.put(0, signature);
 
         // Should throw UnmetWitnessThresholdException
         var verifier = new KeyEventVerifier() {};
         assertThrows(UnmetWitnessThresholdException.class, () -> {
-            verifier.verifyEndorsements(state, event, receipts);
+            verifier.verifyEndorsements(state, inceptionEvent, receipts);
         });
     }
 
     @Test
-    public void testZeroWitnesses() {
-        // State with no witnesses
-        var emptyState = mock(KeyState.class);
-        when(emptyState.getWitnesses()).thenReturn(Collections.emptyList());
-        when(emptyState.getWitnessThreshold()).thenReturn(0);
+    public void testZeroWitnesses() throws Exception {
+        // Create identifier with no witnesses
+        var spec = IdentifierSpecification.newBuilder();
+        var noWitnessIdentifier = stereotomy.newIdentifier(spec);
 
-        // Any receipt with any index should be invalid
+        var inceptionEvent = kerl.getKeyEvent(noWitnessIdentifier.getLastEstablishmentEvent());
+        var state = kerl.getKeyState(noWitnessIdentifier.getLastEstablishmentEvent());
+
+        // Any receipt with any index should be invalid when there are no witnesses
         var receipts = new HashMap<Integer, JohnHancock>();
-        var signature = SignatureAlgorithm.ED_25519.sign(witnessKeyPairs.get(0).getPrivate(), eventBytes);
+        var signature = witnessSigners.get(0).sign(inceptionEvent.getBytes());
         receipts.put(0, signature);
 
         var verifier = new KeyEventVerifier() {};
         assertThrows(InvalidWitnessReceiptException.class, () -> {
-            verifier.verifyEndorsements(emptyState, event, receipts);
+            verifier.verifyEndorsements(state, inceptionEvent, receipts);
         });
     }
 }
