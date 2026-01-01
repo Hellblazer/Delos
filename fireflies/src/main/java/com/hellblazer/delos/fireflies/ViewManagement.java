@@ -31,6 +31,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -48,6 +49,19 @@ import java.util.stream.Collectors;
 public class ViewManagement {
     private static final Logger log = LoggerFactory.getLogger(ViewManagement.class);
 
+    /**
+     * Wrapper for pending join entries with timestamp for TTL cleanup
+     */
+    record PendingJoin(Consumer<Collection<SignedNote>> callback, long createdAt) {
+        PendingJoin(Consumer<Collection<SignedNote>> callback) {
+            this(callback, System.currentTimeMillis());
+        }
+
+        boolean isExpired(long ttlMs) {
+            return System.currentTimeMillis() - createdAt > ttlMs;
+        }
+    }
+
     final            AtomicReference<HexBloom>                     diadem       = new AtomicReference<>();
     final            Map<Digest, Integer>                          observers    = new ConcurrentSkipListMap<>();
     private final    AtomicInteger                                 attempt      = new AtomicInteger();
@@ -58,7 +72,7 @@ public class ViewManagement {
     private final    FireflyMetrics                                metrics;
     private final    Node                                          node;
     private final    Parameters                                    params;
-    private final    Map<Digest, Consumer<Collection<SignedNote>>> pendingJoins = new ConcurrentSkipListMap<>();
+    private final    Map<Digest, PendingJoin>                      pendingJoins = new ConcurrentSkipListMap<>();
     private final    View                                          view;
     private final    AtomicReference<ViewChange>                   vote         = new AtomicReference<>();
     private final    Lock                                          joinLock     = new ReentrantLock();
@@ -80,6 +94,37 @@ public class ViewManagement {
         this.nonceTracker = new NonceTracker(params.joinMessageTtl());
         resetBootstrapView();
         bootstrapView = currentView.get();
+        schedulePendingJoinsCleanup();
+    }
+
+    /**
+     * Schedule periodic cleanup of stale pending join entries
+     */
+    private void schedulePendingJoinsCleanup() {
+        var ttl = params.pendingJoinTtl();
+        var cleanupInterval = ttl.dividedBy(2);
+        scheduler.scheduleAtFixedRate(() -> {
+            if (!view.started.get()) {
+                return;
+            }
+            var ttlMs = ttl.toMillis();
+            var expired = pendingJoins.entrySet()
+                                      .stream()
+                                      .filter(e -> e.getValue().isExpired(ttlMs))
+                                      .map(Map.Entry::getKey)
+                                      .toList();
+            if (!expired.isEmpty()) {
+                expired.forEach(id -> {
+                    var removed = pendingJoins.remove(id);
+                    if (removed != null) {
+                        log.debug("Cleaned up stale pending join for: {} (age: {}ms) on: {}",
+                                  id, System.currentTimeMillis() - removed.createdAt(), node.getId());
+                        joins.remove(id);
+                    }
+                });
+                log.info("Cleaned up {} stale pending joins on: {}", expired.size(), node.getId());
+            }
+        }, cleanupInterval.toMillis(), cleanupInterval.toMillis(), TimeUnit.MILLISECONDS);
     }
 
     boolean addJoin(Digest id, NoteWrapper note) {
@@ -280,6 +325,7 @@ public class ViewManagement {
                             })
                             .map(nw -> pendingJoins.remove(nw.getId()))
                             .filter(java.util.Objects::nonNull)
+                            .map(PendingJoin::callback)
                             .toList();
 
         view.reset();
@@ -422,11 +468,11 @@ public class ViewManagement {
                 new StatusRuntimeException(Status.RESOURCE_EXHAUSTED.withDescription("No room at the inn")));
                 return;
             }
-            pendingJoins.computeIfAbsent(from, d -> seeds -> {
+            pendingJoins.computeIfAbsent(from, d -> new PendingJoin(seeds -> {
                 log.info("Gateway established for: {} view: {}  context: {} cardinality: {} on: {}", from,
                          currentView(), context.getId(), cardinality(), node.getId());
                 joined(seeds, from, responseObserver, timer);
-            });
+            }));
             joins.put(note.getId(), note);
             log.debug("Member pending join: {} view: {} context: {} on: {}", from, currentView(), context.getId(),
                       node.getId());

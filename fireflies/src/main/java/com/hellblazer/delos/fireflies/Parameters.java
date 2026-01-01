@@ -14,7 +14,7 @@ import java.time.Duration;
 public record Parameters(int joinRetries, int minimumBiffCardinality, int rebuttalTimeout, int viewChangeRounds,
                          int finalizeViewRounds, double fpr, int maximumTxfr, Duration retryDelay, int maxPending,
                          Duration seedingTimeout, int validationRetries, int crowns, Duration populateDuration,
-                         Duration joinMessageTtl) {
+                         Duration joinMessageTtl, Duration pendingJoinTtl) {
 
     public static Builder newBuilder() {
         return new Builder();
@@ -74,11 +74,16 @@ public record Parameters(int joinRetries, int minimumBiffCardinality, int rebutt
          * TTL for join messages (replay attack prevention)
          */
         private Duration joinMessageTtl         = Duration.ofSeconds(30);
+        /**
+         * TTL for pending join entries before cleanup (prevents slot exhaustion).
+         * Should be longer than typical cluster formation time.
+         */
+        private Duration pendingJoinTtl         = Duration.ofMinutes(5);
 
         public Parameters build() {
             return new Parameters(joinRetries, minimumBiffCardinality, rebuttalTimeout, viewChangeRounds,
                                   finalizeViewRounds, fpr, maximumTxfr, retryDelay, maxPending, seedingTimout,
-                                  validationRetries, crowns, populateDuration, joinMessageTtl);
+                                  validationRetries, crowns, populateDuration, joinMessageTtl, pendingJoinTtl);
         }
 
         public int getCrowns() {
@@ -204,6 +209,15 @@ public record Parameters(int joinRetries, int minimumBiffCardinality, int rebutt
 
         public Builder setJoinMessageTtl(Duration joinMessageTtl) {
             this.joinMessageTtl = joinMessageTtl;
+            return this;
+        }
+
+        public Duration getPendingJoinTtl() {
+            return pendingJoinTtl;
+        }
+
+        public Builder setPendingJoinTtl(Duration pendingJoinTtl) {
+            this.pendingJoinTtl = pendingJoinTtl;
             return this;
         }
     }
