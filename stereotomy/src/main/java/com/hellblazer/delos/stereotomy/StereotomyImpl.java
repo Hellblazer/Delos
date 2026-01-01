@@ -37,6 +37,8 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 import static com.hellblazer.delos.cryptography.SigningThreshold.unweighted;
 import static com.hellblazer.delos.stereotomy.identifier.QualifiedBase64Identifier.qb64;
@@ -402,6 +404,7 @@ public class StereotomyImpl implements Stereotomy {
 
     private class BoundControllableIdentifier<D extends Identifier> extends AbstractCtrlId
     implements BoundIdentifier<D> {
+        protected final  Lock     stateLock = new ReentrantLock();
         private volatile KeyState state;
 
         public BoundControllableIdentifier(KeyState state) {
@@ -486,16 +489,25 @@ public class StereotomyImpl implements Stereotomy {
 
         @Override
         public Void commit(DelegatedRotationEvent delegation, AttachmentEvent commitment) {
-            List<KeyState> ks = kerl.append(Collections.singletonList(delegation),
-                                            Collections.singletonList(commitment));
-            setState(ks.getFirst());
-            return null;
+            stateLock.lock();
+            try {
+                var ks = kerl.append(Collections.singletonList(delegation), Collections.singletonList(commitment));
+                setState(ks.getFirst());
+                return null;
+            } finally {
+                stateLock.unlock();
+            }
         }
 
         @Override
         public DelegatedRotationEvent delegateRotate(Builder spec) {
-            RotationEvent rot = StereotomyImpl.this.rotate(spec, getState(), true);
-            return (DelegatedRotationEvent) rot;
+            stateLock.lock();
+            try {
+                var rot = StereotomyImpl.this.rotate(spec, getState(), true);
+                return (DelegatedRotationEvent) rot;
+            } finally {
+                stateLock.unlock();
+            }
         }
 
         @Override
@@ -564,26 +576,41 @@ public class StereotomyImpl implements Stereotomy {
 
         @Override
         public Void rotate() {
-            KeyState state = StereotomyImpl.this.rotate(getState());
-            setState(state);
-            return null;
+            stateLock.lock();
+            try {
+                var state = StereotomyImpl.this.rotate(getState());
+                setState(state);
+                return null;
+            } finally {
+                stateLock.unlock();
+            }
         }
 
         @Override
         public Void rotate(Builder spec) {
-            KeyState state = StereotomyImpl.this.rotate(getState(), spec);
-            setState(state);
-            return null;
+            stateLock.lock();
+            try {
+                var state = StereotomyImpl.this.rotate(getState(), spec);
+                setState(state);
+                return null;
+            } finally {
+                stateLock.unlock();
+            }
         }
 
         @Override
         public EventCoordinates seal(InteractionSpecification.Builder spec) {
-            final var state = getState();
-            KeyState ks = StereotomyImpl.this.seal(state, spec);
-            setState(ks);
-            log.info("Seal interaction identifier: {} coordinates: {} old coordinates: {}", ks.getIdentifier(),
-                     state.getCoordinates(), ks.getCoordinates());
-            return ks.getCoordinates();
+            stateLock.lock();
+            try {
+                final var state = getState();
+                var ks = StereotomyImpl.this.seal(state, spec);
+                setState(ks);
+                log.info("Seal interaction identifier: {} coordinates: {} old coordinates: {}", ks.getIdentifier(),
+                         state.getCoordinates(), ks.getCoordinates());
+                return ks.getCoordinates();
+            } finally {
+                stateLock.unlock();
+            }
         }
 
         private StereotomyImpl getEnclosingInstance() {

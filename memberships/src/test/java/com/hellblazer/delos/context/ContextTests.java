@@ -203,4 +203,47 @@ public class ContextTests {
         assertTrue(staticTTL >= dynamicTTL,
                    "Static TTL should be >= dynamic TTL when activeCount < cardinality");
     }
+
+    /**
+     * Test that predecessors(ring, start, predicate) returns non-null iterable.
+     * Regression test for Delos-gph: DynamicContextImpl was returning null instead of empty collection.
+     */
+    @Test
+    public void predecessorsWithPredicateNonNull() throws Exception {
+        var context = new DynamicContextImpl<>(DigestAlgorithm.DEFAULT.getOrigin().prefix(1), 10, 0.2, 2);
+        List<SigningMember> members = new ArrayList<>();
+        var entropy = SecureRandom.getInstance("SHA1PRNG");
+        entropy.setSeed(new byte[] { 6, 6, 6 });
+        var stereotomy = new StereotomyImpl(new MemKeyStore(), new MemKERL(DigestAlgorithm.DEFAULT), entropy);
+
+        for (int i = 0; i < 10; i++) {
+            SigningMember m = new ControlledIdentifierMember(stereotomy.newIdentifier());
+            members.add(m);
+            context.activate(m);
+        }
+
+        // Test predecessors with predicate - should never return null
+        for (int ring = 0; ring < context.getRingCount(); ring++) {
+            var result = context.predecessors(ring, members.get(0), m -> true);
+            assertNotNull(result, "predecessors() should never return null");
+
+            // Should be able to iterate without NPE
+            var count = 0;
+            for (var member : result) {
+                count++;
+                assertNotNull(member);
+            }
+            assertTrue(count >= 0, "Should be able to iterate predecessors");
+        }
+
+        // Test with predicate that filters everything out
+        for (int ring = 0; ring < context.getRingCount(); ring++) {
+            var result = context.predecessors(ring, members.get(0), m -> false);
+            assertNotNull(result, "predecessors() should return empty iterable, not null");
+
+            // Empty but not null
+            var iterator = result.iterator();
+            assertNotNull(iterator);
+        }
+    }
 }
