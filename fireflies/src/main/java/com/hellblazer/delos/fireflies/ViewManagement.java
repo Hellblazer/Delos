@@ -117,6 +117,17 @@ public class ViewManagement {
         resetBootstrapView();
     }
 
+    void cleanupMemberState(Digest memberId) {
+        view.stable(() -> {
+            if (joins.remove(memberId) != null) {
+                log.trace("Removed join entry for: {} on: {}", memberId, node.getId());
+            }
+            if (pendingJoins.remove(memberId) != null) {
+                log.trace("Removed pending join for: {} on: {}", memberId, node.getId());
+            }
+        });
+    }
+
     void clearVote() {
         vote.set(null);
     }
@@ -176,6 +187,13 @@ public class ViewManagement {
             if (observers.remove(member.id) != null) {
                 log.trace("Removed observer: {} view: {} on: {}", member.id, currentView.get(), node.getId());
                 resetObservers();
+            }
+            // Clean up any pending state for the garbage collected member
+            if (joins.remove(member.id) != null) {
+                log.trace("Removed join entry for: {} on: {}", member.id, node.getId());
+            }
+            if (pendingJoins.remove(member.id) != null) {
+                log.trace("Removed pending join for: {} on: {}", member.id, node.getId());
             }
         });
     }
