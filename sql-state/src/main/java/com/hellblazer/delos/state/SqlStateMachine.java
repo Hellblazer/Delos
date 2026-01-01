@@ -127,7 +127,7 @@ public class SqlStateMachine {
         try {
             secureEntropy = SecureRandom.getInstance("SHA1PRNG");
         } catch (NoSuchAlgorithmException e) {
-            throw OracleException.wrap("Unable to get SHA1PRNG secure random instance", e);
+            throw new IllegalStateException("Unable to get SHA1PRNG secure random instance", e);
         }
     }
 
@@ -154,7 +154,7 @@ public class SqlStateMachine {
             try {
                 c = new JdbcConnection(url, info, "", "", false);
             } catch (SQLException e) {
-                throw new IllegalStateException("Unable to create connection using " + url, e);
+                throw OracleException.wrap("Unable to create connection using " + url, e);
             }
             try {
                 c.setAutoCommit(false);
@@ -171,7 +171,7 @@ public class SqlStateMachine {
                     try {
                         return (T) svc.call(parameters);
                     } catch (Throwable e) {
-                        throw OracleException.wrap(e);
+                        throw new IllegalStateException(e);
                     }
                 }
 
@@ -184,7 +184,7 @@ public class SqlStateMachine {
                     try {
                         svc.call(parameters);
                     } catch (Throwable e) {
-                        throw OracleException.wrap(e);
+                        throw new IllegalStateException(e);
                     }
                 }
             });
@@ -198,7 +198,7 @@ public class SqlStateMachine {
             statement.setString(2, jsonBody);
             statement.execute();
         } catch (SQLException e) {
-            throw new IllegalStateException("Unable to publish: " + channel, e);
+            throw OracleException.wrap("Unable to publish: " + channel, e);
         }
         return true;
     }
@@ -880,7 +880,7 @@ public class SqlStateMachine {
         try {
             return action.call();
         } catch (Exception e) {
-            throw OracleException.wrap(e);
+            throw new IllegalStateException(e);
         } finally {
             MathUtils.SECURE_RANDOM.set(prev);
             DateTimeUtils.CLOCK.set(prevClock);
