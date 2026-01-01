@@ -39,7 +39,7 @@ public class KeyInterval implements Predicate<Digest> {
 
     @Override
     public boolean test(Digest t) {
-        return begin.compareTo(t) > 0 && end.compareTo(t) > 0;
+        return begin.compareTo(t) <= 0 && end.compareTo(t) > 0;
     }
 
     public Interval toInterval() {
