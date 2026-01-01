@@ -1741,9 +1741,11 @@ public class CHOAM implements ConsensusEngine {
                           params.digestAlgorithm().digest(c.consensusKeyPair.getPublic().getEncoded()),
                           params.digestAlgorithm().digest(c.member.getSignature().toByteString()),
                           params.member().getId());
-                var signer = new SignerImpl(c.consensusKeyPair.getPrivate(), ULong.MIN);
+                // During Genesis, use member identity key for signing to match GenesisContext.verifiersByPid()
+                // which returns member identity verifiers. Consensus keys aren't exchanged until Join messages
+                // are processed after Genesis consensus completes.
                 var supp = pendingViews();
-                ViewContext vc = new GenesisContext(formation, supp, params, signer, constructBlock());
+                ViewContext vc = new GenesisContext(formation, supp, params, params.member(), constructBlock());
                 var inView = ViewMember.newBuilder(c.member).setView(params.genesisViewId().toDigeste()).build();
                 var svm = SignedViewMember.newBuilder()
                                           .setVm(inView)

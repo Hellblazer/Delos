@@ -162,9 +162,44 @@ public interface Committee {
         if (!Objects.requireNonNull(hb.block).hasGenesis()) {
             return false;
         }
+        // During Genesis, block certifications are signed with member identity keys
+        // (not consensus keys) because consensus keys haven't been exchanged yet.
+        // Use member identity verifiers for validation.
         var reconfigure = hb.block.getGenesis().getInitialView();
-        var validators = validatorsOf(reconfigure, params().context(), params().member().getId(), log());
+        var validators = identityValidatorsOf(reconfigure, params().context(), params().member().getId(), log());
         return !validators.isEmpty() && validate(hb, validators);
+    }
+
+    /**
+     * Create validators using member identity keys (for Genesis validation).
+     * During Genesis, blocks are signed with member identity keys, not consensus keys.
+     */
+    static Map<Member, Verifier> identityValidatorsOf(Reconfigure reconfigure, Context<Member> context, Digest member,
+                                                       Logger log) {
+        assert Dag.validate(reconfigure.getJoinsCount()) : "Reconfigure joins: %s is not BFT".formatted(
+        reconfigure.getJoinsCount());
+        var validators = reconfigure.getJoinsList().stream().collect(Collectors.toMap(e -> {
+            var id = new Digest(e.getMember().getVm().getId());
+            var m = context.getMember(id);
+            if (m == null) {
+                log.info("No member for validator: {}, returning mock on: {}", id, member);
+                return new MockMember(id);
+            } else {
+                return m;
+            }
+        }, e -> {
+            var id = new Digest(e.getMember().getVm().getId());
+            var m = context.getMember(id);
+            if (m == null) {
+                log.info("No member identity verifier: {}, returning NO_VERIFIER on: {}", id, member);
+                return Verifier.NO_VERIFIER;
+            } else {
+                // Member implements Verifier interface using its identity key
+                return (Verifier) m;
+            }
+        }));
+        assert !validators.isEmpty() : "No validators in this reconfiguration of: " + context.getId();
+        return validators;
     }
 
 }
