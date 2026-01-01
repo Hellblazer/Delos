@@ -10,22 +10,23 @@ import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.JohnHancock;
 import com.hellblazer.delos.cryptography.SignatureAlgorithm;
 import com.hellblazer.delos.cryptography.SigningThreshold;
+import com.hellblazer.delos.membership.CertificateMember;
 import com.hellblazer.delos.membership.Member;
 
 import java.io.InputStream;
 import java.security.PublicKey;
 import java.security.cert.X509Certificate;
 
-import static com.hellblazer.delos.membership.Member.getMemberIdentifier;
-import static com.hellblazer.delos.membership.Member.getSigningKey;
+import static com.hellblazer.delos.membership.CertificateMember.getMemberIdentifier;
+import static com.hellblazer.delos.membership.CertificateMember.getSigningKey;
 
 /**
- * A member of the view
+ * X509 certificate-based member implementation.
  *
  * @author hal.hildebrand
  * @since 220
  */
-public class MemberImpl implements Member {
+public class MemberImpl implements CertificateMember {
 
     /**
      * Signing identity

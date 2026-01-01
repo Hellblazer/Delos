@@ -6,65 +6,21 @@
  */
 package com.hellblazer.delos.membership;
 
-import static com.hellblazer.delos.cryptography.QualifiedBase64.digest;
-import static com.hellblazer.delos.cryptography.QualifiedBase64.publicKey;
-
 import java.io.InputStream;
-import java.net.InetSocketAddress;
-import java.security.PublicKey;
-import java.security.cert.X509Certificate;
-import java.util.Map;
 
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.JohnHancock;
 import com.hellblazer.delos.cryptography.Verifier;
 
 /**
- * @author hal.hildebrand
+ * Core member interface providing identity-agnostic membership functionality.
+ * Members are uniquely identified by a Digest and can verify signatures.
+ * <p>
+ * For X509 certificate-based members, see {@link CertificateMember}.
  *
+ * @author hal.hildebrand
  */
 public interface Member extends Comparable<Member>, Verifier {
-
-    static Digest getMemberIdentifier(X509Certificate cert) {
-        String dn = cert.getSubjectX500Principal().getName();
-        Map<String, String> decoded = Util.decodeDN(dn);
-        String id = decoded.get("UID");
-        if (id == null) {
-            throw new IllegalArgumentException("Invalid certificate, missing \"UID\" of dn= " + dn);
-        }
-        return digest(id);
-    }
-
-    static PublicKey getSigningKey(X509Certificate cert) {
-        String dn = cert.getSubjectX500Principal().getName();
-        Map<String, String> decoded = Util.decodeDN(dn);
-        String pk = decoded.get("DC");
-        if (pk == null) {
-            throw new IllegalArgumentException("Invalid certificate, missing \"DC\" of dn= " + dn);
-        }
-        return publicKey(pk);
-    }
-
-    /**
-     * @param certificate
-     * @return host and port for the member indicated by the certificate
-     */
-    static InetSocketAddress portsFrom(X509Certificate certificate) {
-
-        String dn = certificate.getSubjectX500Principal().getName();
-        Map<String, String> decoded = Util.decodeDN(dn);
-        String portString = decoded.get("L");
-        if (portString == null) {
-            throw new IllegalArgumentException("Invalid certificate, no port encodings in \"L\" of dn= " + dn);
-        }
-        int port = Integer.parseInt(portString);
-
-        String hostName = decoded.get("CN");
-        if (hostName == null) {
-            throw new IllegalArgumentException("Invalid certificate, missing \"CN\" of dn= " + dn);
-        }
-        return new InetSocketAddress(hostName, port);
-    }
 
     @Override
     int compareTo(Member o);

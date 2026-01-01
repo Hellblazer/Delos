@@ -11,7 +11,7 @@ import com.hellblazer.delos.cryptography.JohnHancock;
 import com.hellblazer.delos.cryptography.SignatureAlgorithm;
 import com.hellblazer.delos.cryptography.Signer;
 import com.hellblazer.delos.cryptography.cert.CertificateWithPrivateKey;
-import com.hellblazer.delos.membership.Member;
+import com.hellblazer.delos.membership.CertificateMember;
 import com.hellblazer.delos.membership.SigningMember;
 import org.joou.ULong;
 
@@ -21,7 +21,8 @@ import java.security.PublicKey;
 import java.security.cert.X509Certificate;
 
 /**
- * A signiner member of a view. This is a local member to the process that can sign and assert things.
+ * X509 certificate-based signing member implementation.
+ * This is a local member to the process that can sign and assert things.
  *
  * @author hal.hildebrand
  */
@@ -33,7 +34,7 @@ public class SigningMemberImpl extends MemberImpl implements SigningMember {
      * @param cert
      */
     public SigningMemberImpl(CertificateWithPrivateKey cert, ULong sequenceNumber) {
-        this(Member.getMemberIdentifier(cert.getX509Certificate()), cert.getX509Certificate(), cert.getPrivateKey(),
+        this(CertificateMember.getMemberIdentifier(cert.getX509Certificate()), cert.getX509Certificate(), cert.getPrivateKey(),
              new SignerImpl(cert.getPrivateKey(), sequenceNumber), cert.getX509Certificate().getPublicKey());
     }
 
