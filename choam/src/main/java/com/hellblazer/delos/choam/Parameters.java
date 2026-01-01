@@ -56,7 +56,7 @@ public record Parameters(Parameters.RuntimeParameters runtime, ReliableBroadcast
                          Parameters.BootstrapParameters bootstrap, Parameters.ProducerParameters producer,
                          Parameters.MvStoreBuilder mvBuilder, Parameters.LimiterBuilder txnLimiterBuilder,
                          ExponentialBackoffPolicy.Builder submitPolicy, int checkpointSegmentSize,
-                         boolean generateGenesis, int maxPendingBlocks) {
+                         boolean generateGenesis, int maxPendingBlocks, Duration transactionReplayWindow) {
 
     public static Builder newBuilder() {
         return new Builder();
@@ -693,10 +693,11 @@ public record Parameters(Parameters.RuntimeParameters runtime, ReliableBroadcast
         private Duration                         submitTimeout         = Duration.ofSeconds(30);
         private int                              synchronizationCycles = 10;
         private LimiterBuilder                   txnLimiterBuilder     = new LimiterBuilder();
-        private SignatureAlgorithm               viewSigAlgorithm      = SignatureAlgorithm.DEFAULT;
-        private int                              crowns                = 2;
-        private boolean                          generateGenesis       = false;
-        private int                              maxPendingBlocks      = 1000;
+        private SignatureAlgorithm               viewSigAlgorithm         = SignatureAlgorithm.DEFAULT;
+        private int                              crowns                   = 2;
+        private boolean                          generateGenesis          = false;
+        private int                              maxPendingBlocks         = 1000;
+        private Duration                         transactionReplayWindow  = Duration.ofMinutes(5);
 
         public Parameters build(RuntimeParameters runtime) {
             // Clone ethereal config to ensure each Parameters gets an isolated copy
@@ -708,7 +709,7 @@ public record Parameters(Parameters.RuntimeParameters runtime, ReliableBroadcast
                                   checkpointBlockDelta, crowns, digestAlgorithm, viewSigAlgorithm,
                                   synchronizationCycles, regenerationCycles, bootstrap, clonedProducer, mvBuilder,
                                   txnLimiterBuilder, submitPolicy, checkpointSegmentSize, generateGenesis,
-                                  maxPendingBlocks);
+                                  maxPendingBlocks, transactionReplayWindow);
         }
 
         @Override
@@ -895,6 +896,15 @@ public record Parameters(Parameters.RuntimeParameters runtime, ReliableBroadcast
 
         public Builder setMaxPendingBlocks(int maxPendingBlocks) {
             this.maxPendingBlocks = maxPendingBlocks;
+            return this;
+        }
+
+        public Duration getTransactionReplayWindow() {
+            return transactionReplayWindow;
+        }
+
+        public Builder setTransactionReplayWindow(Duration transactionReplayWindow) {
+            this.transactionReplayWindow = transactionReplayWindow;
             return this;
         }
     }

@@ -49,6 +49,8 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.security.KeyPair;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -103,6 +105,9 @@ public class CHOAM {
     private final    AtomicBoolean                                         ongoingJoin           = new AtomicBoolean();
     private final    ReentrantLock                                         viewStateLock         = new ReentrantLock();
     private final    ReadWriteLock                                         headLock              = new ReentrantReadWriteLock();
+    private final    Map<Digest, ClientRateLimiter>                        clientRateLimiters    = new ConcurrentHashMap<>();
+    private final    ConcurrentHashMap<Digest, Instant>                    executedTransactions  = new ConcurrentHashMap<>();
+    private final    ReentrantLock                                         evictionLock          = new ReentrantLock();
     private volatile Thread                                                linear;
 
     public CHOAM(Parameters params) {
@@ -153,6 +158,12 @@ public class CHOAM {
                                             params.context().timeToLive());
         combine.register(_ -> roundScheduler.tick());
         session = new Session(params, service(), scheduler);
+
+        // Schedule periodic eviction of expired transactions from the replay prevention cache
+        scheduler.scheduleAtFixedRate(this::evictExpiredTransactions,
+                                     params.transactionReplayWindow().toMillis(),
+                                     params.transactionReplayWindow().toMillis(),
+                                     TimeUnit.MILLISECONDS);
     }
 
     public static Checkpoint checkpoint(DigestAlgorithm algo, File state, int segmentSize, Digest initial, int crowns,
@@ -656,6 +667,17 @@ public class CHOAM {
         for (int i = 0; i < execs.size(); i++) {
             var exec = execs.get(i);
             Digest hash = hashOf(exec, params.digestAlgorithm());
+
+            // Check for replay attack - has this transaction already been executed?
+            var now = Instant.now();
+            var previousExecution = executedTransactions.putIfAbsent(hash, now);
+            if (previousExecution != null) {
+                // Replay detected - transaction with this hash was already executed
+                log.warn("Replay attack detected: transaction {} was previously executed at {} on: {}",
+                         hash, previousExecution, params.member().getId());
+                continue; // Skip this transaction
+            }
+
             var stxn = session.complete(hash);
             try {
                 params.processor()
@@ -665,6 +687,32 @@ public class CHOAM {
                 log.error("Exception processing transaction: {} block: {} height: {} on: {}", hash, h.hash, h.height(),
                           params.member().getId());
             }
+        }
+    }
+
+    /**
+     * Evict expired transactions from the replay prevention cache.
+     * This method is called periodically by the scheduler to prevent unbounded growth.
+     */
+    private void evictExpiredTransactions() {
+        evictionLock.lock();
+        try {
+            var cutoff = Instant.now().minus(params.transactionReplayWindow());
+            var removed = 0;
+            var iterator = executedTransactions.entrySet().iterator();
+            while (iterator.hasNext()) {
+                var entry = iterator.next();
+                if (entry.getValue().isBefore(cutoff)) {
+                    iterator.remove();
+                    removed++;
+                }
+            }
+            if (removed > 0) {
+                log.debug("Evicted {} expired transactions from replay cache, remaining: {} on: {}",
+                         removed, executedTransactions.size(), params.member().getId());
+            }
+        } finally {
+            evictionLock.unlock();
         }
     }
 
@@ -947,6 +995,14 @@ public class CHOAM {
             log.debug("Invalid transaction submission from non member: {} on: {}", from, params.member().getId());
             return SubmitResult.newBuilder().setResult(Result.INVALID_SUBMIT).build();
         }
+
+        // Check per-client rate limit
+        var rateLimiter = clientRateLimiters.computeIfAbsent(from, k -> new ClientRateLimiter(10, Duration.ofSeconds(1)));
+        if (!rateLimiter.tryAcquire()) {
+            log.debug("Transaction submission rate limited for client: {} on: {}", from, params.member().getId());
+            return SubmitResult.newBuilder().setResult(Result.RATE_LIMITED).build();
+        }
+
         final var c = current.get();
         if (c == null) {
             log.debug("No committee to submit txn from: {} on: {}", from, params.member().getId());
@@ -1780,6 +1836,47 @@ public class CHOAM {
         @Override
         public SubmitResult submit(Transaction request, Digest from) {
             return CHOAM.this.submit(request, from);
+        }
+    }
+
+    /**
+     * Per-client rate limiter using token bucket algorithm with sliding window
+     */
+    private static class ClientRateLimiter {
+        private final ReentrantLock lock = new ReentrantLock();
+        private final int maxTokens;
+        private final Duration window;
+        private long windowStart;
+        private int tokens;
+
+        ClientRateLimiter(int maxTokens, Duration window) {
+            this.maxTokens = maxTokens;
+            this.window = window;
+            this.windowStart = System.currentTimeMillis();
+            this.tokens = maxTokens;
+        }
+
+        boolean tryAcquire() {
+            lock.lock();
+            try {
+                var now = System.currentTimeMillis();
+
+                // Reset window if expired
+                if (now - windowStart >= window.toMillis()) {
+                    windowStart = now;
+                    tokens = maxTokens;
+                }
+
+                // Check if tokens available
+                if (tokens <= 0) {
+                    return false;
+                }
+
+                tokens--;
+                return true;
+            } finally {
+                lock.unlock();
+            }
         }
     }
 }

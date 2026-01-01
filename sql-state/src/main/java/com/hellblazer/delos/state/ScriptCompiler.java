@@ -23,6 +23,9 @@ import java.net.URL;
 import java.security.SecureClassLoader;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Set;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.regex.Pattern;
 
 import javax.tools.FileObject;
 import javax.tools.ForwardingJavaFileManager;
@@ -44,6 +47,99 @@ import deterministic.org.h2.util.Utils;
  *
  */
 public class ScriptCompiler {
+
+    /**
+     * Validates source code for security vulnerabilities before compilation.
+     * Implements defense-in-depth against code injection attacks.
+     */
+    private static class SourceValidator {
+        private static final Pattern VALID_IDENTIFIER = Pattern.compile("^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*$");
+        private static final int MAX_SOURCE_LENGTH = 100_000; // 100KB
+
+        // Forbidden imports - packages that allow dangerous operations
+        private static final Set<String> FORBIDDEN_IMPORTS = Set.of(
+            "java.io", "java.nio", "java.net", "java.lang.reflect",
+            "javax.script", "sun", "jdk", "com.sun"
+        );
+
+        // Dangerous patterns that could allow system compromise
+        private static final Pattern DANGEROUS_PATTERNS = Pattern.compile(
+            "\\b(Runtime\\.|ProcessBuilder|System\\.exit|System\\.setSecurityManager|" +
+            "Class\\.forName|Method\\.invoke|Field\\.set|Constructor\\.newInstance|" +
+            "native\\s+|ClassLoader|URLClassLoader|ScriptEngine)\\b"
+        );
+
+        /**
+         * Validate identifier format (class or package name)
+         */
+        void validateIdentifier(String identifier, String type) {
+            if (identifier == null || identifier.isEmpty()) {
+                throw new SecurityException(type + " cannot be null or empty");
+            }
+            if (!VALID_IDENTIFIER.matcher(identifier).matches()) {
+                throw new SecurityException("Invalid " + type + " format: " + identifier);
+            }
+        }
+
+        /**
+         * Validate source code for security issues
+         */
+        void validateSourceCode(String source) {
+            if (source == null || source.isEmpty()) {
+                throw new SecurityException("Source code cannot be null or empty");
+            }
+            if (source.length() > MAX_SOURCE_LENGTH) {
+                throw new SecurityException("Source code exceeds maximum length of " + MAX_SOURCE_LENGTH + " characters");
+            }
+
+            // Check for forbidden imports
+            var lines = source.lines().map(String::trim).toList();
+            for (var line : lines) {
+                if (line.startsWith("import ")) {
+                    var importStmt = line.substring(7).replace(";", "").trim();
+                    // Remove static keyword if present
+                    if (importStmt.startsWith("static ")) {
+                        importStmt = importStmt.substring(7).trim();
+                    }
+                    // Remove wildcard if present
+                    if (importStmt.endsWith(".*")) {
+                        importStmt = importStmt.substring(0, importStmt.length() - 2);
+                    }
+
+                    // Check against forbidden list
+                    for (var forbidden : FORBIDDEN_IMPORTS) {
+                        if (importStmt.equals(forbidden) || importStmt.startsWith(forbidden + ".")) {
+                            throw new SecurityException("Forbidden import detected: " + importStmt +
+                                " (forbidden: " + forbidden + ")");
+                        }
+                    }
+
+                    // Special check for javax (except allowed ones)
+                    if (importStmt.startsWith("javax.") && !importStmt.startsWith("javax.sql")) {
+                        throw new SecurityException("Forbidden import detected: " + importStmt);
+                    }
+                }
+            }
+
+            // Check for dangerous patterns in the source
+            var matcher = DANGEROUS_PATTERNS.matcher(source);
+            if (matcher.find()) {
+                throw new SecurityException("Dangerous pattern detected in source code: " + matcher.group());
+            }
+        }
+
+        /**
+         * Comprehensive validation of all inputs
+         */
+        void validate(String packageName, String className, String source) {
+            if (packageName != null && !packageName.isEmpty()) {
+                validateIdentifier(packageName, "package name");
+            }
+            validateIdentifier(className, "class name");
+            validateSourceCode(source);
+        }
+    }
+
     /**
      * An in-memory class file manager.
      */
@@ -131,7 +227,13 @@ public class ScriptCompiler {
      */
     static final JavaCompiler JAVA_COMPILER;
 
+    /**
+     * Lock for thread-safe compilation (replaces synchronized keyword per coding standards)
+     */
+    private static final ReentrantLock COMPILER_LOCK = new ReentrantLock();
+
     private static final String COMPILE_DIR = Utils.getProperty("java.io.tmpdir", ".");
+    private static final SourceValidator VALIDATOR = new SourceValidator();
 
     static {
         JavaCompiler c;
@@ -256,27 +358,36 @@ public class ScriptCompiler {
     }
 
     /**
-     * Compile using the standard java compiler.
+     * Compile using the standard java compiler with security validation.
      *
      * @param packageName the package name
      * @param className   the class name
      * @param source      the source code
      * @return the class
+     * @throws SecurityException if source code contains security violations
      */
     Class<?> javaxToolsJavac(String packageName, String className, String source) {
+        // Validate inputs for security
+        VALIDATOR.validate(packageName, className, source);
+
         String fullClassName = packageName == null ? className : packageName + "." + className;
         StringWriter writer = new StringWriter();
         try (JavaFileManager fileManager = new ClassFileManager(JAVA_COMPILER.getStandardFileManager(null, null,
                                                                                                      null))) {
             ArrayList<JavaFileObject> compilationUnits = new ArrayList<>();
             compilationUnits.add(new StringJavaFileObject(fullClassName, source));
-            // cannot concurrently compile
+
+            // Thread-safe compilation using ReentrantLock instead of synchronized
             final boolean ok;
-            synchronized (JAVA_COMPILER) {
+            COMPILER_LOCK.lock();
+            try {
                 ok = JAVA_COMPILER.getTask(writer, fileManager, null, Arrays.asList("-target", "1.8", "-source", "1.8"),
                                            null, compilationUnits)
                                   .call();
+            } finally {
+                COMPILER_LOCK.unlock();
             }
+
             String output = writer.toString();
             handleSyntaxError(output, (ok ? 0 : 1));
             return fileManager.getClassLoader(null).loadClass(fullClassName);

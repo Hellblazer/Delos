@@ -134,4 +134,16 @@ public interface ControlledIdentifier<D extends Identifier> extends BoundIdentif
      * Publish the SealingEvent using the supplied specification
      */
     EventCoordinates seal(InteractionSpecification.Builder spec);
+
+    /**
+     * Mark the current key state as revoked in the provided registry.
+     * After revocation, this identifier should not be used for signing operations.
+     *
+     * @param revocationRegistry the registry to record the revocation
+     */
+    default void revoke(KeyRevocationRegistry revocationRegistry) {
+        if (revocationRegistry != null) {
+            revocationRegistry.revoke(getLastEstablishmentEvent());
+        }
+    }
 }

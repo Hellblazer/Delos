@@ -123,13 +123,23 @@ public class MtlsTest {
         var builder = ServerConnectionCache.newBuilder().setTarget(30);
         var frist = new AtomicBoolean(true);
 
+        // Test validator that accepts all certificates - for testing only
+        var testValidator = new CertificateValidator() {
+            @Override
+            public void validateClient(java.security.cert.X509Certificate[] chain) {
+            }
+
+            @Override
+            public void validateServer(java.security.cert.X509Certificate[] chain) {
+            }
+        };
         var clientContextSupplier = clientContextSupplier();
         views = members.stream().map(node -> {
             DynamicContext<Participant> context = ctxBuilder.build();
             FireflyMetricsImpl metrics = new FireflyMetricsImpl(context.getId(),
                                                                 frist.getAndSet(false) ? node0Registry : registry);
             EndpointProvider ep = new StandardEpProvider(endpoints.get(node.getId()), ClientAuth.REQUIRE,
-                                                         CertificateValidator.NONE, MtlsTest::endpoint);
+                                                         testValidator, MtlsTest::endpoint);
             builder.setMetrics(new ServerConnectionCacheMetricsImpl(frist.getAndSet(false) ? node0Registry : registry));
             CertificateWithPrivateKey certWithKey = certs.get(node.getId());
             Router comms = new MtlsServer(node, ep, clientContextSupplier, serverContextSupplier(certWithKey)).router(

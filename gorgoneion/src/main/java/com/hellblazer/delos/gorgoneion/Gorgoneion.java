@@ -74,7 +74,11 @@ public class Gorgoneion {
     private final Predicate<SignedAttestation>                          verifier;
     private final ScheduledExecutorService                              scheduler;
     private final BiFunction<Credentials, Validations, Any>             provisioner;
-    private final Endorse                                               service = new Endorse();
+    private final Endorse                                               service           = new Endorse();
+    private final ConcurrentHashMap<Digest, Instant>                    seenNonces        = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Digest, Instant>                    seenAttestations  = new ConcurrentHashMap<>();
+    private final java.util.concurrent.locks.ReentrantLock              cleanupLock       = new java.util.concurrent.locks.ReentrantLock();
+    private volatile Instant                                            lastCleanup       = Instant.now();
 
     public Gorgoneion(Predicate<SignedAttestation> verifier, BiFunction<Credentials, Validations, Any> provisioner,
                       Parameters parameters, ControlledIdentifierMember member, Context<Member> context,
@@ -86,7 +90,8 @@ public class Gorgoneion {
                       Parameters parameters, ControlledIdentifierMember member, Context<Member> context,
                       ProtoEventObserver observer, Router admissionsRouter, GorgoneionMetrics metrics,
                       Router endorsementRouter) {
-        this.verifier = verifier;
+        // Use strict default verifier if none provided - secure by default
+        this.verifier = verifier != null ? verifier : Parameters.Builder.getDefaultVerifier();
         this.member = member;
         this.context = context;
         this.parameters = parameters;
@@ -262,7 +267,13 @@ public class Gorgoneion {
 
         var successors = context.bftSubset(digestOf(identifier.toIdent(), parameters.digestAlgorithm()));
         if (context.size() == 1) {
-            var validations = Validations.newBuilder().addValidations(validate(request)).build();
+            // Even in single-member case, must check verifier predicate
+            var validation = verificationOf(request);
+            if (validation == null) {
+                throw new StatusRuntimeException(
+                Status.UNAUTHENTICATED.withDescription("Attestation verification failed"));
+            }
+            var validations = Validations.newBuilder().addValidations(validation).build();
             return Establishment.newBuilder()
                                 .setValidations(validations)
                                 .setProvisioning(provisioner.apply(request, validations))
@@ -321,6 +332,64 @@ public class Gorgoneion {
             return validate(credentials);
         }
         return null;
+    }
+
+    /**
+     * Check if a nonce has been seen before and record it. Returns true if this is a replay attack.
+     *
+     * @param nonceDigest the digest identifying the nonce request
+     * @param timestamp   the timestamp of the request
+     * @return true if replay detected, false if novel request
+     */
+    private boolean checkAndRecordNonce(Digest nonceDigest, Instant timestamp) {
+        maybeCleanup();
+        var previous = seenNonces.putIfAbsent(nonceDigest, timestamp);
+        return previous != null;
+    }
+
+    /**
+     * Check if an attestation has been seen before and record it. Returns true if this is a replay attack.
+     *
+     * @param attestationDigest the digest identifying the attestation
+     * @param timestamp         the timestamp of the request
+     * @return true if replay detected, false if novel request
+     */
+    private boolean checkAndRecordAttestation(Digest attestationDigest, Instant timestamp) {
+        maybeCleanup();
+        var previous = seenAttestations.putIfAbsent(attestationDigest, timestamp);
+        return previous != null;
+    }
+
+    /**
+     * Periodically cleanup expired entries from the replay detection caches.
+     */
+    private void maybeCleanup() {
+        var now = Instant.now();
+        // Run cleanup if last cleanup was more than maxDuration/2 ago
+        if (now.minus(parameters.maxDuration().dividedBy(2)).isAfter(lastCleanup)) {
+            if (cleanupLock.tryLock()) {
+                try {
+                    // Double-check after acquiring lock
+                    if (now.minus(parameters.maxDuration().dividedBy(2)).isAfter(lastCleanup)) {
+                        cleanupExpired(now);
+                        lastCleanup = now;
+                    }
+                } finally {
+                    cleanupLock.unlock();
+                }
+            }
+        }
+    }
+
+    /**
+     * Remove entries older than maxDuration from replay detection caches.
+     */
+    private void cleanupExpired(Instant now) {
+        var cutoff = now.minus(parameters.maxDuration());
+        seenNonces.entrySet().removeIf(entry -> entry.getValue().isBefore(cutoff));
+        seenAttestations.entrySet().removeIf(entry -> entry.getValue().isBefore(cutoff));
+        log.debug("Cleaned up replay cache, remaining nonces: {}, attestations: {} on: {}", seenNonces.size(),
+                  seenAttestations.size(), member.getId());
     }
 
     private class Admit implements AdmissionsService {
@@ -397,6 +466,14 @@ public class Gorgoneion {
                              establishment.getIdentifier(), member.getId());
                     return false;
                 }
+                // Check for replay attack using the attestation signature as unique identifier
+                var attestationDigest = parameters.digestAlgorithm().digest(signedAtt.getSignature().toByteString());
+                var aInstant = Instant.ofEpochSecond(signedAtt.getAttestation().getTimestamp().getSeconds(),
+                                                     signedAtt.getAttestation().getTimestamp().getNanos());
+                if (checkAndRecordAttestation(attestationDigest, aInstant)) {
+                    log.warn("Replay attack detected for credentials from: {} on: {}", from, member.getId());
+                    return false;
+                }
                 return true;
             } else {
                 return false;
@@ -469,6 +546,12 @@ public class Gorgoneion {
             final var now = Instant.now();
             if (now.isBefore(nInstant) || nInstant.plus(parameters.maxDuration()).isBefore(now)) {
                 log.warn("Invalid nonce, invalid timestamp: {} from: {} on: {}", nInstant, from, member.getId());
+                return false;
+            }
+            // Check for replay attack using the noise digest as unique identifier
+            var nonceDigest = Digest.from(request.getNoise());
+            if (checkAndRecordNonce(nonceDigest, nInstant)) {
+                log.warn("Replay attack detected for nonce from: {} on: {}", from, member.getId());
                 return false;
             }
             log.info("Validated nonce from: {} on: {}", from, member.getId());
@@ -599,6 +682,11 @@ public class Gorgoneion {
                          member.getId());
                 return false;
             }
+            // Note: Replay check is NOT performed here because:
+            // 1. The entry point (Admit.validate) already checks for replays
+            // 2. This method is called during distributed validation for the SAME request
+            // 3. If the coordinator node is also in the BFT subset, a duplicate check would
+            //    cause false positive replay detection
             log.info("Valid credential attestation for: {} from: {} on: {}", identifier, from, member.getId());
             return true;
         }
