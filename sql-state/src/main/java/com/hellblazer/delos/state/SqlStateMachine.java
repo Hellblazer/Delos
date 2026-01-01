@@ -102,7 +102,7 @@ public class SqlStateMachine {
         try {
             factory = RowSetProvider.newFactory();
         } catch (SQLException e) {
-            throw new IllegalStateException("Cannot create row set factory", e);
+            throw OracleException.wrap("Cannot create row set factory", e);
         }
     }
 
@@ -127,7 +127,7 @@ public class SqlStateMachine {
         try {
             secureEntropy = SecureRandom.getInstance("SHA1PRNG");
         } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("Unable to get SHA1PRNG secure random instance", e);
+            throw OracleException.wrap("Unable to get SHA1PRNG secure random instance", e);
         }
     }
 
@@ -171,7 +171,7 @@ public class SqlStateMachine {
                     try {
                         return (T) svc.call(parameters);
                     } catch (Throwable e) {
-                        throw new IllegalStateException(e);
+                        throw OracleException.wrap(e);
                     }
                 }
 
@@ -184,7 +184,7 @@ public class SqlStateMachine {
                     try {
                         svc.call(parameters);
                     } catch (Throwable e) {
-                        throw new IllegalStateException(e);
+                        throw OracleException.wrap(e);
                     }
                 }
             });
@@ -321,7 +321,7 @@ public class SqlStateMachine {
         try {
             return new ReadOnlyConnector(new JdbcConnection(getSession(), "", url), getSession());
         } catch (SQLException e) {
-            throw new IllegalStateException(e);
+            throw OracleException.wrap(e);
         }
     }
 
@@ -350,7 +350,7 @@ public class SqlStateMachine {
         try {
             closed = connection.isClosed();
         } catch (SQLException e) {
-            throw new RuntimeException(e);
+            throw OracleException.wrap(e);
         }
         if (closed) {
             throw new AssertionError("Connection should not be closed on: " + id);
@@ -563,8 +563,12 @@ public class SqlStateMachine {
         }
 
         Method call = null;
-        String callName = script.getMethod();
-        for (Method m : instance.getClass().getDeclaredMethods()) {
+        var callName = script.getMethod();
+        // Sort methods deterministically to ensure consistent ordering across all replicas
+        var methods = Arrays.stream(instance.getClass().getDeclaredMethods())
+            .sorted(java.util.Comparator.comparing(Method::getName))
+            .toList();
+        for (var m : methods) {
             if (callName.equals(m.getName())) {
                 call = m;
                 break;
@@ -781,7 +785,7 @@ public class SqlStateMachine {
         } catch (JdbcSQLNonTransientException | JdbcSQLNonTransientConnectionException e) {
         } catch (SQLException e) {
             log.error("Error cleaning published events on: {}", id, e);
-            throw new IllegalStateException("Cannot clean published events", e);
+            throw OracleException.wrap("Cannot clean published events", e);
         }
 
     }
@@ -876,7 +880,7 @@ public class SqlStateMachine {
         try {
             return action.call();
         } catch (Exception e) {
-            throw new IllegalStateException(e);
+            throw OracleException.wrap(e);
         } finally {
             MathUtils.SECURE_RANDOM.set(prev);
             DateTimeUtils.CLOCK.set(prevClock);

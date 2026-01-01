@@ -148,6 +148,12 @@ public final class FunctionAlias extends UserDefinedFunction {
     private void loadClass() {
         Class<?> javaClass = JdbcUtils.loadUserClass(className);
         Method[] methods = javaClass.getMethods();
+        // Sort methods deterministically to ensure consistent ordering across all replicas
+        Arrays.sort(methods, (m1, m2) -> {
+            int nameComp = m1.getName().compareTo(m2.getName());
+            if (nameComp != 0) return nameComp;
+            return Arrays.toString(m1.getParameterTypes()).compareTo(Arrays.toString(m2.getParameterTypes()));
+        });
         ArrayList<JavaMethod> list = new ArrayList<>(1);
         for (int i = 0, len = methods.length; i < len; i++) {
             Method m = methods[i];

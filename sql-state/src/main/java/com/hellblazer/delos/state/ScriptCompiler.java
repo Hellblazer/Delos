@@ -343,12 +343,16 @@ public class ScriptCompiler {
      * @return the method name
      */
     public Method getMethod(String className, String source, ClassLoader parent) throws ClassNotFoundException {
-        Class<?> clazz = getClass(className, source, parent);
-        Method[] methods = clazz.getDeclaredMethods();
-        for (Method m : methods) {
-            int modifiers = m.getModifiers();
+        var clazz = getClass(className, source, parent);
+        var methods = clazz.getDeclaredMethods();
+        // Sort methods deterministically by name to ensure consistent ordering across all replicas
+        var sortedMethods = Arrays.stream(methods)
+            .sorted(java.util.Comparator.comparing(Method::getName))
+            .toList();
+        for (var m : sortedMethods) {
+            var modifiers = m.getModifiers();
             if (Modifier.isPublic(modifiers) && Modifier.isStatic(modifiers)) {
-                String name = m.getName();
+                var name = m.getName();
                 if (!name.startsWith("_") && !m.getName().equals("main")) {
                     return m;
                 }

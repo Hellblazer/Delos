@@ -23,6 +23,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.ArrayDeque;
+import java.util.Arrays;
 import java.util.Deque;
 import java.util.concurrent.Callable;
 import java.util.concurrent.locks.Lock;
@@ -300,7 +301,12 @@ public final class Fsm<Context, Transitions> {
     }
 
     private void executeEntryAction() {
-        for (Method action : current.getClass().getDeclaredMethods()) {
+        // Sort methods deterministically to ensure consistent ordering across all replicas
+        var methods = Arrays.stream(current.getClass().getDeclaredMethods())
+            .sorted(java.util.Comparator.comparing(Method::getName)
+                .thenComparing(m -> Arrays.toString(m.getParameterTypes())))
+            .toList();
+        for (var action : methods) {
             if (action.isAnnotationPresent(Entry.class)) {
                 action.setAccessible(true);
                 if (log.isTraceEnabled()) {
@@ -317,7 +323,7 @@ public final class Fsm<Context, Transitions> {
                 } catch (IllegalAccessException | IllegalArgumentException e) {
                     throw new IllegalStateException(e);
                 } catch (InvocationTargetException e) {
-                    Throwable targetException = e.getTargetException();
+                    var targetException = e.getTargetException();
                     if (targetException instanceof RuntimeException) {
                         throw (RuntimeException) targetException;
                     }
@@ -328,7 +334,12 @@ public final class Fsm<Context, Transitions> {
     }
 
     private void executeExitAction() {
-        for (Method action : current.getClass().getDeclaredMethods()) {
+        // Sort methods deterministically to ensure consistent ordering across all replicas
+        var methods = Arrays.stream(current.getClass().getDeclaredMethods())
+            .sorted(java.util.Comparator.comparing(Method::getName)
+                .thenComparing(m -> Arrays.toString(m.getParameterTypes())))
+            .toList();
+        for (var action : methods) {
             if (action.isAnnotationPresent(Exit.class)) {
                 action.setAccessible(true);
                 if (log.isTraceEnabled()) {
@@ -462,14 +473,23 @@ public final class Fsm<Context, Transitions> {
 
     private Method lookupDefaultTransition(InvalidTransition previousException, Method t) {
         // look for a @Default transition for the state singleton
-        for (Method defaultTransition : current.getClass().getDeclaredMethods()) {
+        // Sort methods deterministically to ensure consistent ordering across all replicas
+        var declaredMethods = Arrays.stream(current.getClass().getDeclaredMethods())
+            .sorted(java.util.Comparator.comparing(Method::getName)
+                .thenComparing(m -> Arrays.toString(m.getParameterTypes())))
+            .toList();
+        for (var defaultTransition : declaredMethods) {
             if (defaultTransition.isAnnotationPresent(Default.class)) {
                 defaultTransition.setAccessible(true);
                 return defaultTransition;
             }
         }
         // look for a @Default transition for the state on the enclosing enum class
-        for (Method defaultTransition : current.getClass().getMethods()) {
+        var methods = Arrays.stream(current.getClass().getMethods())
+            .sorted(java.util.Comparator.comparing(Method::getName)
+                .thenComparing(m -> Arrays.toString(m.getParameterTypes())))
+            .toList();
+        for (var defaultTransition : methods) {
             if (defaultTransition.isAnnotationPresent(Default.class)) {
                 defaultTransition.setAccessible(true);
                 return defaultTransition;
