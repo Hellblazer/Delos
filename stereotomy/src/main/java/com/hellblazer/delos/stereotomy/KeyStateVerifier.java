@@ -40,10 +40,27 @@ public abstract class KeyStateVerifier<D extends Identifier> implements Verifier
     protected abstract KeyState getKeyState(ULong sequenceNumber);
 
     protected Optional<Verifier> verifierFor(ULong sequenceNumber) {
-        KeyState keyState = getKeyState(sequenceNumber);
+        return verifierFor(sequenceNumber, null);
+    }
+
+    /**
+     * Get a verifier for a specific sequence number, checking revocation status
+     *
+     * @param sequenceNumber     the sequence number to get the verifier for
+     * @param revocationRegistry optional registry to check for revoked keys
+     * @return the verifier, or empty if the key state doesn't exist or is revoked
+     */
+    protected Optional<Verifier> verifierFor(ULong sequenceNumber, KeyRevocationRegistry revocationRegistry) {
+        var keyState = getKeyState(sequenceNumber);
         if (keyState == null) {
             return Optional.empty();
         }
+
+        // Check if this key state is revoked
+        if (revocationRegistry != null && revocationRegistry.isRevoked(keyState.getLastEstablishmentEvent())) {
+            return Optional.empty();
+        }
+
         return Optional.of(new DefaultVerifier(keyState.getKeys()));
     }
 }

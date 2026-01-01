@@ -31,4 +31,17 @@ public interface BoundIdentifier<D extends Identifier> extends KeyState {
      * @return the Verifier for the key state binding
      */
     Optional<Verifier> getVerifier();
+
+    /**
+     * Get a verifier that checks revocation status before verifying signatures
+     *
+     * @param revocationRegistry the registry to check for revoked keys
+     * @return the Verifier that checks revocation, or empty if the key is revoked
+     */
+    default Optional<Verifier> getVerifier(KeyRevocationRegistry revocationRegistry) {
+        if (revocationRegistry != null && revocationRegistry.isRevoked(getLastEstablishmentEvent())) {
+            return Optional.empty();
+        }
+        return getVerifier();
+    }
 }

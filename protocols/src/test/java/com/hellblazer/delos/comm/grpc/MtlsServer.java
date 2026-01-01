@@ -79,6 +79,12 @@ public class MtlsServer implements ClientIdentity {
 
     public static SslContext forClient(ClientAuth clientAuth, String alias, X509Certificate certificate,
                                        PrivateKey privateKey, CertificateValidator validator) {
+        if (validator == null) {
+            throw new IllegalArgumentException("CertificateValidator cannot be null");
+        }
+        if (validator == CertificateValidator.NONE) {
+            throw new IllegalArgumentException("CertificateValidator.NONE is not permitted in production code");
+        }
         SslContextBuilder builder = SslContextBuilder.forClient()
                                                      .sslContextProvider(PROVIDER_JSSE)
                                                      .keyManager(
@@ -110,6 +116,12 @@ public class MtlsServer implements ClientIdentity {
 
     public static SslContext forServer(ClientAuth clientAuth, String alias, X509Certificate certificate,
                                        PrivateKey privateKey, CertificateValidator validator) {
+        if (validator == null) {
+            throw new IllegalArgumentException("CertificateValidator cannot be null");
+        }
+        if (validator == CertificateValidator.NONE) {
+            throw new IllegalArgumentException("CertificateValidator.NONE is not permitted in production code");
+        }
         SslContextBuilder builder = SslContextBuilder.forServer(
         new NodeKeyManagerFactory(alias, certificate, privateKey, PROVIDER_JSSE));
         GrpcSslContexts.configure(builder, SslProvider.JDK);
