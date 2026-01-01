@@ -13,7 +13,8 @@ import java.time.Duration;
  */
 public record Parameters(int joinRetries, int minimumBiffCardinality, int rebuttalTimeout, int viewChangeRounds,
                          int finalizeViewRounds, double fpr, int maximumTxfr, Duration retryDelay, int maxPending,
-                         Duration seedingTimeout, int validationRetries, int crowns, Duration populateDuration) {
+                         Duration seedingTimeout, int validationRetries, int crowns, Duration populateDuration,
+                         Duration joinMessageTtl) {
 
     public static Builder newBuilder() {
         return new Builder();
@@ -69,11 +70,15 @@ public record Parameters(int joinRetries, int minimumBiffCardinality, int rebutt
          */
         private int      viewChangeRounds       = 7;
         private Duration populateDuration       = Duration.ofMillis(20);
+        /**
+         * TTL for join messages (replay attack prevention)
+         */
+        private Duration joinMessageTtl         = Duration.ofSeconds(30);
 
         public Parameters build() {
             return new Parameters(joinRetries, minimumBiffCardinality, rebuttalTimeout, viewChangeRounds,
                                   finalizeViewRounds, fpr, maximumTxfr, retryDelay, maxPending, seedingTimout,
-                                  validationRetries, crowns, populateDuration);
+                                  validationRetries, crowns, populateDuration, joinMessageTtl);
         }
 
         public int getCrowns() {
@@ -190,6 +195,15 @@ public record Parameters(int joinRetries, int minimumBiffCardinality, int rebutt
 
         public Builder setViewChangeRounds(int viewChangeRounds) {
             this.viewChangeRounds = viewChangeRounds;
+            return this;
+        }
+
+        public Duration getJoinMessageTtl() {
+            return joinMessageTtl;
+        }
+
+        public Builder setJoinMessageTtl(Duration joinMessageTtl) {
+            this.joinMessageTtl = joinMessageTtl;
             return this;
         }
     }

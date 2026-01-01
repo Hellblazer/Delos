@@ -272,7 +272,14 @@ class Binding {
     }
 
     private Join join(Digest v) {
-        return Join.newBuilder().setView(v.toDigeste()).setNote(node.getNote().getWrapped()).build();
+        var nonce = new byte[16];
+        Entropy.nextSecureBytes(nonce);
+        return Join.newBuilder()
+                   .setView(v.toDigeste())
+                   .setNote(node.getNote().getWrapped())
+                   .setTimestamp(System.currentTimeMillis())
+                   .setNonce(com.google.protobuf.ByteString.copyFrom(nonce))
+                   .build();
     }
 
     private BiConsumer<? super Redirect, ? super Throwable> join(Duration duration, Timer.Context timer) {
