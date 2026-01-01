@@ -54,7 +54,10 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -89,6 +92,8 @@ public class View {
 
     final            CommonCommunications<Fireflies, Service>    comm;
     final            AtomicBoolean                               started             = new AtomicBoolean();
+    final            ReentrantLock                               lifecycleLock       = new ReentrantLock();
+    final            AtomicInteger                               operationsInFlight  = new AtomicInteger(0);
     private final    CommonCommunications<Entrance, Service>     approaches;
     private final    DynamicContext<Participant>                 context;
     private final    DigestAlgorithm                             digestAlgo;
@@ -175,6 +180,31 @@ public class View {
     }
 
     /**
+     * Enter an operation, checking lifecycle state. Must be paired with exitOperation().
+     *
+     * @return true if operation can proceed, false if view is stopped
+     */
+    boolean enterOperation() {
+        lifecycleLock.lock();
+        try {
+            if (!started.get()) {
+                return false;
+            }
+            operationsInFlight.incrementAndGet();
+            return true;
+        } finally {
+            lifecycleLock.unlock();
+        }
+    }
+
+    /**
+     * Exit an operation. Must be called after enterOperation() returns true.
+     */
+    void exitOperation() {
+        operationsInFlight.decrementAndGet();
+    }
+
+    /**
      * @return the context of the view
      */
     public DynamicContext<Participant> getContext() {
@@ -200,9 +230,15 @@ public class View {
      */
     public void start(CompletableFuture<Void> onJoin, Duration d, List<Seed> seedpods) {
         Objects.requireNonNull(onJoin, "Join completion must not be null");
-        if (!started.compareAndSet(false, true)) {
-            return;
+        lifecycleLock.lock();
+        try {
+            if (!started.compareAndSet(false, true)) {
+                return;
+            }
+        } finally {
+            lifecycleLock.unlock();
         }
+
         var seeds = new ArrayList<>(seedpods);
         Entropy.secureShuffle(seeds);
         viewManagement.start(onJoin, seeds.isEmpty());
@@ -235,9 +271,25 @@ public class View {
      * stop the view from performing gossip and monitoring rounds
      */
     public void stop() {
-        if (!started.compareAndSet(true, false)) {
-            return;
+        lifecycleLock.lock();
+        try {
+            if (!started.compareAndSet(true, false)) {
+                return;
+            }
+        } finally {
+            lifecycleLock.unlock();
         }
+
+        // Wait for in-flight operations to complete
+        while (operationsInFlight.get() > 0) {
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+
         viewSerialization.release(10000);
         roundTimers.reset();
         comm.deregister(context.getId());
@@ -522,10 +574,14 @@ public class View {
     }
 
     void scheduleClearObservations() {
-        if (!started.get()) {
+        if (!enterOperation()) {
             return;
         }
-        timers.put(CLEAR_OBSERVATIONS, roundTimers.schedule(CLEAR_OBSERVATIONS, () -> observations.clear(), 1));
+        try {
+            timers.put(CLEAR_OBSERVATIONS, roundTimers.schedule(CLEAR_OBSERVATIONS, () -> observations.clear(), 1));
+        } finally {
+            exitOperation();
+        }
     }
 
     void scheduleFinalizeViewChange() {
@@ -535,11 +591,15 @@ public class View {
     void scheduleFinalizeViewChange(final int finalizeViewRounds) {
         //        log.trace("View change finalization scheduled: {} rounds for: {} joining: {} leaving: {} on: {}",
         //                  finalizeViewRounds, currentView(), joins.size(), context.getOffline().size(), node.getId());
-        if (!started.get()) {
+        if (!enterOperation()) {
             return;
         }
-        timers.put(FINALIZE_VIEW_CHANGE,
-                   roundTimers.schedule(FINALIZE_VIEW_CHANGE, this::finalizeViewChange, finalizeViewRounds));
+        try {
+            timers.put(FINALIZE_VIEW_CHANGE,
+                       roundTimers.schedule(FINALIZE_VIEW_CHANGE, this::finalizeViewChange, finalizeViewRounds));
+        } finally {
+            exitOperation();
+        }
     }
 
     void scheduleViewChange() {
@@ -549,11 +609,15 @@ public class View {
     void scheduleViewChange(final int viewChangeRounds) {
         //        log.trace("Schedule view change: {} rounds for: {}   on: {}", viewChangeRounds, currentView(),
         //                  node.getId());
-        if (!started.get()) {
+        if (!enterOperation()) {
             return;
         }
-        timers.put(SCHEDULED_VIEW_CHANGE,
-                   roundTimers.schedule(SCHEDULED_VIEW_CHANGE, viewManagement::maybeViewChange, viewChangeRounds));
+        try {
+            timers.put(SCHEDULED_VIEW_CHANGE,
+                       roundTimers.schedule(SCHEDULED_VIEW_CHANGE, viewManagement::maybeViewChange, viewChangeRounds));
+        } finally {
+            exitOperation();
+        }
     }
 
     <T> T stable(Callable<T> call) {
@@ -1046,7 +1110,7 @@ public class View {
      * @param duration
      */
     private void gossip(Duration duration) {
-        if (!started.get()) {
+        if (!enterOperation()) {
             return;
         }
         try {
@@ -1067,6 +1131,7 @@ public class View {
                 tick();
             }
         } finally {
+            exitOperation();
             schedule(duration);
         }
     }
@@ -1867,12 +1932,16 @@ public class View {
          */
         @Override
         public void join(Join join, Digest from, StreamObserver<Gateway> responseObserver, Timer.Context timer) {
-            if (!started.get()) {
+            if (!enterOperation()) {
                 responseObserver.onError(
                 new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("Not started")));
                 return;
             }
-            viewManagement.join(join, from, responseObserver, timer);
+            try {
+                viewManagement.join(join, from, responseObserver, timer);
+            } finally {
+                exitOperation();
+            }
         }
 
         public void ping(Ping ping, Digest from) {
@@ -1957,10 +2026,14 @@ public class View {
 
         @Override
         public Redirect seed(Registration registration, Digest from) {
-            if (!started.get()) {
+            if (!enterOperation()) {
                 throw new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("Not started"));
             }
-            return viewManagement.seed(registration, from);
+            try {
+                return viewManagement.seed(registration, from);
+            } finally {
+                exitOperation();
+            }
         }
 
         /**

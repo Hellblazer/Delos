@@ -25,13 +25,21 @@ public interface KeyEventVerifier {
     default Map<Integer, JohnHancock> verifyEndorsements(KeyState state, KeyEvent event,
                                                          Map<Integer, JohnHancock> receipts) {
         var validReceipts = new HashMap<Integer, JohnHancock>();
+        var witnessCount = state.getWitnesses().size();
 
         for (var entry : receipts.entrySet()) {
-            var publicKey = state.getWitnesses().get(entry.getKey()).getPublicKey();
+            var witnessIndex = entry.getKey();
+
+            // Validate witness index bounds
+            if (witnessIndex < 0 || witnessIndex >= witnessCount) {
+                throw new InvalidWitnessReceiptException(event, witnessIndex, witnessCount);
+            }
+
+            var publicKey = state.getWitnesses().get(witnessIndex).getPublicKey();
 
             var ops = SignatureAlgorithm.lookup(publicKey);
             if (ops.verify(publicKey, entry.getValue(), event.getBytes())) {
-                validReceipts.put(entry.getKey(), entry.getValue());
+                validReceipts.put(witnessIndex, entry.getValue());
             }
         }
 

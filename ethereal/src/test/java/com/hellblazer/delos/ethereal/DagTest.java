@@ -19,6 +19,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import com.hellblazer.delos.cryptography.Digest;
@@ -58,7 +59,8 @@ public class DagTest {
         }
     }
 
-    // @Test // TODO, resolution of forking (with alerts or RBAC)
+    @Disabled("Forks are now rejected - this test expected forks to be stored")
+    @Test
     public void aboveWorkingFoTwoForksFromOneUnit() throws Exception {
         Dag d = null;
         try (FileInputStream fis = new FileInputStream(new File("src/test/resources/dags/10/fork_4u.txt"))) {
@@ -77,7 +79,8 @@ public class DagTest {
         assertTrue(u2.above(u1));
     }
 
-    // @Test // TODO, resolution of forking (with alerts or RBAC)
+    @Disabled("Forks are now rejected - this test expected forks to be stored")
+    @Test
     public void correctForkedDealingUnits() throws Exception {
         Dag d = null;
         try (FileInputStream fis = new FileInputStream(new File("src/test/resources/dags/10/forked_dealing.txt"))) {

@@ -146,8 +146,10 @@ public final class Fsm<Context, Transitions> {
      * @return the current state of the Fsm
      */
     public Transitions getCurrentState() {
-        Transitions transitions = current;
-        return transitions;
+        return locked(() -> {
+            Transitions transitions = current;
+            return transitions;
+        });
     }
 
     /**

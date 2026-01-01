@@ -313,6 +313,117 @@ public interface Oracle {
      */
     Stream<Subject> subjects(Relation predicate, Object object) throws SQLException;
 
+    // ==================== Temporal Query Primitives ====================
+
+    /**
+     * Answer the list of direct Subjects that map to the supplied objects at the specified timestamp.
+     * The query only considers subjects with assertions that match the objects completely - i.e. {namespace, name, relation}
+     *
+     * @param atTimestamp the timestamp to query at
+     * @param objects the objects to query
+     * @return list of subjects that had access at the specified time
+     * @throws SQLException
+     */
+    List<Subject> read(ULong atTimestamp, Object... objects) throws SQLException;
+
+    /**
+     * Answer the list of direct Subjects that map to the supplied objects at the specified timestamp.
+     * The query only considers subjects with assertions that match the objects completely - i.e. {namespace, name, relation}
+     * and only the subjects that have the matching predicate
+     *
+     * @param atTimestamp the timestamp to query at
+     * @param predicate the relation filter for subjects
+     * @param objects the objects to query
+     * @return list of subjects that had access at the specified time
+     * @throws SQLException
+     */
+    List<Subject> read(ULong atTimestamp, Relation predicate, Object... objects) throws SQLException;
+
+    /**
+     * Answer the list of direct Objects that map to the supplied subjects at the specified timestamp.
+     * The query only considers objects with assertions that match the subjects completely - i.e. {namespace, name, relation}
+     *
+     * @param atTimestamp the timestamp to query at
+     * @param subjects the subjects to query
+     * @return list of objects that were accessible at the specified time
+     * @throws SQLException
+     */
+    List<Object> read(ULong atTimestamp, Subject... subjects) throws SQLException;
+
+    /**
+     * Answer the list of direct Objects that map to the supplied subjects at the specified timestamp.
+     * The query only considers objects with assertions that match the subjects completely - i.e. {namespace, name, relation}
+     * and only the objects that have the matching predicate
+     *
+     * @param atTimestamp the timestamp to query at
+     * @param predicate the relation filter for objects
+     * @param subjects the subjects to query
+     * @return list of objects that were accessible at the specified time
+     * @throws SQLException
+     */
+    List<Object> read(ULong atTimestamp, Relation predicate, Subject... subjects) throws SQLException;
+
+    /**
+     * Answer the list of Subjects, both direct and transitive, that map to the supplied object at the specified timestamp.
+     * The query only considers subjects with assertions that match the object completely - i.e. {namespace, name, relation}
+     *
+     * @param atTimestamp the timestamp to query at
+     * @param object the object to query
+     * @return list of subjects that had access at the specified time
+     * @throws SQLException
+     */
+    List<Subject> expand(ULong atTimestamp, Object object) throws SQLException;
+
+    /**
+     * Answer the list of Subjects, both direct and transitive, that map to the object from subjects that have the
+     * supplied predicate as their relation at the specified timestamp. The query only considers assertions that match
+     * the object completely - i.e. {namespace, name, relation}
+     *
+     * @param atTimestamp the timestamp to query at
+     * @param predicate the relation filter for subjects
+     * @param object the object to query
+     * @return list of subjects that had access at the specified time
+     * @throws SQLException
+     */
+    List<Subject> expand(ULong atTimestamp, Relation predicate, Object object) throws SQLException;
+
+    /**
+     * Answer the list of direct and transitive Objects that map to the supplied subject at the specified timestamp.
+     * The query only considers objects with assertions that match the subject completely - i.e. {namespace, name, relation}
+     *
+     * @param atTimestamp the timestamp to query at
+     * @param subject the subject to query
+     * @return list of objects that were accessible at the specified time
+     * @throws SQLException
+     */
+    List<Object> expand(ULong atTimestamp, Subject subject) throws SQLException;
+
+    /**
+     * Answer the list of direct and transitive Objects that map to the subject from objects that have the supplied
+     * predicate as their relation at the specified timestamp. The query only considers assertions that match the subject
+     * completely - i.e. {namespace, name, relation}
+     *
+     * @param atTimestamp the timestamp to query at
+     * @param predicate the relation filter for objects
+     * @param subject the subject to query
+     * @return list of objects that were accessible at the specified time
+     * @throws SQLException
+     */
+    List<Object> expand(ULong atTimestamp, Relation predicate, Subject subject) throws SQLException;
+
+    /**
+     * Answer the list of direct and transitive subjects that map to the object at the specified timestamp.
+     * These subjects may be further filtered by the predicate Relation, if not null. The query only considers
+     * assertions that match the object completely - i.e. {namespace, name, relation}
+     *
+     * @param atTimestamp the timestamp to query at
+     * @param predicate optional relation filter for subjects (may be null)
+     * @param object the object to query
+     * @return stream of subjects that had access at the specified time
+     * @throws SQLException
+     */
+    Stream<Subject> subjects(ULong atTimestamp, Relation predicate, Object object) throws SQLException;
+
     record Asserted(ULong ts, boolean added) {
     }
 
