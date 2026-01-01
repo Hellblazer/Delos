@@ -680,7 +680,7 @@ public class CHOAM {
 
             var stxn = session.complete(hash);
             try {
-                params.processor()
+                params.stateExecutor()
                       .execute(i, CHOAM.hashOf(exec, params.digestAlgorithm()), exec,
                                stxn == null ? null : stxn.onCompletion());
             } catch (Throwable t) {
@@ -746,7 +746,7 @@ public class CHOAM {
     private void genesisInitialization(final HashedBlock h, final List<Transaction> initialization) {
         log.info("Executing genesis initialization block: {} on: {}", h.hash, params.member().getId());
         try {
-            params.processor().genesis(h.hash, initialization);
+            params.stateExecutor().genesis(h.hash, initialization);
         } catch (Throwable t) {
             log.error("Exception processing genesis initialization block: {} on: {}", h.hash, params.member().getId(),
                       t);
@@ -787,7 +787,7 @@ public class CHOAM {
                  c.getClass().getSimpleName(), params.member().getId());
         switch (h.block.getBodyCase()) {
         case RECONFIGURE: {
-            params.processor().beginBlock(h.height(), h.hash);
+            params.stateExecutor().beginBlock(h.height(), h.hash);
             reconfigure(h.hash, h.block.getReconfigure());
             break;
         }
@@ -799,17 +799,17 @@ public class CHOAM {
             break;
         }
         case ASSEMBLE: {
-            params.processor().beginBlock(h.height(), h.hash);
+            params.stateExecutor().beginBlock(h.height(), h.hash);
             c.assemble(h.block.getAssemble());
             break;
         }
         case EXECUTIONS: {
-            params.processor().beginBlock(h.height(), h.hash);
+            params.stateExecutor().beginBlock(h.height(), h.hash);
             execute(h.block.getExecutions().getExecutionsList());
             break;
         }
         case CHECKPOINT: {
-            params.processor().beginBlock(h.height(), h.hash);
+            params.stateExecutor().beginBlock(h.height(), h.hash);
             var lastCheckpoint = checkpoint.get().height();
             checkpoint.set(h);
             store.gcFrom(h.height(), lastCheckpoint.add(1));
@@ -817,7 +817,7 @@ public class CHOAM {
         default:
             break;
         }
-        params.processor().endBlock(h.height(), h.hash);
+        params.stateExecutor().endBlock(h.height(), h.hash);
         log.info("End block: {} hash: {} height: {} on: {}", h.block.getBodyCase(), h.hash, h.height(),
                  params.member().getId());
     }

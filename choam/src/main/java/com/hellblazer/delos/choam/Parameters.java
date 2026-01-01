@@ -106,6 +106,10 @@ public record Parameters(Parameters.RuntimeParameters runtime, ReliableBroadcast
         return runtime.restorer;
     }
 
+    public StateExecutor stateExecutor() {
+        return new DefaultStateExecutor(runtime.processor);
+    }
+
     public static class MvStoreBuilder implements Cloneable {
         private int     autoCommitBufferSize = -1;
         private int     autoCompactFillRate  = -1;
