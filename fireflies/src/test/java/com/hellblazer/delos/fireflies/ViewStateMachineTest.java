@@ -140,11 +140,11 @@ public class ViewStateMachineTest {
         assertFalse(ViewState.STOPPING.canTransitionTo(ViewState.JOINED),
                     "STOPPING -> JOINED should be invalid");
 
-        // STOPPED transitions (terminal state)
+        // STOPPED transitions (allows restart)
         assertFalse(ViewState.STOPPED.canTransitionTo(ViewState.INITIAL),
-                    "STOPPED -> INITIAL should be invalid (terminal)");
-        assertFalse(ViewState.STOPPED.canTransitionTo(ViewState.SEEDING),
-                    "STOPPED -> SEEDING should be invalid (terminal)");
+                    "STOPPED -> INITIAL should be invalid");
+        assertTrue(ViewState.STOPPED.canTransitionTo(ViewState.SEEDING),
+                   "STOPPED -> SEEDING should be valid (restart)");
     }
 
     /**

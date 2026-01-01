@@ -116,7 +116,7 @@ public class View {
                 case JOINING -> target == JOINED || target == STOPPING;
                 case JOINED -> target == STOPPING;
                 case STOPPING -> target == STOPPED;
-                case STOPPED -> false; // Terminal state, View must be recreated
+                case STOPPED -> target == SEEDING; // Allow restart after stop
             };
         }
     }
