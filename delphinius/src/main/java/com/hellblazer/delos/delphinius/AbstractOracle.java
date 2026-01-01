@@ -931,7 +931,8 @@ abstract public class AbstractOracle implements Oracle {
                                      .from(subject.crossJoin(o)
                                                   .innerJoin(ASSERTION)
                                                   .on(direct.eq(ASSERTION.SUBJECT).or(inferred.eq(ASSERTION.SUBJECT)))
-                                                  .and(objectId.eq(ASSERTION.OBJECT)))
+                                                  .and(objectId.eq(ASSERTION.OBJECT))
+                                                  .and(ASSERTION.DELETED_AT.isNull()))
                                      .asTable("S"))
                          .on(SUBJECT.ID.eq(direct))
                          .or(SUBJECT.ID.eq(inferred));
@@ -966,7 +967,8 @@ abstract public class AbstractOracle implements Oracle {
                           .on(relNs.ID.eq(RELATION.NAMESPACE))
                           .join(ASSERTION)
                           .on(OBJECT.ID.eq(ASSERTION.OBJECT))
-                          .and(ASSERTION.SUBJECT.eq(resolved.id()));
+                          .and(ASSERTION.SUBJECT.eq(resolved.id()))
+                          .and(ASSERTION.DELETED_AT.isNull());
         if (relation != null) {
             query = query.and(OBJECT.RELATION.eq(relation.id()));
         }
@@ -1000,7 +1002,8 @@ abstract public class AbstractOracle implements Oracle {
                           .on(relNs.ID.eq(RELATION.NAMESPACE))
                           .join(ASSERTION)
                           .on(SUBJECT.ID.eq(ASSERTION.SUBJECT))
-                          .and(ASSERTION.OBJECT.eq(resolved.id()));
+                          .and(ASSERTION.OBJECT.eq(resolved.id()))
+                          .and(ASSERTION.DELETED_AT.isNull());
         if (relation != null) {
             query = query.and(SUBJECT.RELATION.eq(relation.id()));
         }
@@ -1039,10 +1042,11 @@ abstract public class AbstractOracle implements Oracle {
                                      .and(EDGE.PARENT.eq(resolved.id()))
                                      .union(DSL.select(DSL.val(resolved.id())));
 
-        // Find all objects that any of these subjects have assertions for
+        // Find all objects that any of these subjects have assertions for (only non-deleted)
         var assertedObjects = dslCtx.selectDistinct(ASSERTION.OBJECT.as("OBJECT_ID"))
                                     .from(ASSERTION)
                                     .where(ASSERTION.SUBJECT.in(subjectExpansion))
+                                    .and(ASSERTION.DELETED_AT.isNull())
                                     .asTable();
         var assertedObjectId = assertedObjects.field("OBJECT_ID", Long.class);
 

@@ -17,6 +17,14 @@ package com.chiralbehaviors.tron;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.Test;
 
@@ -46,6 +54,85 @@ public class TestSimple {
         Fsm<SimpleProtocol, SimpleFsm> fsm = Fsm.construct(protocol, SimpleFsm.class, SimpleFsm.class.getClassLoader(),
                                                            Simple.INITIAL, true);
         verifyFsmStates(fsm, protocol);
+    }
+
+    @Test
+    public void testGetCurrentStateThreadSafety() throws Exception {
+        var protocol = new SimpleProtocolImpl();
+        var fsm = Fsm.construct(protocol, SimpleFsm.class, Simple.INITIAL, true);
+        var handler = new BufferHandler();
+
+        var iterations = 10_000;
+        var barrier = new CyclicBarrier(2);
+        var failed = new AtomicBoolean(false);
+        var error = new AtomicReference<Throwable>();
+        var completionLatch = new CountDownLatch(2);
+
+        // Reader thread - continuously calls getCurrentState()
+        var reader = new Thread(() -> {
+            try {
+                barrier.await();
+                for (int i = 0; i < iterations && !failed.get(); i++) {
+                    var state = fsm.getCurrentState();
+                    if (state == null) {
+                        failed.set(true);
+                        error.set(new AssertionError("getCurrentState() returned null at iteration " + i));
+                        break;
+                    }
+                    // Verify it's a valid state from our state machine
+                    if (!(state instanceof SimpleFsm)) {
+                        failed.set(true);
+                        error.set(new AssertionError("getCurrentState() returned invalid state: " + state));
+                        break;
+                    }
+                }
+            } catch (Throwable t) {
+                failed.set(true);
+                error.set(t);
+            } finally {
+                completionLatch.countDown();
+            }
+        });
+
+        // Writer thread - continuously cycles through a valid state sequence
+        var writer = new Thread(() -> {
+            try {
+                barrier.await();
+                for (int i = 0; i < iterations && !failed.get(); i++) {
+                    // Execute a complete valid state cycle
+                    fsm.getTransitions().connected(handler);
+                    fsm.getTransitions().writeReady();
+                    fsm.getTransitions().readReady();
+                    fsm.getTransitions().transmitMessage("test-" + i);
+                    fsm.getTransitions().writeReady();
+                    fsm.getTransitions().readReady();
+                    // Small yield to increase chance of interleaving with reader
+                    if (i % 100 == 0) {
+                        Thread.yield();
+                    }
+                }
+            } catch (Throwable t) {
+                failed.set(true);
+                error.set(t);
+            } finally {
+                completionLatch.countDown();
+            }
+        });
+
+        reader.start();
+        writer.start();
+
+        var completed = completionLatch.await(30, TimeUnit.SECONDS);
+        assertTrue(completed, "Test threads did not complete in time");
+
+        if (failed.get()) {
+            var err = error.get();
+            if (err != null) {
+                fail("Thread safety test failed: " + err.getMessage(), err);
+            } else {
+                fail("Thread safety test failed with unknown error");
+            }
+        }
     }
 
     private void verifyFsmStates(Fsm<SimpleProtocol, SimpleFsm> fsm, SimpleProtocol protocol) {

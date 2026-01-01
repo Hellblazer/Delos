@@ -38,14 +38,17 @@ public class DagReader {
     public static void add(Dag dag, PreUnit pu) {
         if (pu.epoch() != dag.epoch()) {
             System.out.println(String.format("Failed: %s reason: %s", pu.hash(), Correctness.DATA_ERROR));
+            return;
         }
         var alreadyInDag = dag.get(pu.hash());
         if (alreadyInDag != null) {
             System.out.println(String.format("Failed: %s reason: %s", pu.hash(), Correctness.DUPLICATE_UNIT));
+            return;
         }
         Decoded decodedParents = dag.decodeParents(pu);
         if (decodedParents.inError()) {
             System.out.println(String.format("Failed: %s reason: %s", pu.hash(), decodedParents.classification()));
+            return;
         }
         Unit[] parents = decodedParents.parents();
         var freeUnit = dag.build(pu, parents);

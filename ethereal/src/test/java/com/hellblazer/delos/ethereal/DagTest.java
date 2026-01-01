@@ -58,7 +58,7 @@ public class DagTest {
         }
     }
 
-    // @Test // TODO, resolution of forking (with alerts or RBAC)
+    @Test
     public void aboveWorkingFoTwoForksFromOneUnit() throws Exception {
         Dag d = null;
         try (FileInputStream fis = new FileInputStream(new File("src/test/resources/dags/10/fork_4u.txt"))) {
@@ -77,7 +77,7 @@ public class DagTest {
         assertTrue(u2.above(u1));
     }
 
-    // @Test // TODO, resolution of forking (with alerts or RBAC)
+    @Test
     public void correctForkedDealingUnits() throws Exception {
         Dag d = null;
         try (FileInputStream fis = new FileInputStream(new File("src/test/resources/dags/10/forked_dealing.txt"))) {
