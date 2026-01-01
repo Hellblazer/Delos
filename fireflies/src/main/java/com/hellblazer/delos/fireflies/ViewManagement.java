@@ -17,6 +17,7 @@ import com.hellblazer.delos.fireflies.View.Node;
 import com.hellblazer.delos.fireflies.View.Participant;
 import com.hellblazer.delos.fireflies.proto.*;
 import com.hellblazer.delos.fireflies.proto.Update.Builder;
+import com.hellblazer.delos.fireflies.support.NonceTracker;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.ring.SliceIterator;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
@@ -63,6 +64,7 @@ public class ViewManagement {
     private final    Lock                                          joinLock     = new ReentrantLock();
     private final    AtomicReference<Digest>                       currentView  = new AtomicReference<>();
     private final    ScheduledExecutorService                      scheduler;
+    private final    NonceTracker                                  nonceTracker;
     private volatile boolean                                       bootstrap;
     private volatile CompletableFuture<Void>                       onJoined;
 
@@ -75,6 +77,7 @@ public class ViewManagement {
         this.metrics = metrics;
         this.digestAlgo = digestAlgo;
         this.scheduler = scheduler;
+        this.nonceTracker = new NonceTracker(params.joinMessageTtl());
         resetBootstrapView();
         bootstrapView = currentView.get();
     }
@@ -349,6 +352,24 @@ public class ViewManagement {
             "Not joined, ignored join of view: %s from: %s on: %s".formatted(joinView, from, node.getId()))));
             return;
         }
+
+        // Validate timestamp is within acceptable window
+        if (!nonceTracker.isTimestampValid(join.getTimestamp())) {
+            log.warn("Rejected join with invalid timestamp: {} (age: {} ms) from: {} on: {}", join.getTimestamp(),
+                     System.currentTimeMillis() - join.getTimestamp(), from, node.getId());
+            responseObserver.onError(new StatusRuntimeException(
+            Status.INVALID_ARGUMENT.withDescription("Join message timestamp expired or invalid")));
+            return;
+        }
+
+        // Validate nonce hasn't been seen before (replay attack prevention)
+        if (!nonceTracker.checkAndTrack(join.getNonce(), join.getTimestamp())) {
+            log.warn("Rejected replay attack: duplicate nonce from: {} on: {}", from, node.getId());
+            responseObserver.onError(
+            new StatusRuntimeException(Status.INVALID_ARGUMENT.withDescription("Duplicate join message (replay)")));
+            return;
+        }
+
         var note = new NoteWrapper(join.getNote(), digestAlgo);
         if (!from.equals(note.getId())) {
             log.debug("Ignored join of view: {} from: {} does not match: {} on: {}", joinView, from, note.getId(),
