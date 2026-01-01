@@ -25,10 +25,15 @@ public record Parameters(Clock clock, Duration registrationTimeout, Duration fre
     }
 
     public static class Builder {
-        private final static Predicate<SignedAttestation> defaultVerifier;
+        private final static Predicate<SignedAttestation> DEFAULT_VERIFIER;
 
         static {
-            defaultVerifier = x -> true;
+            // Secure by default - reject all attestations unless explicitly configured
+            DEFAULT_VERIFIER = x -> false;
+        }
+
+        public static Predicate<SignedAttestation> getDefaultVerifier() {
+            return DEFAULT_VERIFIER;
         }
 
         private Clock           clock               = Clock.systemUTC();
