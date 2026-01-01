@@ -27,12 +27,19 @@ public class StereotomyValidator implements CertificateValidator {
     }
 
     public void validate(final X509Certificate cert) throws CertificateException {
+        // Validate certificate lifetime (notBefore/notAfter)
+        try {
+            cert.checkValidity();
+        } catch (CertificateException e) {
+            throw new CertificateException("Certificate validity check failed: " + e.getMessage(), e);
+        }
+
         var publicKey = cert.getPublicKey();
         var basicId = new BasicIdentifier(publicKey);
 
         var decoded = Stereotomy.decode(cert);
         if (decoded.isEmpty()) {
-            throw new CertificateException();
+            throw new CertificateException("Cannot decode KERI identity from certificate");
         }
         final var qb64Id = qb64(basicId);
         Decoded decoder = decoded.get();
