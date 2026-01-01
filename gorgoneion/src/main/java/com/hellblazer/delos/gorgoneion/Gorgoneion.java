@@ -682,12 +682,11 @@ public class Gorgoneion {
                          member.getId());
                 return false;
             }
-            // Check for replay attack using the attestation signature as unique identifier
-            var attestationDigest = parameters.digestAlgorithm().digest(sa.getSignature().toByteString());
-            if (checkAndRecordAttestation(attestationDigest, aInstant)) {
-                log.warn("Replay attack detected for credential attestation from: {} on: {}", from, member.getId());
-                return false;
-            }
+            // Note: Replay check is NOT performed here because:
+            // 1. The entry point (Admit.validate) already checks for replays
+            // 2. This method is called during distributed validation for the SAME request
+            // 3. If the coordinator node is also in the BFT subset, a duplicate check would
+            //    cause false positive replay detection
             log.info("Valid credential attestation for: {} from: {} on: {}", identifier, from, member.getId());
             return true;
         }
