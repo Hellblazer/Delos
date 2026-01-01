@@ -89,7 +89,7 @@ public class CHOAM {
     private final    AtomicReference<nextView>                             next                  = new AtomicReference<>();
     private final    AtomicReference<Digest>                               nextViewId            = new AtomicReference<>();
     private final    Parameters                                            params;
-    private final    PriorityBlockingQueue<HashedCertifiedBlock>           pending               = new PriorityBlockingQueue<>();
+    private final    BoundedPriorityBlockingQueue<HashedCertifiedBlock>    pending;
     private final    RoundScheduler                                        roundScheduler;
     private final    Session                                               session;
     private final    AtomicBoolean                                         started               = new AtomicBoolean();
@@ -109,6 +109,7 @@ public class CHOAM {
         scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
         this.store = new Store(params.digestAlgorithm(), params.mvBuilder().clone().build());
         this.params = params;
+        this.pending = new BoundedPriorityBlockingQueue<>(params.maxPendingBlocks());
         pendingViews.add(params.context().getId(), params.context().delegate());
 
         rotateViewKeys();
@@ -453,7 +454,10 @@ public class CHOAM {
         HashedCertifiedBlock hcb = new HashedCertifiedBlock(params.digestAlgorithm(), block);
         log.trace("Received block: {} hash: {} height: {} from {} on: {}", hcb.block.getBodyCase(), hcb.hash,
                   hcb.height(), m.source(), params.member().getId());
-        pending.add(hcb);
+        if (!pending.offer(hcb)) {
+            log.warn("Pending block queue full, rejecting block: {} hash: {} height: {} on: {}", hcb.block.getBodyCase(),
+                     hcb.hash, hcb.height(), params.member().getId());
+        }
     }
 
     private BlockProducer constructBlock() {
@@ -571,7 +575,10 @@ public class CHOAM {
                 log.trace("Wait for reconfiguration @ {} block: {} hash: {} height: {} current: {} on: {}",
                           next.block.getHeader().getLastReconfig(), next.block.getBodyCase(), next.hash, next.height(),
                           h.height(), params.member().getId());
-                pending.add(next);
+                if (!pending.offer(next)) {
+                    log.warn("Pending block queue full, rejecting block: {} hash: {} height: {} on: {}",
+                             next.block.getBodyCase(), next.hash, next.height(), params.member().getId());
+                }
             } else {
                 // invalid view
                 log.trace("Invalid view @ {} current: {} block: {} hash: {} height: {} current: {} on: {}", nlc, view,
@@ -602,7 +609,10 @@ public class CHOAM {
         } else if (h.height().compareTo(next.height()) < 0) {
             log.trace("Premature block: {} : {} height: {} current: {} on: {}", next.block.getBodyCase(), next.hash,
                       next.height(), cur.height(), params.member().getId());
-            pending.add(next);
+            if (!pending.offer(next)) {
+                log.warn("Pending block queue full, rejecting block: {} hash: {} height: {} on: {}",
+                         next.block.getBodyCase(), next.hash, next.height(), params.member().getId());
+            }
         } else {
             log.trace("Stale block: {} : {} height: {} current: {} on: {}", next.block.getBodyCase(), next.hash,
                       next.height(), cur.height(), params.member().getId());
@@ -1026,23 +1036,34 @@ public class CHOAM {
             ULong prevHeight = previousBlock.height();
             if (prevHeight == null) {
                 if (!hcb.height().equals(ULong.valueOf(0))) {
-                    pending.add(hcb);
-                    log.debug("Deferring block: {} hash: {} height should be {} and block height is {} on: {}",
-                              hcb.block.getBodyCase(), hcb.hash, 0, header.getHeight(), params.member().getId());
+                    if (!pending.offer(hcb)) {
+                        log.warn("Pending block queue full, rejecting block: {} hash: {} height: {} on: {}",
+                                 hcb.block.getBodyCase(), hcb.hash, hcb.height(), params.member().getId());
+                    } else {
+                        log.debug("Deferring block: {} hash: {} height should be {} and block height is {} on: {}",
+                                  hcb.block.getBodyCase(), hcb.hash, 0, header.getHeight(), params.member().getId());
+                    }
                     return;
                 }
             } else {
                 if (hcb.height().compareTo(prevHeight) <= 0) {
                     log.trace("Discarding previously committed block: {} height: {} current height: {} on: {}",
                               hcb.hash, hcb.height(), prevHeight, params.member().getId());
-                    pending.add(hcb);
+                    if (!pending.offer(hcb)) {
+                        log.warn("Pending block queue full, rejecting block: {} hash: {} height: {} on: {}",
+                                 hcb.block.getBodyCase(), hcb.hash, hcb.height(), params.member().getId());
+                    }
                     return;
                 }
                 if (!hcb.height().equals(prevHeight.add(1))) {
-                    pending.add(hcb);
-                    log.debug("Deferring block: {} hash: {} height should be {} and block height is {} on: {}",
-                              hcb.block.getBodyCase(), hcb.hash, previousBlock.height().add(1), header.getHeight(),
-                              params.member().getId());
+                    if (!pending.offer(hcb)) {
+                        log.warn("Pending block queue full, rejecting block: {} hash: {} height: {} on: {}",
+                                 hcb.block.getBodyCase(), hcb.hash, hcb.height(), params.member().getId());
+                    } else {
+                        log.debug("Deferring block: {} hash: {} height should be {} and block height is {} on: {}",
+                                  hcb.block.getBodyCase(), hcb.hash, previousBlock.height().add(1), header.getHeight(),
+                                  params.member().getId());
+                    }
                     return;
                 }
             }
@@ -1060,9 +1081,13 @@ public class CHOAM {
             }
         } else {
             if (!block.hasGenesis()) {
-                pending.add(hcb);
-                log.info("Deferring block on: {}.  Block: {} hash: {} height should be {} and block height is {}",
-                         params.member().getId(), hcb.block.getBodyCase(), hcb.hash, 0, header.getHeight());
+                if (!pending.offer(hcb)) {
+                    log.warn("Pending block queue full, rejecting block: {} hash: {} height: {} on: {}",
+                             hcb.block.getBodyCase(), hcb.hash, hcb.height(), params.member().getId());
+                } else {
+                    log.info("Deferring block on: {}.  Block: {} hash: {} height should be {} and block height is {}",
+                             params.member().getId(), hcb.block.getBodyCase(), hcb.hash, 0, header.getHeight());
+                }
                 return;
             }
             if (!current.get().validateRegeneration(hcb)) {
@@ -1071,9 +1096,13 @@ public class CHOAM {
                 return;
             }
         }
-        log.info("Deferring block on: {}. Block: {} hash: {} height is {}", params.member().getId(),
-                 hcb.block.getBodyCase(), hcb.hash, header.getHeight());
-        pending.add(hcb);
+        if (!pending.offer(hcb)) {
+            log.warn("Pending block queue full, rejecting block: {} hash: {} height: {} on: {}",
+                     hcb.block.getBodyCase(), hcb.hash, hcb.height(), params.member().getId());
+        } else {
+            log.info("Deferring block on: {}. Block: {} hash: {} height is {}", params.member().getId(),
+                     hcb.block.getBodyCase(), hcb.hash, header.getHeight());
+        }
     }
 
     public interface BlockProducer {
