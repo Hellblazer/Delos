@@ -117,11 +117,6 @@ public class ConcurrencyLimitServerInterceptor implements ServerInterceptor {
     public <ReqT, RespT> Listener<ReqT> interceptCall(final ServerCall<ReqT, RespT> call, final Metadata headers,
                                                       final ServerCallHandler<ReqT, RespT> next) {
 
-        if (!call.getMethodDescriptor().getType().serverSendsOneMessage() ||
-            !call.getMethodDescriptor().getType().clientSendsOneMessage()) {
-            return next.startCall(call, headers);
-        }
-
         return grpcLimiter.acquire(new GrpcServerRequestContext() {
             @Override
             public ServerCall<?, ?> getCall() {
