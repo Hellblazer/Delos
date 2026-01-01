@@ -100,6 +100,7 @@ public class CHOAM {
     private final    PendingViews                                          pendingViews          = new PendingViews();
     private final    ScheduledExecutorService                              scheduler;
     private final    AtomicBoolean                                         ongoingJoin           = new AtomicBoolean();
+    private final    ReadWriteLock                                         headLock              = new ReentrantReadWriteLock();
     private volatile Thread                                                linear;
 
     public CHOAM(Parameters params) {
@@ -541,36 +542,42 @@ public class CHOAM {
     }
 
     private void consume(HashedCertifiedBlock next) {
-        log.trace("Attempting to consume: {} hash: {} height: {}, head: {} height: {} on: {}", next.block.getBodyCase(),
-                  next.hash, next.height(), head.get().hash, head.get().height(), params.member().getId());
-        final HashedCertifiedBlock h = head.get();
-
-        if (h.height() != null && next.height().compareTo(h.height()) <= 0) {
-            // block already past tense
-            log.debug("Stale: {} hash: {} height: {} on: {}", next.block.getBodyCase(), next.hash, next.height(),
+        headLock.writeLock().lock();
+        try {
+            log.trace("Attempting to consume: {} hash: {} height: {}, head: {} height: {} on: {}",
+                      next.block.getBodyCase(), next.hash, next.height(), head.get().hash, head.get().height(),
                       params.member().getId());
-            return;
-        }
+            final HashedCertifiedBlock h = head.get();
 
-        final var nlc = ULong.valueOf(next.block.getHeader().getLastReconfig());
+            if (h.height() != null && next.height().compareTo(h.height()) <= 0) {
+                // block already past tense
+                log.debug("Stale: {} hash: {} height: {} on: {}", next.block.getBodyCase(), next.hash, next.height(),
+                          params.member().getId());
+                return;
+            }
 
-        var view = this.view.get().height();
-        if (h.block == null || nlc.equals(view)) {
-            // same view
-            consume(next, h);
-            return;
-        }
+            final var nlc = ULong.valueOf(next.block.getHeader().getLastReconfig());
 
-        if (view != null && nlc.compareTo(view) > 0) {
-            // later view
-            log.trace("Wait for reconfiguration @ {} block: {} hash: {} height: {} current: {} on: {}",
-                      next.block.getHeader().getLastReconfig(), next.block.getBodyCase(), next.hash, next.height(),
-                      h.height(), params.member().getId());
-            pending.add(next);
-        } else {
-            // invalid view
-            log.trace("Invalid view @ {} current: {} block: {} hash: {} height: {} current: {} on: {}", nlc, view,
-                      next.block.getBodyCase(), next.hash, next.height(), h.height(), params.member().getId());
+            var view = this.view.get().height();
+            if (h.block == null || nlc.equals(view)) {
+                // same view
+                consume(next, h);
+                return;
+            }
+
+            if (view != null && nlc.compareTo(view) > 0) {
+                // later view
+                log.trace("Wait for reconfiguration @ {} block: {} hash: {} height: {} current: {} on: {}",
+                          next.block.getHeader().getLastReconfig(), next.block.getBodyCase(), next.hash, next.height(),
+                          h.height(), params.member().getId());
+                pending.add(next);
+            } else {
+                // invalid view
+                log.trace("Invalid view @ {} current: {} block: {} hash: {} height: {} current: {} on: {}", nlc, view,
+                          next.block.getBodyCase(), next.hash, next.height(), h.height(), params.member().getId());
+            }
+        } finally {
+            headLock.writeLock().unlock();
         }
     }
 
