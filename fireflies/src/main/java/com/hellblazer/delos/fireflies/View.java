@@ -659,6 +659,32 @@ public class View {
         return validation.validate(identifier);
     }
 
+    /**
+     * Validate a note during bootstrap/seeding. This validates the self-addressing identity property
+     * and signature without requiring full KERI event validation.
+     *
+     * @param note the note to validate
+     * @return true if the note is valid for bootstrap purposes
+     */
+    boolean validateBootstrapNote(NoteWrapper note) {
+        // Check 1: ID must equal identifier digest (self-addressing property)
+        // This ensures the note's claimed identity matches its cryptographic identifier
+        var identifier = note.getIdentifier();
+        var expectedId = identifier.getDigest();
+        if (!note.getId().equals(expectedId)) {
+            log.warn("Bootstrap note ID mismatch: {} vs expected {} on: {}", note.getId(), expectedId, node.getId());
+            return false;
+        }
+
+        // Check 2: Verify signature using KERI verifiers
+        if (!verify(identifier, note.getSignature(), note.getWrapped().getNote().toByteString())) {
+            log.warn("Bootstrap note signature invalid for: {} on: {}", note.getId(), node.getId());
+            return false;
+        }
+
+        return true;
+    }
+
     void viewChange(Runnable r) {
         //        log.error("Enter view change on: {}", node.getId());
         final var lock = viewChange.writeLock();

@@ -87,6 +87,11 @@ public class ViewManagement {
     }
 
     void bootstrap(NoteWrapper nw, final Duration dur) {
+        // Validate the bootstrap node's own note (self-certification)
+        if (!view.validateBootstrapNote(nw)) {
+            log.error("Bootstrap node's own note failed validation on: {}", node.getId());
+            throw new IllegalStateException("Bootstrap node validation failed");
+        }
         joins.put(nw.getId(), nw);
         context.activate(node);
 
@@ -600,6 +605,11 @@ public class ViewManagement {
         if (!from.equals(note.getId())) {
             log.trace("Invalid bootstrap note: {} from: {} claiming: {} on: {}", requestView, from, note.getId(),
                       node.getId());
+            return Redirect.getDefaultInstance();
+        }
+        // Bootstrap validation: verify self-addressing identity and signature
+        if (!view.validateBootstrapNote(note)) {
+            log.warn("Bootstrap validation failed for: {} on: {}", from, node.getId());
             return Redirect.getDefaultInstance();
         }
         if (!view.validate(note.getIdentifier())) {

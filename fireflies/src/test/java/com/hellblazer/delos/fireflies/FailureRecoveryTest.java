@@ -24,9 +24,9 @@ import com.hellblazer.delos.stereotomy.StereotomyImpl;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
 import com.hellblazer.delos.stereotomy.mem.MemKERL;
 import com.hellblazer.delos.stereotomy.mem.MemKeyStore;
-import com.hellblazer.delos.utils.EndpointProvider;
+import com.hellblazer.delos.archipelago.EndpointProvider;
+import com.hellblazer.delos.stereotomy.Verifiers;
 import com.hellblazer.delos.utils.Utils;
-import com.hellblazer.delos.utils.Utils.UnsafeExecutors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -36,6 +36,7 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -147,11 +148,11 @@ public class FailureRecoveryTest {
 
         // Verify state consistency across remaining members
         var view0Context = views.get(0).getContext();
-        var view0ActiveSet = view0Context.active().stream().map(Participant::getId).collect(Collectors.toSet());
+        var view0ActiveSet = view0Context.active().map(Participant::getId).collect(Collectors.toSet());
 
         for (int i = 1; i < 6; i++) {
             var viewContext = views.get(i).getContext();
-            var activeSet = viewContext.active().stream().map(Participant::getId).collect(Collectors.toSet());
+            var activeSet = viewContext.active().map(Participant::getId).collect(Collectors.toSet());
             assertEquals(view0ActiveSet, activeSet, "View " + i + " should match view 0 after Byzantine failure");
         }
 
@@ -166,8 +167,8 @@ public class FailureRecoveryTest {
     }
 
     private void initialize() {
-        executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
-        executor2 = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
+        executor = Executors.newVirtualThreadPerTaskExecutor();
+        executor2 = Executors.newVirtualThreadPerTaskExecutor();
         var parameters = Parameters.newBuilder()
                                    .setRebuttalTimeout(2)
                                    .setMaxPending(50)
