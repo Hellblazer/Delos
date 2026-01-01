@@ -65,6 +65,10 @@ public class InteractionEventImpl extends KeyEventImpl implements InteractionEve
         return KeyEvent_.newBuilder().setInteraction(event).build();
     }
 
+    public com.hellblazer.delos.stereotomy.event.proto.InteractionEvent toInteractionEvent_() {
+        return event;
+    }
+
     @Override
     protected ByteString toByteString() {
         return event.toByteString();
