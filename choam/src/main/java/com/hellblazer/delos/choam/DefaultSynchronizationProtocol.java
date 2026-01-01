@@ -25,6 +25,7 @@ import org.joou.ULong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.*;
@@ -64,6 +65,7 @@ public class DefaultSynchronizationProtocol implements SynchronizationProtocol {
     private final RoundScheduler                                        roundScheduler;
     private final Supplier<Context<Member>>                             contextSupplier;
     private final Supplier<Committee>                                   formationFactory;
+    private final CircuitBreaker                                        circuitBreaker;
 
     private final AtomicReference<CompletableFuture<SynchronizedState>> futureBootstrap       = new AtomicReference<>();
     private final AtomicReference<ScheduledFuture<?>>                   futureSynchronization = new AtomicReference<>();
@@ -111,6 +113,8 @@ public class DefaultSynchronizationProtocol implements SynchronizationProtocol {
         this.roundScheduler = Objects.requireNonNull(roundScheduler, "roundScheduler cannot be null");
         this.contextSupplier = Objects.requireNonNull(contextSupplier, "contextSupplier cannot be null");
         this.formationFactory = Objects.requireNonNull(formationFactory, "formationFactory cannot be null");
+        this.circuitBreaker = new CircuitBreaker(params.synchronizationFailureThreshold(),
+                                                  params.synchronizationTimeout());
     }
 
     @Override
@@ -183,6 +187,12 @@ public class DefaultSynchronizationProtocol implements SynchronizationProtocol {
 
     @Override
     public void recover(HashedCertifiedBlock anchor) {
+        if (!circuitBreaker.isCallPermitted()) {
+            log.warn("Circuit breaker OPEN, recovery blocked for anchor: {} on: {}", anchor.hash,
+                     params.member().getId());
+            return;
+        }
+
         cancelBootstrap();
         log.info("Recovering from: {} height: {} on: {}", anchor.hash, anchor.height(), params.member().getId());
         cancelSynchronization();
@@ -192,12 +202,15 @@ public class DefaultSynchronizationProtocol implements SynchronizationProtocol {
             if (t == null) {
                 try {
                     synchronize(s);
+                    circuitBreaker.recordSuccess();
                 } catch (Throwable e) {
                     log.error("Cannot synchronize on: {}", params.member().getId(), e);
+                    circuitBreaker.recordFailure();
                     transitionsSupplier.get().fail();
                 }
             } else {
                 log.error("Synchronization failed on: {}", params.member().getId(), t);
+                circuitBreaker.recordFailure();
                 transitionsSupplier.get().fail();
             }
         }));
@@ -366,6 +379,7 @@ public class DefaultSynchronizationProtocol implements SynchronizationProtocol {
 
     @Override
     public void synchronizationFailed() {
+        circuitBreaker.recordFailure();
         cancelSynchronization();
         var memberContext = contextSupplier.get();
         var activeCount = memberContext.size();

@@ -53,6 +53,7 @@ public record Parameters(Parameters.RuntimeParameters runtime, ReliableBroadcast
                          Duration gossipDuration, int maxCheckpointSegments, Duration submitTimeout,
                          Digest genesisViewId, int checkpointBlockDelta, int crowns, DigestAlgorithm digestAlgorithm,
                          SignatureAlgorithm viewSigAlgorithm, int synchronizationCycles, int regenerationCycles,
+                         int synchronizationFailureThreshold, Duration synchronizationTimeout,
                          Parameters.BootstrapParameters bootstrap, Parameters.ProducerParameters producer,
                          Parameters.MvStoreBuilder mvBuilder, Parameters.LimiterBuilder txnLimiterBuilder,
                          ExponentialBackoffPolicy.Builder submitPolicy, int checkpointSegmentSize,
@@ -694,9 +695,11 @@ public record Parameters(Parameters.RuntimeParameters runtime, ReliableBroadcast
                                                                                                  .setMultiplier(1.6)
                                                                                                  .setMaxBackoff(
                                                                                                  Duration.ofSeconds(5));
-        private Duration                         submitTimeout         = Duration.ofSeconds(30);
-        private int                              synchronizationCycles = 10;
-        private LimiterBuilder                   txnLimiterBuilder     = new LimiterBuilder();
+        private Duration                         submitTimeout                    = Duration.ofSeconds(30);
+        private int                              synchronizationCycles            = 10;
+        private int                              synchronizationFailureThreshold  = 5;
+        private Duration                         synchronizationTimeout           = Duration.ofSeconds(30);
+        private LimiterBuilder                   txnLimiterBuilder                = new LimiterBuilder();
         private SignatureAlgorithm               viewSigAlgorithm         = SignatureAlgorithm.DEFAULT;
         private int                              crowns                   = 2;
         private boolean                          generateGenesis          = false;
@@ -711,7 +714,8 @@ public record Parameters(Parameters.RuntimeParameters runtime, ReliableBroadcast
                                                         producer.maxBatchCount(), producer.maxGossipDelay);
             return new Parameters(runtime, combine, gossipDuration, maxCheckpointSegments, submitTimeout, genesisViewId,
                                   checkpointBlockDelta, crowns, digestAlgorithm, viewSigAlgorithm,
-                                  synchronizationCycles, regenerationCycles, bootstrap, clonedProducer, mvBuilder,
+                                  synchronizationCycles, regenerationCycles, synchronizationFailureThreshold,
+                                  synchronizationTimeout, bootstrap, clonedProducer, mvBuilder,
                                   txnLimiterBuilder, submitPolicy, checkpointSegmentSize, generateGenesis,
                                   maxPendingBlocks, transactionReplayWindow);
         }
@@ -864,6 +868,16 @@ public record Parameters(Parameters.RuntimeParameters runtime, ReliableBroadcast
 
         public Builder setSynchronizationCycles(int synchronizationCycles) {
             this.synchronizationCycles = synchronizationCycles;
+            return this;
+        }
+
+        public Builder setSynchronizationFailureThreshold(int synchronizationFailureThreshold) {
+            this.synchronizationFailureThreshold = synchronizationFailureThreshold;
+            return this;
+        }
+
+        public Builder setSynchronizationTimeout(Duration synchronizationTimeout) {
+            this.synchronizationTimeout = synchronizationTimeout;
             return this;
         }
 
