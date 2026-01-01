@@ -17,6 +17,9 @@ import java.util.Collections;
 import java.util.function.Supplier;
 
 /**
+ * ViewContext for Genesis block creation. During Genesis, consensus keys are not yet exchanged,
+ * so we use member identity keys for Ethereal signature validation.
+ *
  * @author hal.hildebrand
  */
 public class GenesisContext extends ViewContext {
@@ -29,5 +32,25 @@ public class GenesisContext extends ViewContext {
     @Override
     protected Verifier verifierOf(Validate validate) {
         return new Verifier.MockVerifier();
+    }
+
+    /**
+     * Build verifiers array using member identity keys. During Genesis, consensus keys are not yet
+     * available (they are exchanged via Join messages during Genesis consensus), so we use
+     * member identity keys for Ethereal commit/prevote signature validation. Members implement
+     * the Verifier interface.
+     *
+     * @return Verifier[] indexed by PID, with member identity verifiers
+     */
+    @Override
+    public Verifier[] verifiersByPid() {
+        var result = new Verifier[roster().size()];
+        context().stream(1).forEach(m -> {
+            var pid = roster().get(m.getId());
+            if (pid != null && pid >= 0 && pid < result.length) {
+                result[pid] = m; // Member implements Verifier
+            }
+        });
+        return result;
     }
 }

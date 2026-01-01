@@ -176,6 +176,21 @@ public class ViewContext {
         return roster;
     }
 
+    /**
+     * Build an array of verifiers indexed by PID for Ethereal consensus validation.
+     * @return Verifier[] indexed by PID
+     */
+    public Verifier[] verifiersByPid() {
+        var result = new Verifier[roster.size()];
+        for (var entry : validators.entrySet()) {
+            var pid = roster.get(entry.getKey().getId());
+            if (pid != null && pid >= 0 && pid < result.length) {
+                result[pid] = entry.getValue();
+            }
+        }
+        return result;
+    }
+
     public JohnHancock sign(SignedViewMember svm) {
         if (log.isTraceEnabled()) {
             log.trace("Signing: {} on: {}", print(svm, params.digestAlgorithm()), params.member().getId());

@@ -16,6 +16,7 @@ import com.hellblazer.delos.archipelago.ServerConnectionCache;
 import com.hellblazer.delos.context.DynamicContext;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.cryptography.Signer;
+import com.hellblazer.delos.cryptography.Verifier;
 import com.hellblazer.delos.ethereal.memberships.ChRbcGossip;
 import com.hellblazer.delos.ethereal.memberships.comm.EtherealMetricsImpl;
 import com.hellblazer.delos.membership.Member;
@@ -116,6 +117,7 @@ public class EtherealTest {
         int maxSize = 1024 * 1024;
         var expectedEpochs = NUM_EPOCHS + 1;
         var epochCountDown = new CountDownLatch(NPROC * expectedEpochs);
+        var verifiers = members.toArray(new Verifier[0]);
         for (short i = 0; i < (short) NPROC; i++) {
             var level = new AtomicInteger();
             var ds = new SimpleDataSource();
@@ -135,7 +137,7 @@ public class EtherealTest {
                 if (pid == 0) {
                     System.out.println("new epoch: " + ep);
                 }
-            }, "Test: " + i);
+            }, "Test: " + i, verifiers);
 
             var gossiper = new ChRbcGossip(context.getId(), (SigningMember) member, members, controller.processor(),
                                            com, metrics,
@@ -245,6 +247,7 @@ public class EtherealTest {
 
         final var prefix = UUID.randomUUID().toString();
         int maxSize = 1024 * 1024;
+        var verifiers = members.toArray(new Verifier[0]);
         for (short i = 0; i < (short) NPROC; i++) {
             var level = new AtomicInteger();
             var ds = new SimpleDataSource();
@@ -264,7 +267,7 @@ public class EtherealTest {
                 if (pid == 0) {
                     System.out.println("new epoch: " + ep);
                 }
-            }, "Test: " + i);
+            }, "Test: " + i, verifiers);
 
             var gossiper = new ChRbcGossip(context.getId(), (SigningMember) member, members, controller.processor(),
                                            com, metrics,

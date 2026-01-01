@@ -101,9 +101,11 @@ public class Producer {
         }
         serialize = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
         config.setLabel("Producer" + getViewId() + " on: " + params().member().getId());
+        // Use consensus key signer from ViewContext, not the cloned config's signer
+        config.setSigner(view.getSigner());
         var producerMetrics = params().metrics() == null ? null : params().metrics().getProducerMetrics();
         controller = new Ethereal(config.build(), params().producer().maxBatchByteSize() + (8 * 1024), ds, this::serial,
-                                  this::newEpoch, label);
+                                  this::newEpoch, label, view.verifiersByPid());
         coordinator = new ChRbcGossip(view.context().getId(), params().member(), view.membership(),
                                       controller.processor(), params().communications(), producerMetrics, scheduler);
         log.debug("Roster for: {} is: {} on: {}", getViewId(), view.roster(), params().member().getId());
