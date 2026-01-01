@@ -30,10 +30,23 @@ import static com.hellblazer.delos.ethereal.PreUnit.id;
 
 /**
  * Implements the chain Reliable Broadcast of Aleph.
- *
+ * <p>
  * The public methods of the Adder correspond to the gossip replication protocol actions.
+ * <p>
+ * <b>Security Model:</b> PreUnits (proposed DAG units) are NOT individually signed. Instead,
+ * security relies on the RBC (Reliable Broadcast) threshold consensus:
+ * <ul>
+ *   <li>PreVotes require 2f+1 signed endorsements before a unit is committed</li>
+ *   <li>Commits require f+1 signed confirmations before being added to the DAG</li>
+ *   <li>SignedCommit and SignedPreVote messages ARE cryptographically signed and validated</li>
+ * </ul>
+ * This threshold-based approach means a Byzantine node cannot inject arbitrary units without
+ * collusion from a supermajority of the committee. Individual unit signatures would be redundant
+ * given the RBC threshold guarantees.
  *
  * @author hal.hildebrand
+ * @see #validate(SignedCommit) for commit signature validation
+ * @see #validate(SignedPreVote) for prevote signature validation
  */
 public class Adder {
 
