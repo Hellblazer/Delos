@@ -144,6 +144,36 @@ public class ServerConnectionCache {
         });
     }
 
+    /**
+     * Close the connection to a specific member. This removes the connection from the cache and shuts down the
+     * underlying channel. Subsequent borrowing of this member will create a new connection.
+     *
+     * @param to the member whose connection should be closed
+     */
+    public void closeConnection(Member to) {
+        if (!open.get()) {
+            return;
+        }
+        lock(() -> {
+            var connection = cache.remove(to);
+            if (connection != null) {
+                queue.remove(connection);
+                try {
+                    connection.channel.shutdown();
+                    if (metrics != null) {
+                        metrics.closeConnectionRate().mark();
+                        metrics.channelOpenDuration().update(Duration.between(connection.created, Instant.now(clock)));
+                        metrics.openConnections().dec();
+                    }
+                    log.debug("Closed connection to: {} on: {}", to.getId(), member);
+                } catch (Throwable t) {
+                    log.debug("Error closing connection to: {} on: {}", to.getId(), member, t);
+                }
+            }
+            return null;
+        });
+    }
+
     public void release(ReleasableManagedChannel connection) {
         if (!open.get()) {
             return;

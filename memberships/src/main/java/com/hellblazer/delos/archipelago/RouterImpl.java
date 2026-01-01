@@ -262,6 +262,15 @@ public class RouterImpl implements Router {
             return started.get() ? (to.equals(from) ? localLoopback : cache.borrow(context, to, createFunction)) : null;
         }
 
+        /**
+         * Close the connection to a specific member
+         *
+         * @param to the member whose connection should be closed
+         */
+        public void closeConnection(Member to) {
+            cache.closeConnection(to);
+        }
+
         public void deregister(Digest context) {
             routing.unbind(context);
         }

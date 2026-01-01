@@ -530,10 +530,16 @@ public class View {
         }
         log.info("Permanently removing {} member {} from context: {} view: {} on: {}",
                  context.isActive(digest) ? "active" : "failed", digest, context.getId(), currentView(), node.getId());
+        var member = context.getMember(digest);
         context.remove(digest);
         shunned.remove(digest);
         // Clean up any pending state for the removed member
         viewManagement.cleanupMemberState(digest);
+        if (member != null) {
+            // Close GRPC connections to departed member
+            comm.closeConnection(member);
+            approaches.closeConnection(member);
+        }
         if (metrics != null) {
             metrics.leaves().mark();
         }
@@ -1032,6 +1038,9 @@ public class View {
         log.debug("Garbage collecting: {} view: {} on: {}", member.getId(), viewManagement.currentView(), node.getId());
         context.offline(member);
         shunned.add(member.getId());
+        // Close GRPC connections to garbage collected member
+        comm.closeConnection(member);
+        approaches.closeConnection(member);
         viewManagement.gc(member);
     }
 
