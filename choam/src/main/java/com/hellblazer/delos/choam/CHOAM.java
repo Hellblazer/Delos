@@ -49,6 +49,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.security.KeyPair;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -103,6 +104,7 @@ public class CHOAM {
     private final    AtomicBoolean                                         ongoingJoin           = new AtomicBoolean();
     private final    ReentrantLock                                         viewStateLock         = new ReentrantLock();
     private final    ReadWriteLock                                         headLock              = new ReentrantReadWriteLock();
+    private final    Map<Digest, ClientRateLimiter>                        clientRateLimiters    = new ConcurrentHashMap<>();
     private volatile Thread                                                linear;
 
     public CHOAM(Parameters params) {
@@ -947,6 +949,14 @@ public class CHOAM {
             log.debug("Invalid transaction submission from non member: {} on: {}", from, params.member().getId());
             return SubmitResult.newBuilder().setResult(Result.INVALID_SUBMIT).build();
         }
+
+        // Check per-client rate limit
+        var rateLimiter = clientRateLimiters.computeIfAbsent(from, k -> new ClientRateLimiter(10, Duration.ofSeconds(1)));
+        if (!rateLimiter.tryAcquire()) {
+            log.debug("Transaction submission rate limited for client: {} on: {}", from, params.member().getId());
+            return SubmitResult.newBuilder().setResult(Result.RATE_LIMITED).build();
+        }
+
         final var c = current.get();
         if (c == null) {
             log.debug("No committee to submit txn from: {} on: {}", from, params.member().getId());
@@ -1780,6 +1790,47 @@ public class CHOAM {
         @Override
         public SubmitResult submit(Transaction request, Digest from) {
             return CHOAM.this.submit(request, from);
+        }
+    }
+
+    /**
+     * Per-client rate limiter using token bucket algorithm with sliding window
+     */
+    private static class ClientRateLimiter {
+        private final ReentrantLock lock = new ReentrantLock();
+        private final int maxTokens;
+        private final Duration window;
+        private long windowStart;
+        private int tokens;
+
+        ClientRateLimiter(int maxTokens, Duration window) {
+            this.maxTokens = maxTokens;
+            this.window = window;
+            this.windowStart = System.currentTimeMillis();
+            this.tokens = maxTokens;
+        }
+
+        boolean tryAcquire() {
+            lock.lock();
+            try {
+                var now = System.currentTimeMillis();
+
+                // Reset window if expired
+                if (now - windowStart >= window.toMillis()) {
+                    windowStart = now;
+                    tokens = maxTokens;
+                }
+
+                // Check if tokens available
+                if (tokens <= 0) {
+                    return false;
+                }
+
+                tokens--;
+                return true;
+            } finally {
+                lock.unlock();
+            }
         }
     }
 }
