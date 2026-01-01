@@ -631,6 +631,10 @@ public class ViewManagement {
         this.bootstrap = bootstrap;
     }
 
+    void stop() {
+        nonceTracker.shutdown();
+    }
+
     void updateHighWater(Digest d, int attempt) {
         observers.compute(d, (k, v) -> attempt <= v ? v : attempt);
     }

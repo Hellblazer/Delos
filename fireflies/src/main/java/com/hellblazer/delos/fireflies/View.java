@@ -276,6 +276,19 @@ public class View {
         pendingRebuttals.clear();
         context.active().forEach(context::offline);
         scheduler.shutdown();
+        try {
+            if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                log.warn("Scheduler did not terminate within 5 seconds, forcing shutdown on: {}", node.getId());
+                scheduler.shutdownNow();
+                if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                    log.error("Scheduler did not terminate after shutdownNow on: {}", node.getId());
+                }
+            }
+        } catch (InterruptedException e) {
+            log.warn("Interrupted while waiting for scheduler termination on: {}", node.getId());
+            scheduler.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
         final var current = futureGossip;
         futureGossip = null;
         if (current != null) {
@@ -284,7 +297,7 @@ public class View {
         observations.clear();
         timers.values().forEach(RoundScheduler.Timer::cancel);
         timers.clear();
-        viewManagement.clear();
+        viewManagement.stop();
     }
 
     @Override
