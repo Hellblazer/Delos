@@ -218,6 +218,9 @@ public class ViewManagement {
         view.scheduleViewChange();
         view.schedule(dur);
 
+        // Bootstrap is a fast path directly to JOINED state
+        view.transitionState(View.ViewState.JOINED);
+
         log.info("Bootstrapped view: {} cardinality: {} count: {} context: {} on: {}", currentView(),
                  context.cardinality(), context.activeCount(), context.getId(), node.getId());
         onJoined.complete(null);
@@ -455,6 +458,9 @@ public class ViewManagement {
 
             view.scheduleViewChange();
 
+            // Transition to JOINED state
+            view.transitionState(View.ViewState.JOINED);
+
             if (metrics != null) {
                 metrics.viewChanges().mark();
             }
@@ -569,6 +575,9 @@ public class ViewManagement {
                 view.stop();
                 return;
             }
+            // Transition to JOINING state - binding complete, awaiting formal join
+            view.transitionState(View.ViewState.JOINING);
+
             Thread.ofVirtual().start(Utils.wrapped(() -> {
                 view.viewChange(() -> {
                     final var hex = bound.view();

@@ -55,6 +55,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -85,6 +86,40 @@ import static com.hellblazer.delos.fireflies.comm.gossip.FfClient.getCreate;
  * @since 220
  */
 public class View {
+
+    /**
+     * Explicit membership lifecycle states for state machine validation.
+     * Transitions are validated to prevent invalid state changes.
+     */
+    public enum ViewState {
+        /** Initial state before start() is called */
+        INITIAL,
+        /** Connecting to seeds and establishing initial contacts */
+        SEEDING,
+        /** Waiting for join to complete after seeding */
+        JOINING,
+        /** Fully joined and operational */
+        JOINED,
+        /** Stop has been requested, draining operations */
+        STOPPING,
+        /** Fully stopped */
+        STOPPED;
+
+        /**
+         * Validate if transition to target state is allowed from this state.
+         * @return true if transition is valid
+         */
+        public boolean canTransitionTo(ViewState target) {
+            return switch (this) {
+                case INITIAL -> target == SEEDING;
+                case SEEDING -> target == JOINING || target == JOINED || target == STOPPING;
+                case JOINING -> target == JOINED || target == STOPPING;
+                case JOINED -> target == STOPPING;
+                case STOPPING -> target == STOPPED;
+                case STOPPED -> false; // Terminal state, View must be recreated
+            };
+        }
+    }
     private static final String FINALIZE_VIEW_CHANGE  = "Finalize View Change";
     private static final Logger log                   = LoggerFactory.getLogger(View.class);
     private static final String SCHEDULED_VIEW_CHANGE = "Scheduled View Change";
@@ -94,6 +129,7 @@ public class View {
     final            AtomicBoolean                               started             = new AtomicBoolean();
     final            ReentrantLock                               lifecycleLock       = new ReentrantLock();
     final            AtomicInteger                               operationsInFlight  = new AtomicInteger(0);
+    private final    AtomicReference<ViewState>                  viewState           = new AtomicReference<>(ViewState.INITIAL);
     private final    CommonCommunications<Entrance, Service>     approaches;
     private final    DynamicContext<Participant>                 context;
     private final    DigestAlgorithm                             digestAlgo;
@@ -235,6 +271,11 @@ public class View {
             if (!started.compareAndSet(false, true)) {
                 return;
             }
+            // Validate state transition
+            if (!transitionState(ViewState.SEEDING)) {
+                started.set(false);
+                throw new IllegalStateException("Cannot start view from state: " + viewState.get());
+            }
         } finally {
             lifecycleLock.unlock();
         }
@@ -275,6 +316,11 @@ public class View {
         try {
             if (!started.compareAndSet(true, false)) {
                 return;
+            }
+            // Transition to STOPPING - valid from SEEDING, JOINING, or JOINED
+            var current = viewState.get();
+            if (current != ViewState.STOPPING && current != ViewState.STOPPED) {
+                transitionState(ViewState.STOPPING);
             }
         } finally {
             lifecycleLock.unlock();
@@ -318,6 +364,51 @@ public class View {
         timers.values().forEach(RoundScheduler.Timer::cancel);
         timers.clear();
         viewManagement.stop();
+        transitionState(ViewState.STOPPED);
+    }
+
+    /**
+     * @return the current view state
+     */
+    public ViewState getViewState() {
+        return viewState.get();
+    }
+
+    /**
+     * Attempt to transition to a new state with validation.
+     * @param target the target state
+     * @return true if transition succeeded, false if transition was invalid
+     * @throws IllegalStateException if transition is not allowed
+     */
+    boolean transitionState(ViewState target) {
+        lifecycleLock.lock();
+        try {
+            var current = viewState.get();
+            if (!current.canTransitionTo(target)) {
+                log.warn("Invalid state transition: {} -> {} on: {}", current, target, node.getId());
+                return false;
+            }
+            viewState.set(target);
+            log.trace("State transition: {} -> {} on: {}", current, target, node.getId());
+            return true;
+        } finally {
+            lifecycleLock.unlock();
+        }
+    }
+
+    /**
+     * Require a specific state for an operation.
+     * @param required the required state(s)
+     * @throws IllegalStateException if not in required state
+     */
+    void requireState(ViewState... required) {
+        var current = viewState.get();
+        for (var state : required) {
+            if (current == state) {
+                return;
+            }
+        }
+        throw new IllegalStateException("Operation requires state " + Arrays.toString(required) + " but was " + current);
     }
 
     @Override
