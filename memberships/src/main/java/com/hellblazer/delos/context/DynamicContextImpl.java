@@ -42,6 +42,7 @@ public class DynamicContextImpl<T extends Member> implements DynamicContext<T> {
     private final    Map<Digest, Tracked<T>>          members             = new ConcurrentSkipListMap<>();
     private final    Map<UUID, MembershipListener<T>> membershipListeners = new ConcurrentHashMap<>();
     private final    double                           pByz;
+    private final    Object                           rebalanceLock       = new Object();
     private final    List<Ring<T>>                    rings               = new CopyOnWriteArrayList<>();
     private volatile int                              cardinality;
 
@@ -510,31 +511,33 @@ public class DynamicContextImpl<T extends Member> implements DynamicContext<T> {
 
     @Override
     public void rebalance(int newCardinality) {
-        this.cardinality = Math.max(bias + 1, newCardinality);
-        final var ringCount = minMajority(pByz, cardinality, epsilon, bias) * bias + 1;
-        members.values().forEach(t -> t.rebalance(ringCount, this));
-        final var currentCount = rings.size();
-        if (ringCount < currentCount) {
-            for (int i = 0; i < currentCount - ringCount; i++) {
-                var removed = rings.removeLast();
-                removed.clear();
-            }
-        } else if (ringCount > currentCount) {
-            final var added = new ArrayList<Ring<T>>();
-            for (int i = currentCount; i < ringCount; i++) {
-                final var ring = new Ring<>(i, this);
-                rings.add(ring);
-                added.add(ring);
-            }
-            assert rings.size() == ringCount : "Whoops: " + rings.size() + " != " + ringCount;
-            members.values().forEach(t -> {
-                for (var ring : added) {
-                    ring.insert(t.member);
+        synchronized (rebalanceLock) {
+            this.cardinality = Math.max(bias + 1, newCardinality);
+            final var ringCount = minMajority(pByz, cardinality, epsilon, bias) * bias + 1;
+            members.values().forEach(t -> t.rebalance(ringCount, this));
+            final var currentCount = rings.size();
+            if (ringCount < currentCount) {
+                for (int i = 0; i < currentCount - ringCount; i++) {
+                    var removed = rings.removeLast();
+                    removed.clear();
                 }
-            });
+            } else if (ringCount > currentCount) {
+                final var added = new ArrayList<Ring<T>>();
+                for (int i = currentCount; i < ringCount; i++) {
+                    final var ring = new Ring<>(i, this);
+                    rings.add(ring);
+                    added.add(ring);
+                }
+                assert rings.size() == ringCount : "Whoops: " + rings.size() + " != " + ringCount;
+                members.values().forEach(t -> {
+                    for (var ring : added) {
+                        ring.insert(t.member);
+                    }
+                });
+            }
+            assert rings.size() == ringCount : "Ring count: " + rings.size() + " does not match: " + ringCount;
+            log.debug("Rebalanced: {} from: {} to: {} tolerance: {}", id, currentCount, rings.size(), toleranceLevel());
         }
-        assert rings.size() == ringCount : "Ring count: " + rings.size() + " does not match: " + ringCount;
-        log.debug("Rebalanced: {} from: {} to: {} tolerance: {}", id, currentCount, rings.size(), toleranceLevel());
     }
 
     @Override
@@ -553,8 +556,10 @@ public class DynamicContextImpl<T extends Member> implements DynamicContext<T> {
     public void remove(Digest id) {
         var removed = members.remove(id);
         if (removed != null) {
-            for (Ring<T> ring : rings) {
-                ring.delete(removed.member);
+            synchronized (rebalanceLock) {
+                for (Ring<T> ring : rings) {
+                    ring.delete(removed.member);
+                }
             }
         }
     }
@@ -764,10 +769,12 @@ public class DynamicContextImpl<T extends Member> implements DynamicContext<T> {
 
     private Tracked<T> tracking(T m) {
         return members.computeIfAbsent(m.getId(), id1 -> {
-            for (var ring : rings) {
-                ring.insert(m);
+            synchronized (rebalanceLock) {
+                for (var ring : rings) {
+                    ring.insert(m);
+                }
+                return new Tracked<>(m, () -> hashesFor(m));
             }
-            return new Tracked<>(m, () -> hashesFor(m));
         });
     }
 
