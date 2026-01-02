@@ -45,9 +45,21 @@ public class FfClient implements Fireflies {
 
     @Override
     public Void enjoin(Join join) {
-        channel.wrap(FirefliesGrpc.newFutureStub(channel)).enjoin(join);
+        var future = channel.wrap(FirefliesGrpc.newFutureStub(channel)).enjoin(join);
+        // Add callback to log any errors - this is still async but now we can debug failures
+        future.addListener(() -> {
+            try {
+                future.get(); // This will throw if the RPC failed
+            } catch (Exception e) {
+                // Log at debug level since transient failures are expected during view transitions
+                log.debug("Enjoin failed to: {} error: {}", getMember().getId(),
+                         e.getCause() != null ? e.getCause().getMessage() : e.getMessage());
+            }
+        }, java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor());
         return null;
     }
+
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(FfClient.class);
 
     @Override
     public Member getMember() {

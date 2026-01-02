@@ -148,6 +148,20 @@ class AccusationTrackerImpl implements AccusationTracker {
     }
 
     @Override
+    public void cancelPendingRebuttal(Digest digest) {
+        var timer = pendingRebuttals.remove(digest);
+        if (timer != null) {
+            timer.cancel();
+        }
+    }
+
+    @Override
+    public void clearPendingRebuttals() {
+        pendingRebuttals.values().forEach(RoundScheduler.Timer::cancel);
+        pendingRebuttals.clear();
+    }
+
+    @Override
     public void garbageCollect(Participant member) {
         var pending = pendingRebuttals.remove(member.getId());
         if (pending != null) {

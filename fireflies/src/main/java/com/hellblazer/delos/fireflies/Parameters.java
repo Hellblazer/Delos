@@ -15,7 +15,8 @@ public record Parameters(int joinRetries, int minimumBiffCardinality, int rebutt
                          int finalizeViewRounds, double fpr, int maximumTxfr, Duration retryDelay, int maxPending,
                          Duration seedingTimeout, int validationRetries, int crowns, Duration populateDuration,
                          Duration joinMessageTtl, Duration pendingJoinTtl,
-                         int maxJoinAttemptsPerMinute, Duration joinRateLimitWindow) {
+                         int maxJoinAttemptsPerMinute, Duration joinRateLimitWindow,
+                         Duration enjoinPropagationDelay) {
 
     public static Builder newBuilder() {
         return new Builder();
@@ -88,12 +89,17 @@ public record Parameters(int joinRetries, int minimumBiffCardinality, int rebutt
          * Time window for join rate limiting (Sybil protection)
          */
         private Duration joinRateLimitWindow    = Duration.ofMinutes(1);
+        /**
+         * Delay between enjoin propagation RPCs to observers.
+         * Allows time for each RPC to complete before moving to next observer.
+         */
+        private Duration enjoinPropagationDelay = Duration.ofMillis(10);
 
         public Parameters build() {
             return new Parameters(joinRetries, minimumBiffCardinality, rebuttalTimeout, viewChangeRounds,
                                   finalizeViewRounds, fpr, maximumTxfr, retryDelay, maxPending, seedingTimout,
                                   validationRetries, crowns, populateDuration, joinMessageTtl, pendingJoinTtl,
-                                  maxJoinAttemptsPerMinute, joinRateLimitWindow);
+                                  maxJoinAttemptsPerMinute, joinRateLimitWindow, enjoinPropagationDelay);
         }
 
         public int getCrowns() {
@@ -246,6 +252,15 @@ public record Parameters(int joinRetries, int minimumBiffCardinality, int rebutt
 
         public Builder setJoinRateLimitWindow(Duration joinRateLimitWindow) {
             this.joinRateLimitWindow = joinRateLimitWindow;
+            return this;
+        }
+
+        public Duration getEnjoinPropagationDelay() {
+            return enjoinPropagationDelay;
+        }
+
+        public Builder setEnjoinPropagationDelay(Duration enjoinPropagationDelay) {
+            this.enjoinPropagationDelay = enjoinPropagationDelay;
             return this;
         }
     }

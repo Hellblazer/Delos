@@ -117,6 +117,23 @@ public interface AccusationTracker {
      */
     boolean hasPendingRebuttals();
 
+    /**
+     * Cancel the pending rebuttal timer for a member by digest.
+     * <p>
+     * Called when a member is removed from the view (e.g., during view change completion).
+     * Does NOT clear accusations - only cancels the timer.
+     *
+     * @param digest the member's digest
+     */
+    void cancelPendingRebuttal(Digest digest);
+
+    /**
+     * Clear all pending rebuttal timers.
+     * <p>
+     * Called during view shutdown to prevent stale timer firings.
+     */
+    void clearPendingRebuttals();
+
     // === Garbage Collection ===
 
     /**

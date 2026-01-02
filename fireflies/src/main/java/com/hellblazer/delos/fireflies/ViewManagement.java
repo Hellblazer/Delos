@@ -284,9 +284,14 @@ public class ViewManagement {
                 throw new StatusRuntimeException(
                 Status.FAILED_PRECONDITION.withDescription("Not observer, ignored join of view"));
             }
+            // Note: We intentionally do NOT reject based on view mismatch here.
+            // Enjoin comes from trusted observers (already validated above), and view
+            // transitions can cause race conditions where the sender has completed
+            // view change before we have. We accept the join and let the view change
+            // process reconcile. The joins map will be used when we reach consensus.
             if (!thisView.equals(joinView)) {
-                throw new StatusRuntimeException(
-                Status.OUT_OF_RANGE.withDescription("View: " + joinView + " does not match: " + thisView));
+                log.debug("Enjoin view mismatch (accepting anyway): join view: {} != local view: {} from: {} on: {}",
+                          joinView, thisView, from, node.getId());
             }
             joins.putIfAbsent(note.getId(), note);
             log.debug("Member pending enjoin: {} via: {} view: {} context: {} on: {}", from, observer, currentView(),
@@ -326,22 +331,22 @@ public class ViewManagement {
     void initiateViewChange() {
         view.stable(() -> {
             if (vote.get() != null) {
-                log.trace("Vote already cast for: {} on: {}", currentView(), node.getId());
+                log.info("Vote already cast for: {} on: {}", currentView(), node.getId());
                 return;
             }
             // Use pending rebuttals as a proxy for stability
             if (view.hasPendingRebuttals()) {
-                log.debug("Pending rebuttals in view: {} on: {}", currentView(), node.getId());
+                log.info("Pending rebuttals in view: {} on: {}", currentView(), node.getId());
                 view.scheduleViewChange(1);
                 return;
             }
             view.scheduleFinalizeViewChange();
             if (!isObserver(node.getId())) {
-                log.debug("Initiating (non observer) view change: {} joins: {} leaves: {} on: {}", currentView(),
+                log.info("Initiating (non observer) view change: {} joins: {} leaves: {} on: {}", currentView(),
                           joins.size(), view.streamShunned().count(), node.getId());
                 return;
             }
-            log.debug("Initiating (observer) view change vote: {} joins: {} leaves: {} observers: {} on: {}",
+            log.info("Initiating (observer) view change vote: {} joins: {} leaves: {} observers: {} on: {}",
                       currentView(), joins.size(), view.streamShunned().count(), observersList(), node.getId());
             final var builder = ViewChange.newBuilder()
                                           .setObserver(node.getId().toDigeste())
@@ -560,11 +565,19 @@ public class ViewManagement {
             joins.put(note.getId(), note);
             log.debug("Member pending join: {} view: {} context: {} on: {}", from, currentView(), context.getId(),
                       node.getId());
+            // Propagate join to all observers asynchronously
+            // Use configurable delay to allow RPCs to complete before moving to next observer
+            var observerList = observers.keySet().stream().map(context::getActiveMember).toList();
             var enjoining = new SliceIterator<>("Enjoining[%s:%s]".formatted(currentView(), from), node,
-                                                observers.keySet().stream().map(context::getActiveMember).toList(),
-                                                view.comm, scheduler);
-            enjoining.iterate(t -> t.enjoin(join), (_, _, _, _) -> true, () -> {
-            }, Duration.ofMillis(1));
+                                                observerList, view.comm, scheduler);
+            enjoining.iterate(t -> {
+                log.trace("Propagating join of: {} to observer: {} on: {}", from,
+                          t.getMember() != null ? t.getMember().getId() : "null", node.getId());
+                return t.enjoin(join);
+            }, (_, _, _, _) -> true, () -> {
+                log.trace("Completed join propagation for: {} to {} observers on: {}",
+                          from, observerList.size(), node.getId());
+            }, params.enjoinPropagationDelay());
         });
     }
 

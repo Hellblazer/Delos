@@ -314,6 +314,7 @@ public class View {
             }
         }
 
+        accusationTracker.clearPendingRebuttals();
         roundTimers.reset();
         comm.deregister(context.getId());
         context.active().forEach(context::offline);
@@ -554,6 +555,7 @@ public class View {
      * @param digest
      */
     void remove(Digest digest) {
+        accusationTracker.cancelPendingRebuttal(digest);
         membershipManager.remove(digest);
     }
 
@@ -793,10 +795,13 @@ public class View {
     private boolean addJoin(SignedNote sn) {
         final var note = new NoteWrapper(sn, digestAlgo);
 
+        // Accept joins even with view mismatch - view transitions are async across nodes.
+        // This mirrors the fix applied to ViewManagement.enjoin(). Both the direct enjoin
+        // RPC path and this gossip backup path must accept view mismatch for reliable
+        // join propagation during async view transitions.
         if (!currentView().equals(note.currentView())) {
-            log.trace("Invalid join note view: {} current: {} from: {} on: {}", note.currentView(), currentView(),
-                      note.getId(), node.getId());
-            return false;
+            log.debug("Join note view mismatch (accepting anyway): {} vs {} from: {} on: {}",
+                      note.currentView(), currentView(), note.getId(), node.getId());
         }
 
         if (viewManagement.contains(note.getId())) {
