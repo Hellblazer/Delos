@@ -110,6 +110,38 @@ public interface MembershipManager {
      */
     Stream<Digest> streamShunned();
 
+    /**
+     * Check if a shunned member can attempt recovery.
+     * <p>
+     * Recovery is allowed if:
+     * <ul>
+     *   <li>Member is currently shunned</li>
+     *   <li>Configured recovery duration has elapsed since shunning</li>
+     *   <li>Sufficient time has passed since last recovery attempt (rate limiting)</li>
+     * </ul>
+     *
+     * @param memberId the member to check
+     * @return true if recovery is allowed
+     */
+    boolean canRecover(Digest memberId);
+
+    /**
+     * Attempt recovery of a shunned member.
+     * <p>
+     * Validates the recovery request and removes from shunned set if eligible.
+     * Requires:
+     * <ul>
+     *   <li>Member must be currently shunned</li>
+     *   <li>Recovery period must have elapsed</li>
+     *   <li>Note must have valid signature for the member's identity</li>
+     *   <li>Rate limiting requirements must be satisfied</li>
+     * </ul>
+     *
+     * @param note the recovery note with updated epoch and valid signature
+     * @return true if recovery succeeded
+     */
+    boolean attemptRecovery(NoteWrapper note);
+
     // === Initialization ===
 
     /**

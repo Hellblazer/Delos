@@ -632,6 +632,53 @@ public class View {
         return membershipManager.streamShunned();
     }
 
+    /**
+     * Shun a member (permanent exclusion from current view).
+     * <p>
+     * Public API for testing and external components.
+     *
+     * @param id the member to shun
+     */
+    public void shun(Digest id) {
+        membershipManager.shun(id);
+    }
+
+    /**
+     * Check if a member is shunned.
+     * <p>
+     * Public API for testing and external components.
+     *
+     * @param id the member ID
+     * @return true if the member is shunned
+     */
+    public boolean isShunned(Digest id) {
+        return membershipManager.isShunned(id);
+    }
+
+    /**
+     * Check if a shunned member can attempt recovery.
+     * <p>
+     * Public API for testing and external components.
+     *
+     * @param memberId the member to check
+     * @return true if recovery is allowed
+     */
+    public boolean canRecover(Digest memberId) {
+        return membershipManager.canRecover(memberId);
+    }
+
+    /**
+     * Attempt recovery of a shunned member.
+     * <p>
+     * Public API for testing and external components.
+     *
+     * @param note the recovery note with updated epoch and valid signature
+     * @return true if recovery succeeded
+     */
+    public boolean attemptRecovery(NoteWrapper note) {
+        return membershipManager.attemptRecovery(note);
+    }
+
     void tick() {
         roundTimers.tick();
     }
