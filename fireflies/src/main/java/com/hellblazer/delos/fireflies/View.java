@@ -140,7 +140,6 @@ public class View {
     private final    Node                                        node;
     private final    Map<Digest, SVU>                            observations        = new ConcurrentSkipListMap<>();
     private final    Parameters                                  params;
-    private final    ConcurrentMap<Digest, RoundScheduler.Timer> pendingRebuttals    = new ConcurrentSkipListMap<>();
     private final    RoundScheduler                              roundTimers;
     private final    Map<String, RoundScheduler.Timer>           timers              = new ConcurrentHashMap<>();
     private final    ReadWriteLock                               viewChange;
@@ -149,6 +148,7 @@ public class View {
     private final    Verifiers                                   verifiers;
     private final    ScheduledExecutorService                    scheduler;
     private final    MembershipManager                           membershipManager;
+    private final    AccusationTracker                           accusationTracker;
     private volatile ScheduledFuture<?>                          futureGossip;
 
     public View(DynamicContext<Participant> context, ControlledIdentifierMember member, String endpoint,
@@ -183,8 +183,10 @@ public class View {
         this.verifiers = verifiers;
         viewChange = new ReentrantReadWriteLock(true);
 
-        // Initialize membership manager
-        this.membershipManager = new MembershipManagerImpl(new ViewContextAdapter(), new AccusationTrackerAdapter(),
+        // Initialize accusation tracker and membership manager
+        this.accusationTracker = new AccusationTrackerImpl(new ViewContextAdapter(), roundTimers, viewManagement,
+                                                           this::recover);
+        this.membershipManager = new MembershipManagerImpl(new ViewContextAdapter(), accusationTracker,
                                                            viewManagement, verifiers, this::createParticipant);
     }
 
@@ -347,7 +349,6 @@ public class View {
         viewSerialization.release(10000);
         roundTimers.reset();
         comm.deregister(context.getId());
-        pendingRebuttals.clear();
         context.active().forEach(context::offline);
         scheduler.shutdown();
         try {
@@ -431,14 +432,7 @@ public class View {
      * @param ring
      */
     void accuse(Participant member, int ring, Throwable e) {
-        if (member.isAccusedOn(ring) || member.isDisabled(ring)) {
-            return; // Don't issue multiple accusations
-        }
-        member.addAccusation(node.accuse(member, ring));
-        pendingRebuttals.computeIfAbsent(member.getId(),
-                                         d -> roundTimers.schedule(() -> gc(member), params.rebuttalTimeout()));
-        log.info("Accuse: {} on ring: {} view: {} (timer started): {} on: {}", member.getId(), ring, currentView(),
-                 e.getMessage(), node.getId());
+        accusationTracker.accuse(member, ring, e);
     }
 
     boolean addToView(NoteWrapper note) {
@@ -489,7 +483,7 @@ public class View {
             member.setNote(note);
             recover(member);
             if (accused) {
-                checkInvalidations(member);
+                accusationTracker.checkInvalidations(member);
             }
             if (!viewManagement.joined() && context.size() == viewManagement.cardinality()) {
                 assert context.size() == viewManagement.cardinality();
@@ -576,7 +570,7 @@ public class View {
     }
 
     boolean hasPendingRebuttals() {
-        return !pendingRebuttals.isEmpty();
+        return accusationTracker.hasPendingRebuttals();
     }
 
     void initiate(SignedViewChange viewChange) {
@@ -656,10 +650,6 @@ public class View {
      * @param digest
      */
     void remove(Digest digest) {
-        var pending = pendingRebuttals.remove(digest);
-        if (pending != null) {
-            pending.cancel();
-        }
         membershipManager.remove(digest);
     }
 
@@ -756,12 +746,7 @@ public class View {
      * @param m
      */
     void stopRebuttalTimer(Participant m) {
-        m.clearAccusations();
-        var timer = pendingRebuttals.remove(m.getId());
-        if (timer != null) {
-            log.info("Cancelling accusation of: {} on: {}", m.getId(), node.getId());
-            timer.cancel();
-        }
+        accusationTracker.stopRebuttalTimer(m);
     }
 
     Stream<Digest> streamShunned() {
@@ -887,111 +872,9 @@ public class View {
      * @param accusation
      */
     private boolean add(AccusationWrapper accusation) {
-        Participant accuser = context.getMember(accusation.getAccuser());
-        Participant accused = context.getMember(accusation.getAccused());
-        if (accuser == null || accused == null) {
-            log.trace("Accusation discarded, accused: {} or accuser: {} do not exist in view on: {}",
-                      accusation.getAccused(), accusation.getAccuser(), node.getId());
-            return false;
-        }
-
-        if (!context.validRing(accusation.getRingNumber())) {
-            log.trace("Accusation discarded, invalid ring: {} on: {}", accusation.getRingNumber(), node.getId());
-            return false;
-        }
-
-        if (accused.getEpoch() >= 0 && accused.getEpoch() != accusation.getEpoch()) {
-            log.trace("Accusation discarded, epoch: {}  for: {} != epoch: {} on: {}", accusation.getEpoch(),
-                      accused.getId(), accused.getEpoch(), node.getId());
-            return false;
-        }
-
-        if (accused.isDisabled(accusation.getRingNumber())) {
-            log.trace("Accusation discarded, Member: {} accused on disabled ring: {} by: {} on: {}", accused.getId(),
-                      accusation.getRingNumber(), accuser.getId(), node.getId());
-            return false;
-        }
-
-        return add(accusation, accuser, accused);
+        return accusationTracker.processAccusation(accusation);
     }
 
-    /**
-     * Add an accusation into the view,
-     *
-     * @param accusation
-     * @param accuser
-     * @param accused
-     */
-    private boolean add(AccusationWrapper accusation, Participant accuser, Participant accused) {
-        if (node.equals(accused)) {
-            node.clearAccusations();
-            node.nextNote();
-            return false;
-        }
-        if (!context.validRing(accusation.getRingNumber())) {
-            return false;
-        }
-
-        var acc = accused.getAccusation(accusation.getRingNumber());
-        if (acc != null) {
-            var currentAccuser = context.getMember(acc.getAccuser());
-            if (currentAccuser == null || !currentAccuser.equals(accuser)) {
-                if (currentAccuser == null || context.isBetween(accusation.getRingNumber(), currentAccuser, accuser,
-                                                                accused)) {
-                    if (!accused.verify(accusation.getSignature(),
-                                        accusation.getWrapped().getAccusation().toByteString())) {
-                        log.debug("Accusation discarded, accusation by: {} accused:{} signature invalid on: {}",
-                                  accuser.getId(), accused.getId(), node.getId());
-                        return false;
-                    }
-                    accused.addAccusation(accusation);
-                    pendingRebuttals.computeIfAbsent(accused.getId(), d -> roundTimers.schedule(() -> gc(accused),
-                                                                                                params.rebuttalTimeout()));
-                    log.info("{} accused by: {} on ring: {} (replacing: {}) on: {}", accused.getId(), accuser.getId(),
-                             accusation.getRingNumber(), currentAccuser.getId(), node.getId());
-                    if (metrics != null) {
-                        metrics.accusations().mark();
-                    }
-                    return true;
-                } else {
-                    log.debug("{} accused by: {} on ring: {} discarded as not closer than: {} on: {}", accused.getId(),
-                              accuser.getId(), accusation.getRingNumber(), currentAccuser.getId(), node.getId());
-                    return false;
-                }
-            } else {
-                log.debug("{} accused by: {} on ring: {} discarded as redundant: {} on: {}", accused.getId(),
-                          accuser.getId(), accusation.getRingNumber(), currentAccuser.getId(), node.getId());
-                return false;
-            }
-        } else {
-            if (membershipManager.isShunned(accused.getId())) {
-                accused.addAccusation(accusation);
-                if (metrics != null) {
-                    metrics.accusations().mark();
-                }
-                return false;
-            }
-            var predecessor = context.predecessor(accusation.getRingNumber(), accused,
-                                                  m -> (!m.isAccused()) || (m.equals(accuser)));
-            if (accuser.equals(predecessor)) {
-                accused.addAccusation(accusation);
-                if (!accused.equals(node) && !pendingRebuttals.containsKey(accused.getId())) {
-                    log.info("{} accused by: {} on ring: {} (timer started) on: {}", accused.getId(), accuser.getId(),
-                             accusation.getRingNumber(), node.getId());
-                    pendingRebuttals.computeIfAbsent(accused.getId(), d -> roundTimers.schedule(() -> gc(accused),
-                                                                                                params.rebuttalTimeout()));
-                }
-                if (metrics != null) {
-                    metrics.accusations().mark();
-                }
-                return true;
-            } else {
-                log.debug("{} accused by: {} on ring: {} discarded as not predecessor: {} on: {}", accused.getId(),
-                          accuser.getId(), accusation.getRingNumber(), predecessor.getId(), node.getId());
-                return false;
-            }
-        }
-    }
 
     private boolean add(NoteWrapper note) {
         if (membershipManager.isShunned(note.getId())) {
@@ -1123,54 +1006,14 @@ public class View {
         return add(note);
     }
 
-    /**
-     * If we monitor the target and haven't issued an alert, do so
-     *
-     * @param target
-     */
-    private void amplify(Participant target) {
-        context.rings()
-               .filter(
-               ring -> !target.isDisabled(ring.getIndex()) && target.equals(ring.successor(node, context::isActive)))
-               .forEach(ring -> {
-                   log.trace("amplifying: {} ring: {} on: {}", target.getId(), ring.getIndex(), node.getId());
-                   accuse(target, ring.getIndex(), new IllegalStateException("Amplifying accusation"));
-               });
-    }
 
-    /**
-     * <pre>
-     * The member goes from an accused to not accused state. As such,
-     * it may invalidate other accusations.
-     * Let m_j be m's first live successor on ring r.
-     * All accusations for members q between m and m_j:
-     *   If q between accuser and accused: invalidate accusation.
-     *   If accused now is cleared, rerun for this member.
-     * </pre>
-     *
-     * @param m
-     */
-    private void checkInvalidations(Participant m) {
-        Deque<Participant> check = new ArrayDeque<>();
-        check.add(m);
-        while (!check.isEmpty()) {
-            Participant checked = check.pop();
-            context.rings().forEach(ring -> {
-                for (Participant q : ring.successors(checked, member -> !member.isAccused())) {
-                    if (q.isAccusedOn(ring.getIndex())) {
-                        invalidate(q, ring, check);
-                    }
-                }
-            });
-        }
-    }
 
     /**
      * @return the digests common for gossip with all neighbors
      */
     private Digests commonDigests() {
         return Digests.newBuilder()
-                      .setAccusationBff(getAccusationsBff(Entropy.nextSecureLong(), params.fpr()).toBff())
+                      .setAccusationBff(accusationTracker.getAccusationsBff(Entropy.nextSecureLong(), params.fpr()).toBff())
                       .setNoteBff(getNotesBff(Entropy.nextSecureLong(), params.fpr()).toBff())
                       .setJoinBiff(viewManagement.getJoinsBff(Entropy.nextSecureLong(), params.fpr()).toBff())
                       .setObservationBff(getObservationsBff(Entropy.nextSecureLong(), params.fpr()).toBff())
@@ -1183,34 +1026,10 @@ public class View {
      * @param member
      */
     private void gc(Participant member) {
-        var pending = pendingRebuttals.remove(member.getId());
-        if (pending != null) {
-            pending.cancel();
-        }
-        if (context.isActive(member)) {
-            amplify(member);
-        }
-        log.debug("Garbage collecting: {} view: {} on: {}", member.getId(), viewManagement.currentView(), node.getId());
-        context.offline(member);
         membershipManager.shun(member.getId());
-        viewManagement.gc(member);
+        accusationTracker.garbageCollect(member);
     }
 
-    /**
-     * @param seed
-     * @param p
-     * @return the bloom filter containing the digests of known accusations
-     */
-    private BloomFilter<Digest> getAccusationsBff(long seed, double p) {
-        var n = Math.max(params.minimumBiffCardinality(), context.cardinality());
-        BloomFilter<Digest> bff = new BloomFilter.DigestBloomFilter(seed, n, 1.0 / (double) n);
-        context.allMembers()
-               .flatMap(Participant::getAccusations)
-               .filter(Objects::nonNull)
-               .collect(Utils.toShuffledList())
-               .forEach(m -> bff.add(m.getHash()));
-        return bff;
-    }
 
     /**
      * @param seed
@@ -1332,53 +1151,7 @@ public class View {
         }
     }
 
-    /**
-     * If member currently is accused on ring, keep the new accusation only if it is from a closer predecessor.
-     *
-     * @param q
-     * @param ring
-     * @param check
-     */
-    private void invalidate(Participant q, DynamicContextImpl.Ring<Participant> ring, Deque<Participant> check) {
-        AccusationWrapper qa = q.getAccusation(ring.getIndex());
-        if (qa == null) {
-            return;
-        }
-        Participant accuser = context.getMember(qa.getAccuser());
-        Participant accused = context.getMember(qa.getAccused());
-        if (ring.isBetween(accuser, q, accused)) {
-            assert q.isAccused();
-            q.invalidateAccusationOnRing(ring.getIndex());
-            if (!q.isAccused()) {
-                stopRebuttalTimer(q);
-                if (context.isOffline(q)) {
-                    recover(q);
-                } else {
-                    log.debug("Member: {} rebuts (accusation invalidated) ring: {} on: {}", q.getId(), ring.getIndex(),
-                              node.getId());
-                    check.add(q);
-                }
-            } else {
-                log.debug("Invalidated accusation on ring: {} for member: {} on: {}", ring.getIndex(), q.getId(),
-                          node.getId());
-            }
-        }
-    }
 
-    private AccusationGossip.Builder processAccusations(BloomFilter<Digest> bff) {
-        AccusationGossip.Builder builder = AccusationGossip.newBuilder();
-        // Add all updates that this view has that aren't reflected in the inbound
-        // bff
-        var current = currentView();
-        context.allMembers()
-               .flatMap(Participant::getAccusations)
-               .collect(Utils.toShuffledList())
-               .stream()
-               .filter(m -> current.equals(m.currentView()))
-               .filter(a -> !bff.contains(a.getHash()))
-               .forEach(a -> builder.addUpdates(a.getWrapped()));
-        return builder;
-    }
 
     /**
      * Process the inbound accusations from the gossip. Reconcile the differences between the view's state and the
@@ -1391,12 +1164,7 @@ public class View {
      * @return
      */
     private AccusationGossip processAccusations(BloomFilter<Digest> bff, double p) {
-        AccusationGossip.Builder builder = processAccusations(bff);
-        builder.setBff(getAccusationsBff(Entropy.nextSecureLong(), p).toBff());
-        if (builder.getUpdatesCount() != 0) {
-            log.trace("process accusations produced updates: {} on: {}", builder.getUpdatesCount(), node.getId());
-        }
-        return builder.build();
+        return accusationTracker.processAccusations(bff, p);
     }
 
     private NoteGossip.Builder processNotes(BloomFilter<Digest> bff) {
@@ -1645,57 +1413,6 @@ public class View {
     private boolean verify(SelfAddressingIdentifier id, SigningThreshold threshold, JohnHancock signature,
                            InputStream message) {
         return verifiers.verifierFor(id).map(value -> value.verify(threshold, signature, message)).orElse(false);
-    }
-
-    /**
-     * Adapter that implements AccusationTracker by delegating to View's existing methods.
-     */
-    private class AccusationTrackerAdapter implements AccusationTracker {
-
-        @Override
-        public void accuse(Participant member, int ring, Throwable cause) {
-            View.this.accuse(member, ring, cause);
-        }
-
-        @Override
-        public boolean processAccusation(AccusationWrapper accusation) {
-            return View.this.add(accusation);
-        }
-
-        @Override
-        public void amplify(Participant target) {
-            View.this.amplify(target);
-        }
-
-        @Override
-        public void stopRebuttalTimer(Participant member) {
-            View.this.stopRebuttalTimer(member);
-        }
-
-        @Override
-        public void checkInvalidations(Participant member) {
-            View.this.checkInvalidations(member);
-        }
-
-        @Override
-        public boolean hasPendingRebuttals() {
-            return View.this.hasPendingRebuttals();
-        }
-
-        @Override
-        public void garbageCollect(Participant member) {
-            View.this.gc(member);
-        }
-
-        @Override
-        public AccusationGossip processAccusations(BloomFilter<Digest> bff, double fpr) {
-            return View.this.processAccusations(bff, fpr);
-        }
-
-        @Override
-        public BloomFilter<Digest> getAccusationsBff(long seed, double p) {
-            return View.this.getAccusationsBff(seed, p);
-        }
     }
 
     /**
