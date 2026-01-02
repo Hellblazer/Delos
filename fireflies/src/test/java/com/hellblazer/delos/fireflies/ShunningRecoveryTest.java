@@ -75,7 +75,9 @@ public class ShunningRecoveryTest {
                               .collect(Collectors.toMap(controlled -> controlled.getIdentifier().getDigest(),
                                                         controlled -> controlled, (a, b) -> a, TreeMap::new));
 
-        members = new HashMap<>();
+        // Use LinkedHashMap to preserve insertion order (matching identities TreeMap order)
+        // This ensures seeds contact the correct nodes - HashMap ordering is non-deterministic
+        members = new LinkedHashMap<>();
         identities.forEach((d, id) -> members.put(d, new ControlledIdentifierMember(id)));
 
         communications = new ArrayList<>();

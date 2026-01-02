@@ -679,6 +679,17 @@ public class View {
         return membershipManager.attemptRecovery(note);
     }
 
+    /**
+     * Check if this view is started.
+     * <p>
+     * Public API for testing and external components.
+     *
+     * @return true if the view is started
+     */
+    public boolean isStarted() {
+        return started.get();
+    }
+
     void tick() {
         roundTimers.tick();
     }

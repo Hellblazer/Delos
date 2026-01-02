@@ -179,10 +179,12 @@ public class E2ETest {
         registry = new MetricRegistry();
         node0Registry = new MetricRegistry();
 
+        // Use LinkedHashMap to preserve insertion order (matching identities TreeMap order)
+        // This ensures seeds contact the correct nodes - HashMap ordering is non-deterministic
         members = identities.values()
                             .stream()
                             .map(identity -> new ControlledIdentifierMember(identity))
-                            .collect(Collectors.toMap(m -> m.getId(), m -> m));
+                            .collect(Collectors.toMap(m -> m.getId(), m -> m, (a, b) -> a, LinkedHashMap::new));
         var ctxBuilder = DynamicContext.<Participant>newBuilder()
                                        .setBias(BIAS)
                                        .setpByz(P_BYZ)

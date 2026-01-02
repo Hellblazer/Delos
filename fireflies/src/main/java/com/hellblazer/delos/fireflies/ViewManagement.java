@@ -531,19 +531,29 @@ public class ViewManagement {
                 return;
             }
             if (!observers.containsKey(node.getId())) {
-                log.trace("Not observer, ignoring Join from: {}  observers: {} on: {}", from, observers, node.getId());
+                // Return OUT_OF_RANGE to signal the joiner should reseed and get fresh observers.
+                // FAILED_PRECONDITION would just count as an abandon but not trigger immediate reseed.
+                log.debug("Not observer, redirecting Join to reseed from: {} observers: {} on: {}", from, observers, node.getId());
                 responseObserver.onError(new StatusRuntimeException(
-                Status.FAILED_PRECONDITION.withDescription("Not observer, ignored join of view")));
-            }
-            if (!thisView.equals(joinView)) {
-                responseObserver.onError(new StatusRuntimeException(
-                Status.OUT_OF_RANGE.withDescription("View: " + joinView + " does not match: " + thisView)));
+                Status.OUT_OF_RANGE.withDescription("Not observer, reseed to get current observers")));
                 return;
+            }
+            // Accept joins even with view mismatch - view transitions are async across nodes.
+            // This mirrors the fix applied to enjoin() and addJoin(). All three join paths
+            // (direct join RPC, enjoin propagation, gossip addJoin) must accept view mismatch
+            // for reliable join handling during async view transitions.
+            if (!thisView.equals(joinView)) {
+                log.debug("Join view mismatch (accepting anyway): {} vs {} from: {} on: {}",
+                          joinView, thisView, from, node.getId());
+                // Continue processing - don't return error
             }
             if (!View.isValidMask(note.getMask(), context)) {
                 log.warn(
                 "Invalid join mask: {} majority: {} from member: {} view: {}  context: {} cardinality: {} on: {}",
                 note.getMask(), context.majority(), from, thisView, context.getId(), cardinality(), node.getId());
+                responseObserver.onError(new StatusRuntimeException(
+                Status.INVALID_ARGUMENT.withDescription("Invalid join mask")));
+                return;
             }
             // Rate limit check (Sybil attack protection)
             if (!joinRateLimiter.allowJoin(from)) {

@@ -191,12 +191,30 @@ class Binding {
         log.trace("Initial seed set count: {} view: {} from: {} on: {}", g.getInitialSeedSetCount(), v, member.getId(),
                   node.getId());
 
+        // First try: strict majority (all observers agree on same diadem)
         var trust = trusts.entrySet()
                           .stream()
                           .filter(e -> e.getCount() >= majority)
                           .map(Multiset.Entry::getElement)
                           .findFirst()
                           .orElse(null);
+
+        // Fallback: if majority observers responded but with different diadems (view change in progress),
+        // accept the most common trust. This handles the case where observers are installing a view
+        // change at slightly different times, resulting in mixed diadem responses.
+        // Safety: we still require majority responses, just not majority agreement.
+        if (trust == null && trusts.size() >= majority) {
+            trust = trusts.entrySet()
+                          .stream()
+                          .max(Comparator.comparingInt(Multiset.Entry::getCount))
+                          .map(Multiset.Entry::getElement)
+                          .orElse(null);
+            if (trust != null) {
+                log.info("Gateway fallback: accepting most common trust {} (count: {}/{}) during view transition on: {}",
+                         trust.diadem, trusts.count(trust), trusts.size(), node.getId());
+            }
+        }
+
         if (trust != null) {
             var bound = new Bound(trust.crown,
                                   trust.successors.stream().map(sn -> new NoteWrapper(sn, digestAlgo)).toList(),

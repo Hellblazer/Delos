@@ -84,6 +84,40 @@ Delos is a multi-tenant distributed system platform with Byzantine fault toleran
 - Standard tests: reduced client count; Full tests: `-Dlarge_tests=true`
 - JUnit 5 with Mockito, AssertJ
 
+### CRITICAL: Member Map Ordering in Fireflies Tests
+When writing Fireflies tests that create member maps and seed lists, **you MUST use LinkedHashMap** to preserve insertion order. HashMap has non-deterministic iteration order which causes seeds to contact wrong nodes.
+
+**The Bug Pattern (DO NOT USE):**
+```java
+// WRONG - HashMap has random iteration order
+members = new HashMap<>();
+identities.forEach((d, id) -> members.put(d, new ControlledIdentifierMember(id)));
+
+// WRONG - Collectors.toMap() creates HashMap by default
+members = identities.values().stream()
+    .map(identity -> new ControlledIdentifierMember(identity))
+    .collect(Collectors.toMap(m -> m.getId(), m -> m));
+```
+
+**The Correct Pattern (ALWAYS USE):**
+```java
+// CORRECT - LinkedHashMap preserves insertion order
+members = new LinkedHashMap<>();
+identities.forEach((d, id) -> members.put(d, new ControlledIdentifierMember(id)));
+
+// CORRECT - Explicit LinkedHashMap supplier
+members = identities.values().stream()
+    .map(identity -> new ControlledIdentifierMember(identity))
+    .collect(Collectors.toMap(m -> m.getId(), m -> m, (a, b) -> a, LinkedHashMap::new));
+```
+
+**Why This Matters:**
+- `identities` is typically a TreeMap (sorted by digest)
+- `views` are created by iterating over identities or members
+- `seedList` is created from `members.values()`
+- If members is a HashMap, `seedList.get(0)` may not correspond to `views.get(0)` (the kernel)
+- Seeds then contact unstarted nodes, causing cascade join failures
+
 ### Deterministic SQL
 The `h2-deterministic` and `liquibase-deterministic` modules provide deterministic SQL execution for replicated state machines. The `h2-deterministic` module uses package shading and must NOT be imported into IDEs.
 

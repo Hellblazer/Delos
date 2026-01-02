@@ -29,7 +29,6 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -56,8 +55,6 @@ public class ChurnTest {
     private              MetricRegistry                                              node0Registry;
     private              MetricRegistry                                              registry;
     private              List<View>                                                  views;
-    private              ExecutorService                                             executor;
-    private              ExecutorService                                             executor2;
 
     @BeforeAll
     public static void beforeClass() throws Exception {
@@ -85,12 +82,6 @@ public class ChurnTest {
 
         gateways.forEach(e -> e.close(Duration.ofSeconds(0)));
         gateways.clear();
-        if (executor != null) {
-            executor.shutdown();
-        }
-        if (executor2 != null) {
-            executor2.shutdown();
-        }
     }
 
     @Test
@@ -277,8 +268,6 @@ public class ChurnTest {
     }
 
     private void initialize() {
-        executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
-        executor2 = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
         // Disable Phase 1 safety features for churn test - views stop/start rapidly
         var parameters = Parameters.newBuilder()
                                    .setMaximumTxfr(10)
@@ -290,10 +279,11 @@ public class ChurnTest {
         registry = new MetricRegistry();
         node0Registry = new MetricRegistry();
 
+        // Use LinkedHashMap to preserve insertion order (matching identities TreeMap order)
         members = identities.values()
                             .stream()
                             .map(identity -> new ControlledIdentifierMember(identity))
-                            .collect(Collectors.toMap(m -> m.getId(), m -> m));
+                            .collect(Collectors.toMap(m -> m.getId(), m -> m, (a, b) -> a, LinkedHashMap::new));
         var ctxBuilder = DynamicContext.<Participant>newBuilder().setpByz(P_BYZ).setCardinality(CARDINALITY);
 
         AtomicBoolean frist = new AtomicBoolean(true);
@@ -308,15 +298,13 @@ public class ChurnTest {
                                                                                   .setMetrics(
                                                                                   new ServerConnectionCacheMetricsImpl(
                                                                                   frist.getAndSet(false) ? node0Registry
-                                                                                                         : registry)),
-                                                             executor);
+                                                                                                         : registry)));
             var gateway = new LocalServer(gatewayPrefix, node).router(ServerConnectionCache.newBuilder()
                                                                                            .setTarget(200)
                                                                                            .setMetrics(
                                                                                            new ServerConnectionCacheMetricsImpl(
                                                                                            frist.getAndSet(false)
-                                                                                           ? node0Registry : registry)),
-                                                                      executor2);
+                                                                                           ? node0Registry : registry)));
             comms.start();
             communications.add(comms);
 
