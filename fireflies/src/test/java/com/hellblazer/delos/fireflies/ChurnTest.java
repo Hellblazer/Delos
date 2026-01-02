@@ -321,7 +321,7 @@ public class ChurnTest {
             communications.add(comms);
 
             gateway.start();
-            gateways.add(comms);
+            gateways.add(gateway);
             return new View(context, node, EndpointProvider.allocatePort(), EventValidation.NONE, Verifiers.from(kerl),
                             comms, parameters, gateway, DigestAlgorithm.DEFAULT, metrics);
         }).collect(Collectors.toList());
