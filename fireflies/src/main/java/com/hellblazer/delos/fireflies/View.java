@@ -178,11 +178,13 @@ public class View {
         this.verifiers = verifiers;
         viewChange = new ReentrantReadWriteLock(true);
 
-        // Initialize accusation tracker, membership manager, and view change coordinator
-        this.accusationTracker = new AccusationTrackerImpl(new ViewContextAdapter(), roundTimers, viewManagement,
-                                                           this::recover);
-        this.membershipManager = new MembershipManagerImpl(new ViewContextAdapter(), accusationTracker,
+        // Initialize membership manager first (accusation tracker's recover callback uses it)
+        this.membershipManager = new MembershipManagerImpl(new ViewContextAdapter(), null, // accusationTracker set below
                                                            viewManagement, verifiers, this::createParticipant);
+        this.accusationTracker = new AccusationTrackerImpl(new ViewContextAdapter(), roundTimers, viewManagement,
+                                                           membershipManager::recover);
+        // Complete the bidirectional reference
+        this.membershipManager.setAccusationTracker(accusationTracker);
         this.viewChangeCoordinator = new ViewChangeCoordinatorImpl(new ViewContextAdapter(), roundTimers,
                                                                    viewManagement, timers);
     }
@@ -477,7 +479,7 @@ public class View {
             var accused = member.isAccused();
             stopRebuttalTimer(member);
             member.setNote(note);
-            recover(member);
+            membershipManager.recover(member);
             if (accused) {
                 accusationTracker.checkInvalidations(member);
             }
@@ -1098,15 +1100,6 @@ public class View {
                       context.size(), nCount, notes.size(), aCount, accusations.size(), oCount, observe.size(), jCount,
                       joins.size(), node.getId());
         }
-    }
-
-    /**
-     * recover a member from the failed state
-     *
-     * @param member
-     */
-    private void recover(Participant member) {
-        membershipManager.recover(member);
     }
 
     /**

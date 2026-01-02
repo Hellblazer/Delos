@@ -110,6 +110,17 @@ public interface MembershipManager {
      */
     Stream<Digest> streamShunned();
 
+    // === Initialization ===
+
+    /**
+     * Set the accusation tracker after construction to break circular dependency.
+     * <p>
+     * This is called immediately after AccusationTrackerImpl is constructed.
+     *
+     * @param accusationTracker the accusation tracker
+     */
+    void setAccusationTracker(AccusationTracker accusationTracker);
+
     // === Gossip Support ===
 
     /**
