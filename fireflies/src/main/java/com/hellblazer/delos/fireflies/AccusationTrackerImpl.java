@@ -37,18 +37,25 @@ class AccusationTrackerImpl implements AccusationTracker {
     private final ConcurrentMap<Digest, RoundScheduler.Timer> pendingRebuttals;
     private final ViewManagement                       viewManagement;
     private final RecoveryHandler                      recoveryHandler;
+    private final ShunHandler                          shunHandler;
 
     @FunctionalInterface
     interface RecoveryHandler {
         void recover(Participant member);
     }
 
+    @FunctionalInterface
+    interface ShunHandler {
+        void shun(Digest id);
+    }
+
     AccusationTrackerImpl(ViewContext viewContext, RoundScheduler roundTimers, ViewManagement viewManagement,
-                          RecoveryHandler recoveryHandler) {
+                          RecoveryHandler recoveryHandler, ShunHandler shunHandler) {
         this.viewContext = viewContext;
         this.roundTimers = roundTimers;
         this.viewManagement = viewManagement;
         this.recoveryHandler = recoveryHandler;
+        this.shunHandler = shunHandler;
         this.pendingRebuttals = new ConcurrentSkipListMap<>();
     }
 
@@ -152,7 +159,7 @@ class AccusationTrackerImpl implements AccusationTracker {
         log.debug("Garbage collecting: {} view: {} on: {}", member.getId(), viewContext.currentView(),
                   viewContext.getNode().getId());
         viewContext.getContext().offline(member);
-        // Note: shunning is handled by MembershipManager
+        shunHandler.shun(member.getId());
         viewManagement.gc(member);
     }
 

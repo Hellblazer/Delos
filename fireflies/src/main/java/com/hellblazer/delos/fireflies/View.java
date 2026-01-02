@@ -182,7 +182,7 @@ public class View {
         this.membershipManager = new MembershipManagerImpl(new ViewContextAdapter(), null, // accusationTracker set below
                                                            viewManagement, verifiers, this::createParticipant);
         this.accusationTracker = new AccusationTrackerImpl(new ViewContextAdapter(), roundTimers, viewManagement,
-                                                           membershipManager::recover);
+                                                           membershipManager::recover, membershipManager::shun);
         // Complete the bidirectional reference
         this.membershipManager.setAccusationTracker(accusationTracker);
         this.viewChangeCoordinator = new ViewChangeCoordinatorImpl(new ViewContextAdapter(), roundTimers,
@@ -887,17 +887,6 @@ public class View {
                       .setObservationBff(getObservationsBff(Entropy.nextSecureLong(), params.fpr()).toBff())
                       .build();
     }
-
-    /**
-     * Garbage collects the member. Member is now shunned and cannot recover
-     *
-     * @param member
-     */
-    private void gc(Participant member) {
-        membershipManager.shun(member.getId());
-        accusationTracker.garbageCollect(member);
-    }
-
 
     /**
      * @param seed
