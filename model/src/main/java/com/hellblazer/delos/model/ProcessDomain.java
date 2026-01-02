@@ -112,7 +112,7 @@ public class ProcessDomain extends Domain {
     @Override
     public void stop() {
         super.stop();
-        foundation.deregister(listener);
+        foundation.deregister("ProcessDomain[%s]".formatted(getMember().getId()));
         try {
             stopServices();
         } catch (RejectedExecutionException e) {

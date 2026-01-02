@@ -55,6 +55,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -85,34 +86,64 @@ import static com.hellblazer.delos.fireflies.comm.gossip.FfClient.getCreate;
  * @since 220
  */
 public class View {
-    private static final String FINALIZE_VIEW_CHANGE  = "Finalize View Change";
-    private static final Logger log                   = LoggerFactory.getLogger(View.class);
-    private static final String SCHEDULED_VIEW_CHANGE = "Scheduled View Change";
-    private static final String CLEAR_OBSERVATIONS    = "Clear Observations";
+
+    /**
+     * Explicit membership lifecycle states for state machine validation.
+     * Transitions are validated to prevent invalid state changes.
+     */
+    public enum ViewState {
+        /** Initial state before start() is called */
+        INITIAL,
+        /** Connecting to seeds and establishing initial contacts */
+        SEEDING,
+        /** Waiting for join to complete after seeding */
+        JOINING,
+        /** Fully joined and operational */
+        JOINED,
+        /** Stop has been requested, draining operations */
+        STOPPING,
+        /** Fully stopped */
+        STOPPED;
+
+        /**
+         * Validate if transition to target state is allowed from this state.
+         * @return true if transition is valid
+         */
+        public boolean canTransitionTo(ViewState target) {
+            return switch (this) {
+                case INITIAL -> target == SEEDING;
+                case SEEDING -> target == JOINING || target == JOINED || target == STOPPING;
+                case JOINING -> target == JOINED || target == STOPPING;
+                case JOINED -> target == STOPPING;
+                case STOPPING -> target == STOPPED;
+                case STOPPED -> target == SEEDING; // Allow restart after stop
+            };
+        }
+    }
+    private static final Logger log = LoggerFactory.getLogger(View.class);
 
     final            CommonCommunications<Fireflies, Service>    comm;
     final            AtomicBoolean                               started             = new AtomicBoolean();
     final            ReentrantLock                               lifecycleLock       = new ReentrantLock();
     final            AtomicInteger                               operationsInFlight  = new AtomicInteger(0);
+    private final    AtomicReference<ViewState>                  viewState           = new AtomicReference<>(ViewState.INITIAL);
     private final    CommonCommunications<Entrance, Service>     approaches;
     private final    DynamicContext<Participant>                 context;
     private final    DigestAlgorithm                             digestAlgo;
     private final    AtomicBoolean                               introduced          = new AtomicBoolean();
-    private final    Map<String, Consumer<ViewChange>>           viewChangeListeners = new HashMap<>();
-    private final    Semaphore                                   viewSerialization   = new Semaphore(1);
     private final    FireflyMetrics                              metrics;
     private final    Node                                        node;
-    private final    Map<Digest, SVU>                            observations        = new ConcurrentSkipListMap<>();
     private final    Parameters                                  params;
-    private final    ConcurrentMap<Digest, RoundScheduler.Timer> pendingRebuttals    = new ConcurrentSkipListMap<>();
     private final    RoundScheduler                              roundTimers;
-    private final    Set<Digest>                                 shunned             = new ConcurrentSkipListSet<>();
-    private final    Map<String, RoundScheduler.Timer>           timers              = new HashMap<>();
+    private final    Map<String, RoundScheduler.Timer>           timers              = new ConcurrentHashMap<>();
     private final    ReadWriteLock                               viewChange;
     private final    ViewManagement                              viewManagement;
     private final    EventValidation                             validation;
     private final    Verifiers                                   verifiers;
     private final    ScheduledExecutorService                    scheduler;
+    private final    MembershipManager                           membershipManager;
+    private final    AccusationTracker                           accusationTracker;
+    private final    ViewChangeCoordinator                       viewChangeCoordinator;
     private volatile ScheduledFuture<?>                          futureGossip;
 
     public View(DynamicContext<Participant> context, ControlledIdentifierMember member, String endpoint,
@@ -146,6 +177,20 @@ public class View {
         this.validation = validation;
         this.verifiers = verifiers;
         viewChange = new ReentrantReadWriteLock(true);
+
+        // Initialize membership manager first (accusation tracker's recover callback uses it)
+        this.membershipManager = new MembershipManagerImpl(new ViewContextAdapter(), null, // accusationTracker set below
+                                                           viewManagement, verifiers, this::createParticipant);
+        this.accusationTracker = new AccusationTrackerImpl(new ViewContextAdapter(), roundTimers, viewManagement,
+                                                           membershipManager::recover, membershipManager::shun);
+        // Complete the bidirectional reference
+        this.membershipManager.setAccusationTracker(accusationTracker);
+        this.viewChangeCoordinator = new ViewChangeCoordinatorImpl(new ViewContextAdapter(), roundTimers,
+                                                                   viewManagement, timers);
+    }
+
+    private Participant createParticipant(NoteWrapper note) {
+        return new Participant(note);
     }
 
     /**
@@ -175,8 +220,8 @@ public class View {
     /**
      * Deregister the listener
      */
-    public void deregister(Consumer<ViewChange> listener) {
-        viewChangeListeners.remove(listener);
+    public void deregister(String key) {
+        viewChangeCoordinator.deregisterListener(key);
     }
 
     /**
@@ -222,7 +267,7 @@ public class View {
      * Register the listener to receive view changes
      */
     public void register(String key, Consumer<ViewChange> listener) {
-        viewChangeListeners.put(key, listener);
+        viewChangeCoordinator.registerListener(key, listener);
     }
 
     /**
@@ -234,6 +279,11 @@ public class View {
         try {
             if (!started.compareAndSet(false, true)) {
                 return;
+            }
+            // Validate state transition
+            if (!transitionState(ViewState.SEEDING)) {
+                started.set(false);
+                throw new IllegalStateException("Cannot start view from state: " + viewState.get());
             }
         } finally {
             lifecycleLock.unlock();
@@ -276,6 +326,11 @@ public class View {
             if (!started.compareAndSet(true, false)) {
                 return;
             }
+            // Transition to STOPPING - valid from SEEDING, JOINING, or JOINED
+            var current = viewState.get();
+            if (current != ViewState.STOPPING && current != ViewState.STOPPED) {
+                transitionState(ViewState.STOPPING);
+            }
         } finally {
             lifecycleLock.unlock();
         }
@@ -290,10 +345,8 @@ public class View {
             }
         }
 
-        viewSerialization.release(10000);
         roundTimers.reset();
         comm.deregister(context.getId());
-        pendingRebuttals.clear();
         context.active().forEach(context::offline);
         scheduler.shutdown();
         try {
@@ -314,10 +367,55 @@ public class View {
         if (current != null) {
             current.cancel(true);
         }
-        observations.clear();
+        viewChangeCoordinator.clearObservations();
         timers.values().forEach(RoundScheduler.Timer::cancel);
         timers.clear();
         viewManagement.stop();
+        transitionState(ViewState.STOPPED);
+    }
+
+    /**
+     * @return the current view state
+     */
+    public ViewState getViewState() {
+        return viewState.get();
+    }
+
+    /**
+     * Attempt to transition to a new state with validation.
+     * @param target the target state
+     * @return true if transition succeeded, false if transition was invalid
+     * @throws IllegalStateException if transition is not allowed
+     */
+    boolean transitionState(ViewState target) {
+        lifecycleLock.lock();
+        try {
+            var current = viewState.get();
+            if (!current.canTransitionTo(target)) {
+                log.warn("Invalid state transition: {} -> {} on: {}", current, target, node.getId());
+                return false;
+            }
+            viewState.set(target);
+            log.trace("State transition: {} -> {} on: {}", current, target, node.getId());
+            return true;
+        } finally {
+            lifecycleLock.unlock();
+        }
+    }
+
+    /**
+     * Require a specific state for an operation.
+     * @param required the required state(s)
+     * @throws IllegalStateException if not in required state
+     */
+    void requireState(ViewState... required) {
+        var current = viewState.get();
+        for (var state : required) {
+            if (current == state) {
+                return;
+            }
+        }
+        throw new IllegalStateException("Operation requires state " + Arrays.toString(required) + " but was " + current);
     }
 
     @Override
@@ -332,14 +430,7 @@ public class View {
      * @param ring
      */
     void accuse(Participant member, int ring, Throwable e) {
-        if (member.isAccusedOn(ring) || member.isDisabled(ring)) {
-            return; // Don't issue multiple accusations
-        }
-        member.addAccusation(node.accuse(member, ring));
-        pendingRebuttals.computeIfAbsent(member.getId(),
-                                         d -> roundTimers.schedule(() -> gc(member), params.rebuttalTimeout()));
-        log.info("Accuse: {} on ring: {} view: {} (timer started): {} on: {}", member.getId(), ring, currentView(),
-                 e.getMessage(), node.getId());
+        accusationTracker.accuse(member, ring, e);
     }
 
     boolean addToView(NoteWrapper note) {
@@ -388,9 +479,9 @@ public class View {
             var accused = member.isAccused();
             stopRebuttalTimer(member);
             member.setNote(note);
-            recover(member);
+            membershipManager.recover(member);
             if (accused) {
-                checkInvalidations(member);
+                accusationTracker.checkInvalidations(member);
             }
             if (!viewManagement.joined() && context.size() == viewManagement.cardinality()) {
                 assert context.size() == viewManagement.cardinality();
@@ -421,46 +512,7 @@ public class View {
      * Finalize the view change
      */
     void finalizeViewChange() {
-        if (!started.get()) {
-            return;
-        }
-        viewChange(() -> {
-            removeTimer(View.FINALIZE_VIEW_CHANGE);
-            final var supermajority = context.getRingCount() * 3 / 4;
-            final var majority = context.size() == 1 ? 1 : supermajority;
-            log.info("Finalize view change, observations: {} observers: {} on: {}",
-                     observations.keySet().stream().toList(), viewManagement.observersList(), node.getId());
-            if (observations.size() < majority) {
-                log.info("Do not have majority: {} required: {} observers: {} for: {} on: {}", observations.size(),
-                         majority, viewManagement.observersList(), currentView(), node.getId());
-                scheduleFinalizeViewChange(1);
-                return;
-            }
-            log.info("Finalizing view change: {} required: {} observers: {} for: {} on: {}", context.getId(), majority,
-                     viewManagement.observersList(), currentView(), node.getId());
-            HashMultiset<Ballot> ballots = HashMultiset.create();
-            observations.values().forEach(svu -> tally(svu, ballots));
-            var max = ballots.entrySet()
-                             .stream()
-                             .max(Ordering.natural().onResultOf(Multiset.Entry::getCount))
-                             .orElse(null);
-            if (max != null && max.getCount() >= majority) {
-                log.info("View consensus successful: {} required: {} cardinality: {} for: {} on: {}", max, majority,
-                         viewManagement.cardinality(), currentView(), node.getId());
-                viewManagement.clearVote();  // Only clear vote on successful consensus
-                viewManagement.install(max.getElement());
-                scheduleViewChange();
-                scheduleClearObservations();
-            } else {
-                @SuppressWarnings("unchecked")
-                final var reversed = Comparator.comparing(e -> ((Entry<Ballot>) e).getCount()).reversed();
-                log.info("View consensus failed: {}, required: {} cardinality: {} ballots: {} for: {} on: {}",
-                         max == null ? 0 : max.getCount(), majority, viewManagement.cardinality(),
-                         ballots.entrySet().stream().sorted(reversed).toList(), currentView(), node.getId());
-                observations.clear();
-                scheduleViewChange();
-            }
-        });
+        viewChangeCoordinator.finalizeViewChange();
     }
 
     /**
@@ -473,15 +525,15 @@ public class View {
     }
 
     boolean hasMajorityObservations(boolean bootstrap) {
-        return bootstrap && context.size() == 1 || observations.size() >= context.majority();
+        return viewChangeCoordinator.hasMajorityObservations(bootstrap);
     }
 
     boolean hasPendingRebuttals() {
-        return !pendingRebuttals.isEmpty();
+        return accusationTracker.hasPendingRebuttals();
     }
 
     void initiate(SignedViewChange viewChange) {
-        observations.put(node.getId(), new SVU(viewChange, digestAlgo));
+        viewChangeCoordinator.initiateViewChange(viewChange);
     }
 
     void introduced() {
@@ -493,31 +545,7 @@ public class View {
     }
 
     void notifyListeners(List<SelfAddressingIdentifier> joining, List<Digest> leaving) {
-        final var viewChange = new ViewChange(context.asStatic(), currentView(),
-                                              joining.stream().map(SelfAddressingIdentifier::getDigest).toList(),
-                                              Collections.unmodifiableList(leaving));
-        viewChangeListeners.forEach((key, value) -> {
-            Thread.ofVirtual().start(Utils.wrapped(() -> {
-                try {
-                    viewSerialization.acquire();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return;
-                }
-                if (!started.get()) {
-                    return;
-                }
-                try {
-                    log.trace("Notifying: {} view change: {} cardinality: {} joins: {} leaves: {} on: {} ", key,
-                              currentView(), context.size(), joining.size(), leaving.size(), node.getId());
-                    value.accept(viewChange);
-                } catch (Throwable e) {
-                    log.error("error in view change listener: {} on: {} ", key, node.getId(), e);
-                } finally {
-                    viewSerialization.release();
-                }
-            }, log));
-        });
+        viewChangeCoordinator.notifyListeners(joining, leaving);
     }
 
     /**
@@ -557,17 +585,7 @@ public class View {
      * @param digest
      */
     void remove(Digest digest) {
-        var pending = pendingRebuttals.remove(digest);
-        if (pending != null) {
-            pending.cancel();
-        }
-        log.info("Permanently removing {} member {} from context: {} view: {} on: {}",
-                 context.isActive(digest) ? "active" : "failed", digest, context.getId(), currentView(), node.getId());
-        context.remove(digest);
-        shunned.remove(digest);
-        if (metrics != null) {
-            metrics.leaves().mark();
-        }
+        membershipManager.remove(digest);
     }
 
     void removeTimer(String timer) {
@@ -587,50 +605,23 @@ public class View {
     }
 
     void scheduleClearObservations() {
-        if (!enterOperation()) {
-            return;
-        }
-        try {
-            timers.put(CLEAR_OBSERVATIONS, roundTimers.schedule(CLEAR_OBSERVATIONS, () -> observations.clear(), 1));
-        } finally {
-            exitOperation();
-        }
+        viewChangeCoordinator.scheduleClearObservations();
     }
 
     void scheduleFinalizeViewChange() {
-        scheduleFinalizeViewChange(params.finalizeViewRounds());
+        viewChangeCoordinator.scheduleFinalizeViewChange(params.finalizeViewRounds());
     }
 
     void scheduleFinalizeViewChange(final int finalizeViewRounds) {
-        //        log.trace("View change finalization scheduled: {} rounds for: {} joining: {} leaving: {} on: {}",
-        //                  finalizeViewRounds, currentView(), joins.size(), context.getOffline().size(), node.getId());
-        if (!enterOperation()) {
-            return;
-        }
-        try {
-            timers.put(FINALIZE_VIEW_CHANGE,
-                       roundTimers.schedule(FINALIZE_VIEW_CHANGE, this::finalizeViewChange, finalizeViewRounds));
-        } finally {
-            exitOperation();
-        }
+        viewChangeCoordinator.scheduleFinalizeViewChange(finalizeViewRounds);
     }
 
     void scheduleViewChange() {
-        scheduleViewChange(params.viewChangeRounds());
+        viewChangeCoordinator.scheduleViewChange(params.viewChangeRounds());
     }
 
     void scheduleViewChange(final int viewChangeRounds) {
-        //        log.trace("Schedule view change: {} rounds for: {}   on: {}", viewChangeRounds, currentView(),
-        //                  node.getId());
-        if (!enterOperation()) {
-            return;
-        }
-        try {
-            timers.put(SCHEDULED_VIEW_CHANGE,
-                       roundTimers.schedule(SCHEDULED_VIEW_CHANGE, viewManagement::maybeViewChange, viewChangeRounds));
-        } finally {
-            exitOperation();
-        }
+        viewChangeCoordinator.scheduleViewChange(viewChangeRounds);
     }
 
     <T> T stable(Callable<T> call) {
@@ -663,16 +654,11 @@ public class View {
      * @param m
      */
     void stopRebuttalTimer(Participant m) {
-        m.clearAccusations();
-        var timer = pendingRebuttals.remove(m.getId());
-        if (timer != null) {
-            log.info("Cancelling accusation of: {} on: {}", m.getId(), node.getId());
-            timer.cancel();
-        }
+        accusationTracker.stopRebuttalTimer(m);
     }
 
     Stream<Digest> streamShunned() {
-        return shunned.stream();
+        return membershipManager.streamShunned();
     }
 
     void tick() {
@@ -731,7 +717,7 @@ public class View {
      */
     protected Gossip gossip(Fireflies link, int ring) {
         tick();
-        if (shunned.contains(link.getMember().getId())) {
+        if (membershipManager.isShunned(link.getMember().getId())) {
             if (metrics != null) {
                 metrics.shunnedGossip().mark();
             }
@@ -794,114 +780,12 @@ public class View {
      * @param accusation
      */
     private boolean add(AccusationWrapper accusation) {
-        Participant accuser = context.getMember(accusation.getAccuser());
-        Participant accused = context.getMember(accusation.getAccused());
-        if (accuser == null || accused == null) {
-            log.trace("Accusation discarded, accused: {} or accuser: {} do not exist in view on: {}",
-                      accusation.getAccused(), accusation.getAccuser(), node.getId());
-            return false;
-        }
-
-        if (!context.validRing(accusation.getRingNumber())) {
-            log.trace("Accusation discarded, invalid ring: {} on: {}", accusation.getRingNumber(), node.getId());
-            return false;
-        }
-
-        if (accused.getEpoch() >= 0 && accused.getEpoch() != accusation.getEpoch()) {
-            log.trace("Accusation discarded, epoch: {}  for: {} != epoch: {} on: {}", accusation.getEpoch(),
-                      accused.getId(), accused.getEpoch(), node.getId());
-            return false;
-        }
-
-        if (accused.isDisabled(accusation.getRingNumber())) {
-            log.trace("Accusation discarded, Member: {} accused on disabled ring: {} by: {} on: {}", accused.getId(),
-                      accusation.getRingNumber(), accuser.getId(), node.getId());
-            return false;
-        }
-
-        return add(accusation, accuser, accused);
+        return accusationTracker.processAccusation(accusation);
     }
 
-    /**
-     * Add an accusation into the view,
-     *
-     * @param accusation
-     * @param accuser
-     * @param accused
-     */
-    private boolean add(AccusationWrapper accusation, Participant accuser, Participant accused) {
-        if (node.equals(accused)) {
-            node.clearAccusations();
-            node.nextNote();
-            return false;
-        }
-        if (!context.validRing(accusation.getRingNumber())) {
-            return false;
-        }
-
-        var acc = accused.getAccusation(accusation.getRingNumber());
-        if (acc != null) {
-            var currentAccuser = context.getMember(acc.getAccuser());
-            if (currentAccuser == null || !currentAccuser.equals(accuser)) {
-                if (currentAccuser == null || context.isBetween(accusation.getRingNumber(), currentAccuser, accuser,
-                                                                accused)) {
-                    if (!accused.verify(accusation.getSignature(),
-                                        accusation.getWrapped().getAccusation().toByteString())) {
-                        log.debug("Accusation discarded, accusation by: {} accused:{} signature invalid on: {}",
-                                  accuser.getId(), accused.getId(), node.getId());
-                        return false;
-                    }
-                    accused.addAccusation(accusation);
-                    pendingRebuttals.computeIfAbsent(accused.getId(), d -> roundTimers.schedule(() -> gc(accused),
-                                                                                                params.rebuttalTimeout()));
-                    log.info("{} accused by: {} on ring: {} (replacing: {}) on: {}", accused.getId(), accuser.getId(),
-                             accusation.getRingNumber(), currentAccuser.getId(), node.getId());
-                    if (metrics != null) {
-                        metrics.accusations().mark();
-                    }
-                    return true;
-                } else {
-                    log.debug("{} accused by: {} on ring: {} discarded as not closer than: {} on: {}", accused.getId(),
-                              accuser.getId(), accusation.getRingNumber(), currentAccuser.getId(), node.getId());
-                    return false;
-                }
-            } else {
-                log.debug("{} accused by: {} on ring: {} discarded as redundant: {} on: {}", accused.getId(),
-                          accuser.getId(), accusation.getRingNumber(), currentAccuser.getId(), node.getId());
-                return false;
-            }
-        } else {
-            if (shunned.contains(accused.getId())) {
-                accused.addAccusation(accusation);
-                if (metrics != null) {
-                    metrics.accusations().mark();
-                }
-                return false;
-            }
-            var predecessor = context.predecessor(accusation.getRingNumber(), accused,
-                                                  m -> (!m.isAccused()) || (m.equals(accuser)));
-            if (accuser.equals(predecessor)) {
-                accused.addAccusation(accusation);
-                if (!accused.equals(node) && !pendingRebuttals.containsKey(accused.getId())) {
-                    log.info("{} accused by: {} on ring: {} (timer started) on: {}", accused.getId(), accuser.getId(),
-                             accusation.getRingNumber(), node.getId());
-                    pendingRebuttals.computeIfAbsent(accused.getId(), d -> roundTimers.schedule(() -> gc(accused),
-                                                                                                params.rebuttalTimeout()));
-                }
-                if (metrics != null) {
-                    metrics.accusations().mark();
-                }
-                return true;
-            } else {
-                log.debug("{} accused by: {} on ring: {} discarded as not predecessor: {} on: {}", accused.getId(),
-                          accuser.getId(), accusation.getRingNumber(), predecessor.getId(), node.getId());
-                return false;
-            }
-        }
-    }
 
     private boolean add(NoteWrapper note) {
-        if (shunned.contains(note.getId())) {
+        if (membershipManager.isShunned(note.getId())) {
             log.trace("Note: {} is shunned on: {}", note.getId(), node.getId());
             if (metrics != null) {
                 metrics.filteredNotes().mark();
@@ -934,47 +818,7 @@ public class View {
      * @param observation
      */
     private boolean add(SignedViewChange observation) {
-        var svu = new SVU(observation, digestAlgo);
-        var highWater = viewManagement.highWater(svu.observer);
-        if (highWater == null) {
-            log.trace("Invalid observer: {} current: {} on: {}", svu.observer, currentView(), node.getId());
-            return false;
-        }
-        final var inView = Digest.from(observation.getChange().getCurrent());
-        if (!currentView().equals(inView)) {
-            log.trace("Invalid view change: {} current: {} from {} on: {}", inView, currentView(), svu.observer,
-                      node.getId());
-            return false;
-        }
-        if (highWater >= svu.attempt) {
-            log.trace("Redundant view change: {} current: {} view: {} from {} on: {}", svu.attempt, highWater,
-                      currentView(), svu.observer, node.getId());
-            return false;
-        }
-        final var member = context.getActiveMember(svu.observer);
-        if (member == null) {
-            log.trace("Cannot validate view change: {} current: {} from: {} on: {}", inView, currentView(),
-                      svu.observer, node.getId());
-            return false;
-        }
-        final var signature = JohnHancock.from(observation.getSignature());
-        if (!member.verify(signature, observation.getChange().toByteString())) {
-            return false;
-        }
-        return observations.compute(svu.observer, (d, cur) -> {
-            if (cur != null) {
-                if (svu.attempt < cur.attempt) {
-                    log.trace("Stale observation: {} current: {} view change: {} current: {} offline: {} on: {}",
-                              svu.attempt, cur.attempt, inView, currentView(), svu.observer, node.getId());
-                    return cur;
-                } else {
-                    viewManagement.updateHighWater(d, svu.attempt);
-                }
-            }
-            log.trace("Observation: {} current: {} view change: {} from: {} on: {}", svu.attempt, inView, currentView(),
-                      svu.observer, node.getId());
-            return svu;
-        }) == svu;
+        return viewChangeCoordinator.addObservation(observation);
     }
 
     private boolean addJoin(SignedNote sn) {
@@ -1020,7 +864,7 @@ public class View {
             }
             return false;
         }
-        if (shunned.contains(note.getId())) {
+        if (membershipManager.isShunned(note.getId())) {
             if (metrics != null) {
                 metrics.filteredNotes().mark();
             }
@@ -1030,93 +874,18 @@ public class View {
         return add(note);
     }
 
-    /**
-     * If we monitor the target and haven't issued an alert, do so
-     *
-     * @param target
-     */
-    private void amplify(Participant target) {
-        context.rings()
-               .filter(
-               ring -> !target.isDisabled(ring.getIndex()) && target.equals(ring.successor(node, context::isActive)))
-               .forEach(ring -> {
-                   log.trace("amplifying: {} ring: {} on: {}", target.getId(), ring.getIndex(), node.getId());
-                   accuse(target, ring.getIndex(), new IllegalStateException("Amplifying accusation"));
-               });
-    }
 
-    /**
-     * <pre>
-     * The member goes from an accused to not accused state. As such,
-     * it may invalidate other accusations.
-     * Let m_j be m's first live successor on ring r.
-     * All accusations for members q between m and m_j:
-     *   If q between accuser and accused: invalidate accusation.
-     *   If accused now is cleared, rerun for this member.
-     * </pre>
-     *
-     * @param m
-     */
-    private void checkInvalidations(Participant m) {
-        Deque<Participant> check = new ArrayDeque<>();
-        check.add(m);
-        while (!check.isEmpty()) {
-            Participant checked = check.pop();
-            context.rings().forEach(ring -> {
-                for (Participant q : ring.successors(checked, member -> !member.isAccused())) {
-                    if (q.isAccusedOn(ring.getIndex())) {
-                        invalidate(q, ring, check);
-                    }
-                }
-            });
-        }
-    }
 
     /**
      * @return the digests common for gossip with all neighbors
      */
     private Digests commonDigests() {
         return Digests.newBuilder()
-                      .setAccusationBff(getAccusationsBff(Entropy.nextSecureLong(), params.fpr()).toBff())
+                      .setAccusationBff(accusationTracker.getAccusationsBff(Entropy.nextSecureLong(), params.fpr()).toBff())
                       .setNoteBff(getNotesBff(Entropy.nextSecureLong(), params.fpr()).toBff())
                       .setJoinBiff(viewManagement.getJoinsBff(Entropy.nextSecureLong(), params.fpr()).toBff())
                       .setObservationBff(getObservationsBff(Entropy.nextSecureLong(), params.fpr()).toBff())
                       .build();
-    }
-
-    /**
-     * Garbage collects the member. Member is now shunned and cannot recover
-     *
-     * @param member
-     */
-    private void gc(Participant member) {
-        var pending = pendingRebuttals.remove(member.getId());
-        if (pending != null) {
-            pending.cancel();
-        }
-        if (context.isActive(member)) {
-            amplify(member);
-        }
-        log.debug("Garbage collecting: {} view: {} on: {}", member.getId(), viewManagement.currentView(), node.getId());
-        context.offline(member);
-        shunned.add(member.getId());
-        viewManagement.gc(member);
-    }
-
-    /**
-     * @param seed
-     * @param p
-     * @return the bloom filter containing the digests of known accusations
-     */
-    private BloomFilter<Digest> getAccusationsBff(long seed, double p) {
-        var n = Math.max(params.minimumBiffCardinality(), context.cardinality());
-        BloomFilter<Digest> bff = new BloomFilter.DigestBloomFilter(seed, n, 1.0 / (double) n);
-        context.allMembers()
-               .flatMap(Participant::getAccusations)
-               .filter(Objects::nonNull)
-               .collect(Utils.toShuffledList())
-               .forEach(m -> bff.add(m.getHash()));
-        return bff;
     }
 
     /**
@@ -1137,10 +906,7 @@ public class View {
      * @return the bloom filter containing the digests of known observations
      */
     private BloomFilter<Digest> getObservationsBff(long seed, double p) {
-        var n = Math.max(params.minimumBiffCardinality(), observations.size());
-        BloomFilter<Digest> bff = new BloomFilter.DigestBloomFilter(seed, n, 1.0 / (double) n);
-        observations.values().stream().map(svu -> svu.hash).collect(Utils.toShuffledList()).forEach(bff::add);
-        return bff;
+        return viewChangeCoordinator.getObservationsBff(seed, p);
     }
 
     /**
@@ -1239,53 +1005,7 @@ public class View {
         }
     }
 
-    /**
-     * If member currently is accused on ring, keep the new accusation only if it is from a closer predecessor.
-     *
-     * @param q
-     * @param ring
-     * @param check
-     */
-    private void invalidate(Participant q, DynamicContextImpl.Ring<Participant> ring, Deque<Participant> check) {
-        AccusationWrapper qa = q.getAccusation(ring.getIndex());
-        if (qa == null) {
-            return;
-        }
-        Participant accuser = context.getMember(qa.getAccuser());
-        Participant accused = context.getMember(qa.getAccused());
-        if (ring.isBetween(accuser, q, accused)) {
-            assert q.isAccused();
-            q.invalidateAccusationOnRing(ring.getIndex());
-            if (!q.isAccused()) {
-                stopRebuttalTimer(q);
-                if (context.isOffline(q)) {
-                    recover(q);
-                } else {
-                    log.debug("Member: {} rebuts (accusation invalidated) ring: {} on: {}", q.getId(), ring.getIndex(),
-                              node.getId());
-                    check.add(q);
-                }
-            } else {
-                log.debug("Invalidated accusation on ring: {} for member: {} on: {}", ring.getIndex(), q.getId(),
-                          node.getId());
-            }
-        }
-    }
 
-    private AccusationGossip.Builder processAccusations(BloomFilter<Digest> bff) {
-        AccusationGossip.Builder builder = AccusationGossip.newBuilder();
-        // Add all updates that this view has that aren't reflected in the inbound
-        // bff
-        var current = currentView();
-        context.allMembers()
-               .flatMap(Participant::getAccusations)
-               .collect(Utils.toShuffledList())
-               .stream()
-               .filter(m -> current.equals(m.currentView()))
-               .filter(a -> !bff.contains(a.getHash()))
-               .forEach(a -> builder.addUpdates(a.getWrapped()));
-        return builder;
-    }
 
     /**
      * Process the inbound accusations from the gossip. Reconcile the differences between the view's state and the
@@ -1298,12 +1018,7 @@ public class View {
      * @return
      */
     private AccusationGossip processAccusations(BloomFilter<Digest> bff, double p) {
-        AccusationGossip.Builder builder = processAccusations(bff);
-        builder.setBff(getAccusationsBff(Entropy.nextSecureLong(), p).toBff());
-        if (builder.getUpdatesCount() != 0) {
-            log.trace("process accusations produced updates: {} on: {}", builder.getUpdatesCount(), node.getId());
-        }
-        return builder.build();
+        return accusationTracker.processAccusations(bff, p);
     }
 
     private NoteGossip.Builder processNotes(BloomFilter<Digest> bff) {
@@ -1315,7 +1030,7 @@ public class View {
         context.active()
                .filter(m -> m.getNote() != null)
                .filter(m -> current.equals(m.getNote().currentView()))
-               .filter(m -> !shunned.contains(m.getId()))
+               .filter(m -> !membershipManager.isShunned(m.getId()))
                .filter(m -> !bff.contains(m.getNote().getHash()))
                .collect(new ReservoirSampler<>(params.maximumTxfr()))
                .stream()
@@ -1339,21 +1054,6 @@ public class View {
         return builder.build();
     }
 
-    private ViewChangeGossip.Builder processObservations(BloomFilter<Digest> bff) {
-        ViewChangeGossip.Builder builder = ViewChangeGossip.newBuilder();
-
-        // Add all updates that this view has that aren't reflected in the inbound bff
-        final var current = currentView();
-        observations.values()
-                    .stream()
-                    .collect(Utils.toShuffledList())
-                    .stream()
-                    .filter(svu -> !bff.contains(svu.hash))
-                    .map(svu -> svu.viewChange)
-                    .forEach(n -> builder.addUpdates(n));
-        return builder;
-    }
-
     /**
      * Process the inbound observer from the gossip. Reconcile the differences between the view's state and the digests
      * of the gossip. Update the reply with the list of digests the view requires, as well as proposed updates based on
@@ -1363,12 +1063,7 @@ public class View {
      * @param bff
      */
     private ViewChangeGossip processObservations(BloomFilter<Digest> bff, double p) {
-        ViewChangeGossip.Builder builder = processObservations(bff);
-        builder.setBff(getObservationsBff(Entropy.nextSecureLong(), p).toBff());
-        if (builder.getUpdatesCount() != 0) {
-            log.trace("process view change produced updates: {} on: {}", builder.getUpdatesCount(), node.getId());
-        }
-        return builder.build();
+        return viewChangeCoordinator.processObservations(bff, p);
     }
 
     /**
@@ -1397,22 +1092,6 @@ public class View {
     }
 
     /**
-     * recover a member from the failed state
-     *
-     * @param member
-     */
-    private void recover(Participant member) {
-        if (shunned.contains(member.id)) {
-            log.debug("Not recovering shunned: {} on: {}", member.getId(), node.getId());
-            return;
-        }
-        if (context.activate(member)) {
-            log.trace("Recovering: {} cardinality: {} count: {} on: {}", member.getId(), viewManagement.cardinality(),
-                      context.size(), node.getId());
-        }
-    }
-
-    /**
      * Process the gossip response, providing the updates requested by the the other member and processing the updates
      * provided by the other member
      *
@@ -1424,24 +1103,6 @@ public class View {
         return updatesForDigests(gossip);
     }
 
-    private void tally(SVU svu, HashMultiset<Ballot> ballots) {
-        var vc = svu.viewChange;
-        final var leaving = vc.getChange()
-                              .getLeavesList()
-                              .stream()
-                              .map(Digest::from)
-                              .distinct()
-                              .collect(Collectors.toCollection(ArrayList::new));
-        final var joining = vc.getChange()
-                              .getJoinsList()
-                              .stream()
-                              .map(Digest::from)
-                              .distinct()
-                              .collect(Collectors.toCollection(ArrayList::new));
-        leaving.sort(Ordering.natural());
-        joining.sort(Ordering.natural());
-        ballots.add(new Ballot(Digest.from(vc.getChange().getCurrent()), leaving, joining, digestAlgo));
-    }
 
     /**
      * Process the gossip reply. Return the gossip with the updates determined from the inbound digests.
@@ -1479,12 +1140,8 @@ public class View {
         biff = gossip.getObservations().getBff();
         if (!biff.equals(Biff.getDefaultInstance())) {
             BloomFilter<Digest> obsvBff = BloomFilter.from(biff);
-            observations.values()
-                        .stream()
-                        .collect(Utils.toShuffledList())
-                        .stream()
-                        .filter(svu -> !obsvBff.contains(svu.hash))
-                        .forEach(svu -> builder.addObservations(svu.viewChange));
+            ((ViewChangeCoordinatorImpl) viewChangeCoordinator).updatesForDigests(obsvBff)
+                                                               .forEach(builder::addObservations);
         }
 
         biff = gossip.getJoins().getBff();
@@ -1497,7 +1154,7 @@ public class View {
     }
 
     private void validate(Digest from, final int ring, Digest requestView, String type) {
-        if (shunned.contains(from)) {
+        if (membershipManager.isShunned(from)) {
             log.trace("Member is shunned: {} cannot {} on: {}", type, from, node.getId());
             throw new StatusRuntimeException(Status.UNKNOWN.withDescription("Member is shunned"));
         }
@@ -1561,16 +1218,79 @@ public class View {
         return verifiers.verifierFor(id).map(value -> value.verify(threshold, signature, message)).orElse(false);
     }
 
-    private record SVU(Digest observer, SignedViewChange viewChange, int attempt, Digest hash)
-    implements Comparable<SVU> {
-        public SVU(SignedViewChange signedViewChange, DigestAlgorithm algo) {
-            this(Digest.from(signedViewChange.getChange().getObserver()), signedViewChange,
-                 signedViewChange.getChange().getAttempt(), algo.digest(signedViewChange.toByteString()));
+    /**
+     * Adapter that implements ViewContext by delegating to View's existing methods.
+     */
+    private class ViewContextAdapter implements ViewContext {
+
+        @Override
+        public boolean enterOperation() {
+            return View.this.enterOperation();
         }
 
         @Override
-        public int compareTo(SVU o) {
-            return Integer.compare(attempt, o.attempt);
+        public void exitOperation() {
+            View.this.exitOperation();
+        }
+
+        @Override
+        public boolean isStarted() {
+            return View.this.started.get();
+        }
+
+        @Override
+        public void stable(Runnable action) {
+            View.this.stable(action);
+        }
+
+        @Override
+        public <T> T stable(Callable<T> callable) {
+            return View.this.stable(callable);
+        }
+
+        @Override
+        public void viewChange(Runnable action) {
+            View.this.viewChange(action);
+        }
+
+        @Override
+        public Digest currentView() {
+            return View.this.currentView();
+        }
+
+        @Override
+        public DynamicContext<Participant> getContext() {
+            return View.this.context;
+        }
+
+        @Override
+        public Node getNode() {
+            return View.this.node;
+        }
+
+        @Override
+        public DigestAlgorithm getDigestAlgorithm() {
+            return View.this.digestAlgo;
+        }
+
+        @Override
+        public Parameters getParams() {
+            return View.this.params;
+        }
+
+        @Override
+        public FireflyMetrics getMetrics() {
+            return View.this.metrics;
+        }
+
+        @Override
+        public boolean validate(SelfAddressingIdentifier identifier) {
+            return View.this.validate(identifier);
+        }
+
+        @Override
+        public boolean validateBootstrapNote(NoteWrapper note) {
+            return View.this.validateBootstrapNote(note);
         }
     }
 
@@ -1953,7 +1673,7 @@ public class View {
 
         boolean setNote(NoteWrapper next) {
             note = next;
-            if (!shunned.contains(id)) {
+            if (!membershipManager.isShunned(id)) {
                 clearAccusations();
             }
             return true;
