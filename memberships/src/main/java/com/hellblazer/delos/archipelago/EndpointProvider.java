@@ -22,13 +22,22 @@ import java.net.UnknownHostException;
  */
 public interface EndpointProvider {
     static String allocatePort() {
-        InetSocketAddress addr = null;
+        // Try localhost first, fall back to loopback if hostname resolution fails
         try {
-            addr = new InetSocketAddress(InetAddress.getLocalHost(), Utils.allocatePort(InetAddress.getLocalHost()));
-        } catch (UnknownHostException e) {
-            throw new IllegalStateException("Cannot resolve localhost!", e);
+            var localhost = InetAddress.getLocalHost();
+            int port = Utils.allocatePort(localhost);
+            if (port != -1) {
+                return HostAndPort.fromParts(localhost.getHostName(), port).toString();
+            }
+        } catch (UnknownHostException ignored) {
+            // Fall through to loopback
         }
-        return HostAndPort.fromParts(addr.getHostName(), addr.getPort()).toString();
+        // Fallback to loopback address
+        int port = Utils.allocatePort(InetAddress.getLoopbackAddress());
+        if (port == -1) {
+            throw new IllegalStateException("Cannot allocate port on localhost or loopback!");
+        }
+        return HostAndPort.fromParts("127.0.0.1", port).toString();
     }
 
     static InetSocketAddress reify(String encoded) {

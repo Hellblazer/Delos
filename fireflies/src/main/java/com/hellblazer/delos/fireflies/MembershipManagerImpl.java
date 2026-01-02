@@ -21,8 +21,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.InputStream;
+import java.time.Instant;
 import java.util.BitSet;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.stream.Stream;
 
@@ -35,14 +38,29 @@ class MembershipManagerImpl implements MembershipManager {
 
     private static final Logger log = LoggerFactory.getLogger(MembershipManagerImpl.class);
 
-    private final ViewContext        viewContext;
-    private final ViewManagement     viewManagement;
-    private final Verifiers          verifiers;
-    private final Set<Digest>        shunned;
-    private final ParticipantFactory participantFactory;
+    private final ViewContext                viewContext;
+    private final ViewManagement             viewManagement;
+    private final Verifiers                  verifiers;
+    private final Set<Digest>                shunned;
+    private final Map<Digest, ShunRecord>    shunRecords;
+    private final ParticipantFactory         participantFactory;
 
     // Mutable to support bidirectional reference initialization
-    private volatile AccusationTracker accusationTracker;
+    private volatile AccusationTracker       accusationTracker;
+
+    /**
+     * Record of when a member was shunned and last recovery attempt.
+     * Used for recovery eligibility and rate limiting.
+     */
+    record ShunRecord(Instant shunnedAt, Instant lastRecoveryAttempt) {
+        ShunRecord(Instant shunnedAt) {
+            this(shunnedAt, null);
+        }
+
+        ShunRecord withRecoveryAttempt(Instant attemptTime) {
+            return new ShunRecord(shunnedAt, attemptTime);
+        }
+    }
 
     @FunctionalInterface
     interface ParticipantFactory {
@@ -58,6 +76,7 @@ class MembershipManagerImpl implements MembershipManager {
         this.verifiers = verifiers;
         this.participantFactory = participantFactory;
         this.shunned = new ConcurrentSkipListSet<>();
+        this.shunRecords = new ConcurrentHashMap<>();
     }
 
     @Override
@@ -158,6 +177,7 @@ class MembershipManagerImpl implements MembershipManager {
                  viewContext.currentView(), viewContext.getNode().getId());
         viewContext.getContext().remove(id);
         shunned.remove(id);
+        shunRecords.remove(id);
         if (viewContext.getMetrics() != null) {
             viewContext.getMetrics().leaves().mark();
         }
@@ -183,11 +203,91 @@ class MembershipManagerImpl implements MembershipManager {
     @Override
     public void shun(Digest id) {
         shunned.add(id);
+        shunRecords.put(id, new ShunRecord(Instant.now()));
+        log.info("Shunned member: {} at: {} on: {}", id, Instant.now(), viewContext.getNode().getId());
     }
 
     @Override
     public Stream<Digest> streamShunned() {
         return shunned.stream();
+    }
+
+    @Override
+    public boolean canRecover(Digest memberId) {
+        if (!shunned.contains(memberId)) {
+            return false;
+        }
+
+        var record = shunRecords.get(memberId);
+        if (record == null) {
+            // Shunned but no record - shouldn't happen, but allow recovery
+            log.warn("Shunned member {} has no shun record on: {}", memberId, viewContext.getNode().getId());
+            return true;
+        }
+
+        var now = Instant.now();
+        var recoveryDuration = viewContext.getParams().shunRecoveryDuration();
+
+        // Check if recovery period has elapsed since shunning
+        var timeSinceShunning = java.time.Duration.between(record.shunnedAt(), now);
+        if (timeSinceShunning.compareTo(recoveryDuration) < 0) {
+            log.trace("Recovery not yet allowed for: {} (shunned: {}, elapsed: {}, required: {}) on: {}", memberId,
+                      record.shunnedAt(), timeSinceShunning, recoveryDuration, viewContext.getNode().getId());
+            return false;
+        }
+
+        // Check rate limiting - prevent rapid re-recovery attempts
+        if (record.lastRecoveryAttempt() != null) {
+            var timeSinceLastAttempt = java.time.Duration.between(record.lastRecoveryAttempt(), now);
+            if (timeSinceLastAttempt.compareTo(recoveryDuration) < 0) {
+                log.trace("Recovery rate limited for: {} (last attempt: {}, elapsed: {}) on: {}", memberId,
+                          record.lastRecoveryAttempt(), timeSinceLastAttempt, viewContext.getNode().getId());
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    @Override
+    public boolean attemptRecovery(NoteWrapper note) {
+        var memberId = note.getId();
+
+        // Verify member is shunned
+        if (!shunned.contains(memberId)) {
+            log.debug("Recovery attempt for non-shunned member: {} on: {}", memberId, viewContext.getNode().getId());
+            return false;
+        }
+
+        // Check recovery eligibility (time-based)
+        if (!canRecover(memberId)) {
+            log.info("Recovery not yet eligible for: {} on: {}", memberId, viewContext.getNode().getId());
+            return false;
+        }
+
+        // Validate note signature and identity
+        if (!verify(note.getIdentifier(), note.getSignature(), note.getWrapped().getNote().toByteString())) {
+            log.warn("Invalid recovery note signature from: {} on: {}", memberId, viewContext.getNode().getId());
+            if (viewContext.getMetrics() != null) {
+                viewContext.getMetrics().filteredNotes().mark();
+            }
+            return false;
+        }
+
+        // Update recovery attempt timestamp for rate limiting
+        shunRecords.computeIfPresent(memberId, (k, record) -> record.withRecoveryAttempt(Instant.now()));
+
+        // Remove from shunned set
+        shunned.remove(memberId);
+        shunRecords.remove(memberId);
+
+        log.info("Successfully recovered shunned member: {} on: {}", memberId, viewContext.getNode().getId());
+
+        if (viewContext.getMetrics() != null) {
+            viewContext.getMetrics().joins().mark();
+        }
+
+        return true;
     }
 
     @Override

@@ -87,61 +87,28 @@ import static com.hellblazer.delos.fireflies.comm.gossip.FfClient.getCreate;
  */
 public class View {
 
-    /**
-     * Explicit membership lifecycle states for state machine validation.
-     * Transitions are validated to prevent invalid state changes.
-     */
-    public enum ViewState {
-        /** Initial state before start() is called */
-        INITIAL,
-        /** Connecting to seeds and establishing initial contacts */
-        SEEDING,
-        /** Waiting for join to complete after seeding */
-        JOINING,
-        /** Fully joined and operational */
-        JOINED,
-        /** Stop has been requested, draining operations */
-        STOPPING,
-        /** Fully stopped */
-        STOPPED;
-
-        /**
-         * Validate if transition to target state is allowed from this state.
-         * @return true if transition is valid
-         */
-        public boolean canTransitionTo(ViewState target) {
-            return switch (this) {
-                case INITIAL -> target == SEEDING;
-                case SEEDING -> target == JOINING || target == JOINED || target == STOPPING;
-                case JOINING -> target == JOINED || target == STOPPING;
-                case JOINED -> target == STOPPING;
-                case STOPPING -> target == STOPPED;
-                case STOPPED -> target == SEEDING; // Allow restart after stop
-            };
-        }
-    }
     private static final Logger log = LoggerFactory.getLogger(View.class);
 
-    final            CommonCommunications<Fireflies, Service>    comm;
+    final            CommonCommunications<Fireflies, ViewService>    comm;
     final            AtomicBoolean                               started             = new AtomicBoolean();
     final            ReentrantLock                               lifecycleLock       = new ReentrantLock();
     final            AtomicInteger                               operationsInFlight  = new AtomicInteger(0);
     private final    AtomicReference<ViewState>                  viewState           = new AtomicReference<>(ViewState.INITIAL);
-    private final    CommonCommunications<Entrance, Service>     approaches;
-    private final    DynamicContext<Participant>                 context;
-    private final    DigestAlgorithm                             digestAlgo;
-    private final    AtomicBoolean                               introduced          = new AtomicBoolean();
-    private final    FireflyMetrics                              metrics;
-    private final    Node                                        node;
-    private final    Parameters                                  params;
-    private final    RoundScheduler                              roundTimers;
-    private final    Map<String, RoundScheduler.Timer>           timers              = new ConcurrentHashMap<>();
-    private final    ReadWriteLock                               viewChange;
-    private final    ViewManagement                              viewManagement;
+    final            CommonCommunications<Entrance, ViewService>     approaches;
+    final            DynamicContext<Participant>                 context;
+    final            DigestAlgorithm                             digestAlgo;
+    final            AtomicBoolean                               introduced          = new AtomicBoolean();
+    final            FireflyMetrics                              metrics;
+    final            Node                                        node;
+    final            Parameters                                  params;
+    final            RoundScheduler                              roundTimers;
+    final            Map<String, RoundScheduler.Timer>           timers              = new ConcurrentHashMap<>();
+    final            ReadWriteLock                               viewChange;
+    final            ViewManagement                              viewManagement;
     private final    EventValidation                             validation;
-    private final    Verifiers                                   verifiers;
+    final            Verifiers                                   verifiers;
     private final    ScheduledExecutorService                    scheduler;
-    private final    MembershipManager                           membershipManager;
+    final            MembershipManager                           membershipManager;
     private final    AccusationTracker                           accusationTracker;
     private final    ViewChangeCoordinator                       viewChangeCoordinator;
     private volatile ScheduledFuture<?>                          futureGossip;
@@ -164,9 +131,9 @@ public class View {
         // CRITICAL: Must use static timeToLive() for safety-critical timers (accusations, rebuttals, view changes)
         // dynamicTimeToLive() can cause timing violations during network growth - see Delos-8b7
         this.roundTimers = new RoundScheduler(String.format("Timers for: %s", context.getId()), context.timeToLive());
-        this.node = new Node(member, endpoint);
+        this.node = new Node(this, member, endpoint);
         viewManagement = new ViewManagement(this, context, params, metrics, node, digestAlgo, scheduler);
-        var service = new Service();
+        var service = new ViewService(this);
         this.comm = communications.create(node, context.getId(), service,
                                           r -> new FfServer(communications.getClientIdentityProvider(), r, metrics),
                                           getCreate(metrics), Fireflies.getLocalLoopback(node));
@@ -178,19 +145,21 @@ public class View {
         this.verifiers = verifiers;
         viewChange = new ReentrantReadWriteLock(true);
 
+        // Create shared ViewContext adapter for all extracted components
+        var viewContext = new ViewContextAdapter(this);
+
         // Initialize membership manager first (accusation tracker's recover callback uses it)
-        this.membershipManager = new MembershipManagerImpl(new ViewContextAdapter(), null, // accusationTracker set below
+        this.membershipManager = new MembershipManagerImpl(viewContext, null, // accusationTracker set below
                                                            viewManagement, verifiers, this::createParticipant);
-        this.accusationTracker = new AccusationTrackerImpl(new ViewContextAdapter(), roundTimers, viewManagement,
+        this.accusationTracker = new AccusationTrackerImpl(viewContext, roundTimers, viewManagement,
                                                            membershipManager::recover, membershipManager::shun);
         // Complete the bidirectional reference
         this.membershipManager.setAccusationTracker(accusationTracker);
-        this.viewChangeCoordinator = new ViewChangeCoordinatorImpl(new ViewContextAdapter(), roundTimers,
-                                                                   viewManagement, timers);
+        this.viewChangeCoordinator = new ViewChangeCoordinatorImpl(viewContext, roundTimers, viewManagement, timers);
     }
 
     private Participant createParticipant(NoteWrapper note) {
-        return new Participant(note);
+        return new Participant(note, context.getRingCount(), verifiers, membershipManager);
     }
 
     /**
@@ -345,6 +314,7 @@ public class View {
             }
         }
 
+        accusationTracker.clearPendingRebuttals();
         roundTimers.reset();
         comm.deregister(context.getId());
         context.active().forEach(context::offline);
@@ -447,7 +417,7 @@ public class View {
                 }
                 return false;
             }
-            m = new Participant(note);
+            m = new Participant(note, context.getRingCount(), verifiers, membershipManager);
             context.add(m);
         } else {
             current = m.getNote();
@@ -520,7 +490,7 @@ public class View {
      *
      * @return The member that represents this View
      */
-    Node getNode() {
+    NodeMember getNode() {
         return node;
     }
 
@@ -585,6 +555,7 @@ public class View {
      * @param digest
      */
     void remove(Digest digest) {
+        accusationTracker.cancelPendingRebuttal(digest);
         membershipManager.remove(digest);
     }
 
@@ -659,6 +630,64 @@ public class View {
 
     Stream<Digest> streamShunned() {
         return membershipManager.streamShunned();
+    }
+
+    /**
+     * Shun a member (permanent exclusion from current view).
+     * <p>
+     * Public API for testing and external components.
+     *
+     * @param id the member to shun
+     */
+    public void shun(Digest id) {
+        membershipManager.shun(id);
+    }
+
+    /**
+     * Check if a member is shunned.
+     * <p>
+     * Public API for testing and external components.
+     *
+     * @param id the member ID
+     * @return true if the member is shunned
+     */
+    public boolean isShunned(Digest id) {
+        return membershipManager.isShunned(id);
+    }
+
+    /**
+     * Check if a shunned member can attempt recovery.
+     * <p>
+     * Public API for testing and external components.
+     *
+     * @param memberId the member to check
+     * @return true if recovery is allowed
+     */
+    public boolean canRecover(Digest memberId) {
+        return membershipManager.canRecover(memberId);
+    }
+
+    /**
+     * Attempt recovery of a shunned member.
+     * <p>
+     * Public API for testing and external components.
+     *
+     * @param note the recovery note with updated epoch and valid signature
+     * @return true if recovery succeeded
+     */
+    public boolean attemptRecovery(NoteWrapper note) {
+        return membershipManager.attemptRecovery(note);
+    }
+
+    /**
+     * Check if this view is started.
+     * <p>
+     * Public API for testing and external components.
+     *
+     * @return true if the view is started
+     */
+    public boolean isStarted() {
+        return started.get();
     }
 
     void tick() {
@@ -784,7 +813,7 @@ public class View {
     }
 
 
-    private boolean add(NoteWrapper note) {
+    boolean add(NoteWrapper note) {
         if (membershipManager.isShunned(note.getId())) {
             log.trace("Note: {} is shunned on: {}", note.getId(), node.getId());
             if (metrics != null) {
@@ -824,10 +853,13 @@ public class View {
     private boolean addJoin(SignedNote sn) {
         final var note = new NoteWrapper(sn, digestAlgo);
 
+        // Accept joins even with view mismatch - view transitions are async across nodes.
+        // This mirrors the fix applied to ViewManagement.enjoin(). Both the direct enjoin
+        // RPC path and this gossip backup path must accept view mismatch for reliable
+        // join propagation during async view transitions.
         if (!currentView().equals(note.currentView())) {
-            log.trace("Invalid join note view: {} current: {} from: {} on: {}", note.currentView(), currentView(),
-                      note.getId(), node.getId());
-            return false;
+            log.debug("Join note view mismatch (accepting anyway): {} vs {} from: {} on: {}",
+                      note.currentView(), currentView(), note.getId(), node.getId());
         }
 
         if (viewManagement.contains(note.getId())) {
@@ -1017,7 +1049,7 @@ public class View {
      * @param bff
      * @return
      */
-    private AccusationGossip processAccusations(BloomFilter<Digest> bff, double p) {
+    AccusationGossip processAccusations(BloomFilter<Digest> bff, double p) {
         return accusationTracker.processAccusations(bff, p);
     }
 
@@ -1045,7 +1077,7 @@ public class View {
      * the gossip. Update the reply with the list of digests the view requires, as well as proposed updates based on the
      * inbound digests that the view has more recent information
      */
-    private NoteGossip processNotes(Digest from, BloomFilter<Digest> bff, double p) {
+    NoteGossip processNotes(Digest from, BloomFilter<Digest> bff, double p) {
         NoteGossip.Builder builder = processNotes(bff);
         builder.setBff(getNotesBff(Entropy.nextSecureLong(), p).toBff());
         if (builder.getUpdatesCount() != 0) {
@@ -1062,7 +1094,7 @@ public class View {
      * @param p
      * @param bff
      */
-    private ViewChangeGossip processObservations(BloomFilter<Digest> bff, double p) {
+    ViewChangeGossip processObservations(BloomFilter<Digest> bff, double p) {
         return viewChangeCoordinator.processObservations(bff, p);
     }
 
@@ -1072,7 +1104,7 @@ public class View {
      * @param notes
      * @param accusations
      */
-    private void processUpdates(List<SignedNote> notes, List<SignedAccusation> accusations,
+    void processUpdates(List<SignedNote> notes, List<SignedAccusation> accusations,
                                 List<SignedViewChange> observe, List<SignedNote> joins) {
         var nCount = notes.stream()
                           .map(s -> new NoteWrapper(s, digestAlgo))
@@ -1178,7 +1210,7 @@ public class View {
         validate(from, ring, requestView, "gossip");
     }
 
-    private void validate(Digest from, SayWhat request) {
+    void validate(Digest from, SayWhat request) {
         var valid = false;
         var note = new NoteWrapper(request.getNote(), digestAlgo);
         var requestView = Digest.from(request.getView());
@@ -1193,7 +1225,7 @@ public class View {
         }
     }
 
-    private void validate(Digest from, State request) {
+    void validate(Digest from, State request) {
         var valid = false;
         try {
             validate(from, request.getRing(), Digest.from(request.getView()), "update");
@@ -1218,617 +1250,37 @@ public class View {
         return verifiers.verifierFor(id).map(value -> value.verify(threshold, signature, message)).orElse(false);
     }
 
-    /**
-     * Adapter that implements ViewContext by delegating to View's existing methods.
-     */
-    private class ViewContextAdapter implements ViewContext {
-
-        @Override
-        public boolean enterOperation() {
-            return View.this.enterOperation();
-        }
-
-        @Override
-        public void exitOperation() {
-            View.this.exitOperation();
-        }
-
-        @Override
-        public boolean isStarted() {
-            return View.this.started.get();
-        }
-
-        @Override
-        public void stable(Runnable action) {
-            View.this.stable(action);
-        }
-
-        @Override
-        public <T> T stable(Callable<T> callable) {
-            return View.this.stable(callable);
-        }
-
-        @Override
-        public void viewChange(Runnable action) {
-            View.this.viewChange(action);
-        }
-
-        @Override
-        public Digest currentView() {
-            return View.this.currentView();
-        }
-
-        @Override
-        public DynamicContext<Participant> getContext() {
-            return View.this.context;
-        }
-
-        @Override
-        public Node getNode() {
-            return View.this.node;
-        }
-
-        @Override
-        public DigestAlgorithm getDigestAlgorithm() {
-            return View.this.digestAlgo;
-        }
-
-        @Override
-        public Parameters getParams() {
-            return View.this.params;
-        }
-
-        @Override
-        public FireflyMetrics getMetrics() {
-            return View.this.metrics;
-        }
-
-        @Override
-        public boolean validate(SelfAddressingIdentifier identifier) {
-            return View.this.validate(identifier);
-        }
-
-        @Override
-        public boolean validateBootstrapNote(NoteWrapper note) {
-            return View.this.validateBootstrapNote(note);
-        }
-    }
-
     public record Seed(SelfAddressingIdentifier identifier, String endpoint) {
     }
 
-    public class Node extends Participant implements SigningMember {
-        private final ControlledIdentifierMember wrapped;
-
-        public Node(ControlledIdentifierMember wrapped, String endpoint) {
-            super(wrapped.getId());
-            this.wrapped = wrapped;
-            var n = Note.newBuilder()
-                        .setEpoch(0)
-                        .setEndpoint(endpoint)
-                        .setIdentifier(wrapped.getIdentifier().getIdentifier().toIdent())
-                        .setMask(ByteString.copyFrom(nextMask().toByteArray()))
-                        .build();
-            var signedNote = SignedNote.newBuilder()
-                                       .setNote(n)
-                                       .setSignature(wrapped.sign(n.toByteString()).toSig())
-                                       .build();
-            note = new NoteWrapper(signedNote, digestAlgo);
-            log.info("Endpoint: {} on: {}", endpoint, wrapped.getId());
-        }
-
-        /**
-         * Create a mask of length DynamicContext.majority() randomly disabled rings
-         *
-         * @return the mask
-         */
-        public static BitSet createInitialMask(DynamicContext<?> context) {
-            int nbits = context.getRingCount();
-            BitSet mask = new BitSet(nbits);
-            List<Boolean> random = new ArrayList<>();
-            for (int i = 0; i < context.majority(); i++) {
-                random.add(true);
-            }
-            for (int i = 0; i < context.toleranceLevel(); i++) {
-                random.add(false);
-            }
-            Entropy.secureShuffle(random);
-            for (int i = 0; i < nbits; i++) {
-                if (random.get(i)) {
-                    mask.set(i);
-                }
-            }
-            return mask;
-        }
-
-        @Override
-        public SignatureAlgorithm algorithm() {
-            return wrapped.algorithm();
-        }
-
-        public SelfAddressingIdentifier getIdentifier() {
-            return wrapped.getIdentifier().getIdentifier();
-        }
-
-        @Override
-        public JohnHancock sign(InputStream message) {
-            return wrapped.sign(message);
-        }
-
-        @Override
-        public String toString() {
-            return "Node[" + getId() + "]";
-        }
-
-        AccusationWrapper accuse(Participant m, int ringNumber) {
-            var accusation = Accusation.newBuilder()
-                                       .setEpoch(m.getEpoch())
-                                       .setRingNumber(ringNumber)
-                                       .setAccuser(getId().toDigeste())
-                                       .setAccused(m.getId().toDigeste())
-                                       .setCurrentView(currentView().toDigeste())
-                                       .build();
-            return new AccusationWrapper(SignedAccusation.newBuilder()
-                                                         .setAccusation(accusation)
-                                                         .setSignature(wrapped.sign(accusation.toByteString()).toSig())
-                                                         .build(), digestAlgo);
-        }
-
-        /**
-         * @return a new mask based on the previous mask and previous accusations.
-         */
-        BitSet nextMask() {
-            final var current = note;
-            if (current == null) {
-                BitSet mask = createInitialMask(context);
-                assert isValidMask(mask, context) : "Invalid mask: " + mask + " majority: " + context.majority()
-                + " for node: " + getId();
-                return mask;
-            }
-
-            BitSet mask = new BitSet(context.getRingCount());
-            mask.flip(0, context.getRingCount());
-            final var accusations = validAccusations;
-
-            // disable current accusations
-            for (int i = 0; i < context.getRingCount() && i < accusations.length; i++) {
-                if (accusations[i] != null) {
-                    mask.set(i, false);
-                }
-            }
-            // clear masks from previous note
-            BitSet previous = BitSet.valueOf(current.getMask().toByteArray());
-            for (int index = 0; index < context.getRingCount() && index < accusations.length; index++) {
-                if (!previous.get(index) && accusations[index] == null) {
-                    mask.set(index, true);
-                }
-            }
-
-            // Fill the rest of the mask with randomly-set index
-
-            while (mask.cardinality() != ((context.getBias() - 1) * context.toleranceLevel()) + 1) {
-                int index = Entropy.nextBitsStreamInt(context.getRingCount());
-                if (index < accusations.length) {
-                    if (accusations[index] != null) {
-                        continue;
-                    }
-                }
-                if (mask.cardinality() > context.toleranceLevel() + 1 && mask.get(index)) {
-                    mask.set(index, false);
-                } else if (mask.cardinality() < context.toleranceLevel() && !mask.get(index)) {
-                    mask.set(index, true);
-                }
-            }
-            assert isValidMask(mask, context) : "Invalid mask: " + mask + " t: " + context.toleranceLevel()
-            + " for node: " + getId();
-            return mask;
-        }
-
-        /**
-         * Generate a new note for the member based on any previous note and previous accusations. The new note has a
-         * larger epoch number the the current note.
-         */
-        void nextNote() {
-            nextNote(currentView());
-        }
-
-        void nextNote(Digest view) {
-            NoteWrapper current = note;
-            long newEpoch = current == null ? 0 : note.getEpoch() + 1;
-            nextNote(newEpoch, view);
-        }
-
-        /**
-         * Generate a new note using the new epoch
-         *
-         * @param newEpoch
-         */
-        void nextNote(long newEpoch, Digest view) {
-            final var current = note;
-            var n = current.newBuilder()
-                           .setIdentifier(note.getIdentifier().toIdent())
-                           .setEpoch(newEpoch)
-                           .setMask(ByteString.copyFrom(nextMask().toByteArray()))
-                           .setCurrentView(view.toDigeste())
-                           .build();
-            var signedNote = SignedNote.newBuilder()
-                                       .setNote(n)
-                                       .setSignature(wrapped.sign(n.toByteString()).toSig())
-                                       .build();
-            note = new NoteWrapper(signedNote, digestAlgo);
-        }
-
-        KeyState_ noteState() {
-            return wrapped.getIdentifier().toKeyState_();
-        }
-
-        @Override
-        void reset() {
-            final var current = note;
-            super.reset();
-            var n = Note.newBuilder()
-                        .setEpoch(0)
-                        .setCurrentView(currentView().toDigeste())
-                        .setEndpoint(current.getEndpoint())
-                        .setIdentifier(current.getIdentifier().toIdent())
-                        .setMask(ByteString.copyFrom(nextMask().toByteArray()))
-                        .build();
-            SignedNote signedNote = SignedNote.newBuilder()
-                                              .setNote(n)
-                                              .setSignature(wrapped.sign(n.toByteString()).toSig())
-                                              .build();
-            note = new NoteWrapper(signedNote, digestAlgo);
+    /**
+     * Type alias for backward compatibility. Use ViewService directly in new code.
+     * @deprecated Use {@link ViewService} instead
+     */
+    @Deprecated
+    public static class Service extends ViewService {
+        public Service(View view) {
+            super(view);
         }
     }
 
-    public class Participant implements Member {
-
-        private static final Logger log = LoggerFactory.getLogger(Participant.class);
-
-        protected final    Digest              id;
-        protected volatile NoteWrapper         note;
-        protected volatile AccusationWrapper[] validAccusations;
-
-        public Participant(Digest identity) {
-            assert identity != null;
-            this.id = identity;
-            validAccusations = new AccusationWrapper[context.getRingCount()];
-        }
-
-        public Participant(NoteWrapper nw) {
-            this(nw.getId());
-            note = nw;
-        }
-
-        @Override
-        public int compareTo(Member o) {
-            return id.compareTo(o.getId());
-        }
-
-        public String endpoint() {
-            final var current = note;
-            if (current == null) {
-                return null;
-            }
-            return current.getEndpoint();
-        }
-
-        @Override
-        public boolean equals(Object obj) {
-            if (obj instanceof Member m) {
-                return compareTo(m) == 0;
-            }
-            return false;
-        }
-
-        public int getAccusationCount() {
-            var count = 0;
-            for (var acc : validAccusations) {
-                if (acc != null) {
-                    count++;
-                }
-            }
-            return count;
-        }
-
-        public Iterable<? extends SignedAccusation> getEncodedAccusations() {
-            return getAccusations().map(AccusationWrapper::getWrapped).toList();
-        }
-
-        @Override
-        public Digest getId() {
-            return id;
-        }
-
-        public SelfAddressingIdentifier getIdentifier() {
-            return note.getIdentifier();
-        }
-
-        public SignedNote getSignedNote() {
-            return note.getWrapped();
-        }
-
-        @Override
-        public int hashCode() {
-            return id.hashCode();
-        }
-
-        public boolean isDisabled(int ringNumber) {
-            final var current = note;
-            if (current != null) {
-                return !current.getMask().get(ringNumber);
-            }
-            return false;
-        }
-
-        @Override
-        public String toString() {
-            return "Member[" + getId() + "]";
-        }
-
-        @Override
-        public boolean verify(JohnHancock signature, InputStream message) {
-            final var current = note;
-            if (current == null) {
-                return true;
-            }
-            return View.this.verify(getIdentifier(), signature, message);
-        }
-
-        @Override
-        public boolean verify(SigningThreshold threshold, JohnHancock signature, InputStream message) {
-            final var current = note;
-            return View.this.verify(getIdentifier(), threshold, signature, message);
-        }
-
-        /**
-         * Add an accusation to the member
-         *
-         * @param accusation
-         */
-        void addAccusation(AccusationWrapper accusation) {
-            Integer ringNumber = accusation.getRingNumber();
-            if (accusation.getRingNumber() >= validAccusations.length) {
-                return;
-            }
-            NoteWrapper n = getNote();
-            if (n == null) {
-                validAccusations[ringNumber] = accusation;
-                return;
-            }
-            if (n.getEpoch() != accusation.getEpoch()) {
-                log.trace("Invalid epoch discarding accusation from: {} context: {} ring {} on: {}",
-                          accusation.getAccuser(), getId(), ringNumber, node.getId());
-                return;
-            }
-            if (n.getMask().get(ringNumber)) {
-                validAccusations[ringNumber] = accusation;
-                if (log.isDebugEnabled()) {
-                    log.debug("Member: {} is accusing: {} context: {} ring: {} on: {}", accusation.getAccuser(),
-                              accusation.getAccused(), getId(), ringNumber, node.getId());
-                }
-            }
-        }
-
-        /**
-         * clear all accusations for the member
-         */
-        void clearAccusations() {
-            for (var acc : validAccusations) {
-                if (acc != null) {
-                    log.trace("Clearing accusations for: {} context: {} on: {}", acc.getAccused(), getId(),
-                              node.getId());
-                    break;
-                }
-            }
-            Arrays.fill(validAccusations, null);
-        }
-
-        AccusationWrapper getAccusation(int ring) {
-            return validAccusations[ring];
-        }
-
-        Stream<AccusationWrapper> getAccusations() {
-            return Arrays.stream(validAccusations).filter(Objects::nonNull);
-        }
-
-        long getEpoch() {
-            NoteWrapper current = note;
-            if (current == null) {
-                return -1;
-            }
-            return current.getEpoch();
-        }
-
-        NoteWrapper getNote() {
-            final var current = note;
-            return current;
-        }
-
-        void invalidateAccusationOnRing(int index) {
-            validAccusations[index] = null;
-            log.trace("Invalidating accusations context: {} ring: {} on: {}", getId(), index, node.getId());
-        }
-
-        boolean isAccused() {
-            for (var acc : validAccusations) {
-                if (acc != null) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        boolean isAccusedOn(int index) {
-            if (index >= validAccusations.length) {
-                return false;
-            }
-            return validAccusations[index] != null;
-        }
-
-        void reset() {
-            note = null;
-            validAccusations = new AccusationWrapper[context.getRingCount()];
-        }
-
-        boolean setNote(NoteWrapper next) {
-            note = next;
-            if (!membershipManager.isShunned(id)) {
-                clearAccusations();
-            }
-            return true;
+    public static class Node extends NodeMember {
+        public Node(View view, ControlledIdentifierMember wrapped, String endpoint) {
+            super(view, wrapped, endpoint);
         }
     }
 
-    public class Service implements EntranceService, FFService, ServiceRouting {
-
-        public void enjoin(Join join, Digest from) {
-            viewManagement.enjoin(join, from);
+    /**
+     * Type alias for backward compatibility. Use ParticipantMember directly in new code.
+     */
+    public static class Participant extends ParticipantMember {
+        public Participant(Digest identity, int ringCount, Verifiers verifiers, MembershipManager membershipManager) {
+            super(identity, ringCount, verifiers, membershipManager);
         }
 
-        /**
-         * Asynchronously add a member to the next view
-         */
-        @Override
-        public void join(Join join, Digest from, StreamObserver<Gateway> responseObserver, Timer.Context timer) {
-            if (!enterOperation()) {
-                responseObserver.onError(
-                new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("Not started")));
-                return;
-            }
-            try {
-                viewManagement.join(join, from, responseObserver, timer);
-            } finally {
-                exitOperation();
-            }
-        }
-
-        public void ping(Ping ping, Digest from) {
-            final var ring = ping.getRing();
-            if (!context.validRing(ring)) {
-                log.debug("invalid Ping ring: {} current: {} from: {} on: {}", ring, currentView(), from, node.getId());
-                throw new StatusRuntimeException(Status.INVALID_ARGUMENT.withDescription("Invalid ring"));
-            }
-            Participant member = context.getActiveMember(from);
-            Participant successor = context.successor(ring, member, m -> context.isActive(m.getId()));
-            if (successor == null || !successor.equals(node)) {
-                log.debug("Not predecessor, invalid ping from: {} on ring: {} on: {}", from, ring, node.getId());
-                throw new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("Not predecessor"));
-            }
-            // perfectly fine ping
-        }
-
-        /**
-         * The first message in the anti-entropy protocol. Process any digests from the inbound gossip digest. Respond
-         * with the Gossip that represents the digests newer or not known in this view, as well as updates from this
-         * node based on out-of-date information in the supplied digests.
-         *
-         * @param request - the Gossip from our partner
-         * @return Teh response for Moar gossip - updates this node has which the sender is out of touch with, and
-         * digests from the sender that this node would like updated.
-         */
-        @Override
-        public Gossip rumors(SayWhat request, Digest from) {
-            if (!introduced.get()) {
-                //                log.trace("Not introduced; ring: {} from: {}, on: {}", request.getRing(), from, node.getId());
-                throw new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("Not introduced"));
-            }
-            return stable(() -> {
-                final var ring = request.getRing();
-                if (!context.validRing(ring)) {
-                    //                    log.debug("invalid gossip ring: {} from: {} on: {}", ring, from, node.getId());
-                    throw new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("invalid ring"));
-                }
-                validate(from, request);
-
-                Participant member = context.getActiveMember(from);
-                if (member == null) {
-                    add(new NoteWrapper(request.getNote(), digestAlgo));
-                    member = context.getActiveMember(from);
-                    if (member == null) {
-                        log.debug("Not active member: {} on: {}", from, node.getId());
-                        throw new StatusRuntimeException(Status.PERMISSION_DENIED.withDescription("Not active member"));
-                    }
-                }
-
-                Participant successor = context.successor(ring, member, m -> context.isActive(m.getId()));
-                if (successor == null) {
-                    log.debug("No active successor on ring: {} from: {} on: {}", ring, from, node.getId());
-                    throw new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("No active successor"));
-                }
-
-                Gossip g;
-                var builder = Gossip.newBuilder();
-                final var digests = request.getGossip();
-                if (!successor.equals(node)) {
-                    builder.setRedirect(successor.getNote().getWrapped());
-                    log.debug("Redirected: {} to: {} on: {}", member.getId(), successor.id, node.getId());
-                    return builder.build();
-                }
-                g = builder.setNotes(processNotes(from, BloomFilter.from(digests.getNoteBff()), params.fpr()))
-                           .setAccusations(
-                           processAccusations(BloomFilter.from(digests.getAccusationBff()), params.fpr()))
-                           .setObservations(
-                           processObservations(BloomFilter.from(digests.getObservationBff()), params.fpr()))
-                           .setJoins(viewManagement.processJoins(BloomFilter.from(digests.getJoinBiff()), params.fpr()))
-                           .build();
-                if (g.getNotes().getUpdatesCount() + g.getAccusations().getUpdatesCount() + g.getObservations()
-                                                                                             .getUpdatesCount()
-                + g.getJoins().getUpdatesCount() != 0) {
-                    log.trace("Gossip for: {} notes: {} accusations: {} joins: {} observations: {} on: {}", from,
-                              g.getNotes().getUpdatesCount(), g.getAccusations().getUpdatesCount(),
-                              g.getJoins().getUpdatesCount(), g.getObservations().getUpdatesCount(), node.getId());
-                }
-                return g;
-            });
-        }
-
-        @Override
-        public Redirect seed(Registration registration, Digest from) {
-            if (!enterOperation()) {
-                throw new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("Not started"));
-            }
-            try {
-                return viewManagement.seed(registration, from);
-            } finally {
-                exitOperation();
-            }
-        }
-
-        /**
-         * The third and final message in the anti-entropy protocol. Process the inbound update from another member.
-         *
-         * @param request - update state
-         * @param from
-         */
-        @Override
-        public void update(State request, Digest from) {
-            if (!introduced.get()) {
-                log.trace("Currently still being introduced, send unknown to: {}  on: {}", from, node.getId());
-                return;
-            }
-            stable(() -> {
-                validate(from, request);
-                final var ring = request.getRing();
-                if (!context.validRing(ring)) {
-                    log.debug("invalid ring: {} current: {} from: {} on: {}", ring, currentView(), from, node.getId());
-                    throw new StatusRuntimeException(Status.INVALID_ARGUMENT.withDescription("Invalid ring"));
-                }
-                Participant member = context.getActiveMember(from);
-                Participant successor = context.successor(ring, member, m -> context.isActive(m.getId()));
-                if (successor == null) {
-                    log.debug("No successor, invalid update from: {} on ring: {} on: {}", from, ring, node.getId());
-                    throw new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("No successor"));
-                }
-                if (!successor.equals(node)) {
-                    return;
-                }
-                final var update = request.getUpdate();
-                if (!update.equals(Update.getDefaultInstance())) {
-                    processUpdates(update.getNotesList(), update.getAccusationsList(), update.getObservationsList(),
-                                   update.getJoinsList());
-                }
-            });
+        public Participant(NoteWrapper nw, int ringCount, Verifiers verifiers, MembershipManager membershipManager) {
+            super(nw, ringCount, verifiers, membershipManager);
         }
     }
+
 }

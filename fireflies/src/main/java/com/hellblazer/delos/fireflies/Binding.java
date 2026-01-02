@@ -22,7 +22,7 @@ import com.hellblazer.delos.cryptography.proto.HexBloome;
 import com.hellblazer.delos.fireflies.View.Node;
 import com.hellblazer.delos.fireflies.View.Participant;
 import com.hellblazer.delos.fireflies.View.Seed;
-import com.hellblazer.delos.fireflies.View.Service;
+import com.hellblazer.delos.fireflies.ViewService;
 import com.hellblazer.delos.fireflies.comm.entrance.Entrance;
 import com.hellblazer.delos.fireflies.proto.*;
 import com.hellblazer.delos.membership.Member;
@@ -49,7 +49,7 @@ import java.util.stream.Collectors;
  */
 class Binding {
     private final static Logger                                  log = LoggerFactory.getLogger(Binding.class);
-    private final        CommonCommunications<Entrance, Service> approaches;
+    private final        CommonCommunications<Entrance, ViewService> approaches;
     private final        DynamicContext<Participant>             context;
     private final        DigestAlgorithm                         digestAlgo;
     private final        Duration                                duration;
@@ -61,7 +61,7 @@ class Binding {
     private final        ScheduledExecutorService                scheduler;
 
     public Binding(View view, List<Seed> seeds, Duration duration, DynamicContext<Participant> context,
-                   CommonCommunications<Entrance, Service> approaches, Node node, Parameters params,
+                   CommonCommunications<Entrance, ViewService> approaches, Node node, Parameters params,
                    FireflyMetrics metrics, DigestAlgorithm digestAlgo, ScheduledExecutorService scheduler) {
         this.scheduler = scheduler;
         assert node != null;
@@ -97,7 +97,7 @@ class Binding {
 
         var bootstrappers = seeds.stream()
                                  .map(this::seedFor)
-                                 .map(nw -> view.new Participant(nw))
+                                 .map(nw -> new View.Participant(nw, context.getRingCount(), view.verifiers, view.membershipManager))
                                  .filter(p -> !node.getId().equals(p.getId()))
                                  .collect(Collectors.toList());
         var seedlings = new SliceIterator<>("Seedlings", node, bootstrappers, approaches, scheduler);
@@ -191,12 +191,30 @@ class Binding {
         log.trace("Initial seed set count: {} view: {} from: {} on: {}", g.getInitialSeedSetCount(), v, member.getId(),
                   node.getId());
 
+        // First try: strict majority (all observers agree on same diadem)
         var trust = trusts.entrySet()
                           .stream()
                           .filter(e -> e.getCount() >= majority)
                           .map(Multiset.Entry::getElement)
                           .findFirst()
                           .orElse(null);
+
+        // Fallback: if majority observers responded but with different diadems (view change in progress),
+        // accept the most common trust. This handles the case where observers are installing a view
+        // change at slightly different times, resulting in mixed diadem responses.
+        // Safety: we still require majority responses, just not majority agreement.
+        if (trust == null && trusts.size() >= majority) {
+            trust = trusts.entrySet()
+                          .stream()
+                          .max(Comparator.comparingInt(Multiset.Entry::getCount))
+                          .map(Multiset.Entry::getElement)
+                          .orElse(null);
+            if (trust != null) {
+                log.info("Gateway fallback: accepting most common trust {} (count: {}/{}) during view transition on: {}",
+                         trust.diadem, trusts.count(trust), trusts.size(), node.getId());
+            }
+        }
+
         if (trust != null) {
             var bound = new Bound(trust.crown,
                                   trust.successors.stream().map(sn -> new NoteWrapper(sn, digestAlgo)).toList(),
@@ -314,7 +332,7 @@ class Binding {
         var sample = redirect.getIntroductionsList()
                              .stream()
                              .map(sn -> new NoteWrapper(sn, digestAlgo))
-                             .map(nw -> view.new Participant(nw))
+                             .map(nw -> new View.Participant(nw, context.getRingCount(), view.verifiers, view.membershipManager))
                              .collect(Collectors.toList());
         log.info("Redirecting to: {} context: {} sample: {} on: {}", v, this.context.getId(), sample.size(),
                  node.getId());
@@ -337,10 +355,11 @@ class Binding {
 
         final var redirecting = new SliceIterator<>("Gateways", node, sample, approaches, scheduler);
         var majority = redirect.getBootstrap() ? 1 : Context.minimalQuorum(redirect.getRings(), this.context.getBias());
-        final var join = join(v);
         var scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
         regate.set(() -> {
             log.info("Round: {} formally joining view: {} on: {}", retries.get(), v, node.getId());
+            // Generate fresh nonce for each retry round to prevent replay rejection
+            var join = join(v);
             if (!view.started.get()) {
                 return;
             }

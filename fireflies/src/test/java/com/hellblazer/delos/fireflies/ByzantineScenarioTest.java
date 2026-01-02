@@ -156,7 +156,7 @@ public class ByzantineScenarioTest {
 
         // At least one remaining view should be operational
         boolean anyOperational = remainingViews.stream()
-                                               .anyMatch(v -> v.getViewState() == View.ViewState.JOINED);
+                                               .anyMatch(v -> v.getViewState() == ViewState.JOINED);
 
         assertTrue(anyOperational, "Remaining nodes should continue to operate");
     }
@@ -223,8 +223,8 @@ public class ByzantineScenarioTest {
                    "Accused view should still be running");
 
         // Verify both views are operational after test
-        assertEquals(View.ViewState.JOINED, accuser.getViewState());
-        assertEquals(View.ViewState.JOINED, accused.getViewState());
+        assertEquals(ViewState.JOINED, accuser.getViewState());
+        assertEquals(ViewState.JOINED, accused.getViewState());
     }
 
     /**
