@@ -120,10 +120,7 @@ public class View {
             };
         }
     }
-    private static final String FINALIZE_VIEW_CHANGE  = "Finalize View Change";
-    private static final Logger log                   = LoggerFactory.getLogger(View.class);
-    private static final String SCHEDULED_VIEW_CHANGE = "Scheduled View Change";
-    private static final String CLEAR_OBSERVATIONS    = "Clear Observations";
+    private static final Logger log = LoggerFactory.getLogger(View.class);
 
     final            CommonCommunications<Fireflies, Service>    comm;
     final            AtomicBoolean                               started             = new AtomicBoolean();
@@ -134,11 +131,8 @@ public class View {
     private final    DynamicContext<Participant>                 context;
     private final    DigestAlgorithm                             digestAlgo;
     private final    AtomicBoolean                               introduced          = new AtomicBoolean();
-    private final    Map<String, Consumer<ViewChange>>           viewChangeListeners = new HashMap<>();
-    private final    Semaphore                                   viewSerialization   = new Semaphore(1);
     private final    FireflyMetrics                              metrics;
     private final    Node                                        node;
-    private final    Map<Digest, SVU>                            observations        = new ConcurrentSkipListMap<>();
     private final    Parameters                                  params;
     private final    RoundScheduler                              roundTimers;
     private final    Map<String, RoundScheduler.Timer>           timers              = new ConcurrentHashMap<>();
@@ -149,6 +143,7 @@ public class View {
     private final    ScheduledExecutorService                    scheduler;
     private final    MembershipManager                           membershipManager;
     private final    AccusationTracker                           accusationTracker;
+    private final    ViewChangeCoordinator                       viewChangeCoordinator;
     private volatile ScheduledFuture<?>                          futureGossip;
 
     public View(DynamicContext<Participant> context, ControlledIdentifierMember member, String endpoint,
@@ -183,11 +178,13 @@ public class View {
         this.verifiers = verifiers;
         viewChange = new ReentrantReadWriteLock(true);
 
-        // Initialize accusation tracker and membership manager
+        // Initialize accusation tracker, membership manager, and view change coordinator
         this.accusationTracker = new AccusationTrackerImpl(new ViewContextAdapter(), roundTimers, viewManagement,
                                                            this::recover);
         this.membershipManager = new MembershipManagerImpl(new ViewContextAdapter(), accusationTracker,
                                                            viewManagement, verifiers, this::createParticipant);
+        this.viewChangeCoordinator = new ViewChangeCoordinatorImpl(new ViewContextAdapter(), roundTimers,
+                                                                   viewManagement, timers);
     }
 
     private Participant createParticipant(NoteWrapper note) {
@@ -221,8 +218,8 @@ public class View {
     /**
      * Deregister the listener
      */
-    public void deregister(Consumer<ViewChange> listener) {
-        viewChangeListeners.remove(listener);
+    public void deregister(String key) {
+        viewChangeCoordinator.deregisterListener(key);
     }
 
     /**
@@ -268,7 +265,7 @@ public class View {
      * Register the listener to receive view changes
      */
     public void register(String key, Consumer<ViewChange> listener) {
-        viewChangeListeners.put(key, listener);
+        viewChangeCoordinator.registerListener(key, listener);
     }
 
     /**
@@ -346,7 +343,6 @@ public class View {
             }
         }
 
-        viewSerialization.release(10000);
         roundTimers.reset();
         comm.deregister(context.getId());
         context.active().forEach(context::offline);
@@ -369,7 +365,7 @@ public class View {
         if (current != null) {
             current.cancel(true);
         }
-        observations.clear();
+        viewChangeCoordinator.clearObservations();
         timers.values().forEach(RoundScheduler.Timer::cancel);
         timers.clear();
         viewManagement.stop();
@@ -514,46 +510,7 @@ public class View {
      * Finalize the view change
      */
     void finalizeViewChange() {
-        if (!started.get()) {
-            return;
-        }
-        viewChange(() -> {
-            removeTimer(View.FINALIZE_VIEW_CHANGE);
-            final var supermajority = context.getRingCount() * 3 / 4;
-            final var majority = context.size() == 1 ? 1 : supermajority;
-            log.info("Finalize view change, observations: {} observers: {} on: {}",
-                     observations.keySet().stream().toList(), viewManagement.observersList(), node.getId());
-            if (observations.size() < majority) {
-                log.info("Do not have majority: {} required: {} observers: {} for: {} on: {}", observations.size(),
-                         majority, viewManagement.observersList(), currentView(), node.getId());
-                scheduleFinalizeViewChange(1);
-                return;
-            }
-            log.info("Finalizing view change: {} required: {} observers: {} for: {} on: {}", context.getId(), majority,
-                     viewManagement.observersList(), currentView(), node.getId());
-            HashMultiset<Ballot> ballots = HashMultiset.create();
-            observations.values().forEach(svu -> tally(svu, ballots));
-            var max = ballots.entrySet()
-                             .stream()
-                             .max(Ordering.natural().onResultOf(Multiset.Entry::getCount))
-                             .orElse(null);
-            if (max != null && max.getCount() >= majority) {
-                log.info("View consensus successful: {} required: {} cardinality: {} for: {} on: {}", max, majority,
-                         viewManagement.cardinality(), currentView(), node.getId());
-                viewManagement.clearVote();  // Only clear vote on successful consensus
-                viewManagement.install(max.getElement());
-                scheduleViewChange();
-                scheduleClearObservations();
-            } else {
-                @SuppressWarnings("unchecked")
-                final var reversed = Comparator.comparing(e -> ((Entry<Ballot>) e).getCount()).reversed();
-                log.info("View consensus failed: {}, required: {} cardinality: {} ballots: {} for: {} on: {}",
-                         max == null ? 0 : max.getCount(), majority, viewManagement.cardinality(),
-                         ballots.entrySet().stream().sorted(reversed).toList(), currentView(), node.getId());
-                observations.clear();
-                scheduleViewChange();
-            }
-        });
+        viewChangeCoordinator.finalizeViewChange();
     }
 
     /**
@@ -566,7 +523,7 @@ public class View {
     }
 
     boolean hasMajorityObservations(boolean bootstrap) {
-        return bootstrap && context.size() == 1 || observations.size() >= context.majority();
+        return viewChangeCoordinator.hasMajorityObservations(bootstrap);
     }
 
     boolean hasPendingRebuttals() {
@@ -574,7 +531,7 @@ public class View {
     }
 
     void initiate(SignedViewChange viewChange) {
-        observations.put(node.getId(), new SVU(viewChange, digestAlgo));
+        viewChangeCoordinator.initiateViewChange(viewChange);
     }
 
     void introduced() {
@@ -586,31 +543,7 @@ public class View {
     }
 
     void notifyListeners(List<SelfAddressingIdentifier> joining, List<Digest> leaving) {
-        final var viewChange = new ViewChange(context.asStatic(), currentView(),
-                                              joining.stream().map(SelfAddressingIdentifier::getDigest).toList(),
-                                              Collections.unmodifiableList(leaving));
-        viewChangeListeners.forEach((key, value) -> {
-            Thread.ofVirtual().start(Utils.wrapped(() -> {
-                try {
-                    viewSerialization.acquire();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return;
-                }
-                if (!started.get()) {
-                    return;
-                }
-                try {
-                    log.trace("Notifying: {} view change: {} cardinality: {} joins: {} leaves: {} on: {} ", key,
-                              currentView(), context.size(), joining.size(), leaving.size(), node.getId());
-                    value.accept(viewChange);
-                } catch (Throwable e) {
-                    log.error("error in view change listener: {} on: {} ", key, node.getId(), e);
-                } finally {
-                    viewSerialization.release();
-                }
-            }, log));
-        });
+        viewChangeCoordinator.notifyListeners(joining, leaving);
     }
 
     /**
@@ -670,50 +603,23 @@ public class View {
     }
 
     void scheduleClearObservations() {
-        if (!enterOperation()) {
-            return;
-        }
-        try {
-            timers.put(CLEAR_OBSERVATIONS, roundTimers.schedule(CLEAR_OBSERVATIONS, () -> observations.clear(), 1));
-        } finally {
-            exitOperation();
-        }
+        viewChangeCoordinator.scheduleClearObservations();
     }
 
     void scheduleFinalizeViewChange() {
-        scheduleFinalizeViewChange(params.finalizeViewRounds());
+        viewChangeCoordinator.scheduleFinalizeViewChange(params.finalizeViewRounds());
     }
 
     void scheduleFinalizeViewChange(final int finalizeViewRounds) {
-        //        log.trace("View change finalization scheduled: {} rounds for: {} joining: {} leaving: {} on: {}",
-        //                  finalizeViewRounds, currentView(), joins.size(), context.getOffline().size(), node.getId());
-        if (!enterOperation()) {
-            return;
-        }
-        try {
-            timers.put(FINALIZE_VIEW_CHANGE,
-                       roundTimers.schedule(FINALIZE_VIEW_CHANGE, this::finalizeViewChange, finalizeViewRounds));
-        } finally {
-            exitOperation();
-        }
+        viewChangeCoordinator.scheduleFinalizeViewChange(finalizeViewRounds);
     }
 
     void scheduleViewChange() {
-        scheduleViewChange(params.viewChangeRounds());
+        viewChangeCoordinator.scheduleViewChange(params.viewChangeRounds());
     }
 
     void scheduleViewChange(final int viewChangeRounds) {
-        //        log.trace("Schedule view change: {} rounds for: {}   on: {}", viewChangeRounds, currentView(),
-        //                  node.getId());
-        if (!enterOperation()) {
-            return;
-        }
-        try {
-            timers.put(SCHEDULED_VIEW_CHANGE,
-                       roundTimers.schedule(SCHEDULED_VIEW_CHANGE, viewManagement::maybeViewChange, viewChangeRounds));
-        } finally {
-            exitOperation();
-        }
+        viewChangeCoordinator.scheduleViewChange(viewChangeRounds);
     }
 
     <T> T stable(Callable<T> call) {
@@ -910,47 +816,7 @@ public class View {
      * @param observation
      */
     private boolean add(SignedViewChange observation) {
-        var svu = new SVU(observation, digestAlgo);
-        var highWater = viewManagement.highWater(svu.observer);
-        if (highWater == null) {
-            log.trace("Invalid observer: {} current: {} on: {}", svu.observer, currentView(), node.getId());
-            return false;
-        }
-        final var inView = Digest.from(observation.getChange().getCurrent());
-        if (!currentView().equals(inView)) {
-            log.trace("Invalid view change: {} current: {} from {} on: {}", inView, currentView(), svu.observer,
-                      node.getId());
-            return false;
-        }
-        if (highWater >= svu.attempt) {
-            log.trace("Redundant view change: {} current: {} view: {} from {} on: {}", svu.attempt, highWater,
-                      currentView(), svu.observer, node.getId());
-            return false;
-        }
-        final var member = context.getActiveMember(svu.observer);
-        if (member == null) {
-            log.trace("Cannot validate view change: {} current: {} from: {} on: {}", inView, currentView(),
-                      svu.observer, node.getId());
-            return false;
-        }
-        final var signature = JohnHancock.from(observation.getSignature());
-        if (!member.verify(signature, observation.getChange().toByteString())) {
-            return false;
-        }
-        return observations.compute(svu.observer, (d, cur) -> {
-            if (cur != null) {
-                if (svu.attempt < cur.attempt) {
-                    log.trace("Stale observation: {} current: {} view change: {} current: {} offline: {} on: {}",
-                              svu.attempt, cur.attempt, inView, currentView(), svu.observer, node.getId());
-                    return cur;
-                } else {
-                    viewManagement.updateHighWater(d, svu.attempt);
-                }
-            }
-            log.trace("Observation: {} current: {} view change: {} from: {} on: {}", svu.attempt, inView, currentView(),
-                      svu.observer, node.getId());
-            return svu;
-        }) == svu;
+        return viewChangeCoordinator.addObservation(observation);
     }
 
     private boolean addJoin(SignedNote sn) {
@@ -1049,10 +915,7 @@ public class View {
      * @return the bloom filter containing the digests of known observations
      */
     private BloomFilter<Digest> getObservationsBff(long seed, double p) {
-        var n = Math.max(params.minimumBiffCardinality(), observations.size());
-        BloomFilter<Digest> bff = new BloomFilter.DigestBloomFilter(seed, n, 1.0 / (double) n);
-        observations.values().stream().map(svu -> svu.hash).collect(Utils.toShuffledList()).forEach(bff::add);
-        return bff;
+        return viewChangeCoordinator.getObservationsBff(seed, p);
     }
 
     /**
@@ -1200,21 +1063,6 @@ public class View {
         return builder.build();
     }
 
-    private ViewChangeGossip.Builder processObservations(BloomFilter<Digest> bff) {
-        ViewChangeGossip.Builder builder = ViewChangeGossip.newBuilder();
-
-        // Add all updates that this view has that aren't reflected in the inbound bff
-        final var current = currentView();
-        observations.values()
-                    .stream()
-                    .collect(Utils.toShuffledList())
-                    .stream()
-                    .filter(svu -> !bff.contains(svu.hash))
-                    .map(svu -> svu.viewChange)
-                    .forEach(n -> builder.addUpdates(n));
-        return builder;
-    }
-
     /**
      * Process the inbound observer from the gossip. Reconcile the differences between the view's state and the digests
      * of the gossip. Update the reply with the list of digests the view requires, as well as proposed updates based on
@@ -1224,12 +1072,7 @@ public class View {
      * @param bff
      */
     private ViewChangeGossip processObservations(BloomFilter<Digest> bff, double p) {
-        ViewChangeGossip.Builder builder = processObservations(bff);
-        builder.setBff(getObservationsBff(Entropy.nextSecureLong(), p).toBff());
-        if (builder.getUpdatesCount() != 0) {
-            log.trace("process view change produced updates: {} on: {}", builder.getUpdatesCount(), node.getId());
-        }
-        return builder.build();
+        return viewChangeCoordinator.processObservations(bff, p);
     }
 
     /**
@@ -1278,24 +1121,6 @@ public class View {
         return updatesForDigests(gossip);
     }
 
-    private void tally(SVU svu, HashMultiset<Ballot> ballots) {
-        var vc = svu.viewChange;
-        final var leaving = vc.getChange()
-                              .getLeavesList()
-                              .stream()
-                              .map(Digest::from)
-                              .distinct()
-                              .collect(Collectors.toCollection(ArrayList::new));
-        final var joining = vc.getChange()
-                              .getJoinsList()
-                              .stream()
-                              .map(Digest::from)
-                              .distinct()
-                              .collect(Collectors.toCollection(ArrayList::new));
-        leaving.sort(Ordering.natural());
-        joining.sort(Ordering.natural());
-        ballots.add(new Ballot(Digest.from(vc.getChange().getCurrent()), leaving, joining, digestAlgo));
-    }
 
     /**
      * Process the gossip reply. Return the gossip with the updates determined from the inbound digests.
@@ -1333,12 +1158,8 @@ public class View {
         biff = gossip.getObservations().getBff();
         if (!biff.equals(Biff.getDefaultInstance())) {
             BloomFilter<Digest> obsvBff = BloomFilter.from(biff);
-            observations.values()
-                        .stream()
-                        .collect(Utils.toShuffledList())
-                        .stream()
-                        .filter(svu -> !obsvBff.contains(svu.hash))
-                        .forEach(svu -> builder.addObservations(svu.viewChange));
+            ((ViewChangeCoordinatorImpl) viewChangeCoordinator).updatesForDigests(obsvBff)
+                                                               .forEach(builder::addObservations);
         }
 
         biff = gossip.getJoins().getBff();
@@ -1488,19 +1309,6 @@ public class View {
         @Override
         public boolean validateBootstrapNote(NoteWrapper note) {
             return View.this.validateBootstrapNote(note);
-        }
-    }
-
-    private record SVU(Digest observer, SignedViewChange viewChange, int attempt, Digest hash)
-    implements Comparable<SVU> {
-        public SVU(SignedViewChange signedViewChange, DigestAlgorithm algo) {
-            this(Digest.from(signedViewChange.getChange().getObserver()), signedViewChange,
-                 signedViewChange.getChange().getAttempt(), algo.digest(signedViewChange.toByteString()));
-        }
-
-        @Override
-        public int compareTo(SVU o) {
-            return Integer.compare(attempt, o.attempt);
         }
     }
 
