@@ -142,13 +142,13 @@ public class View {
     private final    Parameters                                  params;
     private final    ConcurrentMap<Digest, RoundScheduler.Timer> pendingRebuttals    = new ConcurrentSkipListMap<>();
     private final    RoundScheduler                              roundTimers;
-    private final    Set<Digest>                                 shunned             = new ConcurrentSkipListSet<>();
     private final    Map<String, RoundScheduler.Timer>           timers              = new HashMap<>();
     private final    ReadWriteLock                               viewChange;
     private final    ViewManagement                              viewManagement;
     private final    EventValidation                             validation;
     private final    Verifiers                                   verifiers;
     private final    ScheduledExecutorService                    scheduler;
+    private final    MembershipManager                           membershipManager;
     private volatile ScheduledFuture<?>                          futureGossip;
 
     public View(DynamicContext<Participant> context, ControlledIdentifierMember member, String endpoint,
@@ -182,6 +182,14 @@ public class View {
         this.validation = validation;
         this.verifiers = verifiers;
         viewChange = new ReentrantReadWriteLock(true);
+
+        // Initialize membership manager
+        this.membershipManager = new MembershipManagerImpl(new ViewContextAdapter(), new AccusationTrackerAdapter(),
+                                                           viewManagement, verifiers, this::createParticipant);
+    }
+
+    private Participant createParticipant(NoteWrapper note) {
+        return new Participant(note);
     }
 
     /**
@@ -652,13 +660,7 @@ public class View {
         if (pending != null) {
             pending.cancel();
         }
-        log.info("Permanently removing {} member {} from context: {} view: {} on: {}",
-                 context.isActive(digest) ? "active" : "failed", digest, context.getId(), currentView(), node.getId());
-        context.remove(digest);
-        shunned.remove(digest);
-        if (metrics != null) {
-            metrics.leaves().mark();
-        }
+        membershipManager.remove(digest);
     }
 
     void removeTimer(String timer) {
@@ -763,7 +765,7 @@ public class View {
     }
 
     Stream<Digest> streamShunned() {
-        return shunned.stream();
+        return membershipManager.streamShunned();
     }
 
     void tick() {
@@ -822,7 +824,7 @@ public class View {
      */
     protected Gossip gossip(Fireflies link, int ring) {
         tick();
-        if (shunned.contains(link.getMember().getId())) {
+        if (membershipManager.isShunned(link.getMember().getId())) {
             if (metrics != null) {
                 metrics.shunnedGossip().mark();
             }
@@ -962,7 +964,7 @@ public class View {
                 return false;
             }
         } else {
-            if (shunned.contains(accused.getId())) {
+            if (membershipManager.isShunned(accused.getId())) {
                 accused.addAccusation(accusation);
                 if (metrics != null) {
                     metrics.accusations().mark();
@@ -992,7 +994,7 @@ public class View {
     }
 
     private boolean add(NoteWrapper note) {
-        if (shunned.contains(note.getId())) {
+        if (membershipManager.isShunned(note.getId())) {
             log.trace("Note: {} is shunned on: {}", note.getId(), node.getId());
             if (metrics != null) {
                 metrics.filteredNotes().mark();
@@ -1111,7 +1113,7 @@ public class View {
             }
             return false;
         }
-        if (shunned.contains(note.getId())) {
+        if (membershipManager.isShunned(note.getId())) {
             if (metrics != null) {
                 metrics.filteredNotes().mark();
             }
@@ -1190,7 +1192,7 @@ public class View {
         }
         log.debug("Garbage collecting: {} view: {} on: {}", member.getId(), viewManagement.currentView(), node.getId());
         context.offline(member);
-        shunned.add(member.getId());
+        membershipManager.shun(member.getId());
         viewManagement.gc(member);
     }
 
@@ -1406,7 +1408,7 @@ public class View {
         context.active()
                .filter(m -> m.getNote() != null)
                .filter(m -> current.equals(m.getNote().currentView()))
-               .filter(m -> !shunned.contains(m.getId()))
+               .filter(m -> !membershipManager.isShunned(m.getId()))
                .filter(m -> !bff.contains(m.getNote().getHash()))
                .collect(new ReservoirSampler<>(params.maximumTxfr()))
                .stream()
@@ -1493,14 +1495,7 @@ public class View {
      * @param member
      */
     private void recover(Participant member) {
-        if (shunned.contains(member.id)) {
-            log.debug("Not recovering shunned: {} on: {}", member.getId(), node.getId());
-            return;
-        }
-        if (context.activate(member)) {
-            log.trace("Recovering: {} cardinality: {} count: {} on: {}", member.getId(), viewManagement.cardinality(),
-                      context.size(), node.getId());
-        }
+        membershipManager.recover(member);
     }
 
     /**
@@ -1588,7 +1583,7 @@ public class View {
     }
 
     private void validate(Digest from, final int ring, Digest requestView, String type) {
-        if (shunned.contains(from)) {
+        if (membershipManager.isShunned(from)) {
             log.trace("Member is shunned: {} cannot {} on: {}", type, from, node.getId());
             throw new StatusRuntimeException(Status.UNKNOWN.withDescription("Member is shunned"));
         }
@@ -1650,6 +1645,133 @@ public class View {
     private boolean verify(SelfAddressingIdentifier id, SigningThreshold threshold, JohnHancock signature,
                            InputStream message) {
         return verifiers.verifierFor(id).map(value -> value.verify(threshold, signature, message)).orElse(false);
+    }
+
+    /**
+     * Adapter that implements AccusationTracker by delegating to View's existing methods.
+     */
+    private class AccusationTrackerAdapter implements AccusationTracker {
+
+        @Override
+        public void accuse(Participant member, int ring, Throwable cause) {
+            View.this.accuse(member, ring, cause);
+        }
+
+        @Override
+        public boolean processAccusation(AccusationWrapper accusation) {
+            return View.this.add(accusation);
+        }
+
+        @Override
+        public void amplify(Participant target) {
+            View.this.amplify(target);
+        }
+
+        @Override
+        public void stopRebuttalTimer(Participant member) {
+            View.this.stopRebuttalTimer(member);
+        }
+
+        @Override
+        public void checkInvalidations(Participant member) {
+            View.this.checkInvalidations(member);
+        }
+
+        @Override
+        public boolean hasPendingRebuttals() {
+            return View.this.hasPendingRebuttals();
+        }
+
+        @Override
+        public void garbageCollect(Participant member) {
+            View.this.gc(member);
+        }
+
+        @Override
+        public AccusationGossip processAccusations(BloomFilter<Digest> bff, double fpr) {
+            return View.this.processAccusations(bff, fpr);
+        }
+
+        @Override
+        public BloomFilter<Digest> getAccusationsBff(long seed, double p) {
+            return View.this.getAccusationsBff(seed, p);
+        }
+    }
+
+    /**
+     * Adapter that implements ViewContext by delegating to View's existing methods.
+     */
+    private class ViewContextAdapter implements ViewContext {
+
+        @Override
+        public boolean enterOperation() {
+            return View.this.enterOperation();
+        }
+
+        @Override
+        public void exitOperation() {
+            View.this.exitOperation();
+        }
+
+        @Override
+        public boolean isStarted() {
+            return View.this.started.get();
+        }
+
+        @Override
+        public void stable(Runnable action) {
+            View.this.stable(action);
+        }
+
+        @Override
+        public <T> T stable(Callable<T> callable) {
+            return View.this.stable(callable);
+        }
+
+        @Override
+        public void viewChange(Runnable action) {
+            View.this.viewChange(action);
+        }
+
+        @Override
+        public Digest currentView() {
+            return View.this.currentView();
+        }
+
+        @Override
+        public DynamicContext<Participant> getContext() {
+            return View.this.context;
+        }
+
+        @Override
+        public Node getNode() {
+            return View.this.node;
+        }
+
+        @Override
+        public DigestAlgorithm getDigestAlgorithm() {
+            return View.this.digestAlgo;
+        }
+
+        @Override
+        public Parameters getParams() {
+            return View.this.params;
+        }
+
+        @Override
+        public FireflyMetrics getMetrics() {
+            return View.this.metrics;
+        }
+
+        @Override
+        public boolean validate(SelfAddressingIdentifier identifier) {
+            return View.this.validate(identifier);
+        }
+
+        @Override
+        public boolean validateBootstrapNote(NoteWrapper note) {
+            return View.this.validateBootstrapNote(note);
+        }
     }
 
     private record SVU(Digest observer, SignedViewChange viewChange, int attempt, Digest hash)
@@ -2044,7 +2166,7 @@ public class View {
 
         boolean setNote(NoteWrapper next) {
             note = next;
-            if (!shunned.contains(id)) {
+            if (!membershipManager.isShunned(id)) {
                 clearAccusations();
             }
             return true;
