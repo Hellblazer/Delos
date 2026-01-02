@@ -128,11 +128,29 @@ public class View {
         this.params = params;
         this.digestAlgo = digestAlgo;
         this.context = context;
+        this.validation = validation;
+        // CRITICAL: verifiers must be set before Node creation - Node's super() uses view.verifiers
+        this.verifiers = verifiers;
+        viewChange = new ReentrantReadWriteLock(true);
         // CRITICAL: Must use static timeToLive() for safety-critical timers (accusations, rebuttals, view changes)
         // dynamicTimeToLive() can cause timing violations during network growth - see Delos-8b7
         this.roundTimers = new RoundScheduler(String.format("Timers for: %s", context.getId()), context.timeToLive());
+
+        // Create shared ViewContext adapter for all extracted components
+        var viewContext = new ViewContextAdapter(this);
+
+        // Initialize membership manager before Node - Node's super() uses view.membershipManager
+        // accusationTracker set to null initially and updated after creation
+        this.membershipManager = new MembershipManagerImpl(viewContext, null,
+                                                           null, verifiers, this::createParticipant);
+
+        // Now safe to create Node - it uses view.verifiers and view.membershipManager
         this.node = new Node(this, member, endpoint);
         viewManagement = new ViewManagement(this, context, params, metrics, node, digestAlgo, scheduler);
+
+        // Update membershipManager with viewManagement reference
+        this.membershipManager.setViewManagement(viewManagement);
+
         var service = new ViewService(this);
         this.comm = communications.create(node, context.getId(), service,
                                           r -> new FfServer(communications.getClientIdentityProvider(), r, metrics),
@@ -141,16 +159,7 @@ public class View {
                                          service.getClass().getCanonicalName() + ":approach",
                                          r -> new EntranceServer(gateway.getClientIdentityProvider(), r, metrics),
                                          EntranceClient.getCreate(metrics), Entrance.getLocalLoopback(node, service));
-        this.validation = validation;
-        this.verifiers = verifiers;
-        viewChange = new ReentrantReadWriteLock(true);
 
-        // Create shared ViewContext adapter for all extracted components
-        var viewContext = new ViewContextAdapter(this);
-
-        // Initialize membership manager first (accusation tracker's recover callback uses it)
-        this.membershipManager = new MembershipManagerImpl(viewContext, null, // accusationTracker set below
-                                                           viewManagement, verifiers, this::createParticipant);
         this.accusationTracker = new AccusationTrackerImpl(viewContext, roundTimers, viewManagement,
                                                            membershipManager::recover, membershipManager::shun);
         // Complete the bidirectional reference
