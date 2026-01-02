@@ -87,39 +87,6 @@ import static com.hellblazer.delos.fireflies.comm.gossip.FfClient.getCreate;
  */
 public class View {
 
-    /**
-     * Explicit membership lifecycle states for state machine validation.
-     * Transitions are validated to prevent invalid state changes.
-     */
-    public enum ViewState {
-        /** Initial state before start() is called */
-        INITIAL,
-        /** Connecting to seeds and establishing initial contacts */
-        SEEDING,
-        /** Waiting for join to complete after seeding */
-        JOINING,
-        /** Fully joined and operational */
-        JOINED,
-        /** Stop has been requested, draining operations */
-        STOPPING,
-        /** Fully stopped */
-        STOPPED;
-
-        /**
-         * Validate if transition to target state is allowed from this state.
-         * @return true if transition is valid
-         */
-        public boolean canTransitionTo(ViewState target) {
-            return switch (this) {
-                case INITIAL -> target == SEEDING;
-                case SEEDING -> target == JOINING || target == JOINED || target == STOPPING;
-                case JOINING -> target == JOINED || target == STOPPING;
-                case JOINED -> target == STOPPING;
-                case STOPPING -> target == STOPPED;
-                case STOPPED -> target == SEEDING; // Allow restart after stop
-            };
-        }
-    }
     private static final Logger log = LoggerFactory.getLogger(View.class);
 
     final            CommonCommunications<Fireflies, ViewService>    comm;
@@ -178,15 +145,17 @@ public class View {
         this.verifiers = verifiers;
         viewChange = new ReentrantReadWriteLock(true);
 
+        // Create shared ViewContext adapter for all extracted components
+        var viewContext = new ViewContextAdapter(this);
+
         // Initialize membership manager first (accusation tracker's recover callback uses it)
-        this.membershipManager = new MembershipManagerImpl(new ViewContextAdapter(), null, // accusationTracker set below
+        this.membershipManager = new MembershipManagerImpl(viewContext, null, // accusationTracker set below
                                                            viewManagement, verifiers, this::createParticipant);
-        this.accusationTracker = new AccusationTrackerImpl(new ViewContextAdapter(), roundTimers, viewManagement,
+        this.accusationTracker = new AccusationTrackerImpl(viewContext, roundTimers, viewManagement,
                                                            membershipManager::recover, membershipManager::shun);
         // Complete the bidirectional reference
         this.membershipManager.setAccusationTracker(accusationTracker);
-        this.viewChangeCoordinator = new ViewChangeCoordinatorImpl(new ViewContextAdapter(), roundTimers,
-                                                                   viewManagement, timers);
+        this.viewChangeCoordinator = new ViewChangeCoordinatorImpl(viewContext, roundTimers, viewManagement, timers);
     }
 
     private Participant createParticipant(NoteWrapper note) {
@@ -1216,82 +1185,6 @@ public class View {
     private boolean verify(SelfAddressingIdentifier id, SigningThreshold threshold, JohnHancock signature,
                            InputStream message) {
         return verifiers.verifierFor(id).map(value -> value.verify(threshold, signature, message)).orElse(false);
-    }
-
-    /**
-     * Adapter that implements ViewContext by delegating to View's existing methods.
-     */
-    private class ViewContextAdapter implements ViewContext {
-
-        @Override
-        public boolean enterOperation() {
-            return View.this.enterOperation();
-        }
-
-        @Override
-        public void exitOperation() {
-            View.this.exitOperation();
-        }
-
-        @Override
-        public boolean isStarted() {
-            return View.this.started.get();
-        }
-
-        @Override
-        public void stable(Runnable action) {
-            View.this.stable(action);
-        }
-
-        @Override
-        public <T> T stable(Callable<T> callable) {
-            return View.this.stable(callable);
-        }
-
-        @Override
-        public void viewChange(Runnable action) {
-            View.this.viewChange(action);
-        }
-
-        @Override
-        public Digest currentView() {
-            return View.this.currentView();
-        }
-
-        @Override
-        public DynamicContext<Participant> getContext() {
-            return View.this.context;
-        }
-
-        @Override
-        public NodeMember getNode() {
-            return View.this.node;
-        }
-
-        @Override
-        public DigestAlgorithm getDigestAlgorithm() {
-            return View.this.digestAlgo;
-        }
-
-        @Override
-        public Parameters getParams() {
-            return View.this.params;
-        }
-
-        @Override
-        public FireflyMetrics getMetrics() {
-            return View.this.metrics;
-        }
-
-        @Override
-        public boolean validate(SelfAddressingIdentifier identifier) {
-            return View.this.validate(identifier);
-        }
-
-        @Override
-        public boolean validateBootstrapNote(NoteWrapper note) {
-            return View.this.validateBootstrapNote(note);
-        }
     }
 
     public record Seed(SelfAddressingIdentifier identifier, String endpoint) {

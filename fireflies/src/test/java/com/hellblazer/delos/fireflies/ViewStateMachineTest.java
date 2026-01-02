@@ -15,7 +15,6 @@ import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.fireflies.View.Participant;
 import com.hellblazer.delos.fireflies.View.Seed;
-import com.hellblazer.delos.fireflies.View.ViewState;
 import com.hellblazer.delos.membership.stereotomy.ControlledIdentifierMember;
 import com.hellblazer.delos.stereotomy.ControlledIdentifier;
 import com.hellblazer.delos.stereotomy.EventValidation;
