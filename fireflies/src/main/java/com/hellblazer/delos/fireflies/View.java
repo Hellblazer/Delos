@@ -142,7 +142,7 @@ public class View {
     private final    Parameters                                  params;
     private final    ConcurrentMap<Digest, RoundScheduler.Timer> pendingRebuttals    = new ConcurrentSkipListMap<>();
     private final    RoundScheduler                              roundTimers;
-    private final    Map<String, RoundScheduler.Timer>           timers              = new HashMap<>();
+    private final    Map<String, RoundScheduler.Timer>           timers              = new ConcurrentHashMap<>();
     private final    ReadWriteLock                               viewChange;
     private final    ViewManagement                              viewManagement;
     private final    EventValidation                             validation;
