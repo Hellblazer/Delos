@@ -11,7 +11,7 @@ import com.google.protobuf.Empty;
 import com.hellblazer.delos.archipelago.RoutableService;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.fireflies.FireflyMetrics;
-import com.hellblazer.delos.fireflies.View.Service;
+import com.hellblazer.delos.fireflies.ViewService;
 import com.hellblazer.delos.fireflies.proto.FirefliesGrpc.FirefliesImplBase;
 import com.hellblazer.delos.fireflies.proto.*;
 import com.hellblazer.delos.protocols.ClientIdentity;
@@ -22,11 +22,11 @@ import io.grpc.stub.StreamObserver;
  * @author hal.hildebrand
  */
 public class FfServer extends FirefliesImplBase {
-    private final ClientIdentity           identity;
-    private final FireflyMetrics           metrics;
-    private final RoutableService<Service> router;
+    private final ClientIdentity              identity;
+    private final FireflyMetrics              metrics;
+    private final RoutableService<ViewService> router;
 
-    public FfServer(ClientIdentity identity, RoutableService<Service> r, FireflyMetrics metrics) {
+    public FfServer(ClientIdentity identity, RoutableService<ViewService> r, FireflyMetrics metrics) {
         this.metrics = metrics;
         this.identity = identity;
         this.router = r;

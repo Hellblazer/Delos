@@ -22,7 +22,7 @@ import com.hellblazer.delos.cryptography.proto.HexBloome;
 import com.hellblazer.delos.fireflies.View.Node;
 import com.hellblazer.delos.fireflies.View.Participant;
 import com.hellblazer.delos.fireflies.View.Seed;
-import com.hellblazer.delos.fireflies.View.Service;
+import com.hellblazer.delos.fireflies.ViewService;
 import com.hellblazer.delos.fireflies.comm.entrance.Entrance;
 import com.hellblazer.delos.fireflies.proto.*;
 import com.hellblazer.delos.membership.Member;
@@ -49,7 +49,7 @@ import java.util.stream.Collectors;
  */
 class Binding {
     private final static Logger                                  log = LoggerFactory.getLogger(Binding.class);
-    private final        CommonCommunications<Entrance, Service> approaches;
+    private final        CommonCommunications<Entrance, ViewService> approaches;
     private final        DynamicContext<Participant>             context;
     private final        DigestAlgorithm                         digestAlgo;
     private final        Duration                                duration;
@@ -61,7 +61,7 @@ class Binding {
     private final        ScheduledExecutorService                scheduler;
 
     public Binding(View view, List<Seed> seeds, Duration duration, DynamicContext<Participant> context,
-                   CommonCommunications<Entrance, Service> approaches, Node node, Parameters params,
+                   CommonCommunications<Entrance, ViewService> approaches, Node node, Parameters params,
                    FireflyMetrics metrics, DigestAlgorithm digestAlgo, ScheduledExecutorService scheduler) {
         this.scheduler = scheduler;
         assert node != null;
@@ -97,7 +97,7 @@ class Binding {
 
         var bootstrappers = seeds.stream()
                                  .map(this::seedFor)
-                                 .map(nw -> view.new Participant(nw))
+                                 .map(nw -> new View.Participant(nw, context.getRingCount(), view.verifiers, view.membershipManager))
                                  .filter(p -> !node.getId().equals(p.getId()))
                                  .collect(Collectors.toList());
         var seedlings = new SliceIterator<>("Seedlings", node, bootstrappers, approaches, scheduler);
@@ -314,7 +314,7 @@ class Binding {
         var sample = redirect.getIntroductionsList()
                              .stream()
                              .map(sn -> new NoteWrapper(sn, digestAlgo))
-                             .map(nw -> view.new Participant(nw))
+                             .map(nw -> new View.Participant(nw, context.getRingCount(), view.verifiers, view.membershipManager))
                              .collect(Collectors.toList());
         log.info("Redirecting to: {} context: {} sample: {} on: {}", v, this.context.getId(), sample.size(),
                  node.getId());

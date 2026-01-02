@@ -9,7 +9,6 @@ package com.hellblazer.delos.fireflies;
 import com.hellblazer.delos.context.DynamicContext;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
-import com.hellblazer.delos.fireflies.View.Node;
 import com.hellblazer.delos.fireflies.View.Participant;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
 
@@ -112,7 +111,7 @@ public interface ViewContext {
     /**
      * @return the local node representation
      */
-    Node getNode();
+    NodeMember getNode();
 
     /**
      * @return the digest algorithm in use

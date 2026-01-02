@@ -732,7 +732,7 @@ public class ViewManagement {
             return Redirect.getDefaultInstance();
         }
         return view.stable(() -> {
-            var newMember = view.new Participant(note.getId());
+            var newMember = new View.Participant(note.getId(), context.getRingCount(), view.verifiers, view.membershipManager);
 
             final var introductions = observers.keySet().stream().map(context::getMember).toList();
 

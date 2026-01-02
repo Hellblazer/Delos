@@ -122,26 +122,26 @@ public class View {
     }
     private static final Logger log = LoggerFactory.getLogger(View.class);
 
-    final            CommonCommunications<Fireflies, Service>    comm;
+    final            CommonCommunications<Fireflies, ViewService>    comm;
     final            AtomicBoolean                               started             = new AtomicBoolean();
     final            ReentrantLock                               lifecycleLock       = new ReentrantLock();
     final            AtomicInteger                               operationsInFlight  = new AtomicInteger(0);
     private final    AtomicReference<ViewState>                  viewState           = new AtomicReference<>(ViewState.INITIAL);
-    private final    CommonCommunications<Entrance, Service>     approaches;
-    private final    DynamicContext<Participant>                 context;
-    private final    DigestAlgorithm                             digestAlgo;
-    private final    AtomicBoolean                               introduced          = new AtomicBoolean();
-    private final    FireflyMetrics                              metrics;
-    private final    Node                                        node;
-    private final    Parameters                                  params;
-    private final    RoundScheduler                              roundTimers;
-    private final    Map<String, RoundScheduler.Timer>           timers              = new ConcurrentHashMap<>();
-    private final    ReadWriteLock                               viewChange;
-    private final    ViewManagement                              viewManagement;
+    final            CommonCommunications<Entrance, ViewService>     approaches;
+    final            DynamicContext<Participant>                 context;
+    final            DigestAlgorithm                             digestAlgo;
+    final            AtomicBoolean                               introduced          = new AtomicBoolean();
+    final            FireflyMetrics                              metrics;
+    final            Node                                        node;
+    final            Parameters                                  params;
+    final            RoundScheduler                              roundTimers;
+    final            Map<String, RoundScheduler.Timer>           timers              = new ConcurrentHashMap<>();
+    final            ReadWriteLock                               viewChange;
+    final            ViewManagement                              viewManagement;
     private final    EventValidation                             validation;
-    private final    Verifiers                                   verifiers;
+    final            Verifiers                                   verifiers;
     private final    ScheduledExecutorService                    scheduler;
-    private final    MembershipManager                           membershipManager;
+    final            MembershipManager                           membershipManager;
     private final    AccusationTracker                           accusationTracker;
     private final    ViewChangeCoordinator                       viewChangeCoordinator;
     private volatile ScheduledFuture<?>                          futureGossip;
@@ -164,9 +164,9 @@ public class View {
         // CRITICAL: Must use static timeToLive() for safety-critical timers (accusations, rebuttals, view changes)
         // dynamicTimeToLive() can cause timing violations during network growth - see Delos-8b7
         this.roundTimers = new RoundScheduler(String.format("Timers for: %s", context.getId()), context.timeToLive());
-        this.node = new Node(member, endpoint);
+        this.node = new Node(this, member, endpoint);
         viewManagement = new ViewManagement(this, context, params, metrics, node, digestAlgo, scheduler);
-        var service = new Service();
+        var service = new ViewService(this);
         this.comm = communications.create(node, context.getId(), service,
                                           r -> new FfServer(communications.getClientIdentityProvider(), r, metrics),
                                           getCreate(metrics), Fireflies.getLocalLoopback(node));
@@ -190,7 +190,7 @@ public class View {
     }
 
     private Participant createParticipant(NoteWrapper note) {
-        return new Participant(note);
+        return new Participant(note, context.getRingCount(), verifiers, membershipManager);
     }
 
     /**
@@ -447,7 +447,7 @@ public class View {
                 }
                 return false;
             }
-            m = new Participant(note);
+            m = new Participant(note, context.getRingCount(), verifiers, membershipManager);
             context.add(m);
         } else {
             current = m.getNote();
@@ -520,7 +520,7 @@ public class View {
      *
      * @return The member that represents this View
      */
-    Node getNode() {
+    NodeMember getNode() {
         return node;
     }
 
@@ -784,7 +784,7 @@ public class View {
     }
 
 
-    private boolean add(NoteWrapper note) {
+    boolean add(NoteWrapper note) {
         if (membershipManager.isShunned(note.getId())) {
             log.trace("Note: {} is shunned on: {}", note.getId(), node.getId());
             if (metrics != null) {
@@ -1017,7 +1017,7 @@ public class View {
      * @param bff
      * @return
      */
-    private AccusationGossip processAccusations(BloomFilter<Digest> bff, double p) {
+    AccusationGossip processAccusations(BloomFilter<Digest> bff, double p) {
         return accusationTracker.processAccusations(bff, p);
     }
 
@@ -1045,7 +1045,7 @@ public class View {
      * the gossip. Update the reply with the list of digests the view requires, as well as proposed updates based on the
      * inbound digests that the view has more recent information
      */
-    private NoteGossip processNotes(Digest from, BloomFilter<Digest> bff, double p) {
+    NoteGossip processNotes(Digest from, BloomFilter<Digest> bff, double p) {
         NoteGossip.Builder builder = processNotes(bff);
         builder.setBff(getNotesBff(Entropy.nextSecureLong(), p).toBff());
         if (builder.getUpdatesCount() != 0) {
@@ -1062,7 +1062,7 @@ public class View {
      * @param p
      * @param bff
      */
-    private ViewChangeGossip processObservations(BloomFilter<Digest> bff, double p) {
+    ViewChangeGossip processObservations(BloomFilter<Digest> bff, double p) {
         return viewChangeCoordinator.processObservations(bff, p);
     }
 
@@ -1072,7 +1072,7 @@ public class View {
      * @param notes
      * @param accusations
      */
-    private void processUpdates(List<SignedNote> notes, List<SignedAccusation> accusations,
+    void processUpdates(List<SignedNote> notes, List<SignedAccusation> accusations,
                                 List<SignedViewChange> observe, List<SignedNote> joins) {
         var nCount = notes.stream()
                           .map(s -> new NoteWrapper(s, digestAlgo))
@@ -1178,7 +1178,7 @@ public class View {
         validate(from, ring, requestView, "gossip");
     }
 
-    private void validate(Digest from, SayWhat request) {
+    void validate(Digest from, SayWhat request) {
         var valid = false;
         var note = new NoteWrapper(request.getNote(), digestAlgo);
         var requestView = Digest.from(request.getView());
@@ -1193,7 +1193,7 @@ public class View {
         }
     }
 
-    private void validate(Digest from, State request) {
+    void validate(Digest from, State request) {
         var valid = false;
         try {
             validate(from, request.getRing(), Digest.from(request.getView()), "update");
@@ -1264,7 +1264,7 @@ public class View {
         }
 
         @Override
-        public Node getNode() {
+        public NodeMember getNode() {
             return View.this.node;
         }
 
@@ -1297,538 +1297,34 @@ public class View {
     public record Seed(SelfAddressingIdentifier identifier, String endpoint) {
     }
 
-    public class Node extends Participant implements SigningMember {
-        private final ControlledIdentifierMember wrapped;
-
-        public Node(ControlledIdentifierMember wrapped, String endpoint) {
-            super(wrapped.getId());
-            this.wrapped = wrapped;
-            var n = Note.newBuilder()
-                        .setEpoch(0)
-                        .setEndpoint(endpoint)
-                        .setIdentifier(wrapped.getIdentifier().getIdentifier().toIdent())
-                        .setMask(ByteString.copyFrom(nextMask().toByteArray()))
-                        .build();
-            var signedNote = SignedNote.newBuilder()
-                                       .setNote(n)
-                                       .setSignature(wrapped.sign(n.toByteString()).toSig())
-                                       .build();
-            note = new NoteWrapper(signedNote, digestAlgo);
-            log.info("Endpoint: {} on: {}", endpoint, wrapped.getId());
-        }
-
-        /**
-         * Create a mask of length DynamicContext.majority() randomly disabled rings
-         *
-         * @return the mask
-         */
-        public static BitSet createInitialMask(DynamicContext<?> context) {
-            int nbits = context.getRingCount();
-            BitSet mask = new BitSet(nbits);
-            List<Boolean> random = new ArrayList<>();
-            for (int i = 0; i < context.majority(); i++) {
-                random.add(true);
-            }
-            for (int i = 0; i < context.toleranceLevel(); i++) {
-                random.add(false);
-            }
-            Entropy.secureShuffle(random);
-            for (int i = 0; i < nbits; i++) {
-                if (random.get(i)) {
-                    mask.set(i);
-                }
-            }
-            return mask;
-        }
-
-        @Override
-        public SignatureAlgorithm algorithm() {
-            return wrapped.algorithm();
-        }
-
-        public SelfAddressingIdentifier getIdentifier() {
-            return wrapped.getIdentifier().getIdentifier();
-        }
-
-        @Override
-        public JohnHancock sign(InputStream message) {
-            return wrapped.sign(message);
-        }
-
-        @Override
-        public String toString() {
-            return "Node[" + getId() + "]";
-        }
-
-        AccusationWrapper accuse(Participant m, int ringNumber) {
-            var accusation = Accusation.newBuilder()
-                                       .setEpoch(m.getEpoch())
-                                       .setRingNumber(ringNumber)
-                                       .setAccuser(getId().toDigeste())
-                                       .setAccused(m.getId().toDigeste())
-                                       .setCurrentView(currentView().toDigeste())
-                                       .build();
-            return new AccusationWrapper(SignedAccusation.newBuilder()
-                                                         .setAccusation(accusation)
-                                                         .setSignature(wrapped.sign(accusation.toByteString()).toSig())
-                                                         .build(), digestAlgo);
-        }
-
-        /**
-         * @return a new mask based on the previous mask and previous accusations.
-         */
-        BitSet nextMask() {
-            final var current = note;
-            if (current == null) {
-                BitSet mask = createInitialMask(context);
-                assert isValidMask(mask, context) : "Invalid mask: " + mask + " majority: " + context.majority()
-                + " for node: " + getId();
-                return mask;
-            }
-
-            BitSet mask = new BitSet(context.getRingCount());
-            mask.flip(0, context.getRingCount());
-            final var accusations = validAccusations;
-
-            // disable current accusations
-            for (int i = 0; i < context.getRingCount() && i < accusations.length; i++) {
-                if (accusations[i] != null) {
-                    mask.set(i, false);
-                }
-            }
-            // clear masks from previous note
-            BitSet previous = BitSet.valueOf(current.getMask().toByteArray());
-            for (int index = 0; index < context.getRingCount() && index < accusations.length; index++) {
-                if (!previous.get(index) && accusations[index] == null) {
-                    mask.set(index, true);
-                }
-            }
-
-            // Fill the rest of the mask with randomly-set index
-
-            while (mask.cardinality() != ((context.getBias() - 1) * context.toleranceLevel()) + 1) {
-                int index = Entropy.nextBitsStreamInt(context.getRingCount());
-                if (index < accusations.length) {
-                    if (accusations[index] != null) {
-                        continue;
-                    }
-                }
-                if (mask.cardinality() > context.toleranceLevel() + 1 && mask.get(index)) {
-                    mask.set(index, false);
-                } else if (mask.cardinality() < context.toleranceLevel() && !mask.get(index)) {
-                    mask.set(index, true);
-                }
-            }
-            assert isValidMask(mask, context) : "Invalid mask: " + mask + " t: " + context.toleranceLevel()
-            + " for node: " + getId();
-            return mask;
-        }
-
-        /**
-         * Generate a new note for the member based on any previous note and previous accusations. The new note has a
-         * larger epoch number the the current note.
-         */
-        void nextNote() {
-            nextNote(currentView());
-        }
-
-        void nextNote(Digest view) {
-            NoteWrapper current = note;
-            long newEpoch = current == null ? 0 : note.getEpoch() + 1;
-            nextNote(newEpoch, view);
-        }
-
-        /**
-         * Generate a new note using the new epoch
-         *
-         * @param newEpoch
-         */
-        void nextNote(long newEpoch, Digest view) {
-            final var current = note;
-            var n = current.newBuilder()
-                           .setIdentifier(note.getIdentifier().toIdent())
-                           .setEpoch(newEpoch)
-                           .setMask(ByteString.copyFrom(nextMask().toByteArray()))
-                           .setCurrentView(view.toDigeste())
-                           .build();
-            var signedNote = SignedNote.newBuilder()
-                                       .setNote(n)
-                                       .setSignature(wrapped.sign(n.toByteString()).toSig())
-                                       .build();
-            note = new NoteWrapper(signedNote, digestAlgo);
-        }
-
-        KeyState_ noteState() {
-            return wrapped.getIdentifier().toKeyState_();
-        }
-
-        @Override
-        void reset() {
-            final var current = note;
-            super.reset();
-            var n = Note.newBuilder()
-                        .setEpoch(0)
-                        .setCurrentView(currentView().toDigeste())
-                        .setEndpoint(current.getEndpoint())
-                        .setIdentifier(current.getIdentifier().toIdent())
-                        .setMask(ByteString.copyFrom(nextMask().toByteArray()))
-                        .build();
-            SignedNote signedNote = SignedNote.newBuilder()
-                                              .setNote(n)
-                                              .setSignature(wrapped.sign(n.toByteString()).toSig())
-                                              .build();
-            note = new NoteWrapper(signedNote, digestAlgo);
+    /**
+     * Type alias for backward compatibility. Use ViewService directly in new code.
+     * @deprecated Use {@link ViewService} instead
+     */
+    @Deprecated
+    public static class Service extends ViewService {
+        public Service(View view) {
+            super(view);
         }
     }
 
-    public class Participant implements Member {
-
-        private static final Logger log = LoggerFactory.getLogger(Participant.class);
-
-        protected final    Digest              id;
-        protected volatile NoteWrapper         note;
-        protected volatile AccusationWrapper[] validAccusations;
-
-        public Participant(Digest identity) {
-            assert identity != null;
-            this.id = identity;
-            validAccusations = new AccusationWrapper[context.getRingCount()];
-        }
-
-        public Participant(NoteWrapper nw) {
-            this(nw.getId());
-            note = nw;
-        }
-
-        @Override
-        public int compareTo(Member o) {
-            return id.compareTo(o.getId());
-        }
-
-        public String endpoint() {
-            final var current = note;
-            if (current == null) {
-                return null;
-            }
-            return current.getEndpoint();
-        }
-
-        @Override
-        public boolean equals(Object obj) {
-            if (obj instanceof Member m) {
-                return compareTo(m) == 0;
-            }
-            return false;
-        }
-
-        public int getAccusationCount() {
-            var count = 0;
-            for (var acc : validAccusations) {
-                if (acc != null) {
-                    count++;
-                }
-            }
-            return count;
-        }
-
-        public Iterable<? extends SignedAccusation> getEncodedAccusations() {
-            return getAccusations().map(AccusationWrapper::getWrapped).toList();
-        }
-
-        @Override
-        public Digest getId() {
-            return id;
-        }
-
-        public SelfAddressingIdentifier getIdentifier() {
-            return note.getIdentifier();
-        }
-
-        public SignedNote getSignedNote() {
-            return note.getWrapped();
-        }
-
-        @Override
-        public int hashCode() {
-            return id.hashCode();
-        }
-
-        public boolean isDisabled(int ringNumber) {
-            final var current = note;
-            if (current != null) {
-                return !current.getMask().get(ringNumber);
-            }
-            return false;
-        }
-
-        @Override
-        public String toString() {
-            return "Member[" + getId() + "]";
-        }
-
-        @Override
-        public boolean verify(JohnHancock signature, InputStream message) {
-            final var current = note;
-            if (current == null) {
-                return true;
-            }
-            return View.this.verify(getIdentifier(), signature, message);
-        }
-
-        @Override
-        public boolean verify(SigningThreshold threshold, JohnHancock signature, InputStream message) {
-            final var current = note;
-            return View.this.verify(getIdentifier(), threshold, signature, message);
-        }
-
-        /**
-         * Add an accusation to the member
-         *
-         * @param accusation
-         */
-        void addAccusation(AccusationWrapper accusation) {
-            Integer ringNumber = accusation.getRingNumber();
-            if (accusation.getRingNumber() >= validAccusations.length) {
-                return;
-            }
-            NoteWrapper n = getNote();
-            if (n == null) {
-                validAccusations[ringNumber] = accusation;
-                return;
-            }
-            if (n.getEpoch() != accusation.getEpoch()) {
-                log.trace("Invalid epoch discarding accusation from: {} context: {} ring {} on: {}",
-                          accusation.getAccuser(), getId(), ringNumber, node.getId());
-                return;
-            }
-            if (n.getMask().get(ringNumber)) {
-                validAccusations[ringNumber] = accusation;
-                if (log.isDebugEnabled()) {
-                    log.debug("Member: {} is accusing: {} context: {} ring: {} on: {}", accusation.getAccuser(),
-                              accusation.getAccused(), getId(), ringNumber, node.getId());
-                }
-            }
-        }
-
-        /**
-         * clear all accusations for the member
-         */
-        void clearAccusations() {
-            for (var acc : validAccusations) {
-                if (acc != null) {
-                    log.trace("Clearing accusations for: {} context: {} on: {}", acc.getAccused(), getId(),
-                              node.getId());
-                    break;
-                }
-            }
-            Arrays.fill(validAccusations, null);
-        }
-
-        AccusationWrapper getAccusation(int ring) {
-            return validAccusations[ring];
-        }
-
-        Stream<AccusationWrapper> getAccusations() {
-            return Arrays.stream(validAccusations).filter(Objects::nonNull);
-        }
-
-        long getEpoch() {
-            NoteWrapper current = note;
-            if (current == null) {
-                return -1;
-            }
-            return current.getEpoch();
-        }
-
-        NoteWrapper getNote() {
-            final var current = note;
-            return current;
-        }
-
-        void invalidateAccusationOnRing(int index) {
-            validAccusations[index] = null;
-            log.trace("Invalidating accusations context: {} ring: {} on: {}", getId(), index, node.getId());
-        }
-
-        boolean isAccused() {
-            for (var acc : validAccusations) {
-                if (acc != null) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        boolean isAccusedOn(int index) {
-            if (index >= validAccusations.length) {
-                return false;
-            }
-            return validAccusations[index] != null;
-        }
-
-        void reset() {
-            note = null;
-            validAccusations = new AccusationWrapper[context.getRingCount()];
-        }
-
-        boolean setNote(NoteWrapper next) {
-            note = next;
-            if (!membershipManager.isShunned(id)) {
-                clearAccusations();
-            }
-            return true;
+    public static class Node extends NodeMember {
+        public Node(View view, ControlledIdentifierMember wrapped, String endpoint) {
+            super(view, wrapped, endpoint);
         }
     }
 
-    public class Service implements EntranceService, FFService, ServiceRouting {
-
-        public void enjoin(Join join, Digest from) {
-            viewManagement.enjoin(join, from);
+    /**
+     * Type alias for backward compatibility. Use ParticipantMember directly in new code.
+     */
+    public static class Participant extends ParticipantMember {
+        public Participant(Digest identity, int ringCount, Verifiers verifiers, MembershipManager membershipManager) {
+            super(identity, ringCount, verifiers, membershipManager);
         }
 
-        /**
-         * Asynchronously add a member to the next view
-         */
-        @Override
-        public void join(Join join, Digest from, StreamObserver<Gateway> responseObserver, Timer.Context timer) {
-            if (!enterOperation()) {
-                responseObserver.onError(
-                new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("Not started")));
-                return;
-            }
-            try {
-                viewManagement.join(join, from, responseObserver, timer);
-            } finally {
-                exitOperation();
-            }
-        }
-
-        public void ping(Ping ping, Digest from) {
-            final var ring = ping.getRing();
-            if (!context.validRing(ring)) {
-                log.debug("invalid Ping ring: {} current: {} from: {} on: {}", ring, currentView(), from, node.getId());
-                throw new StatusRuntimeException(Status.INVALID_ARGUMENT.withDescription("Invalid ring"));
-            }
-            Participant member = context.getActiveMember(from);
-            Participant successor = context.successor(ring, member, m -> context.isActive(m.getId()));
-            if (successor == null || !successor.equals(node)) {
-                log.debug("Not predecessor, invalid ping from: {} on ring: {} on: {}", from, ring, node.getId());
-                throw new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("Not predecessor"));
-            }
-            // perfectly fine ping
-        }
-
-        /**
-         * The first message in the anti-entropy protocol. Process any digests from the inbound gossip digest. Respond
-         * with the Gossip that represents the digests newer or not known in this view, as well as updates from this
-         * node based on out-of-date information in the supplied digests.
-         *
-         * @param request - the Gossip from our partner
-         * @return Teh response for Moar gossip - updates this node has which the sender is out of touch with, and
-         * digests from the sender that this node would like updated.
-         */
-        @Override
-        public Gossip rumors(SayWhat request, Digest from) {
-            if (!introduced.get()) {
-                //                log.trace("Not introduced; ring: {} from: {}, on: {}", request.getRing(), from, node.getId());
-                throw new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("Not introduced"));
-            }
-            return stable(() -> {
-                final var ring = request.getRing();
-                if (!context.validRing(ring)) {
-                    //                    log.debug("invalid gossip ring: {} from: {} on: {}", ring, from, node.getId());
-                    throw new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("invalid ring"));
-                }
-                validate(from, request);
-
-                Participant member = context.getActiveMember(from);
-                if (member == null) {
-                    add(new NoteWrapper(request.getNote(), digestAlgo));
-                    member = context.getActiveMember(from);
-                    if (member == null) {
-                        log.debug("Not active member: {} on: {}", from, node.getId());
-                        throw new StatusRuntimeException(Status.PERMISSION_DENIED.withDescription("Not active member"));
-                    }
-                }
-
-                Participant successor = context.successor(ring, member, m -> context.isActive(m.getId()));
-                if (successor == null) {
-                    log.debug("No active successor on ring: {} from: {} on: {}", ring, from, node.getId());
-                    throw new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("No active successor"));
-                }
-
-                Gossip g;
-                var builder = Gossip.newBuilder();
-                final var digests = request.getGossip();
-                if (!successor.equals(node)) {
-                    builder.setRedirect(successor.getNote().getWrapped());
-                    log.debug("Redirected: {} to: {} on: {}", member.getId(), successor.id, node.getId());
-                    return builder.build();
-                }
-                g = builder.setNotes(processNotes(from, BloomFilter.from(digests.getNoteBff()), params.fpr()))
-                           .setAccusations(
-                           processAccusations(BloomFilter.from(digests.getAccusationBff()), params.fpr()))
-                           .setObservations(
-                           processObservations(BloomFilter.from(digests.getObservationBff()), params.fpr()))
-                           .setJoins(viewManagement.processJoins(BloomFilter.from(digests.getJoinBiff()), params.fpr()))
-                           .build();
-                if (g.getNotes().getUpdatesCount() + g.getAccusations().getUpdatesCount() + g.getObservations()
-                                                                                             .getUpdatesCount()
-                + g.getJoins().getUpdatesCount() != 0) {
-                    log.trace("Gossip for: {} notes: {} accusations: {} joins: {} observations: {} on: {}", from,
-                              g.getNotes().getUpdatesCount(), g.getAccusations().getUpdatesCount(),
-                              g.getJoins().getUpdatesCount(), g.getObservations().getUpdatesCount(), node.getId());
-                }
-                return g;
-            });
-        }
-
-        @Override
-        public Redirect seed(Registration registration, Digest from) {
-            if (!enterOperation()) {
-                throw new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("Not started"));
-            }
-            try {
-                return viewManagement.seed(registration, from);
-            } finally {
-                exitOperation();
-            }
-        }
-
-        /**
-         * The third and final message in the anti-entropy protocol. Process the inbound update from another member.
-         *
-         * @param request - update state
-         * @param from
-         */
-        @Override
-        public void update(State request, Digest from) {
-            if (!introduced.get()) {
-                log.trace("Currently still being introduced, send unknown to: {}  on: {}", from, node.getId());
-                return;
-            }
-            stable(() -> {
-                validate(from, request);
-                final var ring = request.getRing();
-                if (!context.validRing(ring)) {
-                    log.debug("invalid ring: {} current: {} from: {} on: {}", ring, currentView(), from, node.getId());
-                    throw new StatusRuntimeException(Status.INVALID_ARGUMENT.withDescription("Invalid ring"));
-                }
-                Participant member = context.getActiveMember(from);
-                Participant successor = context.successor(ring, member, m -> context.isActive(m.getId()));
-                if (successor == null) {
-                    log.debug("No successor, invalid update from: {} on ring: {} on: {}", from, ring, node.getId());
-                    throw new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("No successor"));
-                }
-                if (!successor.equals(node)) {
-                    return;
-                }
-                final var update = request.getUpdate();
-                if (!update.equals(Update.getDefaultInstance())) {
-                    processUpdates(update.getNotesList(), update.getAccusationsList(), update.getObservationsList(),
-                                   update.getJoinsList());
-                }
-            });
+        public Participant(NoteWrapper nw, int ringCount, Verifiers verifiers, MembershipManager membershipManager) {
+            super(nw, ringCount, verifiers, membershipManager);
         }
     }
+
 }

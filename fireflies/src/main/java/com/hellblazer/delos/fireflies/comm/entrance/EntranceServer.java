@@ -10,7 +10,7 @@ import com.codahale.metrics.Timer.Context;
 import com.hellblazer.delos.archipelago.RoutableService;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.fireflies.FireflyMetrics;
-import com.hellblazer.delos.fireflies.View.Service;
+import com.hellblazer.delos.fireflies.ViewService;
 import com.hellblazer.delos.fireflies.proto.EntranceGrpc.EntranceImplBase;
 import com.hellblazer.delos.fireflies.proto.Gateway;
 import com.hellblazer.delos.fireflies.proto.Join;
@@ -24,11 +24,11 @@ import io.grpc.stub.StreamObserver;
  */
 public class EntranceServer extends EntranceImplBase {
 
-    private final FireflyMetrics           metrics;
-    private final RoutableService<Service> router;
-    private final ClientIdentity           identity;
+    private final FireflyMetrics              metrics;
+    private final RoutableService<ViewService> router;
+    private final ClientIdentity              identity;
 
-    public EntranceServer(ClientIdentity identity, RoutableService<Service> r, FireflyMetrics metrics) {
+    public EntranceServer(ClientIdentity identity, RoutableService<ViewService> r, FireflyMetrics metrics) {
         this.metrics = metrics;
         this.identity = identity;
         this.router = r;
