@@ -10,7 +10,7 @@ import com.hellblazer.delos.archipelago.EndpointProvider;
 import com.hellblazer.delos.archipelago.LocalServer;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
-import com.hellblazer.delos.context.DynamicContextImpl;
+import com.hellblazer.delos.context.DynamicContext;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.fireflies.View.Participant;
@@ -49,7 +49,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 public class ShunningRecoveryTest {
 
-    private static final int    CARDINALITY     = 5;
+    private static final int    CARDINALITY     = 7;  // Enough for meaningful BFT tests
     private static final int    BIAS            = 2;
     private static final double P_BYZ           = 0.1;
     private static final long   RECOVERY_MILLIS = 2000; // 2 seconds for testing
@@ -300,8 +300,12 @@ public class ShunningRecoveryTest {
     private void instantiate(Parameters parameters) {
         var prefix = UUID.randomUUID().toString();
         var gatewayPrefix = UUID.randomUUID().toString();
+        var ctxBuilder = DynamicContext.<Participant>newBuilder()
+                                       .setBias(BIAS)
+                                       .setpByz(P_BYZ)
+                                       .setCardinality(CARDINALITY);
         identities.forEach((d, id) -> {
-            var context = new DynamicContextImpl<Participant>(d, CARDINALITY, P_BYZ, BIAS);
+            DynamicContext<Participant> context = ctxBuilder.build();
             var localRouter = new LocalServer(prefix, members.get(d)).router(
             ServerConnectionCache.newBuilder().setTarget(30), null);
             localRouter.start();
