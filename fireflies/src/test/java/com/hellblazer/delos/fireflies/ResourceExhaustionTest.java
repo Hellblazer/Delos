@@ -87,10 +87,12 @@ public class ResourceExhaustionTest {
                                    .mapToObj(i -> stereotomy.newIdentifier())
                                    .collect(Collectors.toMap(controlled -> controlled.getIdentifier().getDigest(),
                                                              controlled -> controlled, (a, b) -> a, TreeMap::new));
+        // Use LinkedHashMap to preserve insertion order (matching identities TreeMap order)
+        // This ensures seeds contact the correct nodes - HashMap ordering is non-deterministic
         smallMembers = smallIdentities.values()
                                       .stream()
                                       .map(ControlledIdentifierMember::new)
-                                      .collect(Collectors.toMap(m -> m.getId(), m -> m));
+                                      .collect(Collectors.toMap(m -> m.getId(), m -> m, (a, b) -> a, LinkedHashMap::new));
 
         mediumIdentities = IntStream.range(0, MEDIUM_CARDINALITY)
                                     .mapToObj(i -> stereotomy.newIdentifier())
@@ -99,7 +101,7 @@ public class ResourceExhaustionTest {
         mediumMembers = mediumIdentities.values()
                                         .stream()
                                         .map(ControlledIdentifierMember::new)
-                                        .collect(Collectors.toMap(m -> m.getId(), m -> m));
+                                        .collect(Collectors.toMap(m -> m.getId(), m -> m, (a, b) -> a, LinkedHashMap::new));
 
         largeIdentities = IntStream.range(0, LARGE_CARDINALITY)
                                    .mapToObj(i -> stereotomy.newIdentifier())
@@ -108,7 +110,7 @@ public class ResourceExhaustionTest {
         largeMembers = largeIdentities.values()
                                       .stream()
                                       .map(ControlledIdentifierMember::new)
-                                      .collect(Collectors.toMap(m -> m.getId(), m -> m));
+                                      .collect(Collectors.toMap(m -> m.getId(), m -> m, (a, b) -> a, LinkedHashMap::new));
     }
 
     @AfterEach

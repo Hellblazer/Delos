@@ -153,6 +153,15 @@ public interface MembershipManager {
      */
     void setAccusationTracker(AccusationTracker accusationTracker);
 
+    /**
+     * Set the view management after construction to break circular dependency.
+     * <p>
+     * This is called after ViewManagement is constructed but before Node is created.
+     *
+     * @param viewManagement the view management
+     */
+    void setViewManagement(ViewManagement viewManagement);
+
     // === Gossip Support ===
 
     /**

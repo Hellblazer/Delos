@@ -39,13 +39,13 @@ class MembershipManagerImpl implements MembershipManager {
     private static final Logger log = LoggerFactory.getLogger(MembershipManagerImpl.class);
 
     private final ViewContext                viewContext;
-    private final ViewManagement             viewManagement;
     private final Verifiers                  verifiers;
     private final Set<Digest>                shunned;
     private final Map<Digest, ShunRecord>    shunRecords;
     private final ParticipantFactory         participantFactory;
 
     // Mutable to support bidirectional reference initialization
+    private volatile ViewManagement          viewManagement;
     private volatile AccusationTracker       accusationTracker;
 
     /**
@@ -82,6 +82,11 @@ class MembershipManagerImpl implements MembershipManager {
     @Override
     public void setAccusationTracker(AccusationTracker accusationTracker) {
         this.accusationTracker = accusationTracker;
+    }
+
+    @Override
+    public void setViewManagement(ViewManagement viewManagement) {
+        this.viewManagement = viewManagement;
     }
 
     @Override
