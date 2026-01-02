@@ -279,7 +279,14 @@ public class ChurnTest {
     private void initialize() {
         executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
         executor2 = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
-        var parameters = Parameters.newBuilder().setMaximumTxfr(10).build();
+        // Disable Phase 1 safety features for churn test - views stop/start rapidly
+        var parameters = Parameters.newBuilder()
+                                   .setMaximumTxfr(10)
+                                   .setMaxJoinAttemptsPerMinute(10000)  // Effectively disable rate limiting
+                                   .setJoinRateLimitWindow(Duration.ofHours(1))  // Long window
+                                   .setJoinMessageTtl(Duration.ofMinutes(30))  // Long TTL for test
+                                   .setPendingJoinTtl(Duration.ofHours(1))  // Don't expire pending joins
+                                   .build();
         registry = new MetricRegistry();
         node0Registry = new MetricRegistry();
 

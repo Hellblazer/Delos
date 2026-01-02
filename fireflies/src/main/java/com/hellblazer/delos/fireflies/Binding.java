@@ -337,10 +337,11 @@ class Binding {
 
         final var redirecting = new SliceIterator<>("Gateways", node, sample, approaches, scheduler);
         var majority = redirect.getBootstrap() ? 1 : Context.minimalQuorum(redirect.getRings(), this.context.getBias());
-        final var join = join(v);
         var scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
         regate.set(() -> {
             log.info("Round: {} formally joining view: {} on: {}", retries.get(), v, node.getId());
+            // Generate fresh nonce for each retry round to prevent replay rejection
+            var join = join(v);
             if (!view.started.get()) {
                 return;
             }
