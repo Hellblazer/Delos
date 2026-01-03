@@ -18,6 +18,7 @@ import java.security.KeyStore;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
+import java.util.Arrays;
 import java.util.function.Supplier;
 
 /**
@@ -61,11 +62,15 @@ public class FileKeyStore extends JksKeyStore {
     }
 
     private void save() {
+        // Clone password so we can safely clear our copy without affecting the provider
+        char[] password = passwordProvider.get().clone();
         try (var fos = new FileOutputStream(file)) {
-            keyStore.store(fos, passwordProvider.get());
+            keyStore.store(fos, password);
         } catch (IOException | KeyStoreException | NoSuchAlgorithmException | CertificateException e) {
             log.error("Cannot store to: {}", file.getAbsolutePath(), e);
             throw new IllegalStateException(e);
+        } finally {
+            Arrays.fill(password, '\0');
         }
     }
 

@@ -50,7 +50,7 @@
         <native.maven.plugin.version>0.9.27</native.maven.plugin.version>
         <junit.version>5.9.1</junit.version>
         <slf4j.version>2.0.3</slf4j.version>
-        <version.java>23</version.java>
+        <version.java>24</version.java>
         <graal.vm.version>24.0.2</graal.vm.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <forks>1</forks>
@@ -729,6 +729,7 @@
                                 <dependencyConvergence/>
                                 <requireJavaVersion>
                                     <version>[${version.java},)</version>
+                                    <message>Java ${version.java}+ is required. Recommended: GraalVM ${graal.vm.version} or later.</message>
                                 </requireJavaVersion>
                             </rules>
                         </configuration>
@@ -835,7 +836,7 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-shade-plugin</artifactId>
-                    <version>3.6.0</version>
+                    <version>3.6.1</version>
                 </plugin>
                 <plugin>
                     <groupId>org.codehaus.mojo</groupId>

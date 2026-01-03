@@ -238,16 +238,20 @@ abstract public class UniKERL implements DigestKERL {
     }
 
     public static void appendAttachments(Connection connection, List<byte[]> attachments) {
-        attachments.forEach(bytes -> {
-            AttachmentEvent event;
-            try {
-                event = new AttachmentEventImpl(
-                com.hellblazer.delos.stereotomy.event.proto.AttachmentEvent.parseFrom(bytes));
-            } catch (InvalidProtocolBufferException e) {
-                log.error("Error deserializing attachment event", e);
-                return;
-            }
-            append(DSL.using(connection, SQLDialect.H2), event);
+        var dsl = DSL.using(connection, SQLDialect.H2);
+        dsl.transaction(ctx -> {
+            var context = DSL.using(ctx);
+            attachments.forEach(bytes -> {
+                AttachmentEvent event;
+                try {
+                    event = new AttachmentEventImpl(
+                    com.hellblazer.delos.stereotomy.event.proto.AttachmentEvent.parseFrom(bytes));
+                } catch (InvalidProtocolBufferException e) {
+                    log.error("Error deserializing attachment event", e);
+                    return;
+                }
+                append(context, event);
+            });
         });
     }
 

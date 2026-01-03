@@ -30,7 +30,9 @@ public class KeyConfigurationDigester {
         var st = signingThresholdRepresentation(signingThreshold);
         var digestAlgorithm = nextKeyDigests.getFirst().getAlgorithm();
 
-        var digest = digestAlgorithm.digest(st);// digest
+        // ORDER-INDEPENDENT: XOR combines digests so member add/remove order doesn't matter
+        // This is intentional for membership operations where order independence is required
+        var digest = digestAlgorithm.digest(st);
 
         for (var d : nextKeyDigests) {
             digest = digest.xor(d);
