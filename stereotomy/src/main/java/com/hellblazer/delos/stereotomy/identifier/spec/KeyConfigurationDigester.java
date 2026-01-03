@@ -30,13 +30,16 @@ public class KeyConfigurationDigester {
         var st = signingThresholdRepresentation(signingThreshold);
         var digestAlgorithm = nextKeyDigests.getFirst().getAlgorithm();
 
-        var digest = digestAlgorithm.digest(st);// digest
-
-        for (var d : nextKeyDigests) {
-            digest = digest.xor(d);
+        // ORDER-PRESERVING: Concatenate all key digests in order, then hash
+        // This prevents permutation attacks - different orderings produce different digests
+        // Build array of all byte arrays to hash: [st, digest1, digest2, ..., digestN]
+        var allBytes = new byte[nextKeyDigests.size() + 1][];
+        allBytes[0] = st;
+        for (int i = 0; i < nextKeyDigests.size(); i++) {
+            allBytes[i + 1] = nextKeyDigests.get(i).getBytes();
         }
 
-        return digest;
+        return digestAlgorithm.digest(allBytes);
     }
 
     public static Digest digest(SigningThreshold signingThreshold, List<PublicKey> nextKeys, DigestAlgorithm algo) {
