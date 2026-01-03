@@ -21,10 +21,11 @@ import java.security.KeyPair;
 import java.security.cert.X509Certificate;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * @author hal.hildebrand
@@ -233,6 +234,96 @@ public class RingTest {
                 }
                 assertEquals(members.get(index), member);
                 index++;
+            }
+        }
+    }
+
+    @Test
+    public void concurrentRingStateConsistency() throws Exception {
+        // Test for Delos-4r0: Ring communication state consistency
+        var testContext = new DynamicContextImpl<Member>(new Digest(DigestAlgorithm.DEFAULT, new byte[32]),
+                                                         members.size(), 0.2, 2);
+
+        final int threadCount = 10;
+        final int operationsPerThread = 50;
+        final var latch = new CountDownLatch(threadCount);
+        final var errors = new ArrayList<Throwable>();
+
+        // Start threads that concurrently:
+        // 1. Add/remove members
+        // 2. Rebalance the ring
+        // 3. Query ring positions (successor/predecessor)
+
+        var threads = new ArrayList<Thread>();
+        for (int i = 0; i < threadCount; i++) {
+            final int threadId = i;
+            var thread = Thread.ofVirtual().start(() -> {
+                try {
+                    Random rand = new Random(threadId);
+                    for (int op = 0; op < operationsPerThread; op++) {
+                        int operation = rand.nextInt(4);
+                        switch (operation) {
+                        case 0: // Add and activate member
+                            var member = members.get(rand.nextInt(members.size()));
+                            testContext.activate(member);
+                            break;
+                        case 1: // Take member offline
+                            if (!members.isEmpty()) {
+                                member = members.get(rand.nextInt(members.size()));
+                                testContext.offline(member);
+                            }
+                            break;
+                        case 2: // Rebalance
+                            testContext.rebalance(members.size() + rand.nextInt(5));
+                            break;
+                        case 3: // Query ring positions
+                            if (testContext.activeCount() > 0) {
+                                var activeMembers = testContext.activeMembers();
+                                if (!activeMembers.isEmpty()) {
+                                    member = activeMembers.get(rand.nextInt(activeMembers.size()));
+                                    int ring = rand.nextInt(testContext.getRingCount());
+                                    // These operations should not throw exceptions due to inconsistent state
+                                    var succ = testContext.successor(ring, member);
+                                    var pred = testContext.predecessor(ring, member);
+                                    assertNotNull(succ, "Successor should not be null");
+                                    assertNotNull(pred, "Predecessor should not be null");
+                                }
+                            }
+                            break;
+                        }
+                    }
+                } catch (Throwable t) {
+                    synchronized (errors) {
+                        errors.add(t);
+                    }
+                } finally {
+                    latch.countDown();
+                }
+            });
+            threads.add(thread);
+        }
+
+        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test timed out");
+
+        if (!errors.isEmpty()) {
+            var first = errors.get(0);
+            System.err.println("Concurrent ring operations failed with " + errors.size() + " errors");
+            errors.forEach(Throwable::printStackTrace);
+            fail("Concurrent ring state consistency test failed: " + first.getMessage(), first);
+        }
+
+        // Verify final state is consistent
+        int ringCount = testContext.getRingCount();
+        assertTrue(ringCount > 0, "Ring count should be positive");
+
+        // Verify all active members are properly positioned in all rings
+        var activeMembers = testContext.activeMembers();
+        for (var member : activeMembers) {
+            for (int ring = 0; ring < ringCount; ring++) {
+                var succ = testContext.successor(ring, member);
+                var pred = testContext.predecessor(ring, member);
+                assertNotNull(succ, "Successor should exist for all active members");
+                assertNotNull(pred, "Predecessor should exist for all active members");
             }
         }
     }
