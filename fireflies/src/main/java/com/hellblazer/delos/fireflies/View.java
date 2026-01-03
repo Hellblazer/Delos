@@ -406,8 +406,8 @@ public class View {
         }
         viewChange(() -> {
             removeTimer(View.FINALIZE_VIEW_CHANGE);
-            final var supermajority = context.getRingCount() * 3 / 4;
-            final var majority = context.size() == 1 ? 1 : supermajority;
+            // Use context.majority() which accounts for actual ring topology during cluster growth
+            final var majority = context.size() == 1 ? 1 : context.majority();
             log.info("Finalize view change, observations: {} observers: {} on: {}",
                      observations.keySet().stream().toList(), viewManagement.observersList(), node.getId());
             if (observations.size() < majority) {
