@@ -50,8 +50,8 @@
         <native.maven.plugin.version>0.9.27</native.maven.plugin.version>
         <junit.version>5.9.1</junit.version>
         <slf4j.version>2.0.3</slf4j.version>
-        <version.java>25</version.java>
-        <graal.vm.version>25.0.1</graal.vm.version>
+        <version.java>24</version.java>
+        <graal.vm.version>24.0.2</graal.vm.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <forks>1</forks>
     </properties>
@@ -728,8 +728,8 @@
                                 </requireMavenVersion>
                                 <dependencyConvergence/>
                                 <requireJavaVersion>
-                                    <version>[${version.java},26)</version>
-                                    <message>Java ${version.java}.x is required. Please use GraalVM ${graal.vm.version}.</message>
+                                    <version>[${version.java},)</version>
+                                    <message>Java ${version.java}+ is required. Recommended: GraalVM ${graal.vm.version} or later.</message>
                                 </requireJavaVersion>
                             </rules>
                         </configuration>
