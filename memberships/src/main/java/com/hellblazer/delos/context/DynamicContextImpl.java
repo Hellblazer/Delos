@@ -556,10 +556,8 @@ public class DynamicContextImpl<T extends Member> implements DynamicContext<T> {
     public void remove(Digest id) {
         var removed = members.remove(id);
         if (removed != null) {
-            synchronized (rebalanceLock) {
-                for (Ring<T> ring : rings) {
-                    ring.delete(removed.member);
-                }
+            for (Ring<T> ring : rings) {
+                ring.delete(removed.member);
             }
         }
     }
@@ -769,12 +767,10 @@ public class DynamicContextImpl<T extends Member> implements DynamicContext<T> {
 
     private Tracked<T> tracking(T m) {
         return members.computeIfAbsent(m.getId(), id1 -> {
-            synchronized (rebalanceLock) {
-                for (var ring : rings) {
-                    ring.insert(m);
-                }
-                return new Tracked<>(m, () -> hashesFor(m));
+            for (var ring : rings) {
+                ring.insert(m);
             }
+            return new Tracked<>(m, () -> hashesFor(m));
         });
     }
 
