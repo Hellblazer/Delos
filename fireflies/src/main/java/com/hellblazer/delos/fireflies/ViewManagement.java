@@ -615,6 +615,9 @@ public class ViewManagement {
                     bound.successors().forEach(view::addToView);
                     bound.initialSeedSet().forEach(view::addToView);
 
+                    // Reset observers after joining to enable participation in view change consensus
+                    resetObservers();
+
                     view.reset();
 
                     context.allMembers().forEach(Participant::clearAccusations);
