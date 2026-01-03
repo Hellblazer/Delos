@@ -133,8 +133,8 @@ class ViewChangeCoordinatorImpl implements ViewChangeCoordinator {
         }
         viewContext.viewChange(() -> {
             removeTimer(FINALIZE_VIEW_CHANGE);
-            final var supermajority = viewContext.getContext().getRingCount() * 3 / 4;
-            final var majority = viewContext.getContext().size() == 1 ? 1 : supermajority;
+            // Use context.majority() which accounts for actual ring topology (ringCount - toleranceLevel)
+            final var majority = viewContext.getContext().size() == 1 ? 1 : viewContext.getContext().majority();
             log.info("Finalize view change, observations: {} observers: {} on: {}", observations.keySet().stream().toList(),
                      viewManagement.observersList(), viewContext.getNode().getId());
             if (observations.size() < majority) {

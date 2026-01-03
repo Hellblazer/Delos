@@ -666,7 +666,9 @@ public class ViewManagement {
             view.scheduleViewChange();
             return;
         } else if (!bootstrap) {
-            if (context.size() < context.getRingCount()) {
+            // Allow observers to vote even with partial membership during cluster growth
+            // Only block non-observers from initiating view change with insufficient members
+            if (context.size() < context.getRingCount() && !isObserver()) {
                 log.trace("Cannot initiate view change: {} with: {} members, required >= {}} on: {}", currentView(),
                           joins.size() + context.size(), context.getRingCount(), node.getId());
                 view.scheduleViewChange();
