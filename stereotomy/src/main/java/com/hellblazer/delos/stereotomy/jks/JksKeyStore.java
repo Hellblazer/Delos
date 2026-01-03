@@ -119,7 +119,8 @@ public class JksKeyStore implements StereotomyKeyStore {
         var notAfter = Instant.now().plusSeconds(2_000_000_000);
         List<CertExtension> extensions = Collections.emptyList();
         X509Certificate selfSignedCert = Certificates.selfSign(true, dn, sn, keyPair, notBefore, notAfter, extensions);
-        char[] password = passwordProvider.get();
+        // Clone password so we can safely clear our copy without affecting the provider
+        char[] password = passwordProvider.get().clone();
         try {
             keyStore.setKeyEntry(alias, keyPair.getPrivate(), password,
                                  new Certificate[] { selfSignedCert });
@@ -170,7 +171,8 @@ public class JksKeyStore implements StereotomyKeyStore {
         }
         var publicKey = cert.getPublicKey();
         PrivateKey privateKey;
-        char[] password = passwordProvider.get();
+        // Clone password so we can safely clear our copy without affecting the provider
+        char[] password = passwordProvider.get().clone();
         try {
             privateKey = (PrivateKey) keyStore.getKey(alias, password);
         } catch (UnrecoverableKeyException | KeyStoreException | NoSuchAlgorithmException e) {
