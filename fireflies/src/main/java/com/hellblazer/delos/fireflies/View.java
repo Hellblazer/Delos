@@ -183,16 +183,46 @@ public class View {
      * @return
      */
     public static boolean isValidMask(BitSet mask, DynamicContext<?> context) {
-        if (mask.cardinality() == context.majority()) {
-            if (mask.length() <= context.getRingCount()) {
-                return true;
-            } else {
-                log.debug("invalid length: {} required: {}", mask.length(), context.getRingCount());
-            }
-        } else {
+        return isValidMask(mask, context, null);
+    }
+
+    /**
+     * Check the validity of a mask with optional accusation verification for existing members.
+     *
+     * @param mask     the mask to validate
+     * @param context  the dynamic context
+     * @param memberId the member ID to check accusations for (null to skip accusation validation)
+     * @return true if the mask is valid
+     */
+    public static boolean isValidMask(BitSet mask, DynamicContext<?> context, Digest memberId) {
+        if (mask.cardinality() != context.majority()) {
             log.debug("invalid cardinality: {} required: {}", mask.cardinality(), context.majority());
+            return false;
         }
-        return false;
+        if (mask.length() > context.getRingCount()) {
+            log.debug("invalid length: {} required: {}", mask.length(), context.getRingCount());
+            return false;
+        }
+
+        // For existing members, verify that rings with known accusations are disabled
+        if (memberId != null && context instanceof DynamicContext<? extends Member>) {
+            var member = context.getMember(memberId);
+            if (member instanceof Participant participant) {
+                for (var ring = 0; ring < context.getRingCount(); ring++) {
+                    if (participant.isAccusedOn(ring)) {
+                        if (mask.get(ring)) {
+                            // Byzantine behavior: member has accusation on ring but mask shows it enabled
+                            log.warn(
+                            "Invalid mask from {}: ring {} has accusation but mask shows enabled. Potential Byzantine behavior.",
+                            memberId, ring);
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -838,7 +868,7 @@ public class View {
             return false;
         }
 
-        if (!isValidMask(note.getMask(), context)) {
+        if (!isValidMask(note.getMask(), context, note.getId())) {
             log.debug("Invalid mask of: {} cardinality: {} on: {}", note.getId(), note.getMask().cardinality(),
                       node.getId());
             if (metrics != null) {
