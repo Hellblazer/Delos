@@ -54,6 +54,8 @@
         <graal.vm.version>24.0.2</graal.vm.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <forks>1</forks>
+        <!-- Controls large test mode, can be overridden per-module -->
+        <large.tests>false</large.tests>
     </properties>
     <dependencyManagement>
         <dependencies>
@@ -678,6 +680,11 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <large_tests>${large.tests}</large_tests>
+                    </systemPropertyVariables>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
