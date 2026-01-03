@@ -155,8 +155,8 @@ public class MemKERLConcurrencySecurityTest {
         assertEquals(threadCount, successCount.get(), "All rotations should succeed");
 
         var finalState = identifier.getCoordinates();
-        assertEquals(threadCount + 1, finalState.getSequenceNumber().longValue(),
-                     "Sequence number should be inception + rotations");
+        assertEquals(threadCount, finalState.getSequenceNumber().longValue(),
+                     "Sequence number should be threadCount (inception=0, then rotations 1..threadCount)");
 
         assertKERLConsistency(identifier.getIdentifier(), "Single instance high contention");
     }

@@ -183,20 +183,14 @@ public class MemKERL implements KERL.AppendKERL {
     }
 
     private void append(KeyEvent event, KeyState newState) {
-        var lock = lockFor(event.getIdentifier());
-        lock.lock();
-        try {
-            String coordinates = coordinateOrdering(event.getCoordinates());
-            events.put(coordinates, event);
-            eventsByHash.put(newState.getDigest(), coordinates);
-            locationToHash.put(coordinates, newState.getDigest());
-            sequenceNumberToLocation.put(locationOrdering(event.getIdentifier(), event.getSequenceNumber()),
-                                         coordinates);
-            keyState.put(coordinates, newState);
-            keyStateByIdentifier.put(qb64(event.getIdentifier()), coordinates);
-        } finally {
-            lock.unlock();
-        }
+        // Lock is already held by public append(KeyEvent) caller
+        String coordinates = coordinateOrdering(event.getCoordinates());
+        events.put(coordinates, event);
+        eventsByHash.put(newState.getDigest(), coordinates);
+        locationToHash.put(coordinates, newState.getDigest());
+        sequenceNumberToLocation.put(locationOrdering(event.getIdentifier(), event.getSequenceNumber()), coordinates);
+        keyState.put(coordinates, newState);
+        keyStateByIdentifier.put(qb64(event.getIdentifier()), coordinates);
     }
 
     private void appendAttachments(EventCoordinates coordinates, Attachment attachment) {
