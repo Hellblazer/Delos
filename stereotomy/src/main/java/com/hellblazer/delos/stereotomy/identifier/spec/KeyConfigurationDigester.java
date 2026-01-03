@@ -30,16 +30,15 @@ public class KeyConfigurationDigester {
         var st = signingThresholdRepresentation(signingThreshold);
         var digestAlgorithm = nextKeyDigests.getFirst().getAlgorithm();
 
-        // ORDER-PRESERVING: Concatenate all key digests in order, then hash
-        // This prevents permutation attacks - different orderings produce different digests
-        // Build array of all byte arrays to hash: [st, digest1, digest2, ..., digestN]
-        var allBytes = new byte[nextKeyDigests.size() + 1][];
-        allBytes[0] = st;
-        for (int i = 0; i < nextKeyDigests.size(); i++) {
-            allBytes[i + 1] = nextKeyDigests.get(i).getBytes();
+        // ORDER-INDEPENDENT: XOR combines digests so member add/remove order doesn't matter
+        // This is intentional for membership operations where order independence is required
+        var digest = digestAlgorithm.digest(st);
+
+        for (var d : nextKeyDigests) {
+            digest = digest.xor(d);
         }
 
-        return digestAlgorithm.digest(allBytes);
+        return digest;
     }
 
     public static Digest digest(SigningThreshold signingThreshold, List<PublicKey> nextKeys, DigestAlgorithm algo) {
