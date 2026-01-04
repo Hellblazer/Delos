@@ -34,7 +34,7 @@ public class ReservoirSampler<T> implements Collector<T, List<T>, List<T>> {
     public ReservoirSampler(int capacity, Predicate<T> ignore) {
         this.capacity = capacity;
         w = exp(log(ThreadLocalRandom.current().nextDouble()) / capacity);
-        skip();
+        // Don't call skip() here - wait until we transition to sampling phase
         this.ignore = ignore == null ? t -> false : ignore;
     }
 
@@ -78,6 +78,12 @@ public class ReservoirSampler<T> implements Collector<T, List<T>, List<T>> {
         if (reservoir.size() < capacity) {
             // Fill phase: add elements until we reach capacity
             reservoir.add(s);
+            if (reservoir.size() == capacity) {
+                // Transition to sampling phase: set next relative to current counter
+                // counter will be capacity after this increment
+                next = counter;  // Set base for skip calculation
+                skip();          // next = counter + skip_distance
+            }
         } else {
             // Sampling phase: use Algorithm L skip-ahead optimization
             if (counter == next) {
