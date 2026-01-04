@@ -212,18 +212,23 @@ public class ViewManagement {
         context.activate(node);
 
         resetBootstrapView();
-        view.viewChange(() -> install(
-        new Ballot(currentView(), Collections.emptyList(), Collections.singletonList(node.getId()), digestAlgo)));
+        // Critical: Complete onJoined and transition to JOINED state INSIDE the viewChange lock.
+        // This prevents a race condition where addToView() could trigger join() before onJoined is complete,
+        // causing crown validation to fail and view.stop() to be called on the bootstrap node.
+        view.viewChange(() -> {
+            install(new Ballot(currentView(), Collections.emptyList(), Collections.singletonList(node.getId()),
+                               digestAlgo));
+            // Complete onJoined inside the lock to prevent race with addToView() triggering join()
+            onJoined.complete(null);
+            // Transition to JOINED state atomically with the view installation
+            view.transitionState(ViewState.JOINED);
+        });
 
         view.scheduleViewChange();
         view.schedule(dur);
 
-        // Bootstrap is a fast path directly to JOINED state
-        view.transitionState(ViewState.JOINED);
-
         log.info("Bootstrapped view: {} cardinality: {} count: {} context: {} on: {}", currentView(),
                  context.cardinality(), context.activeCount(), context.getId(), node.getId());
-        onJoined.complete(null);
         view.introduced();
         if (metrics != null) {
             metrics.viewChanges().mark();
@@ -519,21 +524,29 @@ public class ViewManagement {
         }
         view.stable(() -> {
             var thisView = currentView();
-            log.debug("Join requested from: {} view: {} context: {} cardinality: {} on: {}", from, thisView,
-                      context.getId(), cardinality(), node.getId());
+            log.info("Join requested from: {} view: {} joinView: {} context: {} cardinality: {} on: {}", from, thisView,
+                      joinView, context.getId(), cardinality(), node.getId());
             if (contains(from)) {
-                log.debug("Already a member: {} view: {}  context: {} cardinality: {} on: {}", from, thisView,
+                log.info("Already a member: {} view: {}  context: {} cardinality: {} on: {}", from, thisView,
                           context.getId(), cardinality(), node.getId());
-                joined(context.sample(params.maximumTxfr(), Entropy.bitsStream(), node.getId())
-                              .stream()
-                              .map(p -> p.note.getWrapped())
-                              .toList(), from, responseObserver, timer);
+                try {
+                    var seeds = context.sample(params.maximumTxfr(), Entropy.bitsStream(), node.getId())
+                                       .stream()
+                                       .filter(p -> p != null && p.note != null)  // Filter null participants and notes
+                                       .map(p -> p.note.getWrapped())
+                                       .toList();
+                    joined(seeds, from, responseObserver, timer);
+                } catch (Throwable t) {
+                    log.error("Exception in Already a member path for: {} on: {}", from, node.getId(), t);
+                    responseObserver.onError(new StatusRuntimeException(
+                        Status.INTERNAL.withDescription("Error processing rejoin: " + t.getMessage())));
+                }
                 return;
             }
             if (!observers.containsKey(node.getId())) {
                 // Return OUT_OF_RANGE to signal the joiner should reseed and get fresh observers.
                 // FAILED_PRECONDITION would just count as an abandon but not trigger immediate reseed.
-                log.debug("Not observer, redirecting Join to reseed from: {} observers: {} on: {}", from, observers, node.getId());
+                log.info("Not observer, redirecting Join to reseed from: {} observers: {} on: {}", from, observers.keySet(), node.getId());
                 responseObserver.onError(new StatusRuntimeException(
                 Status.OUT_OF_RANGE.withDescription("Not observer, reseed to get current observers")));
                 return;
@@ -807,6 +820,9 @@ public class ViewManagement {
         final var successors = new HashSet<SignedNote>();
 
         context.successors(from, context::isActive).forEach(p -> {
+            if (p == null || p.getNote() == null) {
+                return;  // Skip null participants or participants without notes
+            }
             var sn = p.getNote().getWrapped();
             if (unique.add(sn)) {
                 initialSeeds.add(sn);

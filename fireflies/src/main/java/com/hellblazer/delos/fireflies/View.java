@@ -987,6 +987,8 @@ public class View {
      */
     private void gossip(Duration duration) {
         if (!enterOperation()) {
+            log.error("Gossip stopped - enterOperation() returned false on: {} viewState: {} started: {}", node.getId(),
+                      viewState.get(), started.get());
             return;
         }
         try {
