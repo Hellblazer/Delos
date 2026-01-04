@@ -258,6 +258,13 @@ class Binding {
                       node.getId());
             abandon.incrementAndGet();
         }
+        case UNKNOWN -> {
+            // UNKNOWN typically means view mismatch or node is offline - treat as abandon
+            // to trigger re-seeding when majority of nodes return this status
+            log.debug("Gateway view: {} unknown/offline: {} from: {} on: {}", v, sre.getMessage(),
+                      link.getMember().getId(), node.getId());
+            abandon.incrementAndGet();
+        }
         default -> log.info("Join view: {} error: {} from: {} on: {}", v, sre.getMessage(), link.getMember().getId(),
                             node.getId());
         }
