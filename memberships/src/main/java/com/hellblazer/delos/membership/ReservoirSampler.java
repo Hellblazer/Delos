@@ -67,23 +67,21 @@ public class ReservoirSampler<T> implements Collector<T, List<T>, List<T>> {
 
     @Override
     public Supplier<List<T>> supplier() {
-        var reservoir = new ArrayList<T>(capacity);
-        for (int i = 0; i < capacity; i++) {
-            reservoir.add(null);
-        }
-        return () -> reservoir;
+        return () -> new ArrayList<T>(capacity);
     }
 
-    private void addIt(final List<T> in, T s) {
+    private void addIt(final List<T> reservoir, T s) {
         if (ignore.test(s)) {
             return;
         }
 
-        if (counter < in.size()) {
-            in.add((int) counter, s);
+        if (reservoir.size() < capacity) {
+            // Fill phase: add elements until we reach capacity
+            reservoir.add(s);
         } else {
+            // Sampling phase: use Algorithm L skip-ahead optimization
             if (counter == next) {
-                in.add(ThreadLocalRandom.current().nextInt(in.size()), s);
+                reservoir.set(ThreadLocalRandom.current().nextInt(capacity), s);
                 skip();
             }
         }
