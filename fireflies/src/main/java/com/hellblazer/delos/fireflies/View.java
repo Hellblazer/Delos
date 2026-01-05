@@ -99,6 +99,7 @@ public class View {
     final            DigestAlgorithm                             digestAlgo;
     final            AtomicBoolean                               introduced          = new AtomicBoolean();
     final            FireflyMetrics                              metrics;
+    final            ViewLockMetrics                             lockMetrics;
     final            Node                                        node;
     final            Parameters                                  params;
     final            RoundScheduler                              roundTimers;
@@ -117,14 +118,22 @@ public class View {
                 EventValidation validation, Verifiers verifiers, Router communications, Parameters params,
                 DigestAlgorithm digestAlgo, FireflyMetrics metrics) {
         this(context, member, endpoint, validation, verifiers, communications, params, communications, digestAlgo,
-             metrics);
+             metrics, null);
     }
 
     public View(DynamicContext<Participant> context, ControlledIdentifierMember member, String endpoint,
                 EventValidation validation, Verifiers verifiers, Router communications, Parameters params,
                 Router gateway, DigestAlgorithm digestAlgo, FireflyMetrics metrics) {
+        this(context, member, endpoint, validation, verifiers, communications, params, gateway, digestAlgo,
+             metrics, null);
+    }
+
+    public View(DynamicContext<Participant> context, ControlledIdentifierMember member, String endpoint,
+                EventValidation validation, Verifiers verifiers, Router communications, Parameters params,
+                Router gateway, DigestAlgorithm digestAlgo, FireflyMetrics metrics, ViewLockMetrics lockMetrics) {
         scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
         this.metrics = metrics;
+        this.lockMetrics = lockMetrics;
         this.params = params;
         this.digestAlgo = digestAlgo;
         this.context = context;
@@ -636,7 +645,14 @@ public class View {
 
     <T> T stable(Callable<T> call) {
         final var lock = viewChange.readLock();
-        lock.lock();
+        if (lockMetrics != null) {
+            try (var ignored = lockMetrics.readLockAcquireTime().time()) {
+                lock.lock();
+            }
+        } else {
+            lock.lock();
+        }
+        final var startTime = System.nanoTime();
         try {
             return call.call();
         } catch (RuntimeException e) {
@@ -644,16 +660,29 @@ public class View {
         } catch (Exception e) {
             throw new IllegalStateException(e);
         } finally {
+            if (lockMetrics != null) {
+                lockMetrics.readLockHoldTime().update(System.nanoTime() - startTime);
+            }
             lock.unlock();
         }
     }
 
     void stable(Runnable r) {
         final var lock = viewChange.readLock();
-        lock.lock();
+        if (lockMetrics != null) {
+            try (var ignored = lockMetrics.readLockAcquireTime().time()) {
+                lock.lock();
+            }
+        } else {
+            lock.lock();
+        }
+        final var startTime = System.nanoTime();
         try {
             r.run();
         } finally {
+            if (lockMetrics != null) {
+                lockMetrics.readLockHoldTime().update(System.nanoTime() - startTime);
+            }
             lock.unlock();
         }
     }
