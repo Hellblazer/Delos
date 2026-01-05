@@ -590,7 +590,25 @@ public class ViewManagement {
             log.debug("Member pending join: {} view: {} context: {} on: {}", from, currentView(), context.getId(),
                       node.getId());
 
-            // Observer propagation (inside lock scope to ensure consistency with validation checks)
+            // CRITICAL: Observer propagation MUST happen inside lock scope
+            //
+            // ⚠️  DO NOT move this outside the lock, even though SliceIterator is async
+            //
+            // The observers map is a ConcurrentSkipListMap NOT protected by viewChange lock.
+            // Between validation (confirming we're an observer) and propagation (sending to
+            // all observers), the map can change due to gc(), view changes, or timeouts.
+            //
+            // If propagation moved outside lock:
+            // - Captured snapshot misses newly-added observers
+            // - Fresh read outside lock is inconsistent with validation inside lock
+            // - Result: Incomplete propagation → cluster formation fails (catastrophic)
+            //
+            // Cost-benefit: 1-2ms lock hold time is acceptable for GUARANTEED correctness.
+            // Incomplete cluster formation (3 of 18 nodes joining) is worse than contention.
+            //
+            // See: decision::fireflies::observer-propagation-lock-scope (ChromaDB)
+            // See: fireflies-observer-propagation-decision.md (Memory Bank)
+            // Refs: Delos-4s3 (Phase 4), ChurnTest, SwarmTest validation
             var introductions = observers.keySet().stream().map(context::getMember).toList();
             if (!introductions.isEmpty()) {
                 var enjoining = new SliceIterator<>("Enjoining[%s:%s]".formatted(thisView, from), node,
