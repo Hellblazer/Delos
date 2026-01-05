@@ -523,9 +523,8 @@ public class ViewManagement {
             return;
         }
 
-        // Phase 4.2 Optimization: Capture observer IDs inside lock, look up fresh Participants outside lock
+        // Phase 4.2 Optimization: Mark propagation needed inside lock, propagate with fresh observers outside
         final var shouldPropagate = new java.util.concurrent.atomic.AtomicBoolean(false);
-        final var capturedObserverIds = new java.util.concurrent.atomic.AtomicReference<java.util.Set<Digest>>();
         final var capturedView = new java.util.concurrent.atomic.AtomicReference<Digest>();
 
         view.stable(() -> {
@@ -595,20 +594,20 @@ public class ViewManagement {
             log.debug("Member pending join: {} view: {} context: {} on: {}", from, currentView(), context.getId(),
                       node.getId());
 
-            // Phase 4.2: Capture observer IDs inside lock (authoritative snapshot of who should be notified)
-            // Then look them up fresh outside lock to avoid stale/incomplete observer list during bootstrap
-            capturedObserverIds.set(new java.util.HashSet<>(observers.keySet()));
+            // Phase 4.2: Mark that propagation is needed (inside lock for join authorization)
             capturedView.set(thisView);
             shouldPropagate.set(true);
         }); // LOCK RELEASED HERE
 
-        // Phase 4.2 Optimization: Look up fresh Participant objects and propagate outside lock scope
-        if (shouldPropagate.get() && !capturedObserverIds.get().isEmpty()) {
-            var currentObservers = capturedObserverIds.get()
-                                                     .stream()
-                                                     .map(context::getActiveMember)
-                                                     .filter(java.util.Objects::nonNull)
-                                                     .toList();
+        // Phase 4.2 Optimization: Propagate to all current observers with fresh read (outside lock)
+        // Using fresh observers.keySet() ensures new observers that joined after this join are included
+        // Idempotent propagation protocol tolerates additional observers beyond minimum needed
+        if (shouldPropagate.get()) {
+            var currentObservers = observers.keySet()  // Fresh read of current observers
+                                           .stream()
+                                           .map(context::getActiveMember)
+                                           .filter(java.util.Objects::nonNull)
+                                           .toList();
             if (!currentObservers.isEmpty()) {
                 var enjoining = new SliceIterator<>("Enjoining[%s:%s]".formatted(capturedView.get(), from), node,
                                                     currentObservers, view.comm, scheduler);
