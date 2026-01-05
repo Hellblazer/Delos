@@ -9,10 +9,14 @@
   <name>Deterministic Liquibase</name>
   <description>A deterministic version of Liquibase, package renamed to avoid conflicts with the standard version of Liquibase</description>
   
-  <dependencies> 
+  <dependencies>
         <dependency>
             <groupId>org.liquibase</groupId>
             <artifactId>liquibase-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.yaml</groupId>
+            <artifactId>snakeyaml</artifactId>
         </dependency>
   </dependencies>
 
