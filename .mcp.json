@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "quint-code": {
+      "command": "/Users/hal.hildebrand/.local/bin/quint-code",
+      "args": [
+        "serve"
+      ],
+      "cwd": "/Users/hal.hildebrand/git/Delos",
+      "env": {
+        "QUINT_PROJECT_ROOT": "/Users/hal.hildebrand/git/Delos"
+      }
+    }
+  }
+}

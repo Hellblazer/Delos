@@ -1,0 +1,15 @@
+{
+  "java": {
+    "command": "/opt/homebrew/bin/jdtls",
+    "args": [
+      "-data", "/tmp/claude/jdtls-workspace"
+    ],
+    "extensionToLanguage": {
+      ".java": "java"
+    },
+    "initializationOptions": {
+      "eclipse.downloadSources": true
+    },
+    "settings": {}
+  }
+}
