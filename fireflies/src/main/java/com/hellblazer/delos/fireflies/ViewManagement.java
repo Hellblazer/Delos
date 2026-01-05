@@ -522,6 +522,12 @@ public class ViewManagement {
             log.debug("Ignored join of view: {} from: {} invalid identifier on: {}", joinView, from, node.getId());
             return;
         }
+
+        // Phase 4.2 Optimization: Capture state inside lock, propagate outside lock
+        final var shouldPropagate = new java.util.concurrent.atomic.AtomicBoolean(false);
+        final var capturedObservers = new java.util.concurrent.atomic.AtomicReference<java.util.List<View.Participant>>();
+        final var capturedView = new java.util.concurrent.atomic.AtomicReference<Digest>();
+
         view.stable(() -> {
             var thisView = currentView();
             log.info("Join requested from: {} view: {} joinView: {} context: {} cardinality: {} on: {}", from, thisView,
@@ -588,20 +594,30 @@ public class ViewManagement {
             joins.put(note.getId(), note);
             log.debug("Member pending join: {} view: {} context: {} on: {}", from, currentView(), context.getId(),
                       node.getId());
-            // Propagate join to all observers asynchronously
-            // Use configurable delay to allow RPCs to complete before moving to next observer
-            var observerList = observers.keySet().stream().map(context::getActiveMember).toList();
-            var enjoining = new SliceIterator<>("Enjoining[%s:%s]".formatted(currentView(), from), node,
-                                                observerList, view.comm, scheduler);
+
+            // Phase 4.2: Capture state for propagation (inside lock for consistency)
+            capturedObservers.set(observers.keySet()
+                                          .stream()
+                                          .map(context::getActiveMember)
+                                          .filter(java.util.Objects::nonNull)
+                                          .toList());
+            capturedView.set(thisView);
+            shouldPropagate.set(true);
+        }); // LOCK RELEASED HERE
+
+        // Phase 4.2 Optimization: Propagate outside lock scope for reduced lock hold time
+        if (shouldPropagate.get() && !capturedObservers.get().isEmpty()) {
+            var enjoining = new SliceIterator<>("Enjoining[%s:%s]".formatted(capturedView.get(), from), node,
+                                                capturedObservers.get(), view.comm, scheduler);
             enjoining.iterate(t -> {
                 log.trace("Propagating join of: {} to observer: {} on: {}", from,
                           t.getMember() != null ? t.getMember().getId() : "null", node.getId());
                 return t.enjoin(join);
             }, (_, _, _, _) -> true, () -> {
                 log.trace("Completed join propagation for: {} to {} observers on: {}",
-                          from, observerList.size(), node.getId());
+                          from, capturedObservers.get().size(), node.getId());
             }, params.enjoinPropagationDelay());
-        });
+        }
     }
 
     BiConsumer<? super Bound, ? super Throwable> join(Duration duration, Timer.Context timer) {
