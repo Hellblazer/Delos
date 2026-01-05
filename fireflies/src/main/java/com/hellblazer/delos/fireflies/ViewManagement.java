@@ -609,17 +609,19 @@ public class ViewManagement {
             // See: decision::fireflies::observer-propagation-lock-scope (ChromaDB)
             // See: fireflies-observer-propagation-decision.md (Memory Bank)
             // Refs: Delos-4s3 (Phase 4), ChurnTest, SwarmTest validation
-            var introductions = observers.keySet().stream().map(context::getMember).toList();
-            if (!introductions.isEmpty()) {
+            var observerList = observers.keySet().stream().map(context::getActiveMember)
+                                        .filter(Objects::nonNull)
+                                        .toList();
+            if (!observerList.isEmpty()) {
                 var enjoining = new SliceIterator<>("Enjoining[%s:%s]".formatted(thisView, from), node,
-                                                    introductions, view.comm, scheduler);
+                                                    observerList, view.comm, scheduler);
                 enjoining.iterate(t -> {
                     log.trace("Propagating join of: {} to observer: {} on: {}", from,
                               t.getMember() != null ? t.getMember().getId() : "null", node.getId());
                     return t.enjoin(join);
                 }, (_, _, _, _) -> true, () -> {
                     log.trace("Completed join propagation for: {} to {} observers on: {}",
-                              from, introductions.size(), node.getId());
+                              from, observerList.size(), node.getId());
                 }, params.enjoinPropagationDelay());
             }
         });
