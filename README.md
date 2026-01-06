@@ -136,44 +136,49 @@ Delos uses GitHub Packages for both snapshot and release deployments:
 ./mvnw clean deploy
 ```
 
-**Create a release** (automated version updates included)
+**Create a release** (GitHub Actions recommended)
+
+Navigate to **Actions → Release → Run workflow** and provide:
+- **Release version**: e.g., `0.1.0`
+- **Next development version**: e.g., `0.1.1-SNAPSHOT`
+
+The workflow automatically:
+- Updates `pom.xml` versions in all modules
+- Updates README.md with the released version
+- Builds, tests, and verifies the release
+- Commits and creates git tag
+- Publishes artifacts to GitHub Packages
+- Creates GitHub Release with auto-generated release notes
+- Resets to next development version
+
+**Local release alternative** (manual process):
 ```bash
-# Prepare release (updates version, README.md, and creates git tag)
-./mvnw release:prepare -DupdateReadme=true
-
-# Perform release (deploys to GitHub Packages)
-./mvnw release:perform
-```
-
-The release process automatically:
-- Updates `pom.xml` version from `0.0.1-SNAPSHOT` to release version (e.g., `0.1.0`)
-- Updates all module versions
-- Updates README.md with the released version number
-- Creates annotated git tag and commits
-- Resets to next development version (`0.0.2-SNAPSHOT`)
-- Deploys release artifacts to GitHub Packages
-
-**Manual release alternative** (if not using maven-release-plugin):
-```bash
-# Update version manually
+# Update version
 ./mvnw versions:set -DnewVersion=0.1.0 -DgenerateBackupPoms=false
 
-# Update README and commit
-git add README.md pom.xml
+# Manually update README.md - replace version strings
+# Current version: `0.0.1-SNAPSHOT` → `0.1.0`
+# <version>0.0.1-SNAPSHOT</version> → <version>0.1.0</version>
+
+# Commit release
+git add -A
 git commit -m "Release version 0.1.0"
-
-# Deploy
-./mvnw clean deploy
-
-# Tag release
 git tag -a v0.1.0 -m "Release 0.1.0"
-git push origin v0.1.0
 
-# Reset to next development version
+# Deploy to GitHub Packages
+./mvnw clean deploy -DskipTests
+
+# Prepare next version
 ./mvnw versions:set -DnewVersion=0.1.1-SNAPSHOT -DgenerateBackupPoms=false
-git add pom.xml
-git commit -m "Prepare for next development iteration: 0.1.1-SNAPSHOT"
-git push origin
+
+# Manually update README.md again with next version
+
+# Commit development version
+git add -A
+git commit -m "Prepare next development iteration: 0.1.1-SNAPSHOT"
+
+# Push all changes
+git push origin main v0.1.0
 ```
 
 **Available modules for consumption**:

@@ -47,6 +47,9 @@ jobs:
       - name: Set release version
         run: ./mvnw -batch-mode versions:set -DnewVersion=${{ github.event.inputs.releaseVersion }} -DgenerateBackupPoms=false
 
+      - name: Update README with release version
+        run: ./mvnw -batch-mode antrun:run@update-readme-version -DupdateReadme=true -q
+
       - name: Install h2-deterministic (required shaded dependency)
         run: ./mvnw -batch-mode install -Ppre -DskipTests -pl h2-deterministic
 
@@ -66,6 +69,9 @@ jobs:
 
       - name: Set next development version
         run: ./mvnw -batch-mode versions:set -DnewVersion=${{ github.event.inputs.nextVersion }} -DgenerateBackupPoms=false
+
+      - name: Update README for next development version
+        run: ./mvnw -batch-mode antrun:run@update-readme-version -DupdateReadme=true -q
 
       - name: Commit next development version
         run: |
