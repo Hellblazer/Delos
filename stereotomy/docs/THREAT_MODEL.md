@@ -33,33 +33,46 @@ This document provides a comprehensive security analysis of the Stereotomy modul
 
 Stereotomy implements KERI (Key Event Receipt Infrastructure), a decentralized identity and key management protocol. The implementation has three major components:
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      KERI Identifier                             │
-│                                                                   │
-│  ┌────────────────┐         ┌──────────────┐                    │
-│  │ Key Event Log  │         │    Key       │                    │
-│  │ (Event List)   │────────▶│   State      │                    │
-│  └────────────────┘         │ (Keypair +   │                    │
-│                             │  Config)     │                    │
-│                             └──────────────┘                    │
-│                                                                   │
-│  ┌────────────────────────────────────────────────────────────┐ │
-│  │  Storage Backends (Pluggable)                              │ │
-│  │  • MemKERL - In-memory event log                           │ │
-│  │  • UniKERL - Database-backed event log (Liquibase)        │ │
-│  │  • MemKeyStore - In-memory key store                      │ │
-│  │  • JksKeyStore - Java KeyStore-backed key storage         │ │
-│  └────────────────────────────────────────────────────────────┘ │
-│                                                                   │
-│  ┌────────────────────────────────────────────────────────────┐ │
-│  │  Integration Points                                         │ │
-│  │  • Fireflies - Node identity and membership signing        │ │
-│  │  • CHOAM - Transaction signing and state verification     │ │
-│  │  • Thoth - Distributed hash table for key discovery      │ │
-│  │  • Gorgoneion - Identity bootstrapping and attestation    │ │
-│  └────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    A["KERI Identifier<br/>(Self-Addressing ID)"]
+
+    B["Key Event Log (KEL)<br/>Immutable append-only<br/>Event list"]
+    C["Key State<br/>Current Keypair<br/>& Configuration"]
+
+    D["Storage Backends<br/>(Pluggable)"]
+    D1["MemKERL<br/>In-memory event log"]
+    D2["UniKERL<br/>Database-backed<br/>event log"]
+    D3["MemKeyStore<br/>In-memory keys"]
+    D4["JksKeyStore<br/>Persistent key store"]
+
+    E["Integration Points"]
+    E1["Fireflies<br/>Membership &<br/>Signing"]
+    E2["CHOAM<br/>Transaction<br/>Signing"]
+    E3["Thoth<br/>Key<br/>Discovery"]
+    E4["Gorgoneion<br/>Identity<br/>Bootstrap"]
+
+    A --> B
+    A --> C
+    B --> D
+    C --> D
+
+    D --> D1
+    D --> D2
+    D --> D3
+    D --> D4
+
+    A --> E
+    E --> E1
+    E --> E2
+    E --> E3
+    E --> E4
+
+    style A fill:#4A90E2,stroke:#333,stroke-width:2px,color:#fff
+    style B fill:#7B68EE,stroke:#333,stroke-width:2px,color:#fff
+    style C fill:#7B68EE,stroke:#333,stroke-width:2px,color:#fff
+    style D fill:#50C878,stroke:#333,stroke-width:2px,color:#fff
+    style E fill:#FF6B6B,stroke:#333,stroke-width:2px,color:#fff
 ```
 
 ### 1.2 Key Components
