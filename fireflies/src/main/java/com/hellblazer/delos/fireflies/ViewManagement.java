@@ -67,6 +67,8 @@ public class ViewManagement {
     final            AtomicReference<HexBloom>                     diadem       = new AtomicReference<>();
     final            Map<Digest, Integer>                          observers    = new ConcurrentSkipListMap<>();
     final            AtomicLong                                    observerVersion = new AtomicLong(0);
+    final            AtomicReference<HexBloom>                     cachedDiadem = new AtomicReference<>();
+    final            AtomicLong                                    cachedDiademVersion = new AtomicLong(-1L);
     private final    AtomicInteger                                 attempt      = new AtomicInteger();
     private final    Digest                                        bootstrapView;
     private final    DynamicContext<Participant>                   context;
@@ -362,8 +364,7 @@ public class ViewManagement {
             var current = currentView();
             log.info("Joining view: {} cardinality: {} count: {} on: {}", current, cardinality(), context.size(),
                      node.getId());
-            var calculated = HexBloom.construct(context.size(), context.allMembers().map(Participant::getId),
-                                                view.bootstrapView(), params.crowns());
+            var calculated = computeDiademWithCache();
 
             if (!current.equals(calculated.compactWrapped())) {
                 log.error("Crown: {} does not produce view: {} cardinality: {} count: {} on: {}",
@@ -736,9 +737,37 @@ public class ViewManagement {
         diadem.set(hex);
         currentView.set(diadem.get().compactWrapped());
         resetObservers();
+        // Invalidate cached diadem on membership change
+        cachedDiademVersion.set(-1L);
         log.trace("View: {} set diadem: {} cardinality: {} observers: {} view: {} context: {} size: {} on: {}",
                   context.getId(), diadem.get().compactWrapped(), diadem.get().getCardinality(),
                   observers.keySet().stream().toList(), currentView(), context.getId(), context.size(), node.getId());
+    }
+
+    /**
+     * Compute HexBloom crown with caching based on observer version.
+     * Avoids redundant computation if membership hasn't changed since last calculation.
+     */
+    private HexBloom computeDiademWithCache() {
+        long currentVersion = observerVersion.get();
+        long cachedVersion = cachedDiademVersion.get();
+
+        if (currentVersion == cachedVersion) {
+            var cached = cachedDiadem.get();
+            if (cached != null) {
+                return cached;
+            }
+        }
+
+        // Compute new HexBloom crown
+        var computed = HexBloom.construct(context.size(), context.allMembers().map(Participant::getId),
+                                         view.bootstrapView(), params.crowns());
+
+        // Cache the result
+        cachedDiadem.set(computed);
+        cachedDiademVersion.set(currentVersion);
+
+        return computed;
     }
 
     record Ballot(Digest view, List<Digest> leaving, List<Digest> joining, int hash) {
