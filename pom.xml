@@ -790,12 +790,12 @@
                                 <target if="updateReadme">
                                     <echo message="Updating README.md with version: ${project.version}"/>
                                     <replaceregexp file="${basedir}/README.md"
-                                                   pattern="&lt;version&gt;[^&lt;]+&lt;/version&gt;"
-                                                   replacement="&lt;version&gt;${project.version}&lt;/version&gt;"
+                                                   match="&lt;version&gt;[^&lt;]+&lt;/version&gt;"
+                                                   replace="&lt;version&gt;${project.version}&lt;/version&gt;"
                                                    byline="true"/>
                                     <replaceregexp file="${basedir}/README.md"
-                                                   pattern="Current version: `[^`]+`"
-                                                   replacement="Current version: `${project.version}`"
+                                                   match="Current version: \`[^\`]+\`"
+                                                   replace="Current version: \`${project.version}\`"
                                                    byline="true"/>
                                 </target>
                             </configuration>
