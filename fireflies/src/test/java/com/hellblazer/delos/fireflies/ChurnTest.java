@@ -104,7 +104,7 @@ public class ChurnTest {
         System.out.println();
         var seeds = members.values()
                            .stream()
-                           .map(m -> new Seed(m.getIdentifier().getIdentifier(), EndpointProvider.allocatePort()))
+                           .map(m -> new Seed(m.getIdentifier().getIdentifier(), "0"))  // Use OS dynamic port allocation
                            .limit(SEED_COUNT)
                            .toList();
 
@@ -315,7 +315,7 @@ public class ChurnTest {
 
             gateway.start();
             gateways.add(comms);
-            return new View(context, node, EndpointProvider.allocatePort(), EventValidation.NONE, Verifiers.from(kerl),
+            return new View(context, node, "0", EventValidation.NONE, Verifiers.from(kerl),
                             comms, parameters, gateway, DigestAlgorithm.DEFAULT, metrics);
         }).collect(Collectors.toList());
     }
