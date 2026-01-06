@@ -96,12 +96,12 @@ Add to your project's `pom.xml`:
   <dependency>
     <groupId>com.hellblazer.delos</groupId>
     <artifactId>fireflies</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>0.0.1</version>
   </dependency>
   <dependency>
     <groupId>com.hellblazer.delos</groupId>
     <artifactId>stereotomy</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>0.0.1</version>
   </dependency>
 </dependencies>
 ```
@@ -158,7 +158,7 @@ The workflow automatically:
 
 # Manually update README.md - replace version strings
 # Current version: 0.0.1-SNAPSHOT → 0.1.0
-# <version>0.0.1-SNAPSHOT</version> → <version>0.1.0</version>
+# <version>0.0.1</version> → <version>0.1.0</version>
 
 # Commit release
 git add -A
@@ -241,7 +241,7 @@ Delos is a maturing distributed platform:
 - **SQL-State**: Mature with comprehensive testing
 - Other modules: Continuing development
 
-Current version: `0.0.1-SNAPSHOT` — No official release yet, but core layers are production-hardened.
+Current version: `0.0.1` — No official release yet, but core layers are production-hardened.
 
 ## IDE Integration
 
