@@ -20,27 +20,54 @@ Use this document to resume work after breaks. It contains the essential context
 
 ## Current Checkpoint
 
-**Timestamp**: 2026-01-06
+**Timestamp**: 2026-01-06 (Phase 0 IN PROGRESS)
 **Completed**:
 - ✅ Fireflies Phase 0-3: 109 issues closed
 - ✅ Stereotomy Threat Model: Comprehensive 16-page documentation
-- ✅ Quality Initiative Plan: 659-line comprehensive execution plan (all audit recommendations integrated)
-- ✅ Phase 0 Beads Created: 3 sub-beads for setup (Delos-q7z, Delos-p2s, Delos-cet)
-- ✅ Dependencies Configured: Phase 0 → Phase 1 blocking relationships
+- ✅ Quality Initiative Plan: 659-line execution plan (all 10 audit recommendations integrated)
+- ✅ Phase 0 Task 1: JaCoCo plugin configured in pom.xml
+  - Commit: 6f01e2d (configured JaCoCo 0.8.12 + Surefire integration)
+  - Status: Java 25 compatibility issue identified → documented workaround
+  - Next: Run baseline with Java 21 workaround
+- ✅ Phase 0 Task 2: ADR infrastructure created
+  - Created: `/docs/adr/0000-use-markdown-architecture-decision-records.md`
+  - Commit: 12202ab (ADR template, MADR format)
+- ✅ Phase 0 Task 3: CI/CD integration configured
+  - Created: `.github/workflows/maven-coverage.yml` (GitHub Actions coverage pipeline)
+  - Commit: 12202ab (coverage workflow with Codecov + PR comments)
 
 **Active Work Streams**:
-- **Delos-6v5** (Testing): 95%+ critical path coverage - AWAITING Delos-q7z baseline
-- **Delos-pb1** (Documentation): API docs + ADRs - AWAITING Delos-p2s + Delos-cet
+- **Delos-6v5** (Testing): Awaiting JaCoCo baseline measurement
+- **Delos-pb1** (Documentation): Awaiting ADR infrastructure (READY)
 
-**Ready Phase 0 Tasks**:
-```
-Delos-q7z [P0] JaCoCo baseline measurement
-Delos-p2s [P0] ADR infrastructure setup
-Delos-cet [P0] Javadoc and CI integration
-```
+**Phase 0 Status**: 2/3 tasks complete, 1 task deferred pending JaCoCo 0.8.13
 
-**Blockers**: None - Phase 0 ready to begin immediately
-**Next Action**: Begin Phase 0 with parallel execution of all three setup tasks
+**Technical Decision**: Wait for JaCoCo 0.8.13+
+- **Rationale**: Cleanest solution avoiding Java 21 recompilation
+- **Timeline**: Expected Q1/Q2 2026
+- **Impact**: Phase 1 (ADR/docs work) can proceed immediately; testing phase deferred
+- **Documentation**: Recorded in `.pm/baselines/JACOCO_BASELINE_2026-01-06.md`
+
+**Phase 1b Status**: ACTIVE - ADR Creation Complete ✅
+→ ADR-0001: ✅ COMPLETE (JaCoCo deferral decision) - Commit: 83bb896
+→ ADR-0002: ✅ COMPLETE (KERI Implementation Architecture) - Commit: f1415ff
+→ ADR-0003: ✅ COMPLETE (BFT Membership Architecture) - Commit: b9439ee
+→ ADR-0004: ✅ COMPLETE (Consensus Design/Choam) - Commit: 40f4de0
+→ ADR-0005: ✅ COMPLETE (Deterministic SQL) - Commit: afa5c2d
+→ ADR-0006: ✅ COMPLETE (Execution Strategy) - Commit: 6688964
+→ Production docs: Ready to start (fireflies, sql-state, tron, operational guides)
+
+**Completed Commits (Phase 1b ADRs)**:
+- 2026-01-06 b9439ee: ADR-0003 BFT Membership
+- 2026-01-06 40f4de0: ADR-0004 Consensus/Choam
+- 2026-01-06 afa5c2d: ADR-0005 Deterministic SQL
+- 2026-01-06 6688964: ADR-0006 Execution Strategy
+
+**Next Action**:
+→ Continue Phase 1b: Production API documentation (fireflies, sql-state, tron)
+→ Create operational guides (deployment, monitoring, troubleshooting)
+→ Create additional ADRs 0007-0010 for extended architecture
+→ Monitor JaCoCo releases; when 0.8.13+ available, start Phase 1a (testing)
 
 ## Completed Phases
 
