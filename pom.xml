@@ -1006,6 +1006,14 @@
                 <activeByDefault>false</activeByDefault>
             </activation>
             <modules>
+                <!-- Base dependencies -->
+                <module>cryptography</module>
+                <module>memberships</module>
+                <module>protocols</module>
+                <module>grpc</module>
+                <!-- Fireflies for consensus -->
+                <module>fireflies</module>
+                <!-- Heavy test modules -->
                 <module>ethereal</module>
                 <module>choam</module>
                 <module>sql-state</module>
@@ -1017,6 +1025,14 @@
                 <activeByDefault>false</activeByDefault>
             </activation>
             <modules>
+                <!-- Base dependencies -->
+                <module>cryptography</module>
+                <module>memberships</module>
+                <module>protocols</module>
+                <module>grpc</module>
+                <!-- Fireflies for consensus -->
+                <module>fireflies</module>
+                <!-- Identity test modules -->
                 <module>stereotomy</module>
                 <module>stereotomy-services</module>
                 <module>gorgoneion</module>
@@ -1030,15 +1046,18 @@
                 <activeByDefault>false</activeByDefault>
             </activation>
             <modules>
+                <!-- Base dependencies -->
+                <module>cryptography</module>
+                <module>grpc</module>
+                <!-- Core modules -->
                 <module>protocols</module>
                 <module>memberships</module>
+                <module>schemas</module>
+                <module>liquibase-deterministic</module>
+                <!-- Light test modules -->
                 <module>tron</module>
                 <module>model</module>
                 <module>delphinius</module>
-                <module>schemas</module>
-                <module>liquibase-deterministic</module>
-                <module>grpc</module>
-                <module>cryptography</module>
                 <module>domain-epoll</module>
                 <module>domain-kqueue</module>
                 <module>domain-sockets</module>
