@@ -197,6 +197,34 @@ This ADR documents the architecture of the CHOAM (Combine Honnete Ober Advancer 
 - Reliable broadcast delivery
 - Ephemeral key management
 
+**Metrics**
+
+CHOAM exposes operational metrics for monitoring consensus health via Dropwizard Metrics.
+
+| Metric | Type | Description | Healthy Range |
+|--------|------|-------------|----------------|
+| `choam_blocks_committed` | Counter | Total blocks successfully committed to ledger | Increasing monotonically |
+| `choam_consensus_latency` | Timer | Time from proposal to block commitment | p95 < 500ms |
+| `choam_pending_transactions` | Gauge | Transactions awaiting commitment | < 50 |
+| `choam_batch_size` | Histogram | Transactions per committed block | 50-100 |
+| `choam_view_changes` | Counter | Total view reconfigurations | 0 in stable cluster |
+| `choam_checkpoint_blocks` | Counter | Snapshots created for recovery | Occasional |
+| `choam_committee_size` | Gauge | Current BFT committee membership | 3f+1 for f Byzantine members |
+| `choam_byzantine_tolerance` | Gauge | Tolerance for Byzantine members | f < n/3 |
+
+**Alert Thresholds**
+
+- Consensus Latency p95 > 1s: Investigate network, GC, or Byzantine behavior
+- Pending Txns > 500: Throughput bottleneck, consider increasing batch_size
+- Block Commit Rate < 5 blocks/sec: Consensus stalling, check for Byzantine activity
+- View Changes > 1 per hour: Network instability or Byzantine activity
+
+**Related Guides**
+
+- [MONITORING_GUIDE.md](../../docs/MONITORING_GUIDE.md): Comprehensive metrics monitoring
+- [TROUBLESHOOTING_GUIDE.md](../../docs/TROUBLESHOOTING_GUIDE.md): Consensus troubleshooting
+- [ADR-0005: Deterministic SQL State](0005-deterministic-sql-state.md): State machine execution metrics
+
 **References**
 
 - Consensus papers: https://www.researchgate.net/profile/Alysson_Bessani/publication/254037731_From_Byzantine_Consensus_to_BFT_State_Machine_Replication_A_Latency-Optimal_Transformation and https://arxiv.org/abs/2004.14527

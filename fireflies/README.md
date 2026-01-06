@@ -522,6 +522,109 @@ broadcaster.subscribe(message -> {
 - `SwarmTest`: Large group (100+) membership stabilization
 - `E2ETest`: End-to-end protocol from bootstrap through consensus
 
+## Metrics
+
+Fireflies exposes comprehensive operational metrics via Dropwizard Metrics, exposed on the metrics endpoint (`/metrics`).
+
+### Membership Metrics
+
+**`fireflies_view_size`** (Gauge)
+- Current number of members in the view
+- Healthy range: equals configured cluster size (e.g., 7 for 7-node cluster)
+- Warning: < 5 (lost quorum)
+- Critical: 0 (partition or total failure)
+
+**`fireflies_suspected_count`** (Gauge)
+- Current number of members suspected as failed
+- Healthy: 0-1
+- Warning: 2+ members suspected
+- Critical: 3+ members (possible network partition)
+
+**`fireflies_view_changes_total`** (Counter)
+- Cumulative count of membership view changes
+- Expected: 0-1 per hour (stable cluster)
+- High rate: Indicates network instability, Byzantine behavior, or member failures
+
+### Gossip Metrics
+
+**`fireflies_gossip_messages_sent`** (Counter)
+- Total gossip messages sent to peers
+- Monotonically increasing; useful for bandwidth estimation
+- Grows with cluster size and membership churn
+
+**`fireflies_message_round_trip_time`** (Timer)
+- Latency distribution for peer message exchanges
+- p50: ~50-100ms (local network)
+- p95: <200ms (healthy)
+- p99: <500ms (acceptable)
+- > 1s: Indicates network problems
+
+**`fireflies_gossip_latency`** (Timer)
+- Latency for complete gossip cycles
+- p95: <100ms (excellent)
+- p95: <500ms (good)
+- > 1s: Consensus and view stability may suffer
+
+### Join Protocol Metrics
+
+**`fireflies_joins_attempted`** (Counter)
+- Total join attempts by members
+- High count: Cluster churn, frequent member additions
+
+**`fireflies_join_latency`** (Timer)
+- Time from join initiation to membership in view
+- p95: < 500ms (healthy)
+- > 5s: Bootstrap issues, network latency, or slow peer selection
+
+**`fireflies_redirects_received`** (Counter)
+- Count of join redirects (normal during joins)
+- Useful for diagnosing join path efficiency
+
+### Voting Metrics
+
+**`fireflies_ballots_cast`** (Counter)
+- Total view change ballots cast by BFT subset
+- Correlates with membership churn
+
+**`fireflies_ballot_resolution_time`** (Timer)
+- Time from ballot proposal to resolution
+- p95: <200ms (fast voting)
+- > 1s: Voting stalls, consensus issues
+
+### Health and Stability Metrics
+
+**`fireflies_members_stable_count`** (Gauge)
+- Number of stable (non-suspected) members
+- Should equal view_size minus suspected_count
+
+**`fireflies_network_partition_detections`** (Counter)
+- Detected network partitions
+- Should be 0 in healthy cluster
+- > 0: Investigate network or Byzantine activity
+
+### Example Queries
+
+**Monitor cluster health:**
+```
+fireflies_view_size / 7 > 0.7  # At least 71% of nodes
+```
+
+**Detect consensus degradation:**
+```
+histogram_quantile(0.95, fireflies_gossip_latency) > 500  # p95 > 500ms
+```
+
+**Alert on membership instability:**
+```
+rate(fireflies_view_changes_total[5m]) > 0.2  # > 1 view change per 5 minutes
+```
+
+### Related Guides
+
+- Monitoring Guide: [docs/MONITORING_GUIDE.md](../docs/MONITORING_GUIDE.md)
+- Troubleshooting Guide: [docs/TROUBLESHOOTING_GUIDE.md](../docs/TROUBLESHOOTING_GUIDE.md)
+- ADR-0003: [docs/adr/0003-bft-membership-architecture.md](../docs/adr/0003-bft-membership-architecture.md)
+
 ## References
 
 - **Design Papers**:
