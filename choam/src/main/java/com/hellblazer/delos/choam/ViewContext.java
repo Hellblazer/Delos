@@ -140,6 +140,17 @@ public class ViewContext {
         return validators.keySet();
     }
 
+    public Verifier[] verifiersByPid() {
+        var result = new Verifier[roster.size()];
+        validators.forEach((member, verifier) -> {
+            var pid = roster.get(member.getId());
+            if (pid != null && pid >= 0 && pid < result.length) {
+                result[pid] = verifier;
+            }
+        });
+        return result;
+    }
+
     /**
      * The process has failed
      */

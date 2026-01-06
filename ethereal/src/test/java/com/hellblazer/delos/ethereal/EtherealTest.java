@@ -135,7 +135,7 @@ public class EtherealTest {
                 if (pid == 0) {
                     System.out.println("new epoch: " + ep);
                 }
-            }, "Test: " + i);
+            }, "Test: " + i, null);
 
             var gossiper = new ChRbcGossip(context.getId(), (SigningMember) member, members, controller.processor(),
                                            com, metrics,
@@ -264,7 +264,7 @@ public class EtherealTest {
                 if (pid == 0) {
                     System.out.println("new epoch: " + ep);
                 }
-            }, "Test: " + i);
+            }, "Test: " + i, null);
 
             var gossiper = new ChRbcGossip(context.getId(), (SigningMember) member, members, controller.processor(),
                                            com, metrics,

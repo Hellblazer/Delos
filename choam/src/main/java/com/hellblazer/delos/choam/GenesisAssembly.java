@@ -19,6 +19,7 @@ import com.hellblazer.delos.choam.support.HashedCertifiedBlock.NullBlock;
 import com.hellblazer.delos.context.Context;
 import com.hellblazer.delos.context.StaticContext;
 import com.hellblazer.delos.cryptography.Digest;
+import com.hellblazer.delos.cryptography.Signer;
 import com.hellblazer.delos.cryptography.proto.PubKey;
 import com.hellblazer.delos.ethereal.Config;
 import com.hellblazer.delos.ethereal.Dag;
@@ -86,6 +87,8 @@ public class GenesisAssembly implements Genesis {
         fsm.setName("Genesis%s on: %s".formatted(view.context().getId(), params().member().getId()));
 
         Config.Builder config = params().producer().ethereal().clone();
+        // In genesis, use each member's own identity key signer, not the shared producer signer
+        config.setSigner((Signer) params().member());
 
         // Canonical assignment of members -> pid for Ethereal
         Short pid = view.roster().get(params().member().getId());
@@ -96,8 +99,17 @@ public class GenesisAssembly implements Genesis {
         }
         config.setEpochLength(33).setNumberOfEpochs(-1);
         config.setLabel("Genesis Assembly" + view.context().getId() + " on: " + params().member().getId());
+        // Create Member identity key verifiers array indexed by PID for genesis phase
+        // Members sign with identity keys in genesis; verify with the same keys
+        var genesisVerifiers = new com.hellblazer.delos.cryptography.Verifier[view.roster().size()];
+        nextAssembly.values().forEach(member -> {
+            var memberPid = view.roster().get(member.getId());
+            if (memberPid != null && memberPid >= 0 && memberPid < genesisVerifiers.length) {
+                genesisVerifiers[memberPid] = member;
+            }
+        });
         controller = new Ethereal(config.build(), params().producer().maxBatchByteSize(), dataSource(),
-                                  transitions::process, transitions::nextEpoch, label);
+                                  transitions::process, transitions::nextEpoch, label, genesisVerifiers);
         coordinator = new ChRbcGossip(reContext.getId(), params().member(), nextAssembly.values(),
                                       controller.processor(), params().communications(),
                                       params().metrics() == null ? null : params().metrics().getGensisMetrics(),

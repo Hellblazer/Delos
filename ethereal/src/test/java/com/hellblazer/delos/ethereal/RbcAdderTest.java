@@ -69,7 +69,7 @@ public class RbcAdderTest {
     public void dealingAllPids() throws Exception {
         final var dag = new DagImpl(config, 0);
 
-        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>());
+        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>(), null);
 
         // PID 0
         var u = unit(0, 0);
@@ -184,7 +184,7 @@ public class RbcAdderTest {
     public void dealingPid0() throws Exception {
         final var dag = new DagImpl(config, 0);
 
-        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>());
+        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>(), null);
 
         var prime = unit(0, 0);
         var u = prime;
@@ -236,7 +236,7 @@ public class RbcAdderTest {
     @Test
     public void round3() throws Exception {
         final var dag = new DagImpl(config, 0);
-        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>());
+        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>(), null);
 
         round(0, adder);
         round(1, adder);
@@ -270,7 +270,7 @@ public class RbcAdderTest {
     @Test
     public void waitingForParents() {
         final var dag = new DagImpl(config, 0);
-        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>());
+        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>(), null);
         round(0, adder);
 
         // Units from 0, 2, 3 at level 1 proposed. Unit 1 from 0 is added to the DAG, as
