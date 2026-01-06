@@ -524,120 +524,91 @@ Fsm<ChoamContext, ChoamTransitions> choam = Fsm.construct(
 
 ## Metrics
 
-Tron-based FSMs expose operational metrics for monitoring state machine behavior and action execution.
+**Status**: Metrics instrumentation planned (not yet implemented in current release)
 
-### Transition Metrics
+The Tron FSM framework is a foundational component used throughout Delos. The metrics framework below defines the planned metric surface for future implementation via Dropwizard Metrics.
 
-| Metric | Type | Description | Healthy Range |
-|--------|------|-------------|-----------------|
-| `fsm_transitions_total` | Counter | Total transitions executed (per FSM/state) | Increasing with workload |
-| `fsm_transition_latency` | Timer | Time per state transition | p95 < 100μs |
-| `fsm_invalid_transitions_total` | Counter | Invalid transition attempts | < 1% of transitions |
-| `fsm_current_state` | Gauge | Current state (per FSM name) | Enum value or state ID |
+### Planned Metrics Categories
 
-### Entry/Exit Action Metrics
+**Transition Tracking** (future Counters/Timers):
+- Total transitions executed (per FSM/state)
+- Transition latency (p50, p95, p99)
+- Invalid transition attempts and rates
+- Current state tracking (per FSM)
 
-| Metric | Type | Description | Healthy Range |
-|--------|------|-------------|-----------------|
-| `fsm_entry_action_latency` | Timer | Time to execute Entry action | p95 < 10ms |
-| `fsm_exit_action_latency` | Timer | Time to execute Exit action | p95 < 10ms |
-| `fsm_action_errors_total` | Counter | Entry/Exit actions that threw exceptions | 0 (ideally) |
-| `fsm_actions_executed_total` | Counter | Total Entry/Exit actions executed | Increasing |
+**Entry/Exit Actions** (future Timers/Counters):
+- Entry action execution latency
+- Exit action execution latency
+- Action error rates
+- Total actions executed
 
-### State Stack Metrics
+**State Hierarchy** (future Gauges/Counters):
+- State stack depth
+- Maximum observed stack depth
+- Push/pop operations count
+- Hierarchy usage patterns
 
-| Metric | Type | Description | Healthy Range |
-|--------|------|-------------|-----------------|
-| `fsm_stack_depth` | Gauge | Current state stack depth | Typically 1-5 |
-| `fsm_max_stack_depth_observed` | Gauge | Maximum observed stack depth | Indicates hierarchy usage |
-| `fsm_push_operations_total` | Counter | Number of push() operations | Increasing with hierarchical use |
-| `fsm_pop_operations_total` | Counter | Number of pop() operations | Should match push count |
+**Concurrency Monitoring** (future Counters/Timers):
+- Blocked transition attempts
+- Lock wait times
+- Thread contention on FSM transitions
 
-### Concurrency Metrics
+### Monitoring in Current Release
 
-| Metric | Type | Description | Healthy Range |
-|--------|------|-------------|-----------------|
-| `fsm_concurrent_transitions_blocked` | Counter | Transitions delayed by lock | < 5% (indicates contention) |
-| `fsm_lock_wait_time` | Timer | Time waiting to acquire transition lock | p95 < 1ms (low contention) |
-| `fsm_threads_waiting` | Gauge | Threads blocked on FSM transition | 0-2 (ideally 0) |
+Until native metrics are implemented, FSM behavior can be monitored via:
 
-### Per-FSM Metrics (by name/role)
+**Application Logs**:
+```bash
+# Watch FSM state transitions
+grep "transition\|state change" delos.log
 
-When FSMs are named, per-FSM metrics provide detailed visibility:
-
-| Metric Pattern | Example | Description |
-|---|---|---|
-| `fsm_{name}_transitions_total` | `fsm_choam_transitions_total` | CHOAM-specific transitions |
-| `fsm_{name}_current_state` | `fsm_choam_current_state` | CHOAM current state |
-| `fsm_{name}_errors_total` | `fsm_fireflies_errors_total` | Fireflies errors |
-| `fsm_{name}_action_time` | `fsm_ethereal_action_time` | Ethereal action latency |
-
-### Alert Thresholds
-
-Set up alerts for these conditions:
-
-- **Invalid transitions > 5% of attempts** → Logic error or unexpected events, check state guards
-- **Action latency p95 > 100ms** → Slow Entry/Exit action (blocking I/O, GC), investigate action implementation
-- **Action errors > 0** → Entry/Exit action threw exception, check logs for stack traces
-- **Stack depth > 10** → Excessive state nesting, possible infinite push/pop loop
-- **Concurrent transition delays > 10% of transitions** → FSM lock contention, consider re-architecture
-- **Lock wait time > 10ms** → Severe contention on FSM, likely too many threads competing
-
-### Monitoring Examples
-
-**Prometheus Query: Transition Rate**
-```promql
-rate(fsm_transitions_total[5m])
+# Monitor specific FSM (CHOAM, Fireflies, Ethereal)
+grep "CHOAM state:" delos.log | tail -20
 ```
-Should correspond to workload (e.g., CHOAM: 1-100 transitions/sec; Fireflies: membership changes)
 
-**Prometheus Query: FSM State Distribution**
-```promql
-fsm_current_state{fsm_name="choam"}
-```
-Shows current state of CHOAM (GENESIS, MERCANTILE, EARNER, RECONFIGURATION)
-
-**Prometheus Query: Action Performance**
-```promql
-fsm_entry_action_latency_seconds{quantile="0.95"}
-```
-Entry/Exit action p95 latency should be < 10ms; if > 100ms, investigate action implementation
-
-**Prometheus Query: Invalid Transition Rate**
-```promql
-rate(fsm_invalid_transitions_total[5m]) / rate(fsm_transitions_total[5m])
-```
-Should be close to 0%; if > 1%, indicates state machine logic errors
-
-**Grafana Dashboard: FSM Health**
-- Top left: Transition rate (TPS) per FSM
-- Top right: Current state per FSM (gauge)
-- Middle left: Entry/Exit action latency (histogram)
-- Middle right: Invalid transition percentage (should be near 0%)
-- Bottom left: State stack depth distribution
-- Bottom right: Concurrency contention (lock wait times)
-
-### Metrics Access
-
-**Per-FSM visibility (when using FsmExecutor):**
+**FSM Status via Java API**:
 ```java
-// FSMs can register name for metrics
-Fsm<Context, Transitions> fsm = Fsm.construct(
-    context,
-    Transitions.class,
-    loader,
-    initialState,
-    true
-);
-fsm.setName("choam");  // Enables per-FSM metrics
+// Query current FSM state
+Fsm<Context, Transitions> fsm = /* acquired from system */;
+TransitionState currentState = fsm.getCurrentState();
+System.out.println("Current state: " + currentState.getName());
 
-// Metrics will be tagged: fsm_choam_transitions_total, fsm_choam_current_state, etc.
+// Check transition validity
+boolean canTransition = fsm.canTransition(targetState);
+
+// Track invalid transitions in application code
+if (!fsm.transition(targetState)) {
+    log.warn("Invalid transition attempt to {}", targetState);
+}
 ```
 
-**Integration with Delos monitoring:**
-- All Tron metrics available via `/metrics` endpoint
-- Per-FSM metrics aggregated in Prometheus
-- Grafana dashboards group by FSM role (CHOAM, Fireflies, Ethereal)
+**Thread-Safe Access Pattern**:
+```java
+// FSMs in Delos are thread-safe; observe state changes safely
+fsm.onStateChange((from, to) -> {
+    log.info("Transition: {} → {}", from.getName(), to.getName());
+});
+```
+
+**Performance Profiling**:
+```bash
+# Profile FSM transition overhead
+jcmd <pid> JFR.start duration=60s filename=fsm-profile.jfr
+jcmd <pid> JFR.dump filename=fsm-profile.jfr
+
+# Analyze with jfr tool
+jfr print --json fsm-profile.jfr | grep -i "transition\|state"
+```
+
+### Planned Metrics Integration
+
+When metrics are implemented, expose via:
+- **Dropwizard Metrics endpoint**: `/metrics` (JSON format)
+- **Prometheus exporter**: FSM metrics in Prometheus format
+- **Per-FSM metrics**: Tagged by FSM role (CHOAM, Fireflies, Ethereal)
+- **Named FSM support**: `fsm.setName("choam")` enables role-based metrics
+
+**See**: [Tron FSM Framework](tron/README.md) for usage patterns and integration examples.
 
 ---
 

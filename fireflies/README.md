@@ -524,106 +524,82 @@ broadcaster.subscribe(message -> {
 
 ## Metrics
 
-Fireflies exposes comprehensive operational metrics via Dropwizard Metrics, exposed on the metrics endpoint (`/metrics`).
+Fireflies exposes operational metrics via Dropwizard Metrics (Codahale Metrics), available at the metrics endpoint.
 
-### Membership Metrics
+### Core Implementation
 
-**`fireflies_view_size`** (Gauge)
-- Current number of members in the view
-- Healthy range: equals configured cluster size (e.g., 7 for 7-node cluster)
-- Warning: < 5 (lost quorum)
-- Critical: 0 (partition or total failure)
+Actual metrics are defined in `FireflyMetrics` interface and tracked via Meters (counters), Timers, and Histograms:
 
-**`fireflies_suspected_count`** (Gauge)
-- Current number of members suspected as failed
-- Healthy: 0-1
-- Warning: 2+ members suspected
-- Critical: 3+ members (possible network partition)
+**Source**: `fireflies/src/main/java/com/hellblazer/delos/fireflies/FireflyMetrics.java`
 
-**`fireflies_view_changes_total`** (Counter)
-- Cumulative count of membership view changes
-- Expected: 0-1 per hour (stable cluster)
-- High rate: Indicates network instability, Byzantine behavior, or member failures
+### Membership Events (Meter - tracks counts)
 
-### Gossip Metrics
+| Metric | Description | Healthy |
+|--------|-------------|---------|
+| `joins()` | Total join operations | Increases with member additions |
+| `leaves()` | Total leave operations | Increases with member removals |
+| `viewChanges()` | Total view change events | 0-1 per hour (stable) |
+| `accusations()` | Total accusations (failure detections) | < 1 per 5 minutes |
+| `shunnedGossip()` | Gossip messages from shunned members | ~0 (indicates Byzantine behavior if > 0) |
 
-**`fireflies_gossip_messages_sent`** (Counter)
-- Total gossip messages sent to peers
-- Monotonically increasing; useful for bandwidth estimation
-- Grows with cluster size and membership churn
+### Message Activity (Histogram - tracks counts/sizes)
 
-**`fireflies_message_round_trip_time`** (Timer)
-- Latency distribution for peer message exchanges
-- p50: ~50-100ms (local network)
-- p95: <200ms (healthy)
-- p99: <500ms (acceptable)
-- > 1s: Indicates network problems
+| Metric | Description | Purpose |
+|--------|-------------|---------|
+| `inboundGossip()`, `outboundGossip()` | Gossip message sizes | Network bandwidth analysis |
+| `inboundJoin()`, `outboundJoin()` | Join operation sizes | Protocol efficiency |
+| `inboundUpdate()`, `outboundUpdate()` | Update message sizes | View update efficiency |
+| `inboundRedirect()`, `outboundRedirect()` | Redirect message sizes | Join path analysis |
+| `inboundSeed()`, `outboundSeed()` | Seed message sizes | Bootstrap efficiency |
+| `inboundGateway()`, `outboundGateway()` | Gateway message sizes | External communication |
 
-**`fireflies_gossip_latency`** (Timer)
-- Latency for complete gossip cycles
-- p95: <100ms (excellent)
-- p95: <500ms (good)
-- > 1s: Consensus and view stability may suffer
+### Timing Metrics (Timer - tracks latency)
 
-### Join Protocol Metrics
+| Metric | Description | Healthy Range |
+|--------|-------------|---|
+| `inboundGossipDuration()` | Inbound gossip processing time | p95 < 100ms |
+| `inboundJoinDuration()` | Inbound join processing time | p95 < 500ms |
+| `inboundSeedDuration()` | Inbound seed processing time | p95 < 100ms |
+| `inboundUpdateTimer()` | Inbound update processing time | p95 < 100ms |
+| `joinDuration()` | Total join operation time | p95 < 5s |
+| `seedDuration()` | Total seed operation time | p95 < 500ms |
+| `outboundUpdateTimer()` | Outbound update processing time | p95 < 50ms |
 
-**`fireflies_joins_attempted`** (Counter)
-- Total join attempts by members
-- High count: Cluster churn, frequent member additions
+### Response Metrics (Histogram - tracks payload sizes)
 
-**`fireflies_join_latency`** (Timer)
-- Time from join initiation to membership in view
-- p95: < 500ms (healthy)
-- > 5s: Bootstrap issues, network latency, or slow peer selection
+| Metric | Description |
+|--------|-------------|
+| `gossipReply()`, `gossipResponse()` | Gossip response payload sizes |
+| `notes()` | Notes exchanged |
+| `filteredNotes()` | Filtered notes (after filtering invalid) |
 
-**`fireflies_redirects_received`** (Counter)
-- Count of join redirects (normal during joins)
-- Useful for diagnosing join path efficiency
+### Performance Characteristics
 
-### Voting Metrics
+**Gossip Protocol:**
+- Expected message latency (p95): < 100-500ms depending on network
+- Join protocol: 500ms - 5 seconds depending on network latency
+- View change: < 1 second if network is healthy
 
-**`fireflies_ballots_cast`** (Counter)
-- Total view change ballots cast by BFT subset
-- Correlates with membership churn
+**Monitoring:**
+- Access metrics via `/metrics` HTTP endpoint
+- Integrate with Prometheus for time-series analysis
+- Set alerts on Meter rates exceeding expected churn rates
+- Monitor Timer percentiles (p95, p99) for latency degradation
 
-**`fireflies_ballot_resolution_time`** (Timer)
-- Time from ballot proposal to resolution
-- p95: <200ms (fast voting)
-- > 1s: Voting stalls, consensus issues
+### Notes on Metric Availability
 
-### Health and Stability Metrics
+**Status**: Metrics interfaces defined and integrated; Prometheus export layer available via metrics endpoint
 
-**`fireflies_members_stable_count`** (Gauge)
-- Number of stable (non-suspected) members
-- Should equal view_size minus suspected_count
-
-**`fireflies_network_partition_detections`** (Counter)
-- Detected network partitions
-- Should be 0 in healthy cluster
-- > 0: Investigate network or Byzantine activity
-
-### Example Queries
-
-**Monitor cluster health:**
-```
-fireflies_view_size / 7 > 0.7  # At least 71% of nodes
-```
-
-**Detect consensus degradation:**
-```
-histogram_quantile(0.95, fireflies_gossip_latency) > 500  # p95 > 500ms
-```
-
-**Alert on membership instability:**
-```
-rate(fireflies_view_changes_total[5m]) > 0.2  # > 1 view change per 5 minutes
-```
+**Limitations**:
+- No pre-aggregated "view_size", "members_stable_count" gauges (derive from membership context)
+- Metric names follow Dropwizard conventions (method names), not Prometheus conventions
+- Requires integration with Prometheus metrics exporter for dashboard display
 
 ### Related Guides
 
-- Monitoring Guide: [docs/MONITORING_GUIDE.md](../docs/MONITORING_GUIDE.md)
-- Troubleshooting Guide: [docs/TROUBLESHOOTING_GUIDE.md](../docs/TROUBLESHOOTING_GUIDE.md)
-- ADR-0003: [docs/adr/0003-bft-membership-architecture.md](../docs/adr/0003-bft-membership-architecture.md)
+- Monitoring Guide: [../docs/MONITORING_GUIDE.md](../docs/MONITORING_GUIDE.md)
+- Troubleshooting Guide: [../docs/TROUBLESHOOTING_GUIDE.md](../docs/TROUBLESHOOTING_GUIDE.md)
+- ADR-0003: [../docs/adr/0003-bft-membership-architecture.md](../docs/adr/0003-bft-membership-architecture.md)
 
 ## References
 

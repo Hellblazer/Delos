@@ -606,135 +606,78 @@ SELECT UUID();              -- Block hash derived
 
 ## Metrics
 
-SQL-State exposes operational metrics via Dropwizard Metrics for monitoring state machine health and performance.
+**Status**: Metrics instrumentation planned (not yet implemented in current release)
 
-### Transaction Execution Metrics
+The SQL-State module is a critical component for monitoring state machine health. The metrics framework below defines the planned metric surface for future implementation via Dropwizard Metrics.
 
-| Metric | Type | Description | Healthy Range |
-|--------|------|-------------|-----------------|
-| `sql_state_transactions_executed` | Counter | Total transactions processed | Increasing monotonically |
-| `sql_state_transaction_latency` | Timer | Time per transaction execution | p95 < 100ms |
-| `sql_state_batch_size` | Histogram | Rows affected per transaction | 1-1000 |
-| `sql_state_pending_transactions` | Gauge | Transactions awaiting execution | < 100 |
-| `sql_state_errors_total` | Counter | SQL errors encountered | 0 (ideally) |
+### Planned Metrics Categories
 
-### State Height and Checkpointing
+**Transaction Execution** (future Meters/Timers):
+- Transaction throughput (count of executed transactions)
+- Transaction latency (p50, p95, p99 execution time)
+- Error rates (SQL execution failures)
 
-| Metric | Type | Description | Healthy Range |
-|--------|------|-------------|-----------------|
-| `sql_state_height` | Gauge | Current transaction height in log | Increasing with CHOAM |
-| `sql_state_block_hash` | Gauge | Hash of current block (seed for RANDOM) | Changes per block |
-| `sql_state_checkpoint_height` | Gauge | Latest checkpoint transaction height | Should match or lag slightly behind height |
-| `sql_state_checkpoint_size_bytes` | Gauge | Size of last checkpoint | Varies by data (typically MB-GB) |
-| `sql_state_checkpoint_latency` | Timer | Time to create checkpoint | p95 < 1s |
-| `sql_state_restore_latency` | Timer | Time to restore from checkpoint | p95 < 2s |
+**State Height and Checkpointing** (future Gauges/Timers):
+- Current transaction height in log
+- Latest checkpoint height
+- Checkpoint creation latency
+- Checkpoint restoration latency
 
-### Determinism Guarantees
+**Database Operations** (future Counters):
+- DDL statements (schema modifications)
+- DML statements (INSERT/UPDATE/DELETE)
+- Query statements (read-only operations)
 
-| Metric | Type | Description | Healthy Range |
-|--------|------|-------------|-----------------|
-| `sql_state_determinism_violations` | Counter | Non-deterministic execution detected | 0 (alerts if > 0) |
-| `sql_state_random_seeding_failures` | Counter | Block hash seeding failures | 0 (alerts if > 0) |
-| `sql_state_replicas_in_sync` | Gauge | Number of replicas with identical state | = cluster member count |
+**Determinism Verification** (future Counters):
+- Determinism violation detection
+- Block hash seeding success/failures
+- Replica state consistency verification
 
-### Database Operations
+### Monitoring in Current Release
 
-| Metric | Type | Description | Healthy Range |
-|--------|------|-------------|-----------------|
-| `sql_state_ddl_statements` | Counter | Schema modifications (DDL) | Occasional |
-| `sql_state_dml_statements` | Counter | Data modifications (INSERT/UPDATE/DELETE) | Increasing with workload |
-| `sql_state_query_statements` | Counter | Read-only queries | Increasing with workload |
-| `sql_state_jdbc_connection_time` | Timer | JDBC connection acquisition | p95 < 50ms |
-| `sql_state_database_size_bytes` | Gauge | H2 database file size | Grows with data |
+Until native metrics are implemented, monitor SQL-State via:
 
-### Liquibase Migrations
-
-| Metric | Type | Description | Healthy Range |
-|--------|------|-------------|-----------------|
-| `sql_state_migrations_applied` | Counter | Schema migrations completed | Increases on schema changes |
-| `sql_state_migration_latency` | Timer | Time per migration | p95 < 5s |
-| `sql_state_migration_rollbacks` | Counter | Failed migrations rolled back | 0 (ideally) |
-
-### Performance and Health
-
-| Metric | Type | Description | Healthy Range |
-|--------|------|-------------|-----------------|
-| `sql_state_memory_usage_bytes` | Gauge | JVM heap used by sql-state | < 80% of max heap |
-| `sql_state_gc_time_percent` | Gauge | % of time in garbage collection | < 5% |
-| `sql_state_connection_pool_active` | Gauge | Active JDBC connections | Usually 1 (single-writer) |
-| `sql_state_last_transaction_time` | Timer | Time since last transaction processed | Should be near-zero |
-
-### Alert Thresholds
-
-Set up alerts for these conditions:
-
-- **Transaction latency p95 > 500ms** → Investigate H2 performance (GC, disk I/O, table scans)
-- **Pending transactions > 1000** → Backlog building, check CHOAM block production rate
-- **Error rate > 0.1%** → SQL execution failures, check transaction validity
-- **Checkpoint latency > 10s** → Database too large or disk I/O bottleneck
-- **Determinism violations > 0** → Critical: state inconsistency across replicas
-- **Database size > threshold** → Plan checkpoint archival and cleanup
-- **Connection pool errors > 0** → JDBC connection exhaustion
-
-### Monitoring Examples
-
-**Prometheus Query: Transaction Throughput**
-```promql
-rate(sql_state_transactions_executed[5m])
-```
-Typical: 10-1000 transactions/second (depends on workload)
-
-**Prometheus Query: State Height Progression**
-```promql
-delta(sql_state_height[5m])
-```
-Should match `delta(choam_blocks_committed[5m])` - if lagging, investigate state machine performance
-
-**Prometheus Query: Checkpoint Health**
-```promql
-sql_state_height - sql_state_checkpoint_height
-```
-Should be small (< 1000 blocks typically). Large gaps indicate checkpoint failures.
-
-**Prometheus Query: Replication Lag**
-```promql
-max(sql_state_height) - min(sql_state_height)
-```
-Should be 0 (all nodes identical) or very small. Persistent lag indicates consensus stalling.
-
-**Grafana Alert: Replica Divergence**
-```promql
-(max(sql_state_height) - min(sql_state_height)) > 100
-```
-Critical alert: Some nodes lagging in state execution
-
-**Grafana Dashboard: SQL-State Health**
-- Top panel: Transaction rate (TPS)
-- Second panel: Transaction latency (p50, p95, p99)
-- Third panel: State height progression (should match CHOAM)
-- Fourth panel: Checkpoint interval (time between checkpoints)
-- Fifth panel: Error rate (should be zero)
-- Bottom panel: Database size and memory usage
-
-### Metrics Access
-
-**HTTP Endpoint:**
+**Application Logs**:
 ```bash
-curl http://node1.delos.local:8080/metrics
+# Watch state machine execution
+grep "executing transaction\|checkpoint\|error" delos.log
+
+# Monitor block consumption
+grep "processing block" delos.log | tail -20
 ```
 
-**JMX Endpoint:** (if enabled)
+**CHOAM Metrics** (parent component):
+SQL-State execution status can be inferred from CHOAM metrics:
+- `choam_blocks_committed()` - Blocks processed by consensus
+- If blocks advance but state height stalls, investigate SQL-State performance
+
+**Health Checks** (Java API):
+```java
+// Check if state machine is caught up
+SqlStateMachine stateMachine = /* acquired from application */;
+long currentHeight = stateMachine.getCurrentHeight();
+long targetHeight = choam.getCommittedHeight();
+boolean isCaughtUp = currentHeight >= targetHeight;
+```
+
+**Performance Profiling**:
 ```bash
-jconsole jmx:service:jmx:rmi:///jndi/rmi://node1.delos.local:7199/jmxrmi
+# Profile transaction execution
+jcmd <pid> JFR.start duration=60s filename=sql-state-profile.jfr
+jcmd <pid> JFR.dump filename=sql-state-profile.jfr
+
+# Analyze checkpoint performance
+perf record -g -F 99 -- java ... # Profile checkpoint threads
 ```
 
-**Log Output:**
-Set in delos.yaml to export metrics to logs periodically:
-```yaml
-metrics:
-  reporterIntervalSeconds: 60
-  outputFormat: json
-```
+### Planned Metrics Integration
+
+When metrics are implemented, expose via:
+- **Dropwizard Metrics endpoint**: `/metrics` (JSON format)
+- **Prometheus exporter**: Metrics in Prometheus format for scraping
+- **JMX**: Standard JVM metrics + custom state machine metrics
+
+**See**: [ADR-0005: Deterministic SQL State Machine](../docs/adr/0005-deterministic-sql-state.md) for state machine architecture and guarantees.
 
 ---
 
