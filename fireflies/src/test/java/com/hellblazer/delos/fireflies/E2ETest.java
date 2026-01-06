@@ -100,7 +100,7 @@ public class E2ETest {
 
         final var seeds = members.values()
                                  .stream()
-                                 .map(m -> new Seed(m.getIdentifier().getIdentifier(), EndpointProvider.allocatePort()))
+                                 .map(m -> new Seed(m.getIdentifier().getIdentifier(), "0"))  // Use OS dynamic port allocation
                                  .limit(largeTests ? 10 : 1)
                                  .toList();
         final var bootstrapSeed = seeds.subList(0, 1);
@@ -213,7 +213,7 @@ public class E2ETest {
 
             gateway.start();
             gateways.add(comms);
-            return new View(context, node, EndpointProvider.allocatePort(), EventValidation.NONE, Verifiers.from(kerl),
+            return new View(context, node, "0", EventValidation.NONE, Verifiers.from(kerl),
                             comms, parameters, gateway, DigestAlgorithm.DEFAULT, metrics);
         }).collect(Collectors.toList());
     }
