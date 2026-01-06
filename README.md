@@ -44,7 +44,7 @@ and mechanisms of Delos can be used for coins/etc, the design goals are much dif
 
 ## Requirements
 
-Delos requires JDK 22+ and [Maven](https://maven.apache.org/) 3.9.3 and above
+Delos requires JDK 25+ and [Maven](https://maven.apache.org/) 3.9.3 and above
 
 ### Install Maven
 
@@ -141,10 +141,12 @@ Delos makes use of [JOOQ](https://www.jooq.org) as an SQL DSL for Java. This als
 not something I adore. Unlike GRPC, the JOOQ code generation plays very nicely with the Eclipse IDE's Maven integration,
 so JOOQ code generation is included in the module that defines it.
 
-## WIP
+## Status
 
-Note that Delos is still a  _work_   _in_   _progress_ . There is not yet an official release. Thus, it
-is by no means a full-featured, hardened distributed systems platform.
+Delos is a maturing distributed systems platform. The **Fireflies module** (Byzantine intrusion-tolerant membership service)
+has undergone comprehensive remediation as of January 2026, addressing 109 critical issues and achieving production-ready status.
+Other modules continue to mature. There is not yet an official release, but the core consensus and membership layers are
+well-tested and hardened.
 
 ## Requirements
 

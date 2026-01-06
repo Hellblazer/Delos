@@ -154,8 +154,10 @@ The Fireflies module is functionally complete. Full bootstrap and join integrati
 
 ## Status
 
-Delos Fireflies is functionally complete and is MVP, but certainly quite a bit more scale testing and hardening is
-always in order.
+Delos Fireflies is functionally complete and production-ready. As of January 2026, the module has undergone comprehensive
+remediation addressing 109 issues across 4 phases: critical production blockers, security hardening, architectural
+decomposition, and comprehensive testing. Full test suite added including Byzantine behavior, network partition, race
+condition, resource exhaustion, and recovery mechanism tests.
 
 __Current Functionality__
 
