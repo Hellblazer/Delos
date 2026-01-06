@@ -42,6 +42,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -60,6 +61,7 @@ public class MtlsTest {
     private static final Map<Digest, String>                                         endpoints   = new HashMap<>();
     private static final boolean                                                     LARGE_TESTS = Boolean.getBoolean(
     "large_tests");
+    private static final int                                                         BASE_PORT   = 19000;
     private static       Map<Digest, ControlledIdentifier<SelfAddressingIdentifier>> identities;
 
     static {
@@ -78,10 +80,11 @@ public class MtlsTest {
         identities = IntStream.range(0, CARDINALITY).mapToObj(i -> {
             return stereotomy.newIdentifier();
         }).collect(Collectors.toMap(controlled -> controlled.getIdentifier().getDigest(), controlled -> controlled));
+        var portCounter = new AtomicInteger(BASE_PORT);
         identities.entrySet().forEach(e -> {
             certs.put(e.getKey(),
                       e.getValue().provision(Instant.now(), Duration.ofDays(1), SignatureAlgorithm.DEFAULT));
-            endpoints.put(e.getKey(), EndpointProvider.allocatePort());
+            endpoints.put(e.getKey(), "localhost:" + portCounter.getAndAdd(10));
         });
     }
 
