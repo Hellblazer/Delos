@@ -108,10 +108,20 @@ public class ViewManagement {
         context.activate(node);
 
         resetBootstrapView();
-        view.viewChange(() -> install(
-        new Ballot(currentView(), Collections.emptyList(), Collections.singletonList(node.getId()), digestAlgo)));
+        // Capture InstallResult from inside lock for post-lock completion
+        var bootstrapResult = new AtomicReference<InstallResult>();
+        view.viewChange(() -> {
+            bootstrapResult.set(installCore(
+                new Ballot(currentView(), Collections.emptyList(), Collections.singletonList(node.getId()), digestAlgo)));
+            view.scheduleViewChange();
+        });
 
-        view.scheduleViewChange();
+        // Complete the installation outside the write lock
+        var result = bootstrapResult.get();
+        if (result != null) {
+            completeInstall(result);
+        }
+
         view.schedule(dur);
 
         log.info("Bootstrapped view: {} cardinality: {} count: {} context: {} on: {}", currentView(),
