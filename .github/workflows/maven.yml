@@ -75,7 +75,7 @@ jobs:
             target/
           key: delos-maven-tests-fireflies-${{ github.sha }}
 
-  test-consensus:
+  test-heavy-modules:
     needs: compile
     runs-on: ubuntu-latest
 
@@ -99,17 +99,17 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test BFT Consensus (Ethereal, CHOAM, SQL-State)
+      - name: Test Heavy Modules (Ethereal, CHOAM, SQL-State)
         run: ./mvnw -batch-mode test -pl ethereal,choam,sql-state --file pom.xml
-      - name: Save Maven cache after consensus tests
+      - name: Save Maven cache after heavy tests
         uses: actions/cache@v4
         with:
           path: |
             ~/.m2/repository
             target/
-          key: delos-maven-tests-consensus-${{ github.sha }}
+          key: delos-maven-tests-heavy-${{ github.sha }}
 
-  test-identity:
+  test-identity-modules:
     needs: compile
     runs-on: ubuntu-latest
 
@@ -133,7 +133,7 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Identity (Stereotomy, Gorgoneion, Thoth)
+      - name: Test Identity Modules (Stereotomy, Gorgoneion, Thoth)
         run: ./mvnw -batch-mode test -pl stereotomy,stereotomy-services,gorgoneion,gorgoneion-client,thoth --file pom.xml
       - name: Save Maven cache after identity tests
         uses: actions/cache@v4
@@ -143,7 +143,7 @@ jobs:
             target/
           key: delos-maven-tests-identity-${{ github.sha }}
 
-  test-infrastructure:
+  test-light-modules:
     needs: compile
     runs-on: ubuntu-latest
 
@@ -167,65 +167,30 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Infrastructure (Crypto, gRPC, Protocols, etc.)
-        run: ./mvnw -batch-mode test -pl cryptography,grpc,protocols,memberships,schemas,liquibase-deterministic --file pom.xml
-      - name: Save Maven cache after infrastructure tests
+      - name: Test Light Modules (Domain, Protocols, Membership, etc.)
+        run: ./mvnw -batch-mode test -pl protocols,memberships,tron,model,delphinius,schemas,liquibase-deterministic,grpc,cryptography,domain-epoll,domain-kqueue,domain-sockets,leyden,vm-socket,java-noise --file pom.xml
+      - name: Save Maven cache after light tests
         uses: actions/cache@v4
         with:
           path: |
             ~/.m2/repository
             target/
-          key: delos-maven-tests-infrastructure-${{ github.sha }}
-
-  test-domains:
-    needs: compile
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: graalvm/setup-graalvm@v1
-        with:
-          java-version: '25'
-          distribution: 'graalvm'
-          cache: 'maven'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Restore Maven cache from compile job
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.m2/repository
-            target/
-          key: delos-maven-${{ github.sha }}
-          restore-keys: |
-            delos-maven-${{ github.ref }}-
-            delos-maven-refs/heads/main-
-            delos-maven-
-          fail-on-cache-miss: false
-      - name: Test Application Domains (FSM, Process Model, RBAC, Platform)
-        run: ./mvnw -batch-mode test -pl tron,model,delphinius,domain-epoll,domain-kqueue,domain-sockets,leyden,vm-socket,java-noise --file pom.xml
-      - name: Save Maven cache after domain tests
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.m2/repository
-            target/
-          key: delos-maven-tests-domains-${{ github.sha }}
+          key: delos-maven-tests-light-${{ github.sha }}
 
   build-status:
-    needs: [test-fireflies, test-consensus, test-identity, test-infrastructure, test-domains]
+    needs: [test-fireflies, test-heavy-modules, test-identity-modules, test-light-modules]
     runs-on: ubuntu-latest
     if: always()
 
     steps:
       - name: Check Test Results
         run: |
-          if [ "${{ needs.test-fireflies.result }}" != "success" ] || [ "${{ needs.test-consensus.result }}" != "success" ] || [ "${{ needs.test-identity.result }}" != "success" ] || [ "${{ needs.test-infrastructure.result }}" != "success" ] || [ "${{ needs.test-domains.result }}" != "success" ]; then
+          if [ "${{ needs.test-fireflies.result }}" != "success" ] || [ "${{ needs.test-heavy-modules.result }}" != "success" ] || [ "${{ needs.test-identity-modules.result }}" != "success" ] || [ "${{ needs.test-light-modules.result }}" != "success" ]; then
             echo "❌ Build FAILED: One or more test jobs failed"
             echo "  test-fireflies: ${{ needs.test-fireflies.result }}"
-            echo "  test-consensus: ${{ needs.test-consensus.result }}"
-            echo "  test-identity: ${{ needs.test-identity.result }}"
-            echo "  test-infrastructure: ${{ needs.test-infrastructure.result }}"
-            echo "  test-domains: ${{ needs.test-domains.result }}"
+            echo "  test-heavy-modules: ${{ needs.test-heavy-modules.result }}"
+            echo "  test-identity-modules: ${{ needs.test-identity-modules.result }}"
+            echo "  test-light-modules: ${{ needs.test-light-modules.result }}"
             exit 1
           fi
           echo "✅ Build GREEN: All tests passed successfully"
