@@ -647,7 +647,8 @@ Not supported for Byzantine quorum (f < n/3). Instead:
 ## References
 
 - [KERI Specification](https://github.com/decentralized-identity/keri)
-- [TLS Certificates Guide](docs/TLS_SETUP.md)
-- [Fireflies: Gossip-Based Byzantine Fault Tolerance](fireflies/README.md)
+- [KERI Implementation Architecture](docs/adr/0002-keri-implementation-architecture.md)
+- [Fireflies: Gossip-Based Byzantine Fault Tolerance](../fireflies/README.md)
 - [CHOAM: Consensus Design](docs/adr/0004-consensus-design-choam.md)
 - [Troubleshooting Guide](TROUBLESHOOTING_GUIDE.md)
+- [Monitoring Guide](MONITORING_GUIDE.md)

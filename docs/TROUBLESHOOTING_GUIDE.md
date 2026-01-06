@@ -550,5 +550,6 @@ done
 - [Deployment Guide](DEPLOYMENT_GUIDE.md)
 - [Monitoring Guide](MONITORING_GUIDE.md)
 - [CHOAM Consensus](docs/adr/0004-consensus-design-choam.md)
-- [Fireflies Gossip](fireflies/README.md)
+- [Fireflies: Membership Service](../fireflies/README.md)
 - [H2 Database Documentation](http://www.h2database.com/)
+- [KERI Identity Infrastructure](../stereotomy/docs/THREAT_MODEL.md)
