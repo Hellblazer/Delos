@@ -54,6 +54,7 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.BiConsumer;
@@ -359,6 +360,8 @@ public class View {
         if (!started.get()) {
             return;
         }
+        // Capture InstallResult from inside lock for post-lock completion
+        var installResult = new AtomicReference<ViewManagement.InstallResult>();
         viewChange(() -> {
             removeTimer(View.FINALIZE_VIEW_CHANGE);
             final var supermajority = context.getRingCount() * 3 / 4;
@@ -383,7 +386,8 @@ public class View {
             if (max != null && max.getCount() >= majority) {
                 log.info("View consensus successful: {} required: {} cardinality: {} for: {} on: {}", max, majority,
                          viewManagement.cardinality(), currentView(), node.getId());
-                viewManagement.install(max.getElement());
+                // Capture result from atomic consensus operation, complete outside lock
+                installResult.set(viewManagement.installCore(max.getElement()));
                 scheduleViewChange();
                 scheduleClearObservations();
             } else {
@@ -396,6 +400,13 @@ public class View {
                 scheduleViewChange();
             }
         });
+
+        // Complete the installation outside the write lock
+        // This allows listener notifications and join callbacks to execute without blocking consensus
+        var result = installResult.get();
+        if (result != null) {
+            viewManagement.completeInstall(result);
+        }
     }
 
     /**
