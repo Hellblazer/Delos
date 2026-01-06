@@ -116,7 +116,6 @@ public class EtherealTest {
         int maxSize = 1024 * 1024;
         var expectedEpochs = NUM_EPOCHS + 1;
         var epochCountDown = new CountDownLatch(NPROC * expectedEpochs);
-        var verifiers = members.toArray(new com.hellblazer.delos.cryptography.Verifier[0]);
         for (short i = 0; i < (short) NPROC; i++) {
             var level = new AtomicInteger();
             var ds = new SimpleDataSource();
@@ -136,7 +135,7 @@ public class EtherealTest {
                 if (pid == 0) {
                     System.out.println("new epoch: " + ep);
                 }
-            }, "Test: " + i, verifiers);
+            }, "Test: " + i);
 
             var gossiper = new ChRbcGossip(context.getId(), (SigningMember) member, members, controller.processor(),
                                            com, metrics,
@@ -246,7 +245,6 @@ public class EtherealTest {
 
         final var prefix = UUID.randomUUID().toString();
         int maxSize = 1024 * 1024;
-        var verifiers2 = members.toArray(new com.hellblazer.delos.cryptography.Verifier[0]);
         for (short i = 0; i < (short) NPROC; i++) {
             var level = new AtomicInteger();
             var ds = new SimpleDataSource();
@@ -266,7 +264,7 @@ public class EtherealTest {
                 if (pid == 0) {
                     System.out.println("new epoch: " + ep);
                 }
-            }, "Test: " + i, verifiers2);
+            }, "Test: " + i);
 
             var gossiper = new ChRbcGossip(context.getId(), (SigningMember) member, members, controller.processor(),
                                            com, metrics,

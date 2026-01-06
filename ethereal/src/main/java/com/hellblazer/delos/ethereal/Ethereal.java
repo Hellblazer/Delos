@@ -8,7 +8,6 @@ package com.hellblazer.delos.ethereal;
 
 import com.google.protobuf.ByteString;
 import com.hellblazer.delos.cryptography.Digest;
-import com.hellblazer.delos.cryptography.Verifier;
 import com.hellblazer.delos.ethereal.Dag.DagImpl;
 import com.hellblazer.delos.ethereal.EpochProofBuilder.epochProofImpl;
 import com.hellblazer.delos.ethereal.EpochProofBuilder.sharesDB;
@@ -45,17 +44,15 @@ public class Ethereal {
     private final        Consumer<Integer>               newEpochAction;
     private final        AtomicBoolean                   started      = new AtomicBoolean();
     private final        BiConsumer<Boolean, List<Unit>> toPreblock;
-    private final        Verifier[]                      verifiers;
     private volatile     boolean                         completeIt   = false;
 
     public Ethereal(Config config, int maxSerializedSize, DataSource ds, BiConsumer<List<ByteString>, Boolean> blocker,
-                    Consumer<Integer> newEpochAction, String label, Verifier[] verifiers) {
-        this(label, config, maxSerializedSize, ds, blocker(blocker, config), newEpochAction, verifiers);
+                    Consumer<Integer> newEpochAction, String label) {
+        this(label, config, maxSerializedSize, ds, blocker(blocker, config), newEpochAction);
     }
 
     private Ethereal(String label, Config conf, int maxSerializedSize, DataSource ds,
-                     BiConsumer<Boolean, List<Unit>> toPreblock, Consumer<Integer> newEpochAction,
-                     Verifier[] verifiers) {
+                     BiConsumer<Boolean, List<Unit>> toPreblock, Consumer<Integer> newEpochAction) {
         if (!Dag.validate(conf.nProc())) {
             throw new IllegalArgumentException("Invalid # of processes, unable to build quorum: " + conf.nProc());
         }
@@ -64,7 +61,6 @@ public class Ethereal {
         this.toPreblock = toPreblock;
         this.newEpochAction = newEpochAction;
         this.maxSerializedSize = maxSerializedSize;
-        this.verifiers = verifiers;
         this.consumer = consumer(label);
 
         creator = new Creator(config, ds, lastTiming, u -> {
@@ -265,7 +261,7 @@ public class Ethereal {
             }
 
         });
-        final var adder = new Adder(epoch, dg, maxSerializedSize, config, failed, verifiers);
+        final var adder = new Adder(epoch, dg, maxSerializedSize, config, failed);
         return new epoch(epoch, dg, adder, new AtomicBoolean(true));
     }
 

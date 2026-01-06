@@ -130,7 +130,7 @@ public class JniBridge implements Demesne {
 
     @Override
     public void stop() {
-        stop(isolateId);
+        start(isolateId);
     }
 
     @Override

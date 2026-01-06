@@ -97,7 +97,7 @@ public class GenesisAssembly implements Genesis {
         config.setEpochLength(33).setNumberOfEpochs(-1);
         config.setLabel("Genesis Assembly" + view.context().getId() + " on: " + params().member().getId());
         controller = new Ethereal(config.build(), params().producer().maxBatchByteSize(), dataSource(),
-                                  transitions::process, transitions::nextEpoch, label, view.verifiersByPid());
+                                  transitions::process, transitions::nextEpoch, label);
         coordinator = new ChRbcGossip(reContext.getId(), params().member(), nextAssembly.values(),
                                       controller.processor(), params().communications(),
                                       params().metrics() == null ? null : params().metrics().getGensisMetrics(),
