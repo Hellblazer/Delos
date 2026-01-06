@@ -545,11 +545,262 @@ done
 
 ---
 
+## 11. Backup Recovery Testing
+
+**Importance:** Test backup restore procedures quarterly to ensure disaster recovery capability.
+
+### Backup Strategy
+
+Before testing recovery, ensure backups cover:
+- KERI identity keystores (`/opt/delos/keys/`)
+- KERL database (`/var/lib/delos/kerl.h2`)
+- CHOAM consensus log (`/var/lib/delos/choam.log`)
+- SQL-State checkpoint (`/var/lib/delos/checkpoint.sql`)
+- Configuration files (`/etc/delos/delos.yaml`)
+
+**Backup frequency:** Daily with retention of 30 days
+
+### Test Restore Procedure
+
+#### Step 1: Preparation (on test node, not production)
+
+```bash
+#!/bin/bash
+# Select non-production node for testing
+TEST_NODE="test-node-1"  # Must NOT be in active cluster
+
+# Stop Delos service
+ssh ${TEST_NODE} "sudo systemctl stop delos"
+
+# Verify stopped
+ssh ${TEST_NODE} "sudo systemctl status delos | grep inactive"
+if [ $? -ne 0 ]; then
+  echo "ERROR: Delos not stopped on ${TEST_NODE}"
+  exit 1
+fi
+
+# Backup current data (save for rollback)
+ssh ${TEST_NODE} "sudo tar czf /tmp/current-data-backup.tar.gz /var/lib/delos /opt/delos/keys"
+
+echo "✓ Test node prepared for restore"
+```
+
+#### Step 2: Restore from Backup
+
+```bash
+#!/bin/bash
+
+TEST_NODE="test-node-1"
+BACKUP_DATE="2026-01-05"  # Date of backup to restore
+BACKUP_LOCATION="/mnt/backups/${BACKUP_DATE}"
+
+# Verify backup exists and is readable
+ssh ${TEST_NODE} "test -f ${BACKUP_LOCATION}/kerl.h2.gz && \
+  test -f ${BACKUP_LOCATION}/keys.tar.gz && \
+  test -f ${BACKUP_LOCATION}/choam.log.gz && \
+  test -f ${BACKUP_LOCATION}/delos.yaml"
+if [ $? -ne 0 ]; then
+  echo "ERROR: Backup files not found on ${TEST_NODE}"
+  exit 1
+fi
+
+# Clear current data
+ssh ${TEST_NODE} "sudo rm -rf /var/lib/delos/*"
+ssh ${TEST_NODE} "sudo rm -rf /opt/delos/keys/*"
+
+# Restore from backup
+ssh ${TEST_NODE} "cd /var/lib/delos && sudo tar xzf ${BACKUP_LOCATION}/kerl.h2.gz"
+ssh ${TEST_NODE} "cd /var/lib/delos && sudo tar xzf ${BACKUP_LOCATION}/choam.log.gz"
+ssh ${TEST_NODE} "cd /opt/delos && sudo tar xzf ${BACKUP_LOCATION}/keys.tar.gz"
+ssh ${TEST_NODE} "sudo cp ${BACKUP_LOCATION}/delos.yaml /etc/delos/delos.yaml"
+
+# Verify files restored
+ssh ${TEST_NODE} "test -f /var/lib/delos/kerl.h2 && \
+  test -f /var/lib/delos/choam.log && \
+  test -f /opt/delos/keys/member-id-keystore.jks && \
+  test -f /etc/delos/delos.yaml"
+if [ $? -ne 0 ]; then
+  echo "ERROR: Restore failed - files missing"
+  exit 1
+fi
+
+echo "✓ Backup restored successfully"
+```
+
+#### Step 3: Database Validation
+
+```bash
+#!/bin/bash
+
+TEST_NODE="test-node-1"
+
+# Validate KERL database integrity
+ssh ${TEST_NODE} "sudo java -cp /opt/delos/lib/* \
+  com.hellblazer.delos.stereotomy.tools.ValidateKERL \
+  /var/lib/delos/kerl.h2"
+if [ $? -ne 0 ]; then
+  echo "ERROR: KERL database corrupted"
+  exit 1
+fi
+
+# Validate CHOAM log integrity
+ssh ${TEST_NODE} "sudo java -cp /opt/delos/lib/* \
+  com.hellblazer.delos.choam.tools.ValidateLog \
+  /var/lib/delos/choam.log"
+if [ $? -ne 0 ]; then
+  echo "ERROR: CHOAM log corrupted"
+  exit 1
+fi
+
+# Check keystore validity
+ssh ${TEST_NODE} "keytool -list -v -keystore /opt/delos/keys/member-id-keystore.jks \
+  -storepass \${KEYSTORE_PASSWORD} | grep -q 'Owner: CN='"
+if [ $? -ne 0 ]; then
+  echo "ERROR: Keystore invalid"
+  exit 1
+fi
+
+echo "✓ All databases validated"
+```
+
+#### Step 4: Service Startup
+
+```bash
+#!/bin/bash
+
+TEST_NODE="test-node-1"
+
+# Start Delos service
+ssh ${TEST_NODE} "sudo systemctl start delos"
+
+# Wait for startup
+sleep 10
+
+# Verify service is running
+ssh ${TEST_NODE} "sudo systemctl is-active delos | grep -q active"
+if [ $? -ne 0 ]; then
+  echo "ERROR: Delos failed to start after restore"
+
+  # Show startup errors
+  ssh ${TEST_NODE} "journalctl -u delos -n 30"
+  exit 1
+fi
+
+echo "✓ Delos started successfully"
+```
+
+#### Step 5: Health Verification
+
+```bash
+#!/bin/bash
+
+TEST_NODE="test-node-1"
+
+# Check identity is valid
+delos_cmd="docker exec delos-${TEST_NODE} delos"
+
+${delos_cmd} identity validate
+if [ $? -ne 0 ]; then
+  echo "ERROR: Identity validation failed"
+  exit 1
+fi
+
+# Verify KERL state matches backup
+${delos_cmd} kerl status | head -10
+echo "KERL state shown above"
+
+# Check consensus is not trying to rejoin cluster
+# (Node should be isolated - not attempting to connect to other nodes)
+${delos_cmd} consensus status | grep -q "DORMANT\|RECOVERING"
+if [ $? -ne 0 ]; then
+  echo "WARNING: Node may be trying to rejoin active cluster"
+  echo "Ensure test node is firewalled from production cluster"
+fi
+
+echo "✓ Health checks complete"
+```
+
+#### Step 6: Reporting and Cleanup
+
+```bash
+#!/bin/bash
+
+TEST_NODE="test-node-1"
+
+# Generate restore report
+cat > /tmp/restore-test-report.md << EOF
+# Backup Restore Test Report
+
+**Date:** $(date -Iseconds)
+**Test Node:** ${TEST_NODE}
+**Backup Date:** 2026-01-05
+
+## Results
+
+- ✓ Backup files located
+- ✓ Data restored from backup
+- ✓ KERL database valid
+- ✓ CHOAM log valid
+- ✓ Keystore valid
+- ✓ Service started
+- ✓ Identity validated
+- ✓ KERL state verified
+
+## Conclusion
+
+Backup restore test **PASSED**. Disaster recovery capability confirmed.
+
+**Next scheduled test:** $(date -d '+3 months' -Iseconds)
+
+EOF
+
+echo "Restore test report generated:"
+cat /tmp/restore-test-report.md
+
+# Rollback to previous state (restore current data)
+ssh ${TEST_NODE} "sudo systemctl stop delos"
+ssh ${TEST_NODE} "sudo rm -rf /var/lib/delos/* /opt/delos/keys/*"
+ssh ${TEST_NODE} "sudo tar xzf /tmp/current-data-backup.tar.gz --strip-components=1 -C /"
+ssh ${TEST_NODE} "sudo systemctl start delos"
+
+echo "✓ Test node rolled back to current state"
+```
+
+### Restore Test Checklist
+
+- [ ] Test node selected (non-production)
+- [ ] Backup files verified (complete and readable)
+- [ ] Current data backed up
+- [ ] Data restored from backup
+- [ ] KERL database validated
+- [ ] CHOAM log validated
+- [ ] Keystore validated
+- [ ] Service started successfully
+- [ ] Identity validation passed
+- [ ] KERL state verified
+- [ ] Test node rolled back
+- [ ] Restore report documented
+- [ ] Report filed with ops team
+- [ ] Next test date scheduled (quarterly)
+
+### Troubleshooting Restore Failures
+
+| Error | Diagnosis | Resolution |
+|-------|-----------|-----------|
+| **Backup files not found** | Backup job failed or retention expired | Check backup system logs; recreate backup manually |
+| **KERL database corrupted** | Backup interrupted during write | Use previous day's backup; check backup I/O |
+| **CHOAM log corrupted** | Consensus log truncated | Validate backup integrity before restore; use checkpoint |
+| **Service won't start** | Configuration or permissions issue | Check logs; verify file ownership; restore delos.yaml |
+| **Identity validation fails** | Key material corrupted | Check keystore password; restore from encrypted backup |
+| **Cannot decrypt data** | Encryption key lost | Restore backup and encryption key together; maintain key escrow |
+
+---
+
 ## References
 
 - [Deployment Guide](DEPLOYMENT_GUIDE.md)
 - [Monitoring Guide](MONITORING_GUIDE.md)
-- [CHOAM Consensus](docs/adr/0004-consensus-design-choam.md)
+- [CHOAM Consensus](adr/0004-consensus-design-choam.md)
 - [Fireflies: Membership Service](../fireflies/README.md)
 - [H2 Database Documentation](http://www.h2database.com/)
 - [KERI Identity Infrastructure](../stereotomy/docs/THREAT_MODEL.md)

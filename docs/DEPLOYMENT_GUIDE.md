@@ -644,11 +644,236 @@ Not supported for Byzantine quorum (f < n/3). Instead:
 
 ---
 
+## 10. Pre-Production Security Deployment Checklist
+
+Before deploying to production, verify all security requirements are met:
+
+### Identity & Key Management
+
+- [ ] **KERI Keys Generated Securely**
+  - [ ] Private keys generated on air-gapped machine
+  - [ ] Keys never transmitted over network
+  - [ ] Keys stored in encrypted HSM or secure vault
+  - [ ] Key backups in multiple geographic locations
+  - [ ] Backup encryption keys escrow documented
+
+- [ ] **Key Rotation Schedule Documented**
+  - [ ] Quarterly key rotation procedure documented
+  - [ ] Key rotation tested in staging environment
+  - [ ] Key rotation runbook prepared for ops team
+  - [ ] Calendar reminders set for rotation dates
+
+- [ ] **KERL Database Backup**
+  - [ ] KERL backups automated (daily minimum)
+  - [ ] Backup retention policy: 30 days minimum
+  - [ ] Backup encryption enabled
+  - [ ] Backup integrity verification automated
+  - [ ] Restore procedure tested quarterly
+
+### TLS/MTLS Configuration
+
+- [ ] **Certificates Generated Properly**
+  - [ ] CA-signed certificates (not self-signed in production)
+  - [ ] Subject Alternative Names (SANs) include all node hostnames
+  - [ ] Certificate validity verified (`openssl x509 -in cert.pem -text -noout`)
+  - [ ] Certificate chains verified (`openssl verify -CAfile ca.pem cert.pem`)
+
+- [ ] **Secure Password Management**
+  - [ ] No hardcoded passwords in configuration files
+  - [ ] All passwords >= 20 characters (use: `openssl rand -base64 20`)
+  - [ ] Passwords stored in secrets vault (Vault, AWS Secrets Manager, etc.)
+  - [ ] Environment variables used for password injection
+  - [ ] Password rotation procedure documented
+
+- [ ] **Certificate Rotation Plan**
+  - [ ] Certificate expiration dates tracked (30-day alert threshold)
+  - [ ] Certificate rotation procedure tested
+  - [ ] Rolling update strategy documented
+  - [ ] Zero-downtime rotation verified
+  - [ ] Rollback procedure prepared
+
+### Network & Firewall
+
+- [ ] **Network Isolation**
+  - [ ] Cluster network isolated from untrusted networks
+  - [ ] Firewall rules restrict GRPC ports to authorized nodes only
+  - [ ] Firewall rules restrict metrics port (8080) to ops/monitoring networks
+  - [ ] SSH access restricted to bastion or VPN
+  - [ ] Outbound egress filtered (no unexpected outbound connections)
+
+- [ ] **Port Configuration**
+  - [ ] Port 50051 (GRPC consensus): Node-to-node only
+  - [ ] Port 50052 (GRPC identity): Witness network only
+  - [ ] Port 8080 (metrics/health): Monitoring network only
+  - [ ] Application ports: Restricted to authorized clients
+  - [ ] No ports exposed to public internet
+
+- [ ] **Network Monitoring**
+  - [ ] Network traffic monitoring enabled
+  - [ ] Intrusion detection system (IDS) configured
+  - [ ] DDoS protection configured
+  - [ ] Anomalous traffic alerting enabled
+
+### File System & Permissions
+
+- [ ] **Directory Permissions**
+  - [ ] `/opt/delos` owned by `delos` user (600 or 750)
+  - [ ] `/opt/delos/keys` owned by `delos` user (700 - no group/other access)
+  - [ ] `/var/lib/delos` owned by `delos` user (700)
+  - [ ] `/etc/delos` readable by `delos` user only (600)
+  - [ ] Verified: `ls -la /opt/delos /var/lib/delos /etc/delos`
+
+- [ ] **File Encryption**
+  - [ ] Keystore files encrypted on disk
+  - [ ] Configuration files with secrets encrypted
+  - [ ] Database files encryption at rest enabled
+  - [ ] Encryption keys secured (not in plaintext)
+
+- [ ] **Audit Logging**
+  - [ ] File access logging enabled for `/opt/delos/keys`
+  - [ ] Configuration change logging enabled
+  - [ ] System audit trail captures all key access
+  - [ ] Log retention: 1 year minimum
+
+### Database & State
+
+- [ ] **H2 Database Hardening**
+  - [ ] H2 database password configured (strong, >= 20 chars)
+  - [ ] Database stored with 600 permissions (user-only)
+  - [ ] Database backups encrypted
+  - [ ] Remote H2 access disabled (localhost only)
+
+- [ ] **CHOAM Log Security**
+  - [ ] Consensus log integrity verified (checksums)
+  - [ ] Log backups encrypted and archived
+  - [ ] Log access restricted to delos user
+  - [ ] Audit trail captures all commits
+
+- [ ] **Checkpoint Management**
+  - [ ] Checkpoints encrypted at rest
+  - [ ] Checkpoint backups retained (recovery point objective)
+  - [ ] Checkpoint restore tested quarterly
+  - [ ] Checkpoint metadata integrity verified
+
+### Operational Security
+
+- [ ] **Service Account**
+  - [ ] `delos` service account created (non-shell user)
+  - [ ] Service account UID/GID documented
+  - [ ] Service account has no sudo privileges
+  - [ ] Service account login disabled
+
+- [ ] **Systemd Service**
+  - [ ] Service runs as `delos` user (not root)
+  - [ ] Service file permissions 644
+  - [ ] Service restart policy: `on-failure` with backoff
+  - [ ] Service logs captured via journalctl
+  - [ ] Service socket activation disabled
+
+- [ ] **Logging & Monitoring**
+  - [ ] SLF4J/Logback configured for structured logging
+  - [ ] Log files rotate daily (logrotate configured)
+  - [ ] Log retention: 30 days minimum
+  - [ ] Logs exclude sensitive data (passwords, keys)
+  - [ ] Metrics endpoint secured (requires authentication)
+
+### Backup & Disaster Recovery
+
+- [ ] **Backup Strategy**
+  - [ ] Daily automated backups scheduled
+  - [ ] Backup destinations: Off-site encrypted storage (3+ locations)
+  - [ ] Backup encryption: AES-256 minimum
+  - [ ] Backup integrity: SHA-256 checksums verified
+  - [ ] Backup retention: 30 days minimum
+
+- [ ] **Restore Testing**
+  - [ ] Restore procedure tested quarterly
+  - [ ] Restore time objective (RTO) documented and verified
+  - [ ] Recovery point objective (RPO) documented and verified
+  - [ ] Restore runbook prepared for ops team
+  - [ ] Restore test results documented
+
+### Vulnerability Management
+
+- [ ] **Dependencies Updated**
+  - [ ] All Maven dependencies at current patch level
+  - [ ] Dependency security scan completed (`mvn dependency-check`)
+  - [ ] Known vulnerabilities risk assessment completed
+  - [ ] Vulnerability remediation plan for critical/high issues
+  - [ ] Dependency update schedule: Monthly minimum
+
+- [ ] **Code Security**
+  - [ ] OWASP security analysis completed
+  - [ ] Code review for cryptographic operations
+  - [ ] Input validation verified (SQL injection, XSS protection)
+  - [ ] Secrets management verified (no hardcoded credentials)
+  - [ ] Security testing results documented
+
+### Personnel & Access Control
+
+- [ ] **Access Control**
+  - [ ] SSH keys for all operators (no passwords)
+  - [ ] SSH key access log enabled
+  - [ ] Multi-person approval for sensitive operations
+  - [ ] Operator roles defined (viewer, operator, admin)
+  - [ ] Access revoked when operators leave
+
+- [ ] **Secrets Management**
+  - [ ] Vault/HSM configured for secret storage
+  - [ ] Rotations documented and scheduled
+  - [ ] Access logs maintained (who accessed which secrets)
+  - [ ] Secrets never logged or exposed in error messages
+
+### Documentation & Procedures
+
+- [ ] **Runbooks Prepared**
+  - [ ] Deployment runbook reviewed and tested
+  - [ ] Incident response playbook prepared
+  - [ ] Key rotation procedure documented
+  - [ ] Backup & restore procedure documented
+  - [ ] Failover/failback procedure documented
+
+- [ ] **Security Documentation**
+  - [ ] Security policies documented
+  - [ ] Threat model reviewed (ADR-0002)
+  - [ ] Security training completed for operators
+  - [ ] Incident communication plan prepared
+  - [ ] Post-incident review process established
+
+### Pre-Deployment Testing
+
+- [ ] **Security Testing**
+  - [ ] TLS handshake verified (openssl s_client)
+  - [ ] Certificate expiration dates verified
+  - [ ] Key rotation tested end-to-end
+  - [ ] Backup restore tested on staging
+  - [ ] Network isolation verified (firewall rules)
+
+- [ ] **Performance Testing**
+  - [ ] Load testing completed (target TPS achieved)
+  - [ ] Consensus latency verified (< 500ms p95)
+  - [ ] Member join time verified (< 5 minutes)
+  - [ ] Failover time verified (< 10 seconds)
+  - [ ] Resource limits verified (CPU, memory, disk)
+
+### Sign-Off
+
+| Role | Name | Date | Approved |
+|------|------|------|----------|
+| Security Officer | _________________ | ________ | ☐ |
+| Operations Lead | _________________ | ________ | ☐ |
+| System Admin | _________________ | ________ | ☐ |
+| Project Manager | _________________ | ________ | ☐ |
+
+**All items checked and approved before production deployment.**
+
+---
+
 ## References
 
 - [KERI Specification](https://github.com/decentralized-identity/keri)
-- [KERI Implementation Architecture](docs/adr/0002-keri-implementation-architecture.md)
+- [KERI Implementation Architecture](adr/0002-keri-implementation-architecture.md)
 - [Fireflies: Gossip-Based Byzantine Fault Tolerance](../fireflies/README.md)
-- [CHOAM: Consensus Design](docs/adr/0004-consensus-design-choam.md)
+- [CHOAM: Consensus Design](adr/0004-consensus-design-choam.md)
 - [Troubleshooting Guide](TROUBLESHOOTING_GUIDE.md)
 - [Monitoring Guide](MONITORING_GUIDE.md)
