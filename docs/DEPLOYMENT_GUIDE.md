@@ -646,16 +646,24 @@ Not supported for Byzantine quorum (f < n/3). Instead:
 
 ## 10. Pre-Production Security Deployment Checklist
 
-Before deploying to production, verify all security requirements are met:
+**Important:** This checklist is stratified into two categories:
+1. **Current Release:** Features fully implemented and supported
+2. **Enhanced Security Roadmap:** Planned improvements for future releases
+
+Before deploying to production, complete all **Current Release** items. **Roadmap** items enhance security posture but are not blockers for initial production deployment.
+
+### Current Release (Required for Production)
+
+Before deploying to production, verify all current release security requirements are met:
 
 ### Identity & Key Management
 
 - [ ] **KERI Keys Generated Securely**
   - [ ] Private keys generated on air-gapped machine
   - [ ] Keys never transmitted over network
-  - [ ] Keys stored in encrypted HSM or secure vault
   - [ ] Key backups in multiple geographic locations
-  - [ ] Backup encryption keys escrow documented
+  - [ ] Backup encryption keys documented
+  - [ ] Backup storage locations: Off-site, access-controlled
 
 - [ ] **Key Rotation Schedule Documented**
   - [ ] Quarterly key rotation procedure documented
@@ -681,9 +689,9 @@ Before deploying to production, verify all security requirements are met:
 - [ ] **Secure Password Management**
   - [ ] No hardcoded passwords in configuration files
   - [ ] All passwords >= 20 characters (use: `openssl rand -base64 20`)
-  - [ ] Passwords stored in secrets vault (Vault, AWS Secrets Manager, etc.)
   - [ ] Environment variables used for password injection
   - [ ] Password rotation procedure documented
+  - [ ] Password access logging enabled
 
 - [ ] **Certificate Rotation Plan**
   - [ ] Certificate expiration dates tracked (30-day alert threshold)
@@ -710,9 +718,9 @@ Before deploying to production, verify all security requirements are met:
 
 - [ ] **Network Monitoring**
   - [ ] Network traffic monitoring enabled
-  - [ ] Intrusion detection system (IDS) configured
-  - [ ] DDoS protection configured
-  - [ ] Anomalous traffic alerting enabled
+  - [ ] Anomalous traffic alerting configured (via firewall/monitoring tools)
+  - [ ] Connection logging enabled for audit trail
+  - [ ] Network baseline established for anomaly detection
 
 ### File System & Permissions
 
@@ -724,16 +732,16 @@ Before deploying to production, verify all security requirements are met:
   - [ ] Verified: `ls -la /opt/delos /var/lib/delos /etc/delos`
 
 - [ ] **File Encryption**
-  - [ ] Keystore files encrypted on disk
-  - [ ] Configuration files with secrets encrypted
-  - [ ] Database files encryption at rest enabled
-  - [ ] Encryption keys secured (not in plaintext)
+  - [ ] Keystore files stored with secure permissions (600)
+  - [ ] Configuration files with secrets readable by delos user only
+  - [ ] Disk-level encryption enabled on volume (if available)
 
 - [ ] **Audit Logging**
-  - [ ] File access logging enabled for `/opt/delos/keys`
-  - [ ] Configuration change logging enabled
-  - [ ] System audit trail captures all key access
-  - [ ] Log retention: 1 year minimum
+  - [ ] Application logging configured (SLF4J/Logback)
+  - [ ] Key operation events logged (identity operations, rotations)
+  - [ ] System logging enabled (systemd journal)
+  - [ ] Log retention configured: 30 days minimum
+  - [ ] Logs protected from unauthorized access (readable by delos/root only)
 
 ### Database & State
 
@@ -819,10 +827,11 @@ Before deploying to production, verify all security requirements are met:
   - [ ] Access revoked when operators leave
 
 - [ ] **Secrets Management**
-  - [ ] Vault/HSM configured for secret storage
-  - [ ] Rotations documented and scheduled
-  - [ ] Access logs maintained (who accessed which secrets)
+  - [ ] Secrets stored in environment variables or encrypted configuration files
+  - [ ] Password rotations documented and scheduled
+  - [ ] Access to secret storage controlled (file permissions/access control)
   - [ ] Secrets never logged or exposed in error messages
+  - [ ] Configuration file with secrets readable by delos user only (600 permissions)
 
 ### Documentation & Procedures
 
@@ -855,6 +864,49 @@ Before deploying to production, verify all security requirements are met:
   - [ ] Member join time verified (< 5 minutes)
   - [ ] Failover time verified (< 10 seconds)
   - [ ] Resource limits verified (CPU, memory, disk)
+
+---
+
+### Enhanced Security Roadmap (Future Releases)
+
+The following items enhance security posture but are **not required** for current production deployment. Plan to implement these in future releases:
+
+**Identity & Key Management**
+- [ ] Hardware Security Module (HSM) integration for key storage
+- [ ] Key escrow and recovery procedures with multi-party control
+- [ ] Hardware-based attestation for identity bootstrap
+
+**Secrets Management**
+- [ ] Vault (HashiCorp) or Cloud KMS integration for centralized secret management
+- [ ] Dynamic secrets with automatic rotation
+- [ ] Audit logging for all secret access operations
+- [ ] Secret rotation automation
+
+**Network Security**
+- [ ] Intrusion Detection System (IDS) integration for anomaly detection
+- [ ] DDoS protection (WAF, rate limiting)
+- [ ] Network segmentation with zero-trust architecture
+- [ ] VPN/TLS encryption for all internal communication
+
+**File System & Encryption**
+- [ ] Transparent Data Encryption (TDE) at rest for all databases
+- [ ] File-level encryption for configuration and key material
+- [ ] File integrity monitoring (FIM) for critical files
+- [ ] Immutable backup storage
+
+**Operational Security**
+- [ ] Hardware-based Multi-factor Authentication (MFA) for operator access
+- [ ] Behavioral analytics for anomalous activity detection
+- [ ] Centralized log aggregation with SIEM integration
+- [ ] Automated incident response playbooks
+
+**Compliance & Auditing**
+- [ ] FIPS 140-2 Level 2+ mode support
+- [ ] Compliance reporting (SOC 2, ISO 27001)
+- [ ] Automated policy enforcement
+- [ ] Real-time audit trail with tamper-proof logging
+
+---
 
 ### Sign-Off
 

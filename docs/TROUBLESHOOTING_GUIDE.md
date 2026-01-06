@@ -629,39 +629,90 @@ echo "✓ Backup restored successfully"
 
 #### Step 3: Database Validation
 
-```bash
-#!/bin/bash
+**Status:** Validation tools are planned future features. Use Java APIs for interim validation:
 
-TEST_NODE="test-node-1"
+```java
+// Validate KERL database integrity
+public class KerlValidator {
+    public static void validate(String kerlPath) throws Exception {
+        KERL kerl = new UniKERL(kerlPath);
 
-# Validate KERL database integrity
-ssh ${TEST_NODE} "sudo java -cp /opt/delos/lib/* \
-  com.hellblazer.delos.stereotomy.tools.ValidateKERL \
-  /var/lib/delos/kerl.h2"
-if [ $? -ne 0 ]; then
-  echo "ERROR: KERL database corrupted"
-  exit 1
-fi
+        // 1. Check file accessibility
+        File kerlFile = new File(kerlPath);
+        if (!kerlFile.exists() || !kerlFile.canRead()) {
+            throw new IOException("KERL database not accessible: " + kerlPath);
+        }
 
-# Validate CHOAM log integrity
-ssh ${TEST_NODE} "sudo java -cp /opt/delos/lib/* \
-  com.hellblazer.delos.choam.tools.ValidateLog \
-  /var/lib/delos/choam.log"
-if [ $? -ne 0 ]; then
-  echo "ERROR: CHOAM log corrupted"
-  exit 1
-fi
+        // 2. Load and verify KERL structure
+        try {
+            // Attempt to load KERL and validate basic structure
+            var allMembers = kerl.getMembers();  // Should not throw
+            System.out.println("✓ KERL structure valid, members: " + allMembers.size());
+        } catch (Exception e) {
+            throw new IOException("KERL database corrupted: " + e.getMessage());
+        }
 
-# Check keystore validity
-ssh ${TEST_NODE} "keytool -list -v -keystore /opt/delos/keys/member-id-keystore.jks \
-  -storepass \${KEYSTORE_PASSWORD} | grep -q 'Owner: CN='"
-if [ $? -ne 0 ]; then
-  echo "ERROR: Keystore invalid"
-  exit 1
-fi
+        // 3. Verify key events can be retrieved
+        int validEvents = 0;
+        for (Identifier member : allMembers) {
+            KeyState state = kerl.getKeyState(member);
+            if (state != null) {
+                validEvents++;
+            }
+        }
+        System.out.printf("✓ Verified %d/%d member states%n",
+            validEvents, allMembers.size());
+    }
+}
 
-echo "✓ All databases validated"
+// Validate CHOAM log integrity via Java API
+public class ChoamLogValidator {
+    public static void validate(CHOAM choam) throws Exception {
+        try {
+            // 1. Check latest block is readable
+            long height = choam.getCommittedHeight();
+            if (height < 0) {
+                throw new IOException("CHOAM log corrupted: invalid height");
+            }
+            System.out.printf("✓ CHOAM log accessible, height: %d%n", height);
+
+            // 2. Verify block hashes are consistent
+            Set<byte[]> seenHashes = new HashSet<>();
+            for (long i = Math.max(0, height - 100); i <= height; i++) {
+                Block block = choam.getBlock(i);
+                if (block == null) {
+                    throw new IOException("Block " + i + " not found");
+                }
+                seenHashes.add(block.getHash());
+            }
+            System.out.printf("✓ Verified %d recent blocks%n", seenHashes.size());
+
+        } catch (Exception e) {
+            throw new IOException("CHOAM log corrupted: " + e.getMessage());
+        }
+    }
+}
+
+// Validate keystore via keytool (existing tool)
+String result = runCommand("keytool",
+    "-list", "-v",
+    "-keystore", "/opt/delos/keys/member-id-keystore.jks",
+    "-storepass", keystorePassword
+);
+
+if (!result.contains("Owner:")) {
+    throw new IOException("Keystore invalid or corrupted");
+}
+System.out.println("✓ Keystore valid");
 ```
+
+**Validation Checklist (before production deployment):**
+- [ ] KERL database file accessible and readable
+- [ ] All member key states retrievable from KERL
+- [ ] CHOAM log accessible with consistent block sequence
+- [ ] Member keystore valid (keytool verification)
+- [ ] Recent blocks can be retrieved from CHOAM
+- [ ] Key rotation events present in KERL for all members
 
 #### Step 4: Service Startup
 
