@@ -48,26 +48,32 @@ Use this document to resume work after breaks. It contains the essential context
 - **Impact**: Phase 1 (ADR/docs work) can proceed immediately; testing phase deferred
 - **Documentation**: Recorded in `.pm/baselines/JACOCO_BASELINE_2026-01-06.md`
 
-**Phase 1b Status**: ACTIVE - ADR Creation Complete ✅
+**Phase 1b Status**: COMPLETE ✅ - All Core Documentation Done
 → ADR-0001: ✅ COMPLETE (JaCoCo deferral decision) - Commit: 83bb896
 → ADR-0002: ✅ COMPLETE (KERI Implementation Architecture) - Commit: f1415ff
 → ADR-0003: ✅ COMPLETE (BFT Membership Architecture) - Commit: b9439ee
 → ADR-0004: ✅ COMPLETE (Consensus Design/Choam) - Commit: 40f4de0
 → ADR-0005: ✅ COMPLETE (Deterministic SQL) - Commit: afa5c2d
 → ADR-0006: ✅ COMPLETE (Execution Strategy) - Commit: 6688964
-→ Production docs: Ready to start (fireflies, sql-state, tron, operational guides)
+→ Production API Docs: ✅ COMPLETE (fireflies, sql-state, tron) - Commits: a1d3ba4, b51a284, 6336350
+→ Threat Model: ✅ COMPLETE (Stereotomy threat model) - Commit: 205c75b
 
-**Completed Commits (Phase 1b ADRs)**:
-- 2026-01-06 b9439ee: ADR-0003 BFT Membership
-- 2026-01-06 40f4de0: ADR-0004 Consensus/Choam
-- 2026-01-06 afa5c2d: ADR-0005 Deterministic SQL
+**Completed Commits (Phase 1b)**:
+- 2026-01-06 205c75b: Stereotomy threat model documentation
+- 2026-01-06 6336350: Tron FSM Framework comprehensive documentation
+- 2026-01-06 b51a284: SQL-State API documentation
+- 2026-01-06 a1d3ba4: Fireflies API documentation
+- 2026-01-06 e5f275d: ADR-0006 Mermaid diagram conversion
 - 2026-01-06 6688964: ADR-0006 Execution Strategy
+- 2026-01-06 afa5c2d: ADR-0005 Deterministic SQL
+- 2026-01-06 40f4de0: ADR-0004 Consensus/Choam
+- 2026-01-06 b9439ee: ADR-0003 BFT Membership
 
 **Next Action**:
-→ Continue Phase 1b: Production API documentation (fireflies, sql-state, tron)
-→ Create operational guides (deployment, monitoring, troubleshooting)
-→ Create additional ADRs 0007-0010 for extended architecture
+→ Optional Phase 1b: Create operational guides (deployment, monitoring, troubleshooting) - Delos-28k
+→ Optional Phase 1b: Create additional ADRs 0007-0010 for extended architecture
 → Monitor JaCoCo releases; when 0.8.13+ available, start Phase 1a (testing)
+→ Consider closure of Quality Initiative Phase 1 (core documentation complete)
 
 ## Completed Phases
 
