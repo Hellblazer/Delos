@@ -55,6 +55,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -100,6 +101,8 @@ public class CHOAM {
     private final    PendingViews                                          pendingViews          = new PendingViews();
     private final    ScheduledExecutorService                              scheduler;
     private final    AtomicBoolean                                         ongoingJoin           = new AtomicBoolean();
+    private final    ReentrantLock                                         viewStateLock         = new ReentrantLock();
+    private final    ReadWriteLock                                         headLock              = new ReentrantReadWriteLock();
     private volatile Thread                                                linear;
 
     public CHOAM(Parameters params) {
@@ -541,36 +544,41 @@ public class CHOAM {
     }
 
     private void consume(HashedCertifiedBlock next) {
-        log.trace("Attempting to consume: {} hash: {} height: {}, head: {} height: {} on: {}", next.block.getBodyCase(),
-                  next.hash, next.height(), head.get().hash, head.get().height(), params.member().getId());
-        final HashedCertifiedBlock h = head.get();
+        headLock.writeLock().lock();
+        try {
+            log.trace("Attempting to consume: {} hash: {} height: {}, head: {} height: {} on: {}", next.block.getBodyCase(),
+                      next.hash, next.height(), head.get().hash, head.get().height(), params.member().getId());
+            final HashedCertifiedBlock h = head.get();
 
-        if (h.height() != null && next.height().compareTo(h.height()) <= 0) {
-            // block already past tense
-            log.debug("Stale: {} hash: {} height: {} on: {}", next.block.getBodyCase(), next.hash, next.height(),
-                      params.member().getId());
-            return;
-        }
+            if (h.height() != null && next.height().compareTo(h.height()) <= 0) {
+                // block already past tense
+                log.debug("Stale: {} hash: {} height: {} on: {}", next.block.getBodyCase(), next.hash, next.height(),
+                          params.member().getId());
+                return;
+            }
 
-        final var nlc = ULong.valueOf(next.block.getHeader().getLastReconfig());
+            final var nlc = ULong.valueOf(next.block.getHeader().getLastReconfig());
 
-        var view = this.view.get().height();
-        if (h.block == null || nlc.equals(view)) {
-            // same view
-            consume(next, h);
-            return;
-        }
+            var view = this.view.get().height();
+            if (h.block == null || nlc.equals(view)) {
+                // same view
+                consume(next, h);
+                return;
+            }
 
-        if (view != null && nlc.compareTo(view) > 0) {
-            // later view
-            log.trace("Wait for reconfiguration @ {} block: {} hash: {} height: {} current: {} on: {}",
-                      next.block.getHeader().getLastReconfig(), next.block.getBodyCase(), next.hash, next.height(),
-                      h.height(), params.member().getId());
-            pending.add(next);
-        } else {
-            // invalid view
-            log.trace("Invalid view @ {} current: {} block: {} hash: {} height: {} current: {} on: {}", nlc, view,
-                      next.block.getBodyCase(), next.hash, next.height(), h.height(), params.member().getId());
+            if (view != null && nlc.compareTo(view) > 0) {
+                // later view
+                log.trace("Wait for reconfiguration @ {} block: {} hash: {} height: {} current: {} on: {}",
+                          next.block.getHeader().getLastReconfig(), next.block.getBodyCase(), next.hash, next.height(),
+                          h.height(), params.member().getId());
+                pending.add(next);
+            } else {
+                // invalid view
+                log.trace("Invalid view @ {} current: {} block: {} hash: {} height: {} current: {} on: {}", nlc, view,
+                          next.block.getBodyCase(), next.hash, next.height(), h.height(), params.member().getId());
+            }
+        } finally {
+            headLock.writeLock().unlock();
         }
     }
 
@@ -633,7 +641,12 @@ public class CHOAM {
                     }
                     continue;
                 }
-                consume(next);
+                try {
+                    consume(next);
+                } catch (Throwable t) {
+                    log.error("Error consuming block: {} hash: {} height: {} on: {}", next.block.getBodyCase(), next.hash,
+                              next.height(), params.member().getId(), t);
+                }
             }
         } finally {
             log.debug("Consumer thread exiting on: {}", params.member().getId());
@@ -766,44 +779,49 @@ public class CHOAM {
     }
 
     private void reconfigure(Digest hash, Reconfigure reconfigure) {
-        log.info("Setting next view id: {} on: {}", hash, params.member().getId());
-        nextViewId.set(hash);
-        var pv = pendingViews.advance();
-        if (pv != null) {
-            params.context().setContext(pv.context);
-        }
-        final Committee c = current.get();
-        c.complete();
-        var validators = validatorsOf(reconfigure, params.context(), params.member().getId(), log);
-        final var currentView = next.get();
-        transitions.rotateViewKeys();
-        final HashedCertifiedBlock h = head.get();
-        view.set(h);
-        session.setView(h);
-        if (validators.containsKey(params.member())) {
-            if (Dag.validate(validators.size())) {
-                current.set(new Associate(h, validators, currentView));
-            } else {
-                log.warn("Reconfiguration to associate failed: {} committee: {} in view: {} on:{}", validators.size(),
-                         new Digest(reconfigure.getId()), current.get().getClass().getSimpleName(),
-                         params.member().getId());
-                transitions.fail();
+        viewStateLock.lock();
+        try {
+            log.info("Setting next view id: {} on: {}", hash, params.member().getId());
+            nextViewId.set(hash);
+            var pv = pendingViews.advance();
+            if (pv != null) {
+                params.context().setContext(pv.context);
             }
-        } else {
-            current.set(new Client(validators, getViewId()));
+            final Committee c = current.get();
+            c.complete();
+            var validators = validatorsOf(reconfigure, params.context(), params.member().getId(), log);
+            final var currentView = next.get();
+            transitions.rotateViewKeys();
+            final HashedCertifiedBlock h = head.get();
+            view.set(h);
+            session.setView(h);
+            if (validators.containsKey(params.member())) {
+                if (Dag.validate(validators.size())) {
+                    current.set(new Associate(h, validators, currentView));
+                } else {
+                    log.warn("Reconfiguration to associate failed: {} committee: {} in view: {} on:{}", validators.size(),
+                             new Digest(reconfigure.getId()), current.get().getClass().getSimpleName(),
+                             params.member().getId());
+                    transitions.fail();
+                }
+            } else {
+                current.set(new Client(validators, getViewId()));
+            }
+            if (ongoingJoin.compareAndSet(true, false)) {
+                log.trace("Halting ongoing join on: {}", params.member().getId());
+            }
+            log.info("Reconfigured to view: {} committee: {} validators: {} on: {}", new Digest(reconfigure.getId()),
+                     current.get().getClass().getSimpleName(), validators.entrySet()
+                                                                         .stream()
+                                                                         .map(e -> String.format("id: %s key: %s",
+                                                                                                 e.getKey().getId(),
+                                                                                                 params.digestAlgorithm()
+                                                                                                       .digest(
+                                                                                                       e.toString())))
+                                                                         .toList(), params.member().getId());
+        } finally {
+            viewStateLock.unlock();
         }
-        if (ongoingJoin.compareAndSet(true, false)) {
-            log.trace("Halting ongoing join on: {}", params.member().getId());
-        }
-        log.info("Reconfigured to view: {} committee: {} validators: {} on: {}", new Digest(reconfigure.getId()),
-                 current.get().getClass().getSimpleName(), validators.entrySet()
-                                                                     .stream()
-                                                                     .map(e -> String.format("id: %s key: %s",
-                                                                                             e.getKey().getId(),
-                                                                                             params.digestAlgorithm()
-                                                                                                   .digest(
-                                                                                                   e.toString())))
-                                                                     .toList(), params.member().getId());
     }
 
     private void recover(HashedCertifiedBlock anchor) {
