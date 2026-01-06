@@ -1333,21 +1333,17 @@ public class View {
 
     private void tally(SVU svu, HashMultiset<Ballot> ballots) {
         var vc = svu.viewChange;
-        final var leaving = vc.getChange()
-                              .getLeavesList()
-                              .stream()
-                              .map(Digest::from)
-                              .distinct()
-                              .collect(Collectors.toCollection(ArrayList::new));
-        final var joining = vc.getChange()
-                              .getJoinsList()
-                              .stream()
-                              .map(Digest::from)
-                              .distinct()
-                              .collect(Collectors.toCollection(ArrayList::new));
-        leaving.sort(Ordering.natural());
-        joining.sort(Ordering.natural());
-        ballots.add(new Ballot(Digest.from(vc.getChange().getCurrent()), leaving, joining, digestAlgo));
+        // Use TreeSet to maintain sorted order and eliminate duplicate members in single pass
+        final var leaving = new TreeSet<Digest>(Ordering.natural());
+        for (var digest : vc.getChange().getLeavesList()) {
+            leaving.add(Digest.from(digest));
+        }
+        final var joining = new TreeSet<Digest>(Ordering.natural());
+        for (var digest : vc.getChange().getJoinsList()) {
+            joining.add(Digest.from(digest));
+        }
+        ballots.add(new Ballot(Digest.from(vc.getChange().getCurrent()), new ArrayList<>(leaving),
+                               new ArrayList<>(joining), digestAlgo));
     }
 
     /**
