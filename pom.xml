@@ -999,5 +999,52 @@
                 </pluginManagement>
             </build>
         </profile>
+        <profile>
+            <id>test-heavy-modules</id>
+            <activation>
+                <activeByDefault>false</activeByDefault>
+            </activation>
+            <modules>
+                <module>ethereal</module>
+                <module>choam</module>
+                <module>sql-state</module>
+            </modules>
+        </profile>
+        <profile>
+            <id>test-identity-modules</id>
+            <activation>
+                <activeByDefault>false</activeByDefault>
+            </activation>
+            <modules>
+                <module>stereotomy</module>
+                <module>stereotomy-services</module>
+                <module>gorgoneion</module>
+                <module>gorgoneion-client</module>
+                <module>thoth</module>
+            </modules>
+        </profile>
+        <profile>
+            <id>test-light-modules</id>
+            <activation>
+                <activeByDefault>false</activeByDefault>
+            </activation>
+            <modules>
+                <module>protocols</module>
+                <module>memberships</module>
+                <module>tron</module>
+                <module>model</module>
+                <module>delphinius</module>
+                <module>schemas</module>
+                <module>liquibase-deterministic</module>
+                <module>grpc</module>
+                <module>cryptography</module>
+                <module>domain-epoll</module>
+                <module>domain-kqueue</module>
+                <module>domain-sockets</module>
+                <module>leyden</module>
+                <module>vm-socket</module>
+                <module>java-noise</module>
+            </modules>
+        </profile>
     </profiles>
 </project>
