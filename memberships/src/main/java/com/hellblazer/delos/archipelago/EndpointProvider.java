@@ -24,7 +24,12 @@ public interface EndpointProvider {
     static String allocatePort() {
         InetSocketAddress addr = null;
         try {
-            addr = new InetSocketAddress(InetAddress.getLocalHost(), Utils.allocatePort(InetAddress.getLocalHost()));
+            InetAddress localhost = InetAddress.getLocalHost();
+            int port = Utils.allocatePort(localhost);
+            if (port < 0) {
+                throw new IllegalStateException("Failed to allocate a free port - no ports available");
+            }
+            addr = new InetSocketAddress(localhost, port);
         } catch (UnknownHostException e) {
             throw new IllegalStateException("Cannot resolve localhost!", e);
         }
