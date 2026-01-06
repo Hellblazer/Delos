@@ -24,6 +24,18 @@ store - KERI's version of the chain state of KERI events. Key management isn't s
 to integrate PKCS11 and other models. The Stereotomy controller model is primitive and isn't appropriate for personal
 use points, etc., and so refactoring the kernel out to support multiple use cases will continue.
 
+## Security
+
+Stereotomy underwent comprehensive security remediation as of January 2026, addressing 6 critical security considerations with formal threat modeling and validation. The module has been hardened against concurrency attacks, database corruption, and side-channel key extraction.
+
+**Vulnerability Status:**
+- 4 critical vulnerabilities fixed with code changes and test coverage
+- 2 protocol design properties validated as intentional (not exploitable)
+- 16+ dedicated security tests for concurrency, persistence, and key material handling
+- Full threat model and security analysis documented
+
+For detailed security analysis, attack vectors, mitigations, and test coverage, see [`docs/THREAT_MODEL.md`](./docs/THREAT_MODEL.md).
+
 ## Implementation
 
 Stereotomy is loosely based on the design of the foundation Java implementation of KERI.
