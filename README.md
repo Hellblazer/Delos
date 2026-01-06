@@ -150,8 +150,8 @@ well-tested and hardened.
 
 ## Requirements
 
-Delos is a pure Java application The build system is Maven, and requires Maven 3.9.3+. The Maven enforcer plugin
-enforces dependency convergence, and Delos is built using Java 22.
+Delos is a pure Java application. The build system is Maven, and requires Maven 3.9.3+. The Maven enforcer plugin
+enforces dependency convergence, and Delos is built using Java 25.
 
 Delos is a [multimodule Maven project](https://maven.apache.org/guides/mini/guide-multiple-modules.html). This means
 that the various modules of Delos are built and versioned as a whole, rather than being separated out into individual

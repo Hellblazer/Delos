@@ -114,6 +114,12 @@ java -cp delos.jar \
 # Output: EJLQ5RZoM4ypLLdIqNXkbsVWXMaqfC0I... (SAI)
 ```
 
+⚠️ **SECURITY WARNING**: Never use the example password `SecurePassword123!` in production. Generate a strong, random password using:
+```bash
+openssl rand -base64 32  # Generate secure 32-byte password
+```
+Store passwords in a secrets manager (Vault, AWS Secrets Manager, etc.), never in configuration files.
+
 **Transfer to node (encrypted channel):**
 ```bash
 scp -P 22 \
@@ -167,6 +173,8 @@ openssl pkcs12 -export \
   -passout pass:KeystorePassword123!
 ```
 
+⚠️ **SECURITY WARNING**: Never use the example password `KeystorePassword123!` in production. Use a strong random password and store securely in a secrets manager (not in configuration files or version control).
+
 **Transfer to nodes:**
 ```bash
 scp node1-keystore.p12 delos@node1:/opt/delos/keys/
@@ -178,6 +186,12 @@ scp ca-cert.pem delos@node1:/opt/delos/keys/truststore.pem
 ## 3. Node Configuration
 
 ### 3.1 Configuration File (delos.yaml)
+
+⚠️ **SECURITY WARNING**: The configuration examples below contain hardcoded passwords for illustration only. **NEVER use hardcoded passwords in production configuration files.** Instead:
+1. Use environment variables: `${DELOS_KEYSTORE_PASSWORD}`
+2. Load from secrets manager at startup
+3. Use external configuration management (Vault, consul, etc.)
+4. Ensure delos.yaml has restrictive permissions (chmod 600)
 
 Create `/opt/delos/config/delos.yaml`:
 

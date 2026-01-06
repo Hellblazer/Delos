@@ -88,8 +88,8 @@ Delos is a multi-tenant distributed system platform with Byzantine fault toleran
 The `h2-deterministic` and `liquibase-deterministic` modules provide deterministic SQL execution for replicated state machines. The `h2-deterministic` module uses package shading and must NOT be imported into IDEs.
 
 ## Technology Stack
-- Java 23+ (configured in pom.xml)
-- Maven 3.8.1+ with Maven Wrapper
+- Java 25+ (configured in pom.xml) - **Required for production**
+- Maven 3.9.3+ with Maven Wrapper
 - gRPC 1.68.0 / Protobuf 4.28.2
 - H2 Database, JOOQ, Liquibase
 - Netty 4.1.x for networking

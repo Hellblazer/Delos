@@ -310,7 +310,7 @@ groups:
       # SQL-State
       - alert: DelosStateHeightStall
         expr: |
-          rate(sql_state_height[5m]) == 0
+          delta(sql_state_height[5m]) == 0
         for: 2m
         annotations:
           summary: "{{ $labels.instance }} state not advancing"
