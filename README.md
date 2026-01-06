@@ -157,7 +157,7 @@ The workflow automatically:
 ./mvnw versions:set -DnewVersion=0.1.0 -DgenerateBackupPoms=false
 
 # Manually update README.md - replace version strings
-# Current version: `0.0.1-SNAPSHOT` → `0.1.0`
+# Current version: 0.0.1-SNAPSHOT → 0.1.0
 # <version>0.0.1-SNAPSHOT</version> → <version>0.1.0</version>
 
 # Commit release

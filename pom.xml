@@ -698,11 +698,6 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-release-plugin</artifactId>
                 <version>3.0.1</version>
-                <configuration>
-                    <autoVersionSubmodules>true</autoVersionSubmodules>
-                    <preparationGoals>clean verify -DskipTests -DupdateReadme</preparationGoals>
-                    <scmCommentPrefix>[maven-release-plugin] </scmCommentPrefix>
-                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -788,12 +783,14 @@
                             <phase>verify</phase>
                             <configuration>
                                 <target if="updateReadme">
+                                    <available file="${maven.multiModuleProjectDirectory}/README.md" property="readme.exists"/>
+                                    <fail unless="readme.exists" message="README.md not found at project root"/>
                                     <echo message="Updating README.md with version: ${project.version}"/>
-                                    <replaceregexp file="${basedir}/README.md"
+                                    <replaceregexp file="${maven.multiModuleProjectDirectory}/README.md"
                                                    match="&lt;version&gt;[^&lt;]+&lt;/version&gt;"
                                                    replace="&lt;version&gt;${project.version}&lt;/version&gt;"
                                                    byline="true"/>
-                                    <replaceregexp file="${basedir}/README.md"
+                                    <replaceregexp file="${maven.multiModuleProjectDirectory}/README.md"
                                                    match="Current version: \`[^\`]+\`"
                                                    replace="Current version: \`${project.version}\`"
                                                    byline="true"/>
