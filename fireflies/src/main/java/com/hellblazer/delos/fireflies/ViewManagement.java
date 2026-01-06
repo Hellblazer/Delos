@@ -48,6 +48,22 @@ import java.util.stream.Collectors;
 public class ViewManagement {
     private static final Logger log = LoggerFactory.getLogger(ViewManagement.class);
 
+    /**
+     * Immutable result of atomic view installation. Captures all data needed to complete the
+     * installation outside the write lock. This enables the "capture-and-release" pattern where
+     * consensus operations stay inside the lock, but listener notifications and join completions
+     * execute outside the lock.
+     */
+    record InstallResult(
+        Digest previousView,
+        Digest currentView,
+        HexBloom diadem,
+        List<SelfAddressingIdentifier> joining,
+        List<Digest> leaving,
+        Set<SignedNote> seedSet,
+        List<Consumer<Collection<SignedNote>>> pendingCallbacks
+    ) { }
+
     final            AtomicReference<HexBloom>                     diadem       = new AtomicReference<>();
     final            Map<Digest, Integer>                          observers    = new ConcurrentSkipListMap<>();
     final            AtomicLong                                    observerVersion = new AtomicLong(0);
@@ -238,11 +254,15 @@ public class ViewManagement {
     }
 
     /**
-     * Install the new view
+     * Atomically install the new view and capture result for post-lock completion.
+     * This method must be called inside the write lock and performs all consensus-critical operations.
+     * The returned InstallResult can then be passed to {@link #completeInstall(InstallResult)}
+     * to execute post-lock work without holding the lock.
      *
-     * @param ballot
+     * @param ballot the view change ballot
+     * @return InstallResult capturing state for post-lock completion
      */
-    void install(Ballot ballot) {
+    InstallResult installCore(Ballot ballot) {
         // The circle of life
         var previousView = currentView.get();
 
@@ -280,24 +300,49 @@ public class ViewManagement {
         setDiadem(
         HexBloom.construct(context.memberCount(), context.allMembers().map(Participant::getId), view.bootstrapView(),
                            params.crowns()));
-        // complete all pending joins
-        pending.forEach(r -> {
+
+        return new InstallResult(previousView, currentView.get(), diadem.get(), joining,
+                                 ballot.leaving, seedSet, pending);
+    }
+
+    /**
+     * Complete the view installation by executing post-lock work.
+     * This executes listener notifications and pending join callbacks outside the write lock.
+     *
+     * @param result the InstallResult from {@link #installCore(Ballot)}
+     */
+    void completeInstall(InstallResult result) {
+        // Complete all pending joins
+        result.pendingCallbacks().forEach(r -> {
             try {
-                r.accept(seedSet);
+                r.accept(result.seedSet());
             } catch (Throwable t) {
                 log.error("Exception in pending join on: {}", node.getId(), t);
             }
         });
+
         if (metrics != null) {
             metrics.viewChanges().mark();
         }
 
         log.info(
         "Installed view: {} -> {} crown: {} for context: {} cardinality: {} count: {} pending: {} leaving: {} joining: {} on: {}",
-        previousView, currentView.get(), diadem.get().compactWrapped(), context.getId(), cardinality(),
-        context.allMembers().count(), pending.size(), ballot.leaving.size(), ballot.joining.size(), node.getId());
+        result.previousView(), result.currentView(), result.diadem().compactWrapped(), context.getId(), cardinality(),
+        context.allMembers().count(), result.pendingCallbacks().size(), result.leaving().size(), result.joining().size(), node.getId());
 
-        view.notifyListeners(joining, ballot.leaving);
+        view.notifyListeners(result.joining(), result.leaving());
+    }
+
+    /**
+     * Install the new view. This is a convenience method that calls {@link #installCore(Ballot)}
+     * followed by {@link #completeInstall(InstallResult)} for backward compatibility.
+     * The caller is responsible for ensuring installCore() is called inside the write lock.
+     *
+     * @param ballot the view change ballot
+     */
+    void install(Ballot ballot) {
+        var result = installCore(ballot);
+        completeInstall(result);
     }
 
     boolean isObserver(Digest observer) {
