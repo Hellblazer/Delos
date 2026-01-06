@@ -4,6 +4,8 @@ Delos is a **distributed multi-tenant database platform** providing Byzantine fa
 
 **Status**: [![Build Status](https://github.com/Hellblazer/delos/actions/workflows/maven.yml/badge.svg)](https://github.com/Hellblazer/Delos/actions) | Production-ready consensus & membership (Fireflies remediated Jan 2026)
 
+**Current version**: `0.0.1-SNAPSHOT`
+
 > Not A Coin Platform™ — Delos is a distributed database, not blockchain. While it can support cryptocurrencies, that's not the design goal.
 
 ## Quick Start
@@ -134,17 +136,44 @@ Delos uses GitHub Packages for both snapshot and release deployments:
 ./mvnw clean deploy
 ```
 
-**Create a release** (requires updating version)
+**Create a release** (automated version updates included)
 ```bash
-# Update version in root pom.xml
-./mvnw versions:set -DnewVersion=0.1.0
+# Prepare release (updates version, README.md, and creates git tag)
+./mvnw release:prepare -DupdateReadme=true
 
-# Deploy release
+# Perform release (deploys to GitHub Packages)
+./mvnw release:perform
+```
+
+The release process automatically:
+- Updates `pom.xml` version from `0.0.1-SNAPSHOT` to release version (e.g., `0.1.0`)
+- Updates all module versions
+- Updates README.md with the released version number
+- Creates annotated git tag and commits
+- Resets to next development version (`0.0.2-SNAPSHOT`)
+- Deploys release artifacts to GitHub Packages
+
+**Manual release alternative** (if not using maven-release-plugin):
+```bash
+# Update version manually
+./mvnw versions:set -DnewVersion=0.1.0 -DgenerateBackupPoms=false
+
+# Update README and commit
+git add README.md pom.xml
+git commit -m "Release version 0.1.0"
+
+# Deploy
 ./mvnw clean deploy
 
-# Tag the release
+# Tag release
 git tag -a v0.1.0 -m "Release 0.1.0"
 git push origin v0.1.0
+
+# Reset to next development version
+./mvnw versions:set -DnewVersion=0.1.1-SNAPSHOT -DgenerateBackupPoms=false
+git add pom.xml
+git commit -m "Prepare for next development iteration: 0.1.1-SNAPSHOT"
+git push origin
 ```
 
 **Available modules for consumption**:
