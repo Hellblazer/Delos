@@ -145,43 +145,70 @@ This ADR documents the phased execution strategy, dependency analysis, and paral
 
 ## Dependency Graph
 
+```mermaid
+graph TD
+    P0A["Phase 0: JaCoCo Setup"]
+    P0B["Phase 0: ADR Template & CI/CD"]
+
+    P1A["Phase 1a: Stereotomy Tests<br/>30-40h"]
+    P1B["Phase 1b: ADRs 0001-0006<br/>10-15h"]
+    P1C["Phase 1b: Fireflies + SQL-State Docs<br/>15-20h"]
+
+    P1A2["Phase 1a: Choam Tests<br/>20-25h<br/>depends on P1A"]
+    P1A3["Phase 1a: Ethereal Tests<br/>15-20h<br/>depends on P1A2"]
+
+    P2A["Phase 2: Memberships Tests<br/>20-25h"]
+    P2B["Phase 2: Cryptography Tests<br/>15-20h<br/>depends on P2A"]
+    P2C["Phase 2: Protocols Tests<br/>15-20h<br/>depends on P2B"]
+    P2D["Phase 2: Core API Docs<br/>20-25h<br/>parallel track"]
+
+    P3A["Phase 3: Integration Tests<br/>10-15h"]
+    P3B["Phase 3: Operational Guides<br/>5-10h"]
+    P3C["Phase 3: Doc Review<br/>5h"]
+    DONE["✅ COMPLETION"]
+
+    P0A --> P1A
+    P0A --> P1B
+    P0B --> P1A
+    P0B --> P1C
+    P1A --> P1A2
+    P1B -.parallel.-> P1A2
+    P1C -.parallel.-> P1A2
+    P1A2 --> P1A3
+    P1A3 --> P2A
+    P1A3 -.partial parallel.-> P2A
+    P2A --> P2B
+    P2B --> P2C
+    P2D -.parallel.-> P2C
+    P2C --> P3A
+    P2D --> P3C
+    P3A --> DONE
+    P3B --> DONE
+    P3C --> DONE
+
+    style P0A fill:#e1f5ff
+    style P0B fill:#e1f5ff
+    style P1A fill:#fff3e0
+    style P1A2 fill:#fff3e0
+    style P1A3 fill:#fff3e0
+    style P1B fill:#f3e5f5
+    style P1C fill:#f3e5f5
+    style P2A fill:#fff3e0
+    style P2B fill:#fff3e0
+    style P2C fill:#fff3e0
+    style P2D fill:#f3e5f5
+    style P3A fill:#fff3e0
+    style P3B fill:#f3e5f5
+    style P3C fill:#f3e5f5
+    style DONE fill:#c8e6c9
 ```
-Phase 0
-├── JaCoCo Setup ────────────────────┐
-├── ADR Template & CI/CD ────────────┤
-└──────────────────────────────────→ Phase 1a (Testing) + Phase 1b (Docs)
 
-Phase 1a: Testing (SEQUENTIAL)
-├── Stereotomy Tests (30-40h)
-│   └────────────────────────────────→ Phase 1b: ADRs + API Docs (parallel)
-│       ├── ADR-0001 through 0006 (10-15h)
-│       └── Fireflies + SQL-State Docs (15-20h)
-│
-├── Choam Tests (20-25h, depends on Stereotomy)
-│   └────────────────────────────────→ Phase 2: Extended Coverage
-│
-└── Ethereal Tests (15-20h, depends on Choam)
-    └────────────────────────────────→ Phase 2: Extended Coverage + API Docs
-
-Phase 2: Extended Coverage (PARTIAL SEQUENTIAL)
-├── Memberships Tests (20-25h, can start parallel to ethereal)
-│   └────────────────────────────────→ Phase 3: Integration + Ops Guides
-│
-├── Cryptography Tests (15-20h, depends on Memberships)
-│   └────────────────────────────────→ Phase 3: Integration + Ops Guides
-│
-├── Protocols Tests (15-20h, depends on Cryptography)
-│   └────────────────────────────────→ Phase 3: Integration + Ops Guides
-│
-└── Core API Documentation (20-25h, parallel)
-    └────────────────────────────────→ Phase 3: Documentation Review
-
-Phase 3: Integration & Validation (PARALLEL)
-├── End-to-End Integration Tests (10-15h)
-├── Operational Guides (5-10h)
-└── Documentation Review (5h)
-    └────────────────────────────────→ COMPLETION
-```
+**Legend**:
+- <span style="background-color:#e1f5ff">Blue</span>: Phase 0 (Infrastructure)
+- <span style="background-color:#fff3e0">Orange</span>: Testing (1a, 2a, 3a) - SEQUENTIAL by architecture
+- <span style="background-color:#f3e5f5">Purple</span>: Documentation (1b, 2d, 3b/c) - INDEPENDENT, PARALLEL
+- Solid arrows: Blocking dependencies (must complete before)
+- Dotted arrows: Parallel/non-blocking relationships
 
 ## Parallelization Analysis
 
