@@ -3,7 +3,7 @@ name: Java CI
 on: [ push ]
 
 jobs:
-  build:
+  compile:
     runs-on: ubuntu-latest
 
     steps:
@@ -14,5 +14,72 @@ jobs:
           distribution: 'graalvm'
           cache: 'maven'
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build with Maven
-        run: ./mvnw -batch-mode clean install -Dforks=1 -Ppre --file pom.xml
+      - name: Clean and Compile
+        run: ./mvnw -batch-mode clean compile -Ppre --file pom.xml
+      - name: Cache compiled classes
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            target/
+          key: maven-compile-${{ github.sha }}
+          restore-keys: |
+            maven-compile-
+
+  test-fireflies:
+    needs: compile
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          cache: 'maven'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore compiled classes
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            target/
+          key: maven-compile-${{ github.sha }}
+      - name: Test Fireflies Module
+        run: ./mvnw -batch-mode test -pl fireflies -Dforks=1 --file pom.xml
+
+  test-other-modules:
+    needs: compile
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          cache: 'maven'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore compiled classes
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            target/
+          key: maven-compile-${{ github.sha }}
+      - name: Test Other Modules
+        run: ./mvnw -batch-mode test -pl '!fireflies' --file pom.xml
+
+  build-status:
+    needs: [test-fireflies, test-other-modules]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Check Test Results
+        run: |
+          if [ "${{ needs.test-fireflies.result }}" != "success" ] || [ "${{ needs.test-other-modules.result }}" != "success" ]; then
+            echo "❌ Build FAILED: One or more test jobs failed"
+            exit 1
+          fi
+          echo "✅ Build GREEN: All tests passed successfully"
