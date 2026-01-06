@@ -363,6 +363,15 @@ public class ViewManagement {
             log.debug("Ignored join of view: {} from: {} invalid identifier on: {}", joinView, from, node.getId());
             return;
         }
+        // Early non-observer rejection (lock-free fast-path)
+        // Pattern: Optimistic check BEFORE lock, authoritative re-check INSIDE lock (line 379)
+        // Safety: Stale "not observer" → harmless redirect; Stale "is observer" → caught by re-check
+        if (!observers.containsKey(node.getId())) {
+            log.trace("Not observer (early check), redirecting Join from: {} to reseed on: {}", from, node.getId());
+            responseObserver.onError(new StatusRuntimeException(
+                Status.OUT_OF_RANGE.withDescription("Not observer, reseed to get current observers")));
+            return;
+        }
         view.stable(() -> {
             var thisView = currentView();
             log.debug("Join requested from: {} view: {} context: {} cardinality: {} on: {}", from, thisView,
@@ -377,9 +386,10 @@ public class ViewManagement {
                 return;
             }
             if (!observers.containsKey(node.getId())) {
-                log.trace("Not observer, ignoring Join from: {}  observers: {} on: {}", from, observers, node.getId());
+                log.trace("Not observer (re-check), ignoring Join from: {} on: {}", from, node.getId());
                 responseObserver.onError(new StatusRuntimeException(
-                Status.FAILED_PRECONDITION.withDescription("Not observer, ignored join of view")));
+                    Status.OUT_OF_RANGE.withDescription("Not observer, reseed to get current observers")));
+                return;
             }
             if (!thisView.equals(joinView)) {
                 responseObserver.onError(new StatusRuntimeException(
