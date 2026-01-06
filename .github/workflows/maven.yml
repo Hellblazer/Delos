@@ -18,19 +18,28 @@ jobs:
           distribution: 'graalvm'
           cache: 'maven'
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Install h2-deterministic (required shaded dependency)
-        run: ./mvnw -batch-mode install -Ppre -DskipTests -pl h2-deterministic --file pom.xml
-      - name: Compile all modules
-        run: ./mvnw -batch-mode clean compile -DskipTests --file pom.xml
-      - name: Cache compiled classes
+      - name: Restore Maven cache from previous builds
         uses: actions/cache@v4
         with:
           path: |
             ~/.m2/repository
             target/
-          key: maven-compile-${{ github.sha }}
+          key: delos-maven-${{ github.sha }}
           restore-keys: |
-            maven-compile-
+            delos-maven-${{ github.ref }}-
+            delos-maven-refs/heads/main-
+            delos-maven-
+      - name: Install h2-deterministic (required shaded dependency)
+        run: ./mvnw -batch-mode install -Ppre -DskipTests -pl h2-deterministic --file pom.xml
+      - name: Compile all modules
+        run: ./mvnw -batch-mode clean compile -DskipTests --file pom.xml
+      - name: Save Maven cache after compile
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            target/
+          key: delos-maven-${{ github.sha }}
 
   test-fireflies:
     needs: compile
@@ -44,15 +53,27 @@ jobs:
           distribution: 'graalvm'
           cache: 'maven'
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Restore compiled classes
+      - name: Restore Maven cache from compile job
         uses: actions/cache@v4
         with:
           path: |
             ~/.m2/repository
             target/
-          key: maven-compile-${{ github.sha }}
+          key: delos-maven-${{ github.sha }}
+          restore-keys: |
+            delos-maven-${{ github.ref }}-
+            delos-maven-refs/heads/main-
+            delos-maven-
+          fail-on-cache-miss: false
       - name: Test Fireflies Module
         run: ./mvnw -batch-mode test -pl fireflies -Dforks=1 --file pom.xml
+      - name: Save Maven cache after tests (with test dependencies)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            target/
+          key: delos-maven-tests-fireflies-${{ github.sha }}
 
   test-other-modules:
     needs: compile
@@ -66,15 +87,27 @@ jobs:
           distribution: 'graalvm'
           cache: 'maven'
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Restore compiled classes
+      - name: Restore Maven cache from compile job
         uses: actions/cache@v4
         with:
           path: |
             ~/.m2/repository
             target/
-          key: maven-compile-${{ github.sha }}
+          key: delos-maven-${{ github.sha }}
+          restore-keys: |
+            delos-maven-${{ github.ref }}-
+            delos-maven-refs/heads/main-
+            delos-maven-
+          fail-on-cache-miss: false
       - name: Test Other Modules
         run: ./mvnw -batch-mode test -pl '!fireflies' --file pom.xml
+      - name: Save Maven cache after tests (with test dependencies)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            target/
+          key: delos-maven-tests-other-${{ github.sha }}
 
   build-status:
     needs: [test-fireflies, test-other-modules]
