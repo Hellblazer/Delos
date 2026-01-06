@@ -66,6 +66,48 @@ public interface DynamicContext<T extends Member> extends Context<T> {
     int activeCount();
 
     /**
+     * Answer the dynamic diameter of the receiver based on the current active membership count.
+     * Per the Fireflies paper, diameter = log(n) / log(k) where n is active member count
+     * and k is the number of ring neighbors (ringCount).
+     * <p>
+     * This adapts the graph diameter estimate as membership changes due to churn,
+     * providing more accurate TTL values for message propagation.
+     *
+     * @return the diameter based on current active membership, minimum 1
+     */
+    default int dynamicDiameter() {
+        int n = activeCount();
+        if (n <= 1) {
+            return 1;
+        }
+        int k = getRingCount();
+        if (k <= 1) {
+            return 1;
+        }
+        // From Fireflies paper section 4.2: d_n = log(n) / log(k)
+        // where k is the number of neighbors (ringCount)
+        double logN = Math.log(n);
+        double logK = Math.log(k);
+        return Math.max(1, (int) Math.ceil(logN / logK));
+    }
+
+    /**
+     * Answer the dynamic time-to-live based on current active membership.
+     * Uses dynamicDiameter() for more accurate TTL during membership churn.
+     * <p>
+     * <b>WARNING</b>: Do NOT use for safety-critical consensus timers (accusations,
+     * rebuttals, view changes). Those must use the static {@link Context#timeToLive()}
+     * to prevent timing violations during network growth. See Delos-8b7.
+     * <p>
+     * Appropriate uses: adaptive metrics, non-critical timeouts, monitoring.
+     *
+     * @return TTL iterations for message propagation based on active membership
+     */
+    default int dynamicTimeToLive() {
+        return (getRingCount() * dynamicDiameter()) + 1;
+    }
+
+    /**
      * Answer the list of active members
      */
     List<T> activeMembers();

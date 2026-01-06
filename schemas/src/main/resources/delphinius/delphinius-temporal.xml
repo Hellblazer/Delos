@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.4.xsd
+      http://www.liquibase.org/xml/ns/pro http://www.liquibase.org/xml/ns/pro/liquibase-pro-4.5.xsd">
+
+    <!-- Add temporal support for Assertion and Edge tables to fix New Enemy Problem -->
+    <changeSet author="hhildebrand" id="2-temporal-support">
+
+        <!-- Add temporal columns to Assertion table -->
+        <addColumn tableName="assertion" schemaName="delphinius">
+            <column name="created_at" type="BIGINT">
+                <constraints nullable="true"/>
+            </column>
+            <column name="deleted_at" type="BIGINT">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+
+        <!-- Add temporal columns to Edge table -->
+        <addColumn tableName="edge" schemaName="delphinius">
+            <column name="created_at" type="BIGINT">
+                <constraints nullable="true"/>
+            </column>
+            <column name="deleted_at" type="BIGINT">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+
+        <!-- Create index on Assertion temporal columns for efficient queries -->
+        <createIndex indexName="assertion_temporal"
+            schemaName="delphinius" tableName="assertion">
+            <column name="created_at"/>
+            <column name="deleted_at"/>
+        </createIndex>
+
+        <!-- Create index on Edge temporal columns for efficient queries -->
+        <createIndex indexName="edge_temporal"
+            schemaName="delphinius" tableName="edge">
+            <column name="created_at"/>
+            <column name="deleted_at"/>
+        </createIndex>
+
+        <!-- Migrate existing data: set created_at to 0 for existing records -->
+        <sql>
+            UPDATE delphinius.assertion SET created_at = 0 WHERE created_at IS NULL;
+            UPDATE delphinius.edge SET created_at = 0 WHERE created_at IS NULL;
+        </sql>
+
+        <!-- Now make created_at non-nullable -->
+        <addNotNullConstraint
+            tableName="assertion"
+            schemaName="delphinius"
+            columnName="created_at"
+            columnDataType="BIGINT"/>
+
+        <addNotNullConstraint
+            tableName="edge"
+            schemaName="delphinius"
+            columnName="created_at"
+            columnDataType="BIGINT"/>
+
+    </changeSet>
+</databaseChangeLog>

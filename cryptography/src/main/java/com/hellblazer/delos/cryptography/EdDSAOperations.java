@@ -15,10 +15,13 @@ import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.crypto.Digest;
 import org.bouncycastle.crypto.digests.SHA512Digest;
+import org.bouncycastle.crypto.digests.SHAKEDigest;
 import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters;
 import org.bouncycastle.crypto.params.X25519PrivateKeyParameters;
 import org.bouncycastle.math.ec.rfc7748.X25519;
 import org.bouncycastle.math.ec.rfc7748.X25519Field;
+import org.bouncycastle.math.ec.rfc7748.X448;
+import org.bouncycastle.math.ec.rfc7748.X448Field;
 import org.bouncycastle.math.raw.Nat256;
 import org.joou.ULong;
 import org.slf4j.Logger;
@@ -56,7 +59,8 @@ public class EdDSAOperations {
         }
     };
     private static final Logger                 log             = LoggerFactory.getLogger(EdDSAOperations.class);
-    private static final int                    POINT_BYTES     = 32;
+    // Ed25519/X25519 constants
+    private static final int                    POINT_BYTES_25519 = 32;
     private static final int[]                  P               = new int[] { 0xFFFFFFED, 0xFFFFFFFF, 0xFFFFFFFF,
                                                                               0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF,
                                                                               0xFFFFFFFF, 0x7FFFFFFF };
@@ -64,6 +68,10 @@ public class EdDSAOperations {
                                                                               0x026A0A0E, 0x0000E014, 0x0379E898,
                                                                               0x01D01E5D, 0x01E738CC, 0x03715B7F,
                                                                               0x00A406D9 };
+
+    // Ed448/X448 constants
+    private static final int                    POINT_BYTES_448 = 57;
+    private static final int                    SCALAR_BYTES_448 = 56;
     private final        ASN1ObjectIdentifier   curveId;
     private final        KeyFactory             keyFactory;
     private final        KeyPairGenerator       keyPairGenerator;
@@ -126,6 +134,97 @@ public class EdDSAOperations {
         return s;
     }
 
+    /**
+     * Convert Ed448 private key (seed) to X448 private key scalar.
+     * Uses SHAKE256 per RFC 8032, applies Ed448 scalar pruning, then returns
+     * the first 56 bytes as X448 scalar.
+     * <p>
+     * Ed448 scalar derivation (RFC 8032 Section 5.2.5):
+     * - h = SHAKE256(sk, 114)
+     * - s = h[0..56] (57 bytes)
+     * - s[0] &= 0xFC (clear bits 0,1)
+     * - s[55] |= 0x80 (set bit 447)
+     * - s[56] = 0x00 (clear byte 56)
+     * <p>
+     * The resulting 57-byte scalar with s[56]=0 is equivalent to a 56-byte
+     * X448 scalar with the same clamping (bits 0,1 cleared, bit 447 set).
+     *
+     * @param ed448PrivateKey The 57-byte Ed448 seed
+     * @return The 56-byte X448 scalar
+     */
+    public static byte[] toX448PrivateKey(byte[] ed448PrivateKey) {
+        // Ed448 uses SHAKE256 with output length 114 (2 * 57)
+        SHAKEDigest shake = new SHAKEDigest(256);
+        byte[] h = new byte[114];
+
+        shake.update(ed448PrivateKey, 0, ed448PrivateKey.length);
+        shake.doFinal(h, 0, h.length);
+
+        // Apply Ed448 scalar pruning to first 57 bytes
+        h[0] &= 0xFC;       // Clear bits 0-1
+        h[55] |= 0x80;      // Set bit 447 (byte 55, bit 7)
+        h[56] = 0x00;       // Clear byte 56 (bits 448-455)
+
+        // Take first 56 bytes as X448 scalar
+        // (byte 56 is zero anyway, so this is equivalent)
+        byte[] s = new byte[X448.SCALAR_SIZE];
+        System.arraycopy(h, 0, s, 0, X448.SCALAR_SIZE);
+
+        return s;
+    }
+
+    /**
+     * Convert Ed448 public key to X448 public key.
+     * Uses birational equivalence: u = (1 - y) / (1 + y) mod p
+     * where p = 2^448 - 2^224 - 1 (Goldilocks prime).
+     * <p>
+     * Note: Ed448 uses an UNTWISTED Edwards curve (a=1, x²+y²=1+d·x²y²),
+     * which has a different birational map than Ed25519's TWISTED curve (a=-1).
+     * For Ed25519 (twisted): u = (1 + y) / (1 - y)
+     * For Ed448 (untwisted): u = (1 - y) / (1 + y)
+     *
+     * @param ed448PublicKey The 57-byte Ed448 public key
+     * @return The 56-byte X448 public key, or null if conversion fails
+     */
+    public static byte[] toX448PublicKey(byte[] ed448PublicKey) {
+        // Ed448 encoding: 57 bytes, y-coordinate in first 56 bytes (little-endian),
+        // x sign bit in bit 455 (MSB of byte 56)
+        // X448Field.decode expects exactly 56 bytes
+
+        // Extract y-coordinate (first 56 bytes)
+        byte[] py = new byte[X448.SCALAR_SIZE]; // 56 bytes
+        System.arraycopy(ed448PublicKey, 0, py, 0, X448.SCALAR_SIZE);
+
+        // Decode y-coordinate into X448Field elements
+        int[] y = X448Field.create();
+        X448Field.decode(py, 0, y);
+
+        int[] one = X448Field.create();
+        X448Field.one(one);
+
+        // Compute u = (1 - y) / (1 + y) mod p
+        // (Different from Ed25519 because Ed448 is untwisted!)
+        int[] oneMinusY = X448Field.create();
+        X448Field.sub(one, y, oneMinusY);
+
+        int[] onePlusY = X448Field.create();
+        X448Field.add(one, y, onePlusY);
+
+        int[] onePlusYInv = X448Field.create();
+        X448Field.inv(onePlusY, onePlusYInv);
+
+        int[] u = X448Field.create();
+        X448Field.mul(oneMinusY, onePlusYInv, u);
+
+        X448Field.normalize(u);
+
+        // Encode u-coordinate as X448 public key
+        byte[] x448PublicKey = new byte[X448.SCALAR_SIZE];
+        X448Field.encode(u, x448PublicKey, 0);
+
+        return x448PublicKey;
+    }
+
     private static void decode32(byte[] bs, int bsOff, int[] n, int nOff, int nLen) {
         for (int i = 0; i < nLen; ++i) {
             n[nOff + i] = decode32(bs, bsOff + i * 4);
@@ -148,13 +247,13 @@ public class EdDSAOperations {
     }
 
     private static boolean decodePointVar(byte[] p, int pOff, boolean negate, PointAffine r) {
-        byte[] py = org.bouncycastle.util.Arrays.copyOfRange(p, pOff, pOff + POINT_BYTES);
+        byte[] py = org.bouncycastle.util.Arrays.copyOfRange(p, pOff, pOff + POINT_BYTES_25519);
         if (!checkPointVar(py)) {
             return false;
         }
 
-        int x_0 = (py[POINT_BYTES - 1] & 0x80) >>> 7;
-        py[POINT_BYTES - 1] &= 0x7F;
+        int x_0 = (py[POINT_BYTES_25519 - 1] & 0x80) >>> 7;
+        py[POINT_BYTES_25519 - 1] &= 0x7F;
 
         X25519Field.decode(py, 0, r.y);
 

@@ -15,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 /**
@@ -29,7 +30,7 @@ public class Extender {
 
     private final Config                                conf;
     private final Dag                                   dag;
-    private final HashMap<Digest, SuperMajorityDecider> deciders = new HashMap<>();
+    private final Map<Digest, SuperMajorityDecider> deciders = new ConcurrentHashMap<>();
     private final String                                logLabel;
 
     public Extender(Dag dag, Config conf) {
@@ -113,9 +114,9 @@ public class Extender {
         return current;
     }
 
-    private SuperMajorityDecider getDecider(Unit uc, HashMap<Digest, SuperMajorityDecider> deciders) {
+    private SuperMajorityDecider getDecider(Unit uc, Map<Digest, SuperMajorityDecider> deciders) {
         return deciders.computeIfAbsent(uc.hash(), h -> new SuperMajorityDecider(
-        new UnanimousVoter(dag, uc, new HashMap<>(), logLabel)));
+        new UnanimousVoter(dag, uc, new ConcurrentHashMap<>(), logLabel)));
     }
 
     private List<Unit> permutation(int level, List<Unit> unitsOnLevel, Unit previousTU) {

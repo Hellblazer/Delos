@@ -256,6 +256,20 @@ public class HexBloom {
     }
 
     /**
+     * Answer the compact form with context binding to prevent cross-context replay.
+     * Each crown is XORed with H(contextId || crownIndex || crown) before final reduction.
+     *
+     * @param contextId the context identifier for domain separation
+     * @return context-bound compact digest
+     */
+    public Digest compact(Digest contextId) {
+        var algorithm = crowns[0].getAlgorithm();
+        return IntStream.range(0, crowns.length)
+                        .mapToObj(i -> crowns[i].prefix(contextId, i))
+                        .reduce(algorithm.getOrigin(), Digest::xor);
+    }
+
+    /**
      * @return the hash digest of the wrapped crowns
      */
     public Digest compactWrapped() {
@@ -275,6 +289,36 @@ public class HexBloom {
                         .toList()
                         .stream()
                         .reduce(crowns[0].getAlgorithm().getOrigin(), Digest::xor);
+    }
+
+    /**
+     * Answer the hash digest of the wrapped crowns with context binding to prevent cross-context replay.
+     * Each wrapped crown is XORed with H(contextId || crownIndex || wrappedCrown) before final reduction.
+     *
+     * @param contextId the context identifier for domain separation
+     * @return context-bound compact digest of wrapped crowns
+     */
+    public Digest compactWrapped(Digest contextId) {
+        return compactWrapped(hashWraps(crowns.length), contextId);
+    }
+
+    /**
+     * Answer the hash digest of the wrapped crowns with context binding to prevent cross-context replay.
+     * Each wrapped crown is XORed with H(contextId || crownIndex || wrappedCrown) before final reduction.
+     *
+     * @param hashes    hash functions for wrapping crowns
+     * @param contextId the context identifier for domain separation
+     * @return context-bound compact digest of wrapped crowns
+     */
+    public Digest compactWrapped(List<Function<Digest, Digest>> hashes, Digest contextId) {
+        if (hashes.size() != crowns.length) {
+            throw new IllegalArgumentException(
+            "Size of supplied hash functions: " + hashes.size() + " must equal the # of crowns: " + crowns.length);
+        }
+        var algorithm = crowns[0].getAlgorithm();
+        return IntStream.range(0, crowns.length)
+                        .mapToObj(i -> hashes.get(i).apply(crowns[i]).prefix(contextId, i))
+                        .reduce(algorithm.getOrigin(), Digest::xor);
     }
 
     public boolean contains(Digest digest) {
@@ -411,6 +455,29 @@ public class HexBloom {
         return compact.equals(compactWrapped(hashes));
     }
 
+    /**
+     * Validate the context-bound compact crown matches the receiver's crowns.
+     *
+     * @param compact   the compact digest to validate
+     * @param contextId the context identifier for domain separation
+     * @return true if the compact matches the context-bound crown
+     */
+    public boolean validateCrown(Digest compact, Digest contextId) {
+        return compact.equals(compactWrapped(contextId));
+    }
+
+    /**
+     * Validate the context-bound compact crown matches the receiver's crowns.
+     *
+     * @param compact   the compact digest to validate
+     * @param hashes    hash functions for wrapping crowns
+     * @param contextId the context identifier for domain separation
+     * @return true if the compact matches the context-bound crown
+     */
+    public boolean validateCrown(Digest compact, List<Function<Digest, Digest>> hashes, Digest contextId) {
+        return compact.equals(compactWrapped(hashes, contextId));
+    }
+
     public boolean validateCrown(List<Digest> wrapped) {
         return validateCrown(wrapped, hashWraps(crowns.length));
     }
@@ -509,6 +576,35 @@ public class HexBloom {
          */
         public Digest compactWrapped() {
             return compactWrapped(hashWraps(accumulators.size()));
+        }
+
+        /**
+         * Answer the hash digest of the wrapped crowns with context binding to prevent cross-context replay.
+         *
+         * @param contextId the context identifier for domain separation
+         * @return context-bound compact digest of wrapped crowns
+         */
+        public Digest compactWrapped(Digest contextId) {
+            return compactWrapped(hashWraps(accumulators.size()), contextId);
+        }
+
+        /**
+         * Answer the hash digest of the wrapped crowns with context binding to prevent cross-context replay.
+         *
+         * @param hashes    hash functions for wrapping crowns
+         * @param contextId the context identifier for domain separation
+         * @return context-bound compact digest of wrapped crowns
+         */
+        public Digest compactWrapped(List<Function<Digest, Digest>> hashes, Digest contextId) {
+            if (hashes.size() != accumulators.size()) {
+                throw new IllegalArgumentException(
+                "Size of supplied hash functions: " + hashes.size() + " must equal the # of crowns: "
+                + accumulators.size());
+            }
+            var algorithm = accumulators.getFirst().get().getAlgorithm();
+            return IntStream.range(0, accumulators.size())
+                            .mapToObj(i -> hashes.get(i).apply(accumulators.get(i).get()).prefix(contextId, i))
+                            .reduce(algorithm.getOrigin(), Digest::xor);
         }
 
         public List<Digest> crowns() {

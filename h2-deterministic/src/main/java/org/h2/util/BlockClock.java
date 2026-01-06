@@ -10,16 +10,23 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * @author hal.hildebrand
+ * A deterministic clock for block-based time in replicated state machines.
+ * <p>
+ * Time is represented as (block height, transaction index within block).
+ * Height advances with each block, and transaction index advances within a block.
+ * <p>
+ * Thread-safe: all operations use atomic updates.
  *
+ * @author hal.hildebrand
  */
 public class BlockClock extends Clock {
-    private static long txnInc = (long) (Math.pow(2, 31) - 1);
+    private static final long TXN_INCREMENT = (1L << 31) - 1;
 
-    private volatile long height = 0;
-    private volatile long txn    = txnInc;
+    private final AtomicLong height = new AtomicLong(0);
+    private final AtomicLong txn    = new AtomicLong(TXN_INCREMENT);
 
     private final ZoneId zoneId;
 
@@ -36,22 +43,38 @@ public class BlockClock extends Clock {
         return zoneId;
     }
 
+    /**
+     * Advance to the next block height and reset transaction counter.
+     */
     public void incrementHeight() {
-        final var current = height;
-        height = current + 1;
-        txn = txnInc;
+        height.incrementAndGet();
+        txn.set(TXN_INCREMENT);
     }
 
+    /**
+     * Advance to the next transaction within the current block.
+     */
     public void incrementTxn() {
-        final var current = txn;
-        txn = current + txnInc;
+        txn.addAndGet(TXN_INCREMENT);
     }
 
     @Override
     public Instant instant() {
-        final var currentHeight = height;
-        final var currentTxn = txn;
-        return Instant.ofEpochSecond(currentHeight, currentTxn);
+        return Instant.ofEpochSecond(height.get(), txn.get());
+    }
+
+    /**
+     * @return the current block height
+     */
+    public long getHeight() {
+        return height.get();
+    }
+
+    /**
+     * @return the current transaction index
+     */
+    public long getTxn() {
+        return txn.get();
     }
 
     @Override

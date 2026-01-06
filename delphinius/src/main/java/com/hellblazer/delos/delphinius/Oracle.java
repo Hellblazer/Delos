@@ -10,6 +10,7 @@ import org.joou.ULong;
 
 import java.sql.SQLException;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
@@ -77,6 +78,84 @@ public interface Oracle {
      * @return true if the assertion is made, false if not
      */
     boolean check(Assertion assertion) throws SQLException;
+
+    /**
+     * Check if a content change operation is authorized. This implements Zanzibar
+     * content-change check semantics to prevent stale-read attacks (New Enemy Problem).
+     * <p>
+     * Verifies both:
+     * <ol>
+     *   <li>User had read access at readZookie time (when content was loaded)</li>
+     *   <li>User has write access at current time</li>
+     * </ol>
+     * <p>
+     * This prevents the attack where:
+     * <ol>
+     *   <li>User reads document at T1 (gets zookie)</li>
+     *   <li>User's read access is revoked at T2</li>
+     *   <li>User tries to write at T3 using content from T1</li>
+     * </ol>
+     * Without content-change checks, the write might succeed because write access
+     * wasn't revoked - but the user shouldn't be able to write content they could
+     * no longer read.
+     *
+     * @param readAssertion the read permission that was checked when content was loaded
+     * @param writeAssertion the write permission required for the modification
+     * @param readZookie timestamp when content was read (the "zookie" from read operation)
+     * @return result containing authorization decision and reason
+     * @throws SQLException on database error
+     */
+    default ContentChangeResult checkContentChange(Assertion readAssertion, Assertion writeAssertion,
+                                                   ULong readZookie) throws SQLException {
+        throw new UnsupportedOperationException("Content-change checks not implemented");
+    }
+
+    /**
+     * Simplified content-change check when read and write use the same assertion.
+     * Common case: user needs "editor" permission for both read and write.
+     *
+     * @param assertion the permission assertion (same for read and write)
+     * @param readZookie timestamp when content was read
+     * @return result containing authorization decision and reason
+     * @throws SQLException on database error
+     */
+    default ContentChangeResult checkContentChange(Assertion assertion, ULong readZookie) throws SQLException {
+        return checkContentChange(assertion, assertion, readZookie);
+    }
+
+    /** Reasons why a content-change check may be denied */
+    enum ContentChangeDenialReason {
+        /** Content change is authorized */
+        NONE,
+        /** User had read access at zookie time but it was revoked */
+        READ_ACCESS_REVOKED,
+        /** User does not have current write permission */
+        WRITE_ACCESS_DENIED,
+        /** Zookie timestamp is in the future (invalid token) */
+        INVALID_ZOOKIE,
+        /** Both read and write access were denied */
+        BOTH_DENIED
+    }
+
+    /**
+     * Result of a content-change authorization check.
+     *
+     * @param authorized true if the content change is permitted
+     * @param reason if not authorized, the reason for denial
+     * @param currentTimestamp the current timestamp used for write check
+     */
+    record ContentChangeResult(boolean authorized, ContentChangeDenialReason reason, ULong currentTimestamp) {
+
+        /** Create an authorized result */
+        public static ContentChangeResult authorized(ULong timestamp) {
+            return new ContentChangeResult(true, ContentChangeDenialReason.NONE, timestamp);
+        }
+
+        /** Create a denied result */
+        public static ContentChangeResult denied(ContentChangeDenialReason reason, ULong timestamp) {
+            return new ContentChangeResult(false, reason, timestamp);
+        }
+    }
 
     /**
      * Delete an assertion. Only the assertion is deleted, not the subject nor object of the assertion.
@@ -310,6 +389,148 @@ public interface Oracle {
         @Override
         public String toString() {
             return subject + "@" + object;
+        }
+    }
+
+    // ==================== Watch API ====================
+
+    /**
+     * Register a listener for authorization change events. The listener will be called
+     * for all mutations (assertions, mappings, deletions) that occur after registration.
+     * <p>
+     * This implements the Zanzibar Watch API pattern for cache invalidation and
+     * secondary index maintenance.
+     *
+     * @param listener the callback to invoke on changes
+     * @return UUID identifying the registration for later deregistration
+     */
+    default UUID watch(WatchListener listener) {
+        throw new UnsupportedOperationException("Watch API not implemented");
+    }
+
+    /**
+     * Deregister a previously registered watch listener.
+     *
+     * @param id the UUID returned from watch()
+     * @return true if a listener was removed, false if not found
+     */
+    default boolean unwatch(UUID id) {
+        throw new UnsupportedOperationException("Watch API not implemented");
+    }
+
+    /** Callback interface for receiving authorization change events */
+    @FunctionalInterface
+    interface WatchListener {
+        /**
+         * Called when an authorization change occurs.
+         *
+         * @param event the change event
+         */
+        void onEvent(WatchEvent event);
+    }
+
+    /** Types of authorization changes */
+    enum WatchEventType {
+        /** An assertion was added */
+        ASSERTION_ADD,
+        /** An assertion was deleted (soft delete) */
+        ASSERTION_DELETE,
+        /** A subject mapping was added (group membership) */
+        SUBJECT_MAP,
+        /** A subject mapping was removed */
+        SUBJECT_UNMAP,
+        /** An object mapping was added (hierarchy) */
+        OBJECT_MAP,
+        /** An object mapping was removed */
+        OBJECT_UNMAP,
+        /** A relation mapping was added */
+        RELATION_MAP,
+        /** A relation mapping was removed */
+        RELATION_UNMAP,
+        /** A namespace was deleted */
+        NAMESPACE_DELETE,
+        /** An object was deleted */
+        OBJECT_DELETE,
+        /** A relation was deleted */
+        RELATION_DELETE,
+        /** A subject was deleted */
+        SUBJECT_DELETE
+    }
+
+    /**
+     * Event representing an authorization change. Used for cache invalidation
+     * and secondary index maintenance per Zanzibar Watch API.
+     *
+     * @param type the type of change
+     * @param timestamp when the change occurred
+     * @param subject the subject involved (may be null depending on type)
+     * @param object the object involved (may be null depending on type)
+     * @param relation the relation involved (may be null depending on type)
+     * @param namespace the namespace involved (may be null depending on type)
+     */
+    record WatchEvent(WatchEventType type, ULong timestamp, Subject subject, Object object, Relation relation,
+                      Namespace namespace) {
+
+        /** Create an assertion add event */
+        public static WatchEvent assertionAdd(ULong ts, Assertion assertion) {
+            return new WatchEvent(WatchEventType.ASSERTION_ADD, ts, assertion.subject(), assertion.object(), null,
+                                  null);
+        }
+
+        /** Create an assertion delete event */
+        public static WatchEvent assertionDelete(ULong ts, Assertion assertion) {
+            return new WatchEvent(WatchEventType.ASSERTION_DELETE, ts, assertion.subject(), assertion.object(), null,
+                                  null);
+        }
+
+        /** Create a subject mapping event */
+        public static WatchEvent subjectMap(ULong ts, Subject parent, Subject child) {
+            return new WatchEvent(WatchEventType.SUBJECT_MAP, ts, parent, null, null, null);
+        }
+
+        /** Create a subject unmap event */
+        public static WatchEvent subjectUnmap(ULong ts, Subject parent, Subject child) {
+            return new WatchEvent(WatchEventType.SUBJECT_UNMAP, ts, parent, null, null, null);
+        }
+
+        /** Create an object mapping event */
+        public static WatchEvent objectMap(ULong ts, Object parent, Object child) {
+            return new WatchEvent(WatchEventType.OBJECT_MAP, ts, null, parent, null, null);
+        }
+
+        /** Create an object unmap event */
+        public static WatchEvent objectUnmap(ULong ts, Object parent, Object child) {
+            return new WatchEvent(WatchEventType.OBJECT_UNMAP, ts, null, parent, null, null);
+        }
+
+        /** Create a relation mapping event */
+        public static WatchEvent relationMap(ULong ts, Relation parent, Relation child) {
+            return new WatchEvent(WatchEventType.RELATION_MAP, ts, null, null, parent, null);
+        }
+
+        /** Create a relation unmap event */
+        public static WatchEvent relationUnmap(ULong ts, Relation parent, Relation child) {
+            return new WatchEvent(WatchEventType.RELATION_UNMAP, ts, null, null, parent, null);
+        }
+
+        /** Create a namespace delete event */
+        public static WatchEvent namespaceDelete(ULong ts, Namespace namespace) {
+            return new WatchEvent(WatchEventType.NAMESPACE_DELETE, ts, null, null, null, namespace);
+        }
+
+        /** Create an object delete event */
+        public static WatchEvent objectDelete(ULong ts, Object object) {
+            return new WatchEvent(WatchEventType.OBJECT_DELETE, ts, null, object, null, null);
+        }
+
+        /** Create a relation delete event */
+        public static WatchEvent relationDelete(ULong ts, Relation relation) {
+            return new WatchEvent(WatchEventType.RELATION_DELETE, ts, null, null, relation, null);
+        }
+
+        /** Create a subject delete event */
+        public static WatchEvent subjectDelete(ULong ts, Subject subject) {
+            return new WatchEvent(WatchEventType.SUBJECT_DELETE, ts, subject, null, null, null);
         }
     }
 

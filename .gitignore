@@ -16,6 +16,7 @@
 pom.xml.bak
 /ff.log
 chkpoint.txt
+**/.pm
 
 ## Intellij stuff
 .idea
