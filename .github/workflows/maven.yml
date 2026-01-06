@@ -1,6 +1,10 @@
 name: Java CI
 
-on: [ push ]
+on:
+  push:
+    branches-ignore:
+      - beads-sync
+      - '**.beads'
 
 jobs:
   compile:
