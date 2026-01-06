@@ -18,8 +18,10 @@ jobs:
           distribution: 'graalvm'
           cache: 'maven'
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Clean and Compile
-        run: ./mvnw -batch-mode clean compile -Ppre --file pom.xml
+      - name: Install h2-deterministic (required shaded dependency)
+        run: ./mvnw -batch-mode install -Ppre -DskipTests -pl h2-deterministic --file pom.xml
+      - name: Compile all modules
+        run: ./mvnw -batch-mode clean compile -DskipTests --file pom.xml
       - name: Cache compiled classes
         uses: actions/cache@v4
         with:
