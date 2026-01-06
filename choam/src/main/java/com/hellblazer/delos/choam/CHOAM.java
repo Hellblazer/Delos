@@ -602,27 +602,41 @@ public class CHOAM {
     }
 
     private void consumer() {
-        while (started.get()) {
-            HashedCertifiedBlock next = null;
-            try {
-                next = pending.poll(500, TimeUnit.MILLISECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
-            }
-            if (!started.get()) {
-                return;
-            }
-            if (next == null) {
+        try {
+            while (started.get()) {
+                HashedCertifiedBlock next = null;
                 try {
-                    Thread.sleep(100);
+                    next = pending.poll(500, TimeUnit.MILLISECONDS);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
+                    if (!started.get()) {
+                        log.debug("Consumer thread interrupted during shutdown on: {}", params.member().getId());
+                    } else {
+                        log.warn("Consumer thread interrupted unexpectedly on: {}", params.member().getId(), e);
+                    }
                     return;
                 }
-                continue;
+                if (!started.get()) {
+                    return;
+                }
+                if (next == null) {
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        if (!started.get()) {
+                            log.debug("Consumer thread interrupted during sleep on: {}", params.member().getId());
+                        } else {
+                            log.warn("Consumer thread interrupted during sleep on: {}", params.member().getId(), e);
+                        }
+                        return;
+                    }
+                    continue;
+                }
+                consume(next);
             }
-            consume(next);
+        } finally {
+            log.debug("Consumer thread exiting on: {}", params.member().getId());
         }
     }
 
