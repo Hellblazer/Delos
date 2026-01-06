@@ -136,6 +136,17 @@ public class ViewContext {
         return signer;
     }
 
+    public Verifier[] verifiersByPid() {
+        var result = new Verifier[roster.size()];
+        for (var entry : validators.entrySet()) {
+            var pid = roster.get(entry.getKey().getId());
+            if (pid != null && pid >= 0 && pid < result.length) {
+                result[pid] = entry.getValue();
+            }
+        }
+        return result;
+    }
+
     public Set<Member> membership() {
         return validators.keySet();
     }
