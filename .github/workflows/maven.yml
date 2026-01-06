@@ -100,7 +100,7 @@ jobs:
             delos-maven-
           fail-on-cache-miss: false
       - name: Test Heavy Modules (Ethereal, CHOAM, SQL-State)
-        run: ./mvnw -batch-mode test -P test-heavy-modules --file pom.xml
+        run: ./mvnw -batch-mode test -pl ethereal,choam,sql-state --file pom.xml
       - name: Save Maven cache after heavy tests
         uses: actions/cache@v4
         with:
@@ -134,7 +134,7 @@ jobs:
             delos-maven-
           fail-on-cache-miss: false
       - name: Test Identity Modules (Stereotomy, Gorgoneion, Thoth)
-        run: ./mvnw -batch-mode test -P test-identity-modules --file pom.xml
+        run: ./mvnw -batch-mode test -pl stereotomy,stereotomy-services,gorgoneion,gorgoneion-client,thoth --file pom.xml
       - name: Save Maven cache after identity tests
         uses: actions/cache@v4
         with:
@@ -168,7 +168,7 @@ jobs:
             delos-maven-
           fail-on-cache-miss: false
       - name: Test Light Modules (Domain, Protocols, Membership, etc.)
-        run: ./mvnw -batch-mode test -P test-light-modules --file pom.xml
+        run: ./mvnw -batch-mode test -pl protocols,memberships,tron,model,delphinius,schemas,liquibase-deterministic,grpc,cryptography,domain-epoll,domain-kqueue,domain-sockets,leyden,vm-socket,java-noise --file pom.xml
       - name: Save Maven cache after light tests
         uses: actions/cache@v4
         with:
