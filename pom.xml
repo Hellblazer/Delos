@@ -778,28 +778,6 @@
                                 <goal>run</goal>
                             </goals>
                         </execution>
-                        <execution>
-                            <id>update-readme-version</id>
-                            <phase>verify</phase>
-                            <configuration>
-                                <target if="updateReadme">
-                                    <available file="${maven.multiModuleProjectDirectory}/README.md" property="readme.exists"/>
-                                    <fail unless="readme.exists" message="README.md not found at project root"/>
-                                    <echo message="Updating README.md with version: ${project.version}"/>
-                                    <replaceregexp file="${maven.multiModuleProjectDirectory}/README.md"
-                                                   match="&lt;version&gt;[^&lt;]+&lt;/version&gt;"
-                                                   replace="&lt;version&gt;${project.version}&lt;/version&gt;"
-                                                   byline="true"/>
-                                    <replaceregexp file="${maven.multiModuleProjectDirectory}/README.md"
-                                                   match="Current version: \`[^\`]+\`"
-                                                   replace="Current version: \`${project.version}\`"
-                                                   byline="true"/>
-                                </target>
-                            </configuration>
-                            <goals>
-                                <goal>run</goal>
-                            </goals>
-                        </execution>
                     </executions>
                 </plugin>
                 <plugin>
