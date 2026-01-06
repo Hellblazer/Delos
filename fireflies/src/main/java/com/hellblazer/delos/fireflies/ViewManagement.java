@@ -32,6 +32,7 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -49,6 +50,7 @@ public class ViewManagement {
 
     final            AtomicReference<HexBloom>                     diadem       = new AtomicReference<>();
     final            Map<Digest, Integer>                          observers    = new ConcurrentSkipListMap<>();
+    final            AtomicLong                                    observerVersion = new AtomicLong(0);
     private final    AtomicInteger                                 attempt      = new AtomicInteger();
     private final    Digest                                        bootstrapView;
     private final    DynamicContext<Participant>                   context;
@@ -515,6 +517,17 @@ public class ViewManagement {
         return observers().stream().toList();
     }
 
+    /**
+     * Returns the current observer version. Version increments each time
+     * the observer set is recalculated (via resetObservers).
+     * Used for stale snapshot detection in lock-free read paths.
+     *
+     * @return monotonically increasing version number
+     */
+    long getObserverVersion() {
+        return observerVersion.get();
+    }
+
     JoinGossip.Builder processJoins(BloomFilter<Digest> bff) {
         JoinGossip.Builder builder = JoinGossip.newBuilder();
 
@@ -664,8 +677,11 @@ public class ViewManagement {
             log.debug("Incomplete observers: {} cardinality: {} view: {} context: {} on: {}", observers.size(),
                       context.cardinality(), currentView(), context.getId(), node.getId());
         }
-        log.trace("Reset observers: {} cardinality: {} view: {} context: {} on: {}", observers.size(),
-                  context.cardinality(), currentView(), context.getId(), node.getId());
+        // Increment version AFTER observers are stable - enables stale snapshot detection
+        // Tracks observer SET membership changes; value updates (highWater) don't increment
+        var newVersion = observerVersion.incrementAndGet();
+        log.trace("Reset observers: {} version: {} cardinality: {} view: {} context: {} on: {}", observers.size(),
+                  newVersion, context.cardinality(), currentView(), context.getId(), node.getId());
     }
 
     private void setDiadem(final HexBloom hex) {
