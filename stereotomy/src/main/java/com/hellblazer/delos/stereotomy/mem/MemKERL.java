@@ -23,6 +23,7 @@ import org.joou.ULong;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 import static com.hellblazer.delos.cryptography.QualifiedBase64.qb64;
 import static com.hellblazer.delos.stereotomy.identifier.QualifiedBase64Identifier.qb64;
@@ -48,6 +49,8 @@ public class MemKERL implements KERL.AppendKERL {
     private final Map<String, Attachment>                                   receipts                 = new ConcurrentHashMap<>();
     // Order by <coordinateOrdering>
     private final Map<EventCoordinates, Map<EventCoordinates, JohnHancock>> validations              = new ConcurrentHashMap<>();
+    // Per-identifier locks to serialize append operations
+    private final Map<String, ReentrantLock>                                identifierLocks          = new ConcurrentHashMap<>();
 
     public MemKERL(DigestAlgorithm digestAlgorithm) {
         this.digestAlgorithm = digestAlgorithm;
@@ -97,9 +100,22 @@ public class MemKERL implements KERL.AppendKERL {
 
     @Override
     public KeyState append(KeyEvent event) {
-        final var newState = processor.process(event);
-        append(event, newState);
-        return newState;
+        var lock = lockFor(event.getIdentifier());
+        lock.lock();
+        try {
+            final var newState = processor.process(event);
+            append(event, newState);
+            return newState;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Get or create a lock for the given identifier to serialize append operations.
+     */
+    private ReentrantLock lockFor(Identifier identifier) {
+        return identifierLocks.computeIfAbsent(qb64(identifier), k -> new ReentrantLock());
     }
 
     @Override
@@ -167,6 +183,7 @@ public class MemKERL implements KERL.AppendKERL {
     }
 
     private void append(KeyEvent event, KeyState newState) {
+        // Lock is already held by public append(KeyEvent) caller
         String coordinates = coordinateOrdering(event.getCoordinates());
         events.put(coordinates, event);
         eventsByHash.put(newState.getDigest(), coordinates);

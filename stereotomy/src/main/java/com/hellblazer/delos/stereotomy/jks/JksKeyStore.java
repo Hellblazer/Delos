@@ -23,6 +23,7 @@ import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -118,11 +119,15 @@ public class JksKeyStore implements StereotomyKeyStore {
         var notAfter = Instant.now().plusSeconds(2_000_000_000);
         List<CertExtension> extensions = Collections.emptyList();
         X509Certificate selfSignedCert = Certificates.selfSign(true, dn, sn, keyPair, notBefore, notAfter, extensions);
+        // Clone password so we can safely clear our copy without affecting the provider
+        char[] password = passwordProvider.get().clone();
         try {
-            keyStore.setKeyEntry(alias, keyPair.getPrivate(), passwordProvider.get(),
+            keyStore.setKeyEntry(alias, keyPair.getPrivate(), password,
                                  new Certificate[] { selfSignedCert });
         } catch (KeyStoreException e) {
             throw new IllegalStateException(e);
+        } finally {
+            Arrays.fill(password, '\0');
         }
     }
 
@@ -166,12 +171,16 @@ public class JksKeyStore implements StereotomyKeyStore {
         }
         var publicKey = cert.getPublicKey();
         PrivateKey privateKey;
+        // Clone password so we can safely clear our copy without affecting the provider
+        char[] password = passwordProvider.get().clone();
         try {
-            privateKey = (PrivateKey) keyStore.getKey(alias, passwordProvider.get());
+            privateKey = (PrivateKey) keyStore.getKey(alias, password);
         } catch (UnrecoverableKeyException | KeyStoreException | NoSuchAlgorithmException e) {
             log.error("Unable to retrieve certificate for: {} : {}", keyCoordinates != null ? keyCoordinates : alias,
                       e.getMessage());
             return null;
+        } finally {
+            Arrays.fill(password, '\0');
         }
         return new KeyPair(publicKey, privateKey);
     }
