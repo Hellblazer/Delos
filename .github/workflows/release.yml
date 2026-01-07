@@ -49,8 +49,7 @@ jobs:
 
       - name: Update README with release version
         run: |
-          sed -i "s/Current version: \`[^\`]*\`/Current version: \`${{ github.event.inputs.releaseVersion }}\`/g" README.md
-          sed -i "s/<version>[0-9.]*-SNAPSHOT<\/version>/<version>${{ github.event.inputs.releaseVersion }}<\/version>/g" README.md
+          sed -i "s/\*\*Current version\*\*: \`[^\`]*\`/\*\*Current version\*\*: \`${{ github.event.inputs.releaseVersion }}\`/g" README.md
           cat README.md | grep -E "(Current version|<version>)" | head -5
           echo "✓ Updated README.md with release version: ${{ github.event.inputs.releaseVersion }}"
 
@@ -80,8 +79,7 @@ jobs:
       - name: Update README for next development version
         if: success()
         run: |
-          sed -i "s/Current version: \`[^\`]*\`/Current version: \`${{ github.event.inputs.nextVersion }}\`/g" README.md
-          sed -i "s/<version>[0-9.]*<\/version>/<version>${{ github.event.inputs.nextVersion }}<\/version>/g" README.md
+          sed -i "s/\*\*Current version\*\*: \`[^\`]*\`/\*\*Current version\*\*: \`${{ github.event.inputs.nextVersion }}\`/g" README.md
           cat README.md | grep -E "(Current version|<version>)" | head -5
           echo "✓ Updated README.md with development version: ${{ github.event.inputs.nextVersion }}"
 
