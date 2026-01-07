@@ -957,9 +957,6 @@
             <activation>
                 <activeByDefault>false</activeByDefault>
             </activation>
-            <modules>
-                <module>h2-deterministic</module>
-            </modules>
         </profile>
         <profile>
             <id>isolates</id>
