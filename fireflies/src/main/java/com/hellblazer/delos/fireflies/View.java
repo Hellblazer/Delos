@@ -414,7 +414,7 @@ public class View {
      *
      * @return The member that represents this View
      */
-    Node getNode() {
+    public Node getNode() {
         return node;
     }
 
