@@ -30,7 +30,7 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
       - name: Install h2-deterministic (required shaded dependency)
-        run: ./mvnw -batch-mode install -DskipTests -pl h2-deterministic --file pom.xml
+        run: ./mvnw -batch-mode install -DskipTests -f h2-deterministic/pom.xml
       - name: Compile all modules
         run: ./mvnw -batch-mode clean compile -DskipTests --file pom.xml
       - name: Save Maven cache after compile
