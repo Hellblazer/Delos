@@ -54,6 +54,9 @@ jobs:
           cat README.md | grep -E "(Current version|<version>)" | head -5
           echo "✓ Updated README.md with release version: ${{ github.event.inputs.releaseVersion }}"
 
+      - name: Pre-build h2-deterministic (required dependency for sql-state)
+        run: ./mvnw -batch-mode install -DskipTests -pl h2-deterministic
+
       - name: Build and test all modules
         run: ./mvnw -batch-mode clean install
 
