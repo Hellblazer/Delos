@@ -9,6 +9,7 @@
     <name>Delos Umbrella App</name>
 
     <modules>
+        <module>h2-deterministic</module>
         <module>fireflies</module>
         <module>protocols</module>
         <module>sql-state</module>

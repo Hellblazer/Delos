@@ -54,9 +54,6 @@ jobs:
           cat README.md | grep -E "(Current version|<version>)" | head -5
           echo "✓ Updated README.md with release version: ${{ github.event.inputs.releaseVersion }}"
 
-      - name: Install h2-deterministic (required shaded dependency)
-        run: ./mvnw -batch-mode install -Ppre -DskipTests -pl h2-deterministic
-
       - name: Build and test all modules
         run: ./mvnw -batch-mode clean install
 
