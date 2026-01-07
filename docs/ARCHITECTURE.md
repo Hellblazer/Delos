@@ -411,25 +411,17 @@ Provides linearizable operations (sequential consistency).
 
 ## Related Documentation
 
-- [fireflies/README.md](../fireflies/README.md) - Detailed membership protocol
-- [ethereal/README.md](../ethereal/README.md) - Aleph-BFT consensus details
-- [choam/README.md](../choam/README.md) - State machine replication
-- [sql-state/README.md](../sql-state/README.md) - Replicated SQL databases
-- [stereotomy/README.md](../stereotomy/README.md) - KERI identity management
+**Module deep-dives** *(coming soon)*:
+- fireflies/README.md - Detailed membership protocol
+- ethereal/README.md - Aleph-BFT consensus details
+- choam/README.md - State machine replication
+- sql-state/README.md - Replicated SQL databases
+- stereotomy/README.md - KERI identity management
+
+**Current documentation**:
 - [DEVELOPER_QUICKSTART.md](DEVELOPER_QUICKSTART.md) - Get started building Delos
-- [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) - Production deployment
-- [GLOSSARY.md](GLOSSARY.md) - Term definitions
-
----
-
-## Architecture Design Decisions
-
-For detailed rationale behind architectural choices, see:
-
-- [ADR-0002: KERI Implementation Architecture](adr/0002-keri-implementation-architecture.md)
-- [ADR-0003: BFT Membership Architecture](adr/0003-bft-membership-architecture.md)
-- [ADR-0004: Consensus Design (CHOAM)](adr/0004-consensus-design-choam.md)
-- [ADR-0005: Deterministic SQL State](adr/0005-deterministic-sql-state.md)
+- [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) - Production deployment *(coming soon)*
+- [GLOSSARY.md](GLOSSARY.md) - Term definitions *(coming soon)*
 
 ---
 

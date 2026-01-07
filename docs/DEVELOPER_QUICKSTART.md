@@ -141,7 +141,7 @@ SQL-State (executes against replicated H2 database)
 All nodes have identical state
 ```
 
-For detailed architecture, see [ARCHITECTURE.md](ARCHITECTURE.md) (coming soon).
+For detailed architecture, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 **✓ Checkpoint**: You understand the four layers and basic data flow.
 
@@ -165,64 +165,70 @@ ls src/main/java/com/hellblazer/delos/fireflies/
 
 ### Read a Test to Understand Usage
 
-Open `fireflies/src/test/java/com/hellblazer/delos/fireflies/ViewTest.java` (abbreviated example):
+Open `fireflies/src/test/java/com/hellblazer/delos/fireflies/SwarmTest.java` (abbreviated example):
 
 ```java
 @Test
-public void shouldFormQuorum() {
-    // Create 4 members (minimum for BFT with f=1 failure)
-    var context = DigestAlgorithm.DEFAULT.getOrigin().prefix(1);
-    var params = Parameters.newBuilder()...
+public void swarm() throws Exception {
+    // Create 50-100 member swarm (based on large_tests flag)
+    final var seeds = members.values()
+                             .stream()
+                             .map(m -> new Seed(m.getIdentifier().getIdentifier(), "0"))
+                             .limit(largeTests ? 100 : 10)
+                             .toList();
 
-    var members = IntStream.range(0, 4)
-        .mapToObj(i -> new View(context, member[i], ...))
-        .toList();
+    final var bootstrapSeed = seeds.subList(0, 1);
+    final var gossipDuration = Duration.ofMillis(largeTests ? 150 : 5);
 
-    // Start members and wait for view formation
-    members.forEach(View::start);
+    // Bootstrap the first member
+    var countdown = new AtomicReference<>(new CountDownLatch(1));
+    views.get(0).start(() -> countdown.get().countDown(), gossipDuration, Collections.emptyList());
 
-    // Verify quorum achieved
-    assertTrue(Utils.waitForCondition(30_000, 1_000, () ->
-        members.stream().allMatch(v -> v.getLive().size() >= 3)
-    ));
+    assertTrue(countdown.get().await(60, TimeUnit.SECONDS), "Kernel did not bootstrap");
+
+    // Start remaining seed members
+    var bootstrappers = views.subList(0, seeds.size());
+    countdown.set(new CountDownLatch(seeds.size() - 1));
+    bootstrappers.subList(1, bootstrappers.size())
+                 .forEach(v -> v.start(() -> countdown.get().countDown(), gossipDuration, bootstrapSeed));
+
+    // Verify all members formed stable view
+    var success = countdown.get().await(largeTests ? 2400 : 60, TimeUnit.SECONDS);
+    assertTrue(success);
 }
 ```
 
 **Key concepts demonstrated**:
-1. **Context**: Logical grouping of members (like a cluster ID)
-2. **View**: Per-member view of the membership
-3. **Quorum**: Minimum number of agreeing members for BFT (3f+1 for f failures)
-4. **Dynamic formation**: Members discover each other via gossip
+1. **Seeds**: Bootstrap nodes that new members contact to join
+2. **View formation**: Members discover each other via ring-based gossip
+3. **Countdown latches**: Synchronization mechanism for test coordination
+4. **Gossip duration**: Timing parameter controlling message frequency
+5. **Dynamic scaling**: Test adapts based on `large_tests` flag (50 vs 100 nodes)
 
 ### Run This Test
 
 ```bash
 cd ..  # Return to root
-./mvnw test -pl fireflies -Dtest=ViewTest#shouldFormQuorum
+./mvnw test -pl fireflies -Dtest=SwarmTest#swarm
 ```
 
-**Expected**: Test passes, showing successful 4-node cluster formation.
-
-### Try Modifying the Test (Optional)
-
-Try changing the member count to explore failure tolerance:
+**Expected**: Test passes after ~60 seconds, showing successful 50-node cluster formation. For larger scale:
 
 ```bash
-# Edit ViewTest.java: change `IntStream.range(0, 4)` to `IntStream.range(0, 7)`
-# This tests 7 members (tolerates 2 failures with f=2)
-
-./mvnw test -pl fireflies -Dtest=ViewTest#shouldFormQuorum
+./mvnw test -pl fireflies -Dtest=SwarmTest#swarm -Dlarge_tests=true
 ```
+
+This runs the 100-node version (requires more memory and time).
 
 ### Explore sql-state: JDBC over Consensus
 
 The `sql-state` module provides replicated SQL databases. Check out an example:
 
 ```bash
-ls sql-state/src/test/java/com/hellblazer/delos/sqlstate/
+ls sql-state/src/test/java/com/hellblazer/delos/state/
 ```
 
-Look at `SqlStateMachineTest.java` to see how SQL operations are replicated across nodes via CHOAM consensus.
+Look at `SmokeTest.java` to see how deterministic SQL execution ensures replicated state consistency. The test verifies that two independent H2 databases produce identical checkpoints when executing the same operations in the same order - the foundation of replicated state machines.
 
 **✓ Checkpoint**: You've explored actual Delos code and run specific tests.
 
@@ -281,16 +287,16 @@ Congratulations! You now have:
 
 ### Learn More
 
-**Explore specific modules**:
-- [fireflies/README.md](../fireflies/README.md) - Deep dive into membership
-- [choam/README.md](../choam/README.md) - State machine replication
-- [sql-state/README.md](../sql-state/README.md) - JDBC over consensus
-- [stereotomy/README.md](../stereotomy/README.md) - KERI identity
+**Explore specific modules** *(coming soon)*:
+- fireflies/README.md - Deep dive into membership
+- choam/README.md - State machine replication
+- sql-state/README.md - JDBC over consensus
+- stereotomy/README.md - KERI identity
 
 **Read documentation**:
-- [ARCHITECTURE.md](ARCHITECTURE.md) - Visual architecture diagrams (coming soon)
-- [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) - Production deployment
-- [MONITORING_GUIDE.md](MONITORING_GUIDE.md) - Metrics and observability
+- [ARCHITECTURE.md](ARCHITECTURE.md) - Visual architecture diagrams
+- [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) - Production deployment *(coming soon)*
+- [MONITORING_GUIDE.md](MONITORING_GUIDE.md) - Metrics and observability *(coming soon)*
 - [GLOSSARY.md](GLOSSARY.md) - Key terminology
 
 **Understand the codebase**:
