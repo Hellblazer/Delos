@@ -299,7 +299,7 @@ Include:
 ### Before Filing an Issue
 
 1. Search existing issues (open and closed)
-2. Check documentation and TROUBLESHOOTING_GUIDE.md
+2. Check documentation and [CLAUDE.md](CLAUDE.md#troubleshooting) (Troubleshooting section)
 3. Verify you're using supported versions (JDK 25+, Maven 3.9.3+)
 
 ### Issue Template

@@ -90,10 +90,10 @@ If tests fail:
 ### Run a Single Test Class
 
 ```bash
-./mvnw test -pl fireflies -Dtest=ViewTest
+./mvnw test -pl fireflies -Dtest=SwarmTest
 ```
 
-This runs just the `ViewTest` class, which tests core membership functionality.
+This runs just the `SwarmTest` class, which tests large-scale membership formation (50-100 nodes).
 
 **✓ Checkpoint**: Tests pass successfully.
 
@@ -287,11 +287,12 @@ Congratulations! You now have:
 
 ### Learn More
 
-**Explore specific modules** *(coming soon)*:
-- fireflies/README.md - Deep dive into membership
-- choam/README.md - State machine replication
-- sql-state/README.md - JDBC over consensus
-- stereotomy/README.md - KERI identity
+**Explore specific modules**:
+- [fireflies/README.md](../fireflies/README.md) - Deep dive into membership
+- [choam/README.md](../choam/README.md) - State machine replication
+- [ethereal/README.md](../ethereal/README.md) - Aleph-BFT consensus
+- [sql-state/README.md](../sql-state/README.md) - JDBC over consensus
+- [stereotomy/README.md](../stereotomy/README.md) - KERI identity
 
 **Read documentation**:
 - [ARCHITECTURE.md](ARCHITECTURE.md) - Visual architecture diagrams
@@ -303,9 +304,9 @@ Congratulations! You now have:
 - [CLAUDE.md](../CLAUDE.md) - Complete developer reference with troubleshooting
 - [CONTRIBUTING.md](../CONTRIBUTING.md) - Contribution guidelines
 
-**Try examples** (coming soon):
-- `examples/simple-kv-store/` - Minimal SQL-State application
-- `examples/local-demo/` - Docker Compose cluster
+**Try examples**:
+- [examples/simple-kv-store/](../examples/simple-kv-store/) - Minimal SQL-State application
+- [examples/local-demo/](../examples/local-demo/) - Docker Compose cluster
 
 ### Get Help
 

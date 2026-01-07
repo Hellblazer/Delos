@@ -423,7 +423,7 @@ graph LR
 
 Ethereal exposes operational metrics via Dropwizard Metrics.
 
-**Source**: `ethereal/src/main/java/com/hellblazer/delos/ethereal/EtherealMetrics.java`
+**Source**: `ethereal/src/main/java/com/hellblazer/delos/ethereal/memberships/comm/EtherealMetrics.java`
 
 ### Consensus Progress (Gauge)
 
@@ -589,4 +589,6 @@ echo "Stale units: $(ethereal.metrics.staleUnits())"
 
 ---
 
-**Status**: Production-ready as of January 2026. Ethereal provides asynchronous Byzantine consensus without leader bottlenecks, enabling high-throughput totally ordered transaction logs for Delos state machine replication.
+**Last updated**: 2026-01-07
+**Version**: 0.0.6-SNAPSHOT
+**Status**: Production-ready. Ethereal provides asynchronous Byzantine consensus without leader bottlenecks, enabling high-throughput totally ordered transaction logs for Delos state machine replication.

@@ -533,7 +533,7 @@ choam.checkpoints().subscribe(checkpoint -> {
 
 CHOAM exposes operational metrics via Dropwizard Metrics.
 
-**Source**: `choam/src/main/java/com/hellblazer/delos/choam/CHOAMMetrics.java`
+**Source**: `choam/src/main/java/com/hellblazer/delos/choam/support/ChoamMetrics.java`
 
 ### Block Production (Meter)
 

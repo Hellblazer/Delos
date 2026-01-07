@@ -380,12 +380,12 @@ Provides linearizable operations (sequential consistency).
 
 ## Related Documentation
 
-**Module deep-dives** *(coming soon)*:
-- fireflies/README.md - Detailed membership protocol
-- ethereal/README.md - Aleph-BFT consensus details
-- choam/README.md - State machine replication
-- sql-state/README.md - Replicated SQL databases
-- stereotomy/README.md - KERI identity management
+**Module deep-dives**:
+- [fireflies/README.md](../fireflies/README.md) - Detailed membership protocol
+- [ethereal/README.md](../ethereal/README.md) - Aleph-BFT consensus details
+- [choam/README.md](../choam/README.md) - State machine replication
+- [sql-state/README.md](../sql-state/README.md) - Replicated SQL databases
+- [stereotomy/README.md](../stereotomy/README.md) - KERI identity management
 
 **Current documentation**:
 - [DEVELOPER_QUICKSTART.md](DEVELOPER_QUICKSTART.md) - Get started building Delos
@@ -395,4 +395,4 @@ Provides linearizable operations (sequential consistency).
 ---
 
 **Last updated**: 2026-01-07
-**Version**: 0.0.5-SNAPSHOT
+**Version**: 0.0.6-SNAPSHOT
