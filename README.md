@@ -92,6 +92,14 @@ Add to your project's `pom.xml`:
   </repository>
 </repositories>
 
+<pluginRepositories>
+  <pluginRepository>
+    <id>github</id>
+    <name>GitHub Packages</name>
+    <url>https://maven.pkg.github.com/Hellblazer/Delos</url>
+  </pluginRepository>
+</pluginRepositories>
+
 <dependencies>
   <dependency>
     <groupId>com.hellblazer.delos</groupId>
@@ -105,6 +113,8 @@ Add to your project's `pom.xml`:
   </dependency>
 </dependencies>
 ```
+
+> **Note**: The `<pluginRepositories>` section is required for resolving Liquibase plugin schemas. Maven plugins are not resolved from regular repositories.
 
 ### Authenticating with GitHub Packages
 
