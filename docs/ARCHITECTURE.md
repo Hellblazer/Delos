@@ -32,41 +32,38 @@ Delos is a **multi-tenant distributed database platform** providing Byzantine fa
 
 Delos is organized into four logical layers, each building on the layer below:
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                      APPLICATION LAYER                            │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐        │
-│  │delphinius│  │  model   │  │   tron   │  │  leyden  │        │
-│  │  (RBAC)  │  │(domains) │  │  (FSM)   │  │(platform)│        │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘        │
-└──────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                  CONSENSUS & STATE LAYER                          │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐                      │
-│  │sql-state │  │  choam   │  │ ethereal │                      │
-│  │  (JDBC)  │  │  (SMR)   │  │(Aleph-BFT)│                      │
-│  └──────────┘  └──────────┘  └──────────┘                      │
-└──────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌──────────────────────────────────────────────────────────────────┐
-│               MEMBERSHIP & IDENTITY LAYER                         │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐       │
-│  │fireflies │  │stereotomy│  │  thoth   │  │gorgoneion│       │
-│  │(overlay) │  │  (KERI)  │  │  (DHT)   │  │ (attest) │       │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘       │
-└──────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                 CORE INFRASTRUCTURE LAYER                         │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐       │
-│  │  crypto  │  │membership│  │ protocols│  │   grpc   │       │
-│  │ (digest) │  │(context) │  │  (MTLS)  │  │ (protos) │       │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘       │
-└──────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    subgraph APP["APPLICATION LAYER"]
+        delphinius["delphinius<br/>(RBAC)"]
+        model["model<br/>(domains)"]
+        tron["tron<br/>(FSM)"]
+        leyden["leyden<br/>(platform)"]
+    end
+
+    subgraph CONSENSUS["CONSENSUS & STATE LAYER"]
+        sqlstate["sql-state<br/>(JDBC)"]
+        choam["choam<br/>(SMR)"]
+        ethereal["ethereal<br/>(Aleph-BFT)"]
+    end
+
+    subgraph MEMBERSHIP["MEMBERSHIP & IDENTITY LAYER"]
+        fireflies["fireflies<br/>(overlay)"]
+        stereotomy["stereotomy<br/>(KERI)"]
+        thoth["thoth<br/>(DHT)"]
+        gorgoneion["gorgoneion<br/>(attest)"]
+    end
+
+    subgraph INFRA["CORE INFRASTRUCTURE LAYER"]
+        crypto["crypto<br/>(digest)"]
+        memberships["membership<br/>(context)"]
+        protocols["protocols<br/>(MTLS)"]
+        grpc["grpc<br/>(protos)"]
+    end
+
+    APP --> CONSENSUS
+    CONSENSUS --> MEMBERSHIP
+    MEMBERSHIP --> INFRA
 ```
 
 ### Layer 1: Core Infrastructure
@@ -176,35 +173,30 @@ Delos is organized into four logical layers, each building on the layer below:
 
 This diagram shows the primary dependencies between major modules:
 
-```
-                      Application Layer
-                            │
-            ┌───────────────┼───────────────┐
-            │               │               │
-        delphinius        tron           model
-            │               │               │
-            └───────────────┼───────────────┘
-                            │
-                     ┌──────┴──────┐
-                     │             │
-                 sql-state      choam
-                     │             │
-                     └──────┬──────┘
-                            │
-                        ethereal
-                            │
-                     ┌──────┴──────┐
-                     │             │
-                fireflies     stereotomy
-                     │             │
-                     └──────┬──────┘
-                            │
-                  ┌─────────┼─────────┐
-                  │         │         │
-            cryptography  protocols  grpc
-                  │         │         │
-                  └─────────┴─────────┘
-                     memberships
+```mermaid
+graph TD
+    delphinius[delphinius] --> sqlstate[sql-state]
+    tron[tron] --> choam[choam]
+    model[model] --> choam
+
+    sqlstate --> choam
+    choam --> ethereal[ethereal]
+
+    ethereal --> fireflies[fireflies]
+    ethereal --> stereotomy[stereotomy]
+
+    fireflies --> cryptography[cryptography]
+    fireflies --> protocols[protocols]
+    fireflies --> grpc[grpc]
+    fireflies --> memberships[memberships]
+
+    stereotomy --> cryptography
+    stereotomy --> protocols
+    stereotomy --> grpc
+    stereotomy --> memberships
+
+    protocols --> memberships
+    grpc --> memberships
 ```
 
 **Key Dependencies**:
@@ -220,35 +212,13 @@ This diagram shows the primary dependencies between major modules:
 
 This shows how a client transaction flows through the system:
 
-```
-┌─────────────┐
-│   Client    │  Submits transaction
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│    CHOAM    │  Routes to current committee
-└──────┬──────┘  (based on Context)
-       │
-       ▼
-┌─────────────┐
-│  Ethereal   │  Aleph-BFT consensus
-└──────┬──────┘  Orders transactions into blocks
-       │
-       ▼
-┌─────────────┐
-│Ordered Block│  Block with sequence number
-└──────┬──────┘  and hash of previous block
-       │
-       ▼
-┌─────────────┐
-│ SQL-State   │  Execute SQL against H2 database
-└──────┬──────┘  Deterministic execution (same input → same output)
-       │
-       ▼
-┌─────────────┐
-│State Update │  All nodes have identical state
-└─────────────┘  (Byzantine agreement + deterministic execution)
+```mermaid
+graph TD
+    Client[Client<br/>Submits transaction] --> CHOAM[CHOAM<br/>Routes to current committee<br/>based on Context]
+    CHOAM --> Ethereal[Ethereal<br/>Aleph-BFT consensus<br/>Orders transactions into blocks]
+    Ethereal --> Block[Ordered Block<br/>Block with sequence number<br/>and hash of previous block]
+    Block --> SQLState[SQL-State<br/>Execute SQL against H2 database<br/>Deterministic execution]
+    SQLState --> StateUpdate[State Update<br/>All nodes have identical state<br/>Byzantine agreement + deterministic execution]
 ```
 
 **Transaction Lifecycle**:
@@ -273,15 +243,20 @@ This shows how a client transaction flows through the system:
 
 Each member has a position on a consistent hash ring based on its identifier:
 
+```mermaid
+graph LR
+    A[Member A] --> B[Member B]
+    B --> C[Member C]
+    C --> D[Member D]
+    D --> A
+
+    style A fill:#e1f5ff
+    style B fill:#e1f5ff
+    style C fill:#e1f5ff
+    style D fill:#e1f5ff
 ```
-                     Member A
-                        │
-           Member D ────┼──── Member B
-                        │
-                     Member C
 
 Ring positions: A → B → C → D → A (circular)
-```
 
 **Gossip pattern**:
 - Each member gossips with successors and predecessors
@@ -293,20 +268,14 @@ Ring positions: A → B → C → D → A (circular)
 
 Committees are subsets of members responsible for consensus:
 
-```
-        Full Membership (16 members)
-              │
-              ▼
-    ┌─────────────────────────┐
-    │     Committee A         │  Handles transactions for
-    │  (members 1, 3, 5, 7)   │  keys hashing to range [0, 0.5)
-    └─────────────────────────┘
-              │
-              ▼
-    ┌─────────────────────────┐
-    │     Committee B         │  Handles transactions for
-    │  (members 2, 4, 6, 8)   │  keys hashing to range [0.5, 1.0)
-    └─────────────────────────┘
+```mermaid
+graph TD
+    Membership[Full Membership<br/>16 members] --> CommitteeA[Committee A<br/>members 1, 3, 5, 7<br/>Handles keys: 0-0.5]
+    Membership --> CommitteeB[Committee B<br/>members 2, 4, 6, 8<br/>Handles keys: 0.5-1.0]
+
+    style Membership fill:#f9f9f9
+    style CommitteeA fill:#d4edda
+    style CommitteeB fill:#d4edda
 ```
 
 **Committee selection**:
