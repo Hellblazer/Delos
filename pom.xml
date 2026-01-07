@@ -34,6 +34,7 @@
         <module>leyden</module>
         <module>vm-socket</module>
         <module>java-noise</module>
+        <module>examples</module>
     </modules>
 
     <properties>

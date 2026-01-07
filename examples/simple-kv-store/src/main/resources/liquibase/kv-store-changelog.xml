@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.4.xsd">
+
+    <changeSet author="example" id="kv-store-1">
+        <sql>create schema if not exists kvstore</sql>
+
+        <createTable tableName="store" schemaName="kvstore">
+            <column name="k" type="VARCHAR(255)">
+                <constraints nullable="false" primaryKey="true" />
+            </column>
+            <column name="v" type="VARCHAR(1024)">
+                <constraints nullable="true" />
+            </column>
+        </createTable>
+
+        <rollback>
+            <sql>drop table kvstore.store</sql>
+            <sql>drop schema kvstore</sql>
+        </rollback>
+    </changeSet>
+</databaseChangeLog>
