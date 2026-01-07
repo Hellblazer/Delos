@@ -60,17 +60,18 @@ jobs:
       - name: Build and test all modules
         run: ./mvnw -batch-mode clean install
 
-      - name: Commit release version
-        run: |
-          git add -A
-          git commit -m "Release ${{ github.event.inputs.releaseVersion }}"
-          git tag v${{ github.event.inputs.releaseVersion }}
-
       - name: Publish to GitHub Packages
         id: deploy
         run: ./mvnw -batch-mode deploy -DskipTests -s .github/settings.xml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit release version
+        if: success()
+        run: |
+          git add -A
+          git commit -m "Release ${{ github.event.inputs.releaseVersion }}"
+          git tag v${{ github.event.inputs.releaseVersion }}
 
       - name: Set next development version
         if: success()
