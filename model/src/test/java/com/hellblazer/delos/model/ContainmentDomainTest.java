@@ -117,7 +117,7 @@ public class ContainmentDomainTest {
                                                                            .map(Domain::logState)
                                                                            .toList()));
         var oracle = domains.getFirst().getDelphi();
-        oracle.add(new Oracle.Namespace("test")).get();
+        oracle.add(new Oracle.Namespace("test")).get(30, java.util.concurrent.TimeUnit.SECONDS);
         DomainTest.smoke(oracle);
     }
 
