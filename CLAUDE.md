@@ -99,3 +99,255 @@ The `h2-deterministic` and `liquibase-deterministic` modules provide determinist
 
 ## Module Dependencies
 Modules depend on each other through the local Maven repository. Always run `install` (not just `compile`) when building. The parent POM enforces dependency convergence.
+
+## Module Entry Points
+
+| Module | Main Entry Point | Purpose |
+|--------|-----------------|---------|
+| fireflies | `View.java` | Membership and gossip overlay |
+| ethereal | `Ethereal.java` | Consensus protocol (Aleph-BFT) |
+| choam | `CHOAM.java` | State machine replication |
+| sql-state | `SqlStateMachine.java` | JDBC-accessible replicated state |
+| stereotomy | `Stereotomy.java` | KERI identity management |
+| delphinius | `Oracle.java` | Relation-based access control |
+| tron | `Fsm.java` | Finite state machine execution |
+| thoth | `Thoth.java` | DHT for key management |
+
+## Testing Structure
+
+### Test Categories
+
+- **Unit tests**: `./mvnw test` - Standard test execution per module
+- **Large tests**: `./mvnw test -Dlarge_tests=true` - Full resource-intensive test suite (requires 8+ GB RAM)
+- **Single module**: `./mvnw test -pl <module>` - Target specific module tests
+- **Single test class**: `./mvnw test -Dtest=ClassName -pl <module>`
+- **Single test method**: `./mvnw test -Dtest=ClassName#methodName -pl <module>`
+
+### Memory Requirements
+
+- **Standard tests**: JVM defaults sufficient
+- **Large tests**: May require increased heap: `-DargLine="-Xmx10G -Xms4G"`
+
+### Test Patterns
+
+- **Dynamic port allocation**: Tests use port 0 to let the OS assign ports, avoiding conflicts
+- **JUnit 5**: Modern assertions with AssertJ, mocking with Mockito
+- **Integration tests**: Use actual cluster formation with multiple nodes
+- **Isolation**: Each test is independent and can run in any order
+
+### Running Specific Tests
+
+```bash
+# Run all tests in fireflies module
+./mvnw test -pl fireflies
+
+# Run specific test class
+./mvnw test -pl fireflies -Dtest=ViewTest
+
+# Run specific test method
+./mvnw test -pl fireflies -Dtest=ViewTest#shouldFormQuorum
+
+# Run tests matching pattern
+./mvnw test -Dtest="*Integration*"
+```
+
+## Common Development Tasks
+
+### After Protocol Buffer Changes
+
+When you modify `.proto` files in `src/main/proto/` or `src/test/proto/`:
+```bash
+./mvnw clean compile  # Regenerates gRPC and protobuf classes
+```
+
+Generated sources appear in `target/generated-sources/protobuf/`.
+
+### Debugging a Single Test
+
+Run a test with remote debugging enabled:
+```bash
+./mvnw test -pl <module> -Dtest=ClassName#methodName \
+  -DargLine="-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005"
+```
+
+Then attach your IDE debugger to port 5005.
+
+### Dependency Analysis
+
+View the full dependency tree for a module:
+```bash
+./mvnw dependency:tree -pl <module> -DoutputFile=deps.txt
+```
+
+Check for dependency updates:
+```bash
+./mvnw versions:display-dependency-updates
+```
+
+Analyze dependency usage:
+```bash
+./mvnw dependency:analyze -pl <module>
+```
+
+### After Database Schema Changes
+
+When you modify Liquibase changesets:
+```bash
+./mvnw clean compile  # Regenerates JOOQ classes from schema
+```
+
+### Check Enforcer Rules
+
+The build enforces dependency convergence and other rules:
+```bash
+./mvnw enforcer:enforce
+```
+
+## Troubleshooting
+
+### Build Failures
+
+**"h2-deterministic not found"**
+
+Run the first-time setup profile:
+```bash
+./mvnw clean install -Ppre -DskipTests
+```
+
+This builds the deterministic SQL module which must be installed in your local Maven repository once.
+
+**"Cannot resolve dependencies"**
+
+Always use `install` not `compile`:
+```bash
+./mvnw install -amd -pl <module>
+```
+
+The `-amd` (also-make-dependents) flag ensures dependencies are built.
+
+**"dependencyConvergence" error**
+
+The enforcer plugin requires all transitive dependencies converge to a single version. Check the dependency tree:
+```bash
+./mvnw dependency:tree -Dverbose -DoutputFile=tree.txt
+```
+
+Look for conflicts and add explicit `<dependencyManagement>` entries in the parent POM.
+
+### Test Failures
+
+**Test Timeouts**
+
+Increase timeout or check for port conflicts. Tests use dynamic ports but may conflict with other processes:
+```bash
+# Check what's using common ports
+lsof -i :9090
+```
+
+**OutOfMemoryError in Tests**
+
+Increase heap size for large tests:
+```bash
+./mvnw test -DargLine="-Xmx12G -Xms6G"
+```
+
+**Flaky Tests in CI**
+
+Some distributed consensus tests may be timing-sensitive. Retry flaky tests:
+```bash
+./mvnw test -Dsurefire.rerunFailingTestsCount=2
+```
+
+### IDE Issues
+
+**"Cannot resolve symbol" in IDE**
+
+Run Maven generate-sources to create generated code:
+```bash
+./mvnw generate-sources
+```
+
+Then refresh your IDE's Maven project.
+
+**IDE Shows Red in h2-deterministic**
+
+This module uses package shading and should NOT be imported into IDEs. It's built via Maven only. Exclude it from your IDE's module import.
+
+**IntelliJ IDEA Slow Indexing**
+
+Exclude `target/` directories from indexing:
+- Go to Settings → Project Structure → Modules
+- Mark `target` directories as "Excluded"
+
+### GraalVM Isolates Failing
+
+**Prerequisites missing**
+
+Ensure GraalVM is installed and `GRAALVM_HOME` is set:
+```bash
+export GRAALVM_HOME=/path/to/graalvm
+./mvnw clean install -Pisolates
+```
+
+**Native image agent failures**
+
+The native-image-agent may need manual configuration for reflection and resources:
+```bash
+./mvnw -Pnative-agent test -pl <module>
+```
+
+Check generated configuration in `src/main/resources/META-INF/native-image/`.
+
+### Runtime Issues
+
+**"Port already in use"**
+
+Tests use dynamic port allocation (port 0), but manual testing may conflict. Check for existing processes:
+```bash
+# macOS/Linux
+lsof -ti:PORT | xargs kill -9
+
+# Find process using port range
+netstat -ano | grep LISTEN
+```
+
+**Certificate validation failures**
+
+KERI-based MTLS requires valid certificates. Check stereotomy configuration and ensure keystores are properly initialized.
+
+**Consensus not converging**
+
+Byzantine fault tolerance requires `3f+1` nodes to tolerate `f` failures. Ensure:
+- Minimum 4 nodes for 1 failure tolerance
+- Network connectivity between all nodes
+- No clock skew > 500ms between nodes
+
+## IDE Configuration
+
+### IntelliJ IDEA
+
+The repository includes `.idea` configuration with:
+- Code style settings
+- Run configurations in `.run/`
+- Shared inspections
+
+Import the project as a Maven project and IDEA will use these settings automatically.
+
+### VS Code
+
+Install extensions:
+- **Language Support for Java** (Red Hat)
+- **Maven for Java** (Microsoft)
+- **Protocol Buffers** (pbkit)
+
+Configure `settings.json`:
+```json
+{
+  "java.configuration.updateBuildConfiguration": "automatic",
+  "java.compile.nullAnalysis.mode": "automatic"
+}
+```
+
+### Eclipse
+
+Use **M2Eclipse** plugin for Maven integration. Import as "Existing Maven Project".
