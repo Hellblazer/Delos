@@ -40,6 +40,8 @@ import java.util.List;
 import java.util.SequencedSet;
 import java.util.UUID;
 
+import com.hellblazer.delos.archipelago.Router;
+
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 
@@ -68,6 +70,8 @@ public class BFTSubsetSignatureEnforcementTest {
     private MemKERL                          clientKerl;
     private StereotomyImpl                   clientStereotomy;
     private ProtoEventObserver               observer;
+    private List<Router>                     routers;
+    private List<Gorgoneion>                 gorgoneions;
 
     @BeforeEach
     public void setup() throws Exception {
@@ -88,11 +92,37 @@ public class BFTSubsetSignatureEnforcementTest {
         // Create separate KERL/Stereotomy for client identities
         clientKerl = new MemKERL(DigestAlgorithm.DEFAULT);
         clientStereotomy = new StereotomyImpl(new MemKeyStore(), clientKerl, entropy);
+
+        // Initialize router and gorgoneion lists for cleanup
+        routers = new ArrayList<>();
+        gorgoneions = new ArrayList<>();
     }
 
     @AfterEach
     public void teardown() {
-        // Routers are stored separately and closed in tests
+        // Close all gorgoneions
+        if (gorgoneions != null) {
+            for (var gorgoneion : gorgoneions) {
+                try {
+                    gorgoneion.close();
+                } catch (Exception e) {
+                    log.warn("Error closing gorgoneion", e);
+                }
+            }
+            gorgoneions.clear();
+        }
+
+        // Close all routers
+        if (routers != null) {
+            for (var router : routers) {
+                try {
+                    router.close(Duration.ofSeconds(1));
+                } catch (Exception e) {
+                    log.warn("Error closing router", e);
+                }
+            }
+            routers.clear();
+        }
     }
 
     /**
@@ -106,8 +136,10 @@ public class BFTSubsetSignatureEnforcementTest {
         // Create 4 member nodes (BFT subset size will be based on ring count)
         createMembers(4);
 
+        // Create Gorgoneion instances for ALL members so SliceIterator can reach BFT subset
+        createGorgoneionsForAllMembers();
+
         var gorgon = members.get(0);
-        var gorgoneion = createGorgoneion(gorgon);
 
         // Create client identity
         var client = new ControlledIdentifierMember(clientStereotomy.newIdentifier());
@@ -156,8 +188,10 @@ public class BFTSubsetSignatureEnforcementTest {
         // Create enough members to have a meaningful BFT subset vs total membership distinction
         createMembers(10);
 
+        // Create Gorgoneion instances for ALL members so SliceIterator can reach BFT subset
+        createGorgoneionsForAllMembers();
+
         var gorgon = members.get(0);
-        var gorgoneion = createGorgoneion(gorgon);
 
         // Create client identity
         var client = new ControlledIdentifierMember(clientStereotomy.newIdentifier());
@@ -206,8 +240,10 @@ public class BFTSubsetSignatureEnforcementTest {
     public void testMixedSignaturesOnlySubsetCounted() throws Exception {
         createMembers(7);
 
+        // Create Gorgoneion instances for ALL members so SliceIterator can reach BFT subset
+        createGorgoneionsForAllMembers();
+
         var gorgon = members.get(0);
-        var gorgoneion = createGorgoneion(gorgon);
 
         // Create client identity
         var client = new ControlledIdentifierMember(clientStereotomy.newIdentifier());
@@ -307,8 +343,10 @@ public class BFTSubsetSignatureEnforcementTest {
     public void testNotarizationValidatorsFromCorrectSubset() throws Exception {
         createMembers(7);
 
+        // Create Gorgoneion instances for ALL members so SliceIterator can reach BFT subset
+        createGorgoneionsForAllMembers();
+
         var gorgon = members.get(0);
-        var gorgoneion = createGorgoneion(gorgon);
 
         // Create client identity
         var client = new ControlledIdentifierMember(clientStereotomy.newIdentifier());
@@ -353,8 +391,10 @@ public class BFTSubsetSignatureEnforcementTest {
     public void testByzantineCoalitionRejected() throws Exception {
         createMembers(10);
 
+        // Create Gorgoneion instances for ALL members so SliceIterator can reach BFT subset
+        createGorgoneionsForAllMembers();
+
         var gorgon = members.get(0);
-        var gorgoneion = createGorgoneion(gorgon);
 
         // Create client identity
         var client = new ControlledIdentifierMember(clientStereotomy.newIdentifier());
@@ -457,12 +497,13 @@ public class BFTSubsetSignatureEnforcementTest {
         log.info("Created {} members in context", count);
     }
 
-    private Gorgoneion createGorgoneion(ControlledIdentifierMember member) {
+    private void createGorgoneion(ControlledIdentifierMember member) {
         var router = new LocalServer(prefix, member).router(
             ServerConnectionCache.newBuilder().setTarget(2));
         router.start();
+        routers.add(router);  // Track for cleanup
 
-        return new Gorgoneion(
+        var gorgoneion = new Gorgoneion(
             t -> true,
             (c, v) -> Any.pack(ByteMessage.newBuilder()
                                          .setContents(ByteString.copyFromUtf8("test"))
@@ -474,6 +515,17 @@ public class BFTSubsetSignatureEnforcementTest {
             router,
             null
         );
+        gorgoneions.add(gorgoneion);  // Track for cleanup
+    }
+
+    /**
+     * Create Gorgoneion instances for all members in the context.
+     * Required for multi-node tests where BFT subset endorsement needs to reach multiple nodes.
+     */
+    private void createGorgoneionsForAllMembers() {
+        for (var member : members) {
+            createGorgoneion(member);
+        }
     }
 
     private Digest digestOf(com.hellblazer.delos.stereotomy.event.proto.Ident ident, DigestAlgorithm algorithm) {

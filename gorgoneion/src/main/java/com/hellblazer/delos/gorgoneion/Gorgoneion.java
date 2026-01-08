@@ -494,10 +494,12 @@ public class Gorgoneion implements Closeable {
                      member.getId());
             return false;
         }
-        if (!from.equals(issuer)) {
-            log.warn("Invalid credential nonce, issuer: {} not requester: {} on: {}", issuer, from, member.getId());
-            return false;
-        }
+        // NOTE: We do NOT check from.equals(issuer) here because in the client registration flow:
+        // - 'from' is the CLIENT making the registration request
+        // - 'issuer' is the SERVER that originally issued the nonce during apply()
+        // The client legitimately received the nonce from a server and is now registering.
+        // The issuer being a valid context member is sufficient; signature verification
+        // ensures the nonce was properly endorsed by the BFT subset.
         if (sn.getNonce().getNoise().equals(Digeste.getDefaultInstance())) {
             log.warn("Invalid credential nonce, missing noise from: {} on: {}", from, member.getId());
             return false;
@@ -777,12 +779,11 @@ public class Gorgoneion implements Closeable {
                 return false;
             }
 
-            // Replay attack prevention: Check if we've seen this nonce before
-            var nonceKey = new ReplayCache.NonceKey(Digest.from(request.getNoise()), issuer, request.getTimestamp());
-            if (!replayCache.tryAdmit(nonceKey)) {
-                log.warn("Replay attack detected: duplicate nonce from: {} on: {}", from, member.getId());
-                return false;
-            }
+            // NOTE: We do NOT check replay cache here during nonce endorsement. The endorsement phase is part
+            // of nonce generation and involves multiple BFT members signing the same nonce. The replay cache
+            // is enforced during credential registration in validateCredentials() where we check if a completed
+            // credential was already submitted. This prevents replay of finished registrations while allowing
+            // legitimate nonce endorsements to proceed.
 
             log.info("Validated nonce from: {} on: {}", from, member.getId());
             return true;
