@@ -487,10 +487,11 @@ public class Gorgoneion implements Closeable {
         }
         var nInstant = Instant.ofEpochSecond(sn.getNonce().getTimestamp().getSeconds(),
                                              sn.getNonce().getTimestamp().getNanos());
-        final var now = Instant.now();
-        if (now.isBefore(nInstant) || nInstant.plus(parameters.maxDuration()).isBefore(now)) {
-            log.warn("Invalid credential nonce, invalid timestamp: {} from: {} on: {}", nInstant, from,
-                     member.getId());
+        final var now = parameters.clock().instant();
+        final var clockSkewTolerance = parameters.clockSkewTolerance();
+        if (now.plus(clockSkewTolerance).isBefore(nInstant) || nInstant.plus(parameters.maxDuration()).isBefore(now)) {
+            log.warn("Invalid credential nonce, invalid timestamp: {} (tolerance: {}ms) from: {} on: {}", nInstant,
+                     clockSkewTolerance.toMillis(), from, member.getId());
             return false;
         }
 
@@ -569,10 +570,10 @@ public class Gorgoneion implements Closeable {
 
         var aInstant = Instant.ofEpochSecond(sa.getAttestation().getTimestamp().getSeconds(),
                                              sa.getAttestation().getTimestamp().getNanos());
-        if (now.isBefore(aInstant) || aInstant.plus(parameters.maxDuration()).isBefore(now) || aInstant.isBefore(
+        if (now.plus(clockSkewTolerance).isBefore(aInstant) || aInstant.plus(parameters.maxDuration()).isBefore(now) || aInstant.isBefore(
         nInstant)) {
-            log.warn("Invalid credential attestation, invalid timestamp: {} for: {} from: {} on: {}", aInstant,
-                     identifier, from, member.getId());
+            log.warn("Invalid credential attestation, invalid timestamp: {} (tolerance: {}ms) for: {} from: {} on: {}",
+                     aInstant, clockSkewTolerance.toMillis(), identifier, from, member.getId());
             return false;
         }
 
@@ -745,9 +746,11 @@ public class Gorgoneion implements Closeable {
             }
             var nInstant = Instant.ofEpochSecond(request.getTimestamp().getSeconds(),
                                                  request.getTimestamp().getNanos());
-            final var now = Instant.now();
-            if (now.isBefore(nInstant) || nInstant.plus(parameters.maxDuration()).isBefore(now)) {
-                log.warn("Invalid nonce, invalid timestamp: {} from: {} on: {}", nInstant, from, member.getId());
+            final var now = parameters.clock().instant();
+            final var clockSkewTolerance = parameters.clockSkewTolerance();
+            if (now.plus(clockSkewTolerance).isBefore(nInstant) || nInstant.plus(parameters.maxDuration()).isBefore(now)) {
+                log.warn("Invalid nonce, invalid timestamp: {} (tolerance: {}ms) from: {} on: {}", nInstant,
+                         clockSkewTolerance.toMillis(), from, member.getId());
                 return false;
             }
 
