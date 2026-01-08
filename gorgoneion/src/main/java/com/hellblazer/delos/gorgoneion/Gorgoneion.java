@@ -66,7 +66,6 @@ import java.util.Set;
 import java.util.concurrent.*;
 import java.util.function.BiFunction;
 import java.util.function.Predicate;
-import java.util.stream.Collectors;
 
 import static com.hellblazer.delos.stereotomy.event.protobuf.ProtobufEventFactory.digestOf;
 
@@ -109,6 +108,7 @@ public class Gorgoneion implements Closeable {
     private final BiFunction<Credentials, Validations, Any>             provisioner;
     private final Endorse                                               service = new Endorse();
     private final ReplayCache                                           replayCache;
+    private final CredentialValidator                                   credentialValidator;
 
     public Gorgoneion(Predicate<SignedAttestation> verifier, BiFunction<Credentials, Validations, Any> provisioner,
                       Parameters parameters, ControlledIdentifierMember member, Context<Member> context,
@@ -137,6 +137,7 @@ public class Gorgoneion implements Closeable {
         this.provisioner = provisioner;
         this.scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
         this.replayCache = new ReplayCache(10000, parameters.maxDuration(), Duration.ofSeconds(5));
+        this.credentialValidator = new CredentialValidator(context, parameters, member.getId());
 
         admissionsComm = admissionsRouter.create(member, context.getId(), new Admit(), ":admissions",
                                                  r -> new AdmissionsServer(admissionsRouter.getClientIdentityProvider(),
@@ -200,18 +201,13 @@ public class Gorgoneion implements Closeable {
 
     /**
      * Compute the expected BFT subset for an identifier and return their member digests.
+     * Delegates to CredentialValidator for consistent BFT subset calculation.
      *
      * @param ident The identifier to compute subset for
      * @return Set of Digest IDs that are valid signers for this identifier
      */
     private Set<Digest> expectedBftSigners(Ident ident) {
-        if (context.size() == 1) {
-            return Set.of(member.getId());
-        }
-        return context.bftSubset(digestOf(ident, parameters.digestAlgorithm()))
-                      .stream()
-                      .map(Member::getId)
-                      .collect(Collectors.toSet());
+        return credentialValidator.expectedBftSigners(ident);
     }
 
     private void enroll(Notarization request) {
@@ -532,7 +528,7 @@ public class Gorgoneion implements Closeable {
     private boolean validateCredentials(Credentials credentials, Digest from) {
         var sn = credentials.getNonce();
         final var issuer = Digest.from(sn.getNonce().getIssuer());
-        if (!context.isMember(issuer)) {
+        if (!credentialValidator.isMember(issuer)) {
             log.warn("Invalid credential nonce, non existent issuer: {} from: {} on: {}", issuer, from,
                      member.getId());
             return false;
@@ -543,17 +539,15 @@ public class Gorgoneion implements Closeable {
         // The client legitimately received the nonce from a server and is now registering.
         // The issuer being a valid context member is sufficient; signature verification
         // ensures the nonce was properly endorsed by the BFT subset.
-        if (sn.getNonce().getNoise().equals(Digeste.getDefaultInstance())) {
+        if (!credentialValidator.hasValidNoise(sn.getNonce().getNoise())) {
             log.warn("Invalid credential nonce, missing noise from: {} on: {}", from, member.getId());
             return false;
         }
-        var nInstant = Instant.ofEpochSecond(sn.getNonce().getTimestamp().getSeconds(),
-                                             sn.getNonce().getTimestamp().getNanos());
-        final var now = parameters.clock().instant();
-        final var clockSkewTolerance = parameters.clockSkewTolerance();
-        if (now.plus(clockSkewTolerance).isBefore(nInstant) || nInstant.plus(parameters.maxDuration()).isBefore(now)) {
+        var nonceTimestamp = sn.getNonce().getTimestamp();
+        var nInstant = CredentialValidator.toInstant(nonceTimestamp);
+        if (!credentialValidator.isTimestampValid(nonceTimestamp)) {
             log.warn("Invalid credential nonce, invalid timestamp: {} (tolerance: {}ms) from: {} on: {}", nInstant,
-                     clockSkewTolerance.toMillis(), from, member.getId());
+                     parameters.clockSkewTolerance().toMillis(), from, member.getId());
             return false;
         }
 
@@ -565,35 +559,13 @@ public class Gorgoneion implements Closeable {
         }
 
         final var serialized = sn.getNonce().toByteString();
-        var expectedSigners = expectedBftSigners(sn.getNonce().getMember());
-        var count = 0;
-        var issuerSigned = false;
-        for (var signature : sn.getSignaturesList()) {
-            final var id = Digest.from(signature.getId());
-            var m = context.getMember(id);
-            if (m == null) {
-                log.warn("Credential nonce, unknown signing member: {} from: {} on: {}", m, from, member.getId());
-                continue;
-            }
-            if (!expectedSigners.contains(id)) {
-                log.warn("Credential nonce signature from non-BFT-subset member: {} from: {} on: {}", id, from,
-                         member.getId());
-                continue;
-            }
-            if (!m.verify(JohnHancock.from(signature.getSignature()), serialized)) {
-                log.warn("Credential nonce, invalid signature of: {} from: {} on: {}", m, from, member.getId());
-                continue;
-            }
-            if (!issuerSigned && issuer.equals(id)) {
-                issuerSigned = true;
-            }
-            count++;
-        }
+        var expectedSigners = credentialValidator.expectedBftSigners(sn.getNonce().getMember());
+        // Use CredentialValidator for signature counting with BFT subset enforcement
+        var count = credentialValidator.countValidSignatures(sn.getSignaturesList(), expectedSigners, serialized);
 
-        var majority = context.size() == 1 ? 1 : context.majority();
-        if (count < majority) {
+        if (!credentialValidator.hasMajority(count)) {
             log.warn("Invalid credential nonce, no majority signature: {} required >= {} from: {} on: {}", count,
-                     majority, from, member.getId());
+                     credentialValidator.getRequiredMajority(), from, member.getId());
             return false;
         }
 
@@ -636,12 +608,13 @@ public class Gorgoneion implements Closeable {
             return false;
         }
 
-        var aInstant = Instant.ofEpochSecond(sa.getAttestation().getTimestamp().getSeconds(),
-                                             sa.getAttestation().getTimestamp().getNanos());
-        if (now.plus(clockSkewTolerance).isBefore(aInstant) || aInstant.plus(parameters.maxDuration()).isBefore(now) || aInstant.isBefore(
-        nInstant)) {
+        var attestationTimestamp = sa.getAttestation().getTimestamp();
+        var aInstant = CredentialValidator.toInstant(attestationTimestamp);
+        // Validate attestation timestamp and ensure it's not before the nonce timestamp
+        if (!credentialValidator.isTimestampValid(attestationTimestamp) ||
+            !credentialValidator.isTimestampAtOrAfter(attestationTimestamp, nonceTimestamp)) {
             log.warn("Invalid credential attestation, invalid timestamp: {} (tolerance: {}ms) for: {} from: {} on: {}",
-                     aInstant, clockSkewTolerance.toMillis(), identifier, from, member.getId());
+                     aInstant, parameters.clockSkewTolerance().toMillis(), identifier, from, member.getId());
             return false;
         }
 
@@ -796,7 +769,7 @@ public class Gorgoneion implements Closeable {
 
         private boolean validate(Nonce request, Digest from) {
             final var issuer = Digest.from(request.getIssuer());
-            if (!context.isMember(issuer)) {
+            if (!credentialValidator.isMember(issuer)) {
                 log.warn("Invalid nonce, non existent issuer: {} from: {} on: {}", issuer, from, member.getId());
                 return false;
             }
@@ -804,21 +777,18 @@ public class Gorgoneion implements Closeable {
                 log.warn("Invalid nonce, issuer: {} not requester: {} on: {}", issuer, from, member.getId());
                 return false;
             }
-            if (request.getNoise().equals(Digeste.getDefaultInstance())) {
+            if (!credentialValidator.hasValidNoise(request.getNoise())) {
                 log.warn("Invalid nonce, missing noise from: {} on: {}", from, member.getId());
                 return false;
             }
-            if (request.getMember().equals(Ident.getDefaultInstance())) {
+            if (!credentialValidator.hasValidMember(request.getMember())) {
                 log.warn("Invalid nonce, missing member from: {} on: {}", from, member.getId());
                 return false;
             }
-            var nInstant = Instant.ofEpochSecond(request.getTimestamp().getSeconds(),
-                                                 request.getTimestamp().getNanos());
-            final var now = parameters.clock().instant();
-            final var clockSkewTolerance = parameters.clockSkewTolerance();
-            if (now.plus(clockSkewTolerance).isBefore(nInstant) || nInstant.plus(parameters.maxDuration()).isBefore(now)) {
+            var nInstant = CredentialValidator.toInstant(request.getTimestamp());
+            if (!credentialValidator.isTimestampValid(request.getTimestamp())) {
                 log.warn("Invalid nonce, invalid timestamp: {} (tolerance: {}ms) from: {} on: {}", nInstant,
-                         clockSkewTolerance.toMillis(), from, member.getId());
+                         parameters.clockSkewTolerance().toMillis(), from, member.getId());
                 return false;
             }
 
@@ -835,7 +805,7 @@ public class Gorgoneion implements Closeable {
         private boolean validate(Notarization request, Identifier identifier, KERL_ kerl, Digest from) {
             if (ProtobufEventFactory.from(kerl.getEvents(kerl.getEventsCount() - 1))
                                     .event() instanceof EstablishmentEvent establishment) {
-                var expectedValidators = expectedBftSigners(identifier.toIdent());
+                var expectedValidators = credentialValidator.expectedBftSigners(identifier.toIdent());
                 var count = 0;
                 for (var validation : request.getValidations().getValidationsList()) {
                     var validatorDigest = digestOf(validation.getValidator().getIdentifier(),
@@ -854,11 +824,10 @@ public class Gorgoneion implements Closeable {
                                  member.getId());
                     }
                 }
-                // If there is only one active member in our context, it's us.
-                var majority = context.size() == 1 ? 1 : context.majority();
-                if (count < majority) {
+                // Use CredentialValidator for consistent majority calculation
+                if (!credentialValidator.hasMajority(count)) {
                     log.warn("Invalid notarization, no majority: {} required: {} for: {} from: {} on: {}", count,
-                             majority, identifier, from, member.getId());
+                             credentialValidator.getRequiredMajority(), identifier, from, member.getId());
                     return false;
                 }
                 return true;
