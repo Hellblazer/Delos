@@ -48,6 +48,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.io.Closeable;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Optional;
@@ -61,7 +62,7 @@ import static com.hellblazer.delos.stereotomy.event.protobuf.ProtobufEventFactor
 /**
  * @author hal.hildebrand
  */
-public class Gorgoneion {
+public class Gorgoneion implements Closeable {
     public static final Logger log = LoggerFactory.getLogger(Gorgoneion.class);
 
     @SuppressWarnings("unused")
@@ -102,6 +103,23 @@ public class Gorgoneion {
                                                    admissionsRouter.getClientIdentityProvider(), r, metrics),
                                                    EndorsementClient.getCreate(metrics),
                                                    Endorsement.getLocalLoopback(member, service));
+    }
+    @Override
+    public void close() {
+        if (!scheduler.isShutdown()) {
+            log.debug("Shutting down scheduler on: {}", member.getId());
+            scheduler.shutdown();
+            try {
+                if (!scheduler.awaitTermination(30, TimeUnit.SECONDS)) {
+                    log.warn("Scheduler did not terminate within timeout, forcing shutdown on: {}", member.getId());
+                    scheduler.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                log.warn("Interrupted while waiting for scheduler termination on: {}", member.getId());
+                scheduler.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
     private boolean completeEndorsement(Optional<MemberSignature> futureSailor, Set<MemberSignature> validations) {
@@ -198,8 +216,10 @@ public class Gorgoneion {
             return generated.get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            log.error("Nonce generation interrupted for identifier: {} on: {}", identifier, member.getId(), e);
             return null;
         } catch (ExecutionException e) {
+            log.error("Nonce generation failed for identifier: {} on: {}", identifier, member.getId(), e.getCause());
             if (e.getCause() instanceof StatusRuntimeException sre) {
                 throw sre;
             }
@@ -297,8 +317,11 @@ public class Gorgoneion {
             return validated.thenCompose(v -> notarize(request, v)).thenApply(v -> establish(request, v)).get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            log.error("Credential registration interrupted for identifier: {} on: {}", identifier, member.getId(), e);
             return null;
         } catch (ExecutionException e) {
+            log.error("Credential registration failed for identifier: {} on: {}", identifier, member.getId(),
+                      e.getCause());
             throw new StatusRuntimeException(Status.INTERNAL.withCause(e.getCause()));
         }
     }
