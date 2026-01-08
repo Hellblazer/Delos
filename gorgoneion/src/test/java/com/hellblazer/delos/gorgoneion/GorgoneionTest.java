@@ -114,6 +114,7 @@ public class GorgoneionTest {
                                                                                        .build())
                                                       .setNonce(fs)
                                                       .build(), Duration.ofSeconds(1));
+        gorgon.close();
         gorgonRouter.close(Duration.ofSeconds(0));
         clientRouter.close(Duration.ofSeconds(0));
         assertNotNull(establishment);
