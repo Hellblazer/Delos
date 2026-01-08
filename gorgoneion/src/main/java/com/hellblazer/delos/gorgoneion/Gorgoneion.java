@@ -70,7 +70,77 @@ import java.util.function.Predicate;
 import static com.hellblazer.delos.stereotomy.event.protobuf.ProtobufEventFactory.digestOf;
 
 /**
+ * Gorgoneion - Byzantine fault-tolerant identity admission service for Delos.
+ * <p>
+ * Gorgoneion orchestrates the decentralized bootstrapping of process identities using
+ * KERI (Key Event Receipt Infrastructure) and Byzantine consensus. It provides a federation
+ * framework for transforming trusted attestations into trusted KERI identifiers, enabling
+ * secure identity establishment across trust boundaries.
+ * </p>
+ *
+ * <h2>Architecture</h2>
+ * <p>
+ * The service consists of two primary communication channels:
+ * <ul>
+ *   <li><b>Admissions</b> - Handles initial applications and final registration (apply/register)</li>
+ *   <li><b>Endorsement</b> - Coordinates BFT consensus among members (endorse/validate/enroll)</li>
+ * </ul>
+ * </p>
+ *
+ * <h2>Protocol Flow</h2>
+ * <ol>
+ *   <li><b>Apply Phase</b>: Client submits KERL → Server generates nonce with BFT endorsements</li>
+ *   <li><b>Attestation Phase</b>: Client gets external attestation using nonce (AWS, GCP, Azure, etc.)</li>
+ *   <li><b>Register Phase</b>: Client submits credentials → Server validates with BFT subset</li>
+ *   <li><b>Notarization Phase</b>: Server distributes validated KERL to BFT subset for publication</li>
+ * </ol>
+ *
+ * <h2>Thread Safety and Lifecycle</h2>
+ * <ul>
+ *   <li>Thread-safe: All public methods are safe for concurrent access</li>
+ *   <li>Resources: Creates a scheduled executor service for BFT communication rounds</li>
+ *   <li>Cleanup: Call {@link #close()} to shutdown executor and release resources</li>
+ *   <li>Shutdown: Waits up to 30 seconds for graceful termination before forcing shutdown</li>
+ * </ul>
+ *
+ * <h2>Byzantine Fault Tolerance</h2>
+ * <ul>
+ *   <li>BFT subset: Deterministically selected based on identifier digest</li>
+ *   <li>Majority requirement: 3f+1 model (tolerates f Byzantine failures)</li>
+ *   <li>Signature verification: All nonces, credentials, and validations cryptographically verified</li>
+ *   <li>Replay prevention: Nonce-based with timestamp freshness and cache-based deduplication</li>
+ * </ul>
+ *
+ * <h2>Usage Example</h2>
+ * <pre>{@code
+ * var parameters = Parameters.newBuilder()
+ *     .setKerl(kerl)
+ *     .setMaxDuration(Duration.ofSeconds(30))
+ *     .setClockSkewTolerance(Duration.ofSeconds(5))
+ *     .build();
+ *
+ * var gorgoneion = new Gorgoneion(
+ *     attestationVerifier,
+ *     provisioner,
+ *     parameters,
+ *     member,
+ *     context,
+ *     observer,
+ *     router,
+ *     metrics
+ * );
+ *
+ * try {
+ *     // Service is now running and handling admission requests
+ * } finally {
+ *     gorgoneion.close();
+ * }
+ * }</pre>
+ *
  * @author hal.hildebrand
+ * @see Parameters
+ * @see CredentialValidator
+ * @see ReplayCache
  */
 public class Gorgoneion implements Closeable {
     public static final Logger log = LoggerFactory.getLogger(Gorgoneion.class);
@@ -110,6 +180,24 @@ public class Gorgoneion implements Closeable {
     private final ReplayCache                                           replayCache;
     private final CredentialValidator                                   credentialValidator;
 
+    /**
+     * Creates a Gorgoneion service with shared router for both admissions and endorsement.
+     * <p>
+     * This constructor delegates to the dual-router constructor, using the same router
+     * for both communication channels. Suitable for simple deployments where a single
+     * network router handles all traffic.
+     * </p>
+     *
+     * @param verifier    predicate to verify external attestations (e.g., AWS, GCP signatures)
+     * @param provisioner function to generate provisioning data after successful admission
+     * @param parameters  configuration parameters (timeouts, clock, KERL)
+     * @param member      the local member identity (must be controlled identifier with signing capability)
+     * @param context     the membership context for BFT operations
+     * @param observer    event observer for publishing validated KERLs to unified log
+     * @param router      the GRPC router for both admissions and endorsement channels
+     * @param metrics     metrics collector for monitoring admission operations
+     * @throws NullPointerException if any parameter is null
+     */
     public Gorgoneion(Predicate<SignedAttestation> verifier, BiFunction<Credentials, Validations, Any> provisioner,
                       Parameters parameters, ControlledIdentifierMember member, Context<Member> context,
                       ProtoEventObserver observer, Router router, GorgoneionMetrics metrics) {
@@ -118,13 +206,57 @@ public class Gorgoneion implements Closeable {
 
     /**
      * Get the replay cache for metrics monitoring.
+     * <p>
+     * Provides access to the internal replay cache for observing cache statistics
+     * such as hit rate, eviction rate, and current size. Useful for operational
+     * monitoring and capacity planning.
+     * </p>
      *
-     * @return The replay cache instance
+     * @return the replay cache instance (never null)
      */
     public ReplayCache getReplayCache() {
         return replayCache;
     }
 
+    /**
+     * Creates a Gorgoneion service with separate routers for admissions and endorsement.
+     * <p>
+     * This is the primary constructor that initializes the full service infrastructure:
+     * <ul>
+     *   <li>Creates replay cache for nonce deduplication</li>
+     *   <li>Initializes credential validator for timestamp and signature verification</li>
+     *   <li>Establishes admissions communication channel for client-facing operations</li>
+     *   <li>Establishes endorsement communication channel for BFT consensus</li>
+     *   <li>Starts scheduled executor for BFT communication rounds</li>
+     * </ul>
+     * </p>
+     *
+     * <h3>Preconditions</h3>
+     * <ul>
+     *   <li>Member must be a controlled identifier with valid signing keys</li>
+     *   <li>Context must contain at least 1 member</li>
+     *   <li>KERL must be initialized in parameters</li>
+     *   <li>Routers must be properly configured with MTLS</li>
+     * </ul>
+     *
+     * <h3>Resources Created</h3>
+     * <ul>
+     *   <li>ScheduledExecutorService (virtual thread pool) - shutdown via {@link #close()}</li>
+     *   <li>ReplayCache (Caffeine cache) - automatic TTL-based cleanup</li>
+     *   <li>GRPC server channels - managed by router lifecycle</li>
+     * </ul>
+     *
+     * @param verifier          predicate to verify external attestations (e.g., AWS, GCP signatures)
+     * @param provisioner       function to generate provisioning data after successful admission
+     * @param parameters        configuration parameters (timeouts, clock, KERL, digest algorithm)
+     * @param member            the local member identity (must be controlled identifier with signing capability)
+     * @param context           the membership context for BFT subset calculation and member lookup
+     * @param observer          event observer for publishing validated KERLs to unified log
+     * @param admissionsRouter  the GRPC router for client-facing admissions operations (apply/register)
+     * @param metrics           metrics collector for monitoring admission operations
+     * @param endorsementRouter the GRPC router for BFT consensus operations (endorse/validate/enroll)
+     * @throws NullPointerException if any parameter is null
+     */
     public Gorgoneion(Predicate<SignedAttestation> verifier, BiFunction<Credentials, Validations, Any> provisioner,
                       Parameters parameters, ControlledIdentifierMember member, Context<Member> context,
                       ProtoEventObserver observer, Router admissionsRouter, GorgoneionMetrics metrics,
@@ -148,6 +280,38 @@ public class Gorgoneion implements Closeable {
                                                    EndorsementClient.getCreate(metrics),
                                                    Endorsement.getLocalLoopback(member, service));
     }
+
+    /**
+     * Gracefully shuts down the Gorgoneion service and releases all resources.
+     * <p>
+     * This method performs an orderly shutdown:
+     * <ol>
+     *   <li>Checks if already shutdown (idempotent)</li>
+     *   <li>Initiates executor service shutdown</li>
+     *   <li>Waits up to 30 seconds for running tasks to complete</li>
+     *   <li>Forces shutdown if timeout exceeded</li>
+     *   <li>Interrupts current thread if interrupted during wait</li>
+     * </ol>
+     * </p>
+     *
+     * <h3>Thread Safety</h3>
+     * <p>Safe to call from multiple threads. Only the first call initiates shutdown.</p>
+     *
+     * <h3>Blocking Behavior</h3>
+     * <p>This method blocks for up to 30 seconds waiting for graceful shutdown.
+     * If tasks are still running after 30 seconds, forces immediate termination.</p>
+     *
+     * <h3>Exception Handling</h3>
+     * <p>If interrupted during shutdown wait, this method:
+     * <ul>
+     *   <li>Forces immediate shutdown via shutdownNow()</li>
+     *   <li>Restores the thread's interrupt status</li>
+     *   <li>Does not throw InterruptedException (swallows it after cleanup)</li>
+     * </ul>
+     * </p>
+     *
+     * @see java.io.Closeable#close()
+     */
     @Override
     public void close() {
         if (!scheduler.isShutdown()) {

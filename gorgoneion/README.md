@@ -47,6 +47,96 @@ below illustrates the protocol interaction
     a majority of validations and then publishes the joining member's KERL and associated Validations to the destination
     Unified KERL
 
+## Security Properties
+
+### Byzantine Fault Tolerance
+
+Gorgoneion provides Byzantine fault-tolerant identity admission through cryptographic validation and consensus:
+
+- **BFT Model**: 3f+1 fault tolerance (tolerates up to f Byzantine failures in a cluster of 3f+1 members)
+- **Quorum Requirements**:
+  - Majority threshold: `⌈(n + f + 1) / 2⌉` where n = context size, f = max failures
+  - Single-member contexts: majority = 1 (bootstrapping case)
+  - Multi-member contexts: majority computed via `context.majority()`
+- **Deterministic Subset**: BFT subset for each identifier computed deterministically using `context.bftSubset(digest(identifier))` ensuring all members agree on validators
+- **Signature Verification**: Every signature (nonce endorsements, credential validations, notarizations) cryptographically verified using member's current KERL state keys
+- **Liveness**: Admission succeeds if BFT subset has honest majority reachable within timeout
+
+### Cryptographic Validation
+
+All protocol messages are cryptographically protected:
+
+- **KERL Chain Validation**:
+  - Must start with InceptionEvent and end with EstablishmentEvent
+  - Sequential signature verification using KeyEventProcessor
+  - Sequence number monotonicity (exact increment by 1)
+  - Digest chain integrity (priorEventDigest matches previous event hash)
+  - Pre-rotation commitment validation
+- **Nonce Endorsement**:
+  - BFT subset members sign nonce with their KERL signing keys
+  - Signatures verified against members' current key state
+  - Requires BFT majority of valid signatures
+- **Attestation Verification**:
+  - External attestation signature verified using configurable verifier predicate
+  - Supports AWS, GCP, Azure, SGX/TPM attestation mechanisms
+  - Attestation must sign the nonce (binding attestation to this admission session)
+- **Validation Signatures**:
+  - Each BFT member signs the inception event
+  - Signatures verified using validator's establishment keys from KERL
+  - Only validators in expected BFT subset accepted
+
+### Freshness Requirements
+
+Time-based defenses against replay and stale credential attacks:
+
+- **Nonce Timestamp Validity Window**:
+  - Valid if: `now - maxDuration ≤ timestamp ≤ now + clockSkewTolerance`
+  - Default: `maxDuration = 30 seconds` (past tolerance)
+  - Default: `clockSkewTolerance = 5 seconds` (future tolerance)
+  - Prevents replay of old nonces and acceptance of far-future timestamps
+- **Attestation Timestamp Ordering**:
+  - Attestation timestamp must be ≥ nonce timestamp
+  - Prevents attestation-before-nonce attacks
+  - Both timestamps validated against current time
+- **Replay Cache**:
+  - Nonces cached after admission to prevent duplicate submissions
+  - Cache TTL: `maxDuration + clockSkewTolerance` (default: 35 seconds)
+  - Bounded size: 10,000 entries with LRU eviction (DoS prevention)
+  - Lookup time: <1ms p99
+- **Cache Invalidation Policy**:
+  - Automatic TTL-based expiration after nonce validity window
+  - LRU eviction when cache reaches maximum size
+  - No manual invalidation required in normal operation
+
+### Replay Attack Prevention
+
+Multi-layer defense against credential replay:
+
+1. **Nonce Uniqueness**:
+   - Each nonce contains cryptographically random noise (digest)
+   - Combined with timestamp and issuer forms unique key
+   - Probability of collision: negligible (2^-256 for SHA-256)
+2. **Replay Cache Admission**:
+   - First submission of nonce admits it to cache
+   - Subsequent submissions with same (noise, issuer, timestamp) rejected
+   - Synchronized check-then-act pattern ensures atomicity
+3. **Timestamp Freshness**:
+   - Old nonces (>maxDuration) rejected before cache check
+   - Future nonces (>clockSkewTolerance) rejected
+   - Limits cache pollution from invalid submissions
+4. **BFT Subset Validation**:
+   - Even if replayed nonce passes cache, attestation must be fresh
+   - BFT validators independently verify timestamps
+   - Majority consensus required for admission
+
+### Consistency Guarantees
+
+- **Admission Consistency**: Once a KERL is admitted with BFT majority validations, all honest members will accept the identity
+- **Validation Consistency**: Validations from BFT subset are cryptographically bound to the inception event
+- **KERL Publication**: Notarization ensures KERL is published to unified log only after BFT majority agreement
+- **Identifier Uniqueness**: KERI's self-addressing identifiers (hash of inception event) prevent identifier collisions
+- **Single-Member Bootstrap**: Degrades gracefully to single-member mode for initial cluster bootstrap
+
 # Certificate Authority Functionality
 
 Note that the Gorgoneion protocol serves the same function as a centralized Certification Authority (CA). At the end of
