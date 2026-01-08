@@ -66,6 +66,7 @@ import java.util.Set;
 import java.util.concurrent.*;
 import java.util.function.BiFunction;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 import static com.hellblazer.delos.stereotomy.event.protobuf.ProtobufEventFactory.digestOf;
 
@@ -174,6 +175,22 @@ public class Gorgoneion implements Closeable {
                               .setId(member.getId().toDigeste())
                               .setSignature(member.sign(request.toByteString()).toSig())
                               .build();
+    }
+
+    /**
+     * Compute the expected BFT subset for an identifier and return their member digests.
+     *
+     * @param ident The identifier to compute subset for
+     * @return Set of Digest IDs that are valid signers for this identifier
+     */
+    private Set<Digest> expectedBftSigners(Ident ident) {
+        if (context.size() == 1) {
+            return Set.of(member.getId());
+        }
+        return context.bftSubset(digestOf(ident, parameters.digestAlgorithm()))
+                      .stream()
+                      .map(Member::getId)
+                      .collect(Collectors.toSet());
     }
 
     private void enroll(Notarization request) {
@@ -503,6 +520,7 @@ public class Gorgoneion implements Closeable {
         }
 
         final var serialized = sn.getNonce().toByteString();
+        var expectedSigners = expectedBftSigners(sn.getNonce().getMember());
         var count = 0;
         var issuerSigned = false;
         for (var signature : sn.getSignaturesList()) {
@@ -510,6 +528,11 @@ public class Gorgoneion implements Closeable {
             var m = context.getMember(id);
             if (m == null) {
                 log.warn("Credential nonce, unknown signing member: {} from: {} on: {}", m, from, member.getId());
+                continue;
+            }
+            if (!expectedSigners.contains(id)) {
+                log.warn("Credential nonce signature from non-BFT-subset member: {} from: {} on: {}", id, from,
+                         member.getId());
                 continue;
             }
             if (!m.verify(JohnHancock.from(signature.getSignature()), serialized)) {
@@ -768,8 +791,16 @@ public class Gorgoneion implements Closeable {
         private boolean validate(Notarization request, Identifier identifier, KERL_ kerl, Digest from) {
             if (ProtobufEventFactory.from(kerl.getEvents(kerl.getEventsCount() - 1))
                                     .event() instanceof EstablishmentEvent establishment) {
+                var expectedValidators = expectedBftSigners(identifier.toIdent());
                 var count = 0;
                 for (var validation : request.getValidations().getValidationsList()) {
+                    var validatorDigest = digestOf(validation.getValidator().getIdentifier(),
+                                                   parameters.digestAlgorithm());
+                    if (!expectedValidators.contains(validatorDigest)) {
+                        log.warn("Notarization validation from non-BFT-subset validator: {} from: {} on: {}",
+                                 validatorDigest, from, member.getId());
+                        continue;
+                    }
                     if (new DefaultVerifier(
                     parameters.kerl().getKeyState(EventCoordinates.from(validation.getValidator())).getKeys()).verify(
                     JohnHancock.from(validation.getSignature()), establishment.toKeyEvent_().toByteString())) {
