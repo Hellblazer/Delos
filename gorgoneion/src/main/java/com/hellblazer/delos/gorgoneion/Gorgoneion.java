@@ -31,26 +31,36 @@ import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.membership.stereotomy.ControlledIdentifierMember;
 import com.hellblazer.delos.ring.SliceIterator;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
+import com.hellblazer.delos.stereotomy.KeyState;
 import com.hellblazer.delos.stereotomy.event.EstablishmentEvent;
 import com.hellblazer.delos.stereotomy.event.InceptionEvent;
+import com.hellblazer.delos.stereotomy.event.KeyEvent;
 import com.hellblazer.delos.stereotomy.event.proto.Ident;
 import com.hellblazer.delos.stereotomy.event.proto.KERL_;
+import com.hellblazer.delos.stereotomy.event.proto.KeyEventWithAttachments;
 import com.hellblazer.delos.stereotomy.event.proto.Validation_;
 import com.hellblazer.delos.stereotomy.event.proto.Validations;
 import com.hellblazer.delos.stereotomy.event.protobuf.ProtobufEventFactory;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
+import com.hellblazer.delos.stereotomy.processing.InvalidKeyEventException;
+import com.hellblazer.delos.stereotomy.processing.KeyEventProcessor;
+import com.hellblazer.delos.stereotomy.processing.MissingEventException;
 import com.hellblazer.delos.stereotomy.services.proto.ProtoEventObserver;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
+import org.joou.ULong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.io.Closeable;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.*;
@@ -76,11 +86,21 @@ public class Gorgoneion implements Closeable {
     private final ScheduledExecutorService                              scheduler;
     private final BiFunction<Credentials, Validations, Any>             provisioner;
     private final Endorse                                               service = new Endorse();
+    private final ReplayCache                                           replayCache;
 
     public Gorgoneion(Predicate<SignedAttestation> verifier, BiFunction<Credentials, Validations, Any> provisioner,
                       Parameters parameters, ControlledIdentifierMember member, Context<Member> context,
                       ProtoEventObserver observer, Router router, GorgoneionMetrics metrics) {
         this(verifier, provisioner, parameters, member, context, observer, router, metrics, router);
+    }
+
+    /**
+     * Get the replay cache for metrics monitoring.
+     *
+     * @return The replay cache instance
+     */
+    public ReplayCache getReplayCache() {
+        return replayCache;
     }
 
     public Gorgoneion(Predicate<SignedAttestation> verifier, BiFunction<Credentials, Validations, Any> provisioner,
@@ -94,6 +114,7 @@ public class Gorgoneion implements Closeable {
         this.observer = observer;
         this.provisioner = provisioner;
         this.scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
+        this.replayCache = new ReplayCache(10000, parameters.maxDuration(), Duration.ofSeconds(5));
 
         admissionsComm = admissionsRouter.create(member, context.getId(), new Admit(), ":admissions",
                                                  r -> new AdmissionsServer(admissionsRouter.getClientIdentityProvider(),
@@ -397,40 +418,165 @@ public class Gorgoneion implements Closeable {
             }
         }
 
+        /**
+         * Validates the complete KERL event chain.
+         * Processes each event sequentially, validating:
+         * - Event signatures against prior state
+         * - Sequence number monotonicity (exact increment by 1)
+         * - Digest chain integrity (each event's priorEventDigest matches hash of previous)
+         * - Pre-rotation commitments
+         * - Configuration traits
+         *
+         * @param kerl the KERL protobuf containing the event chain
+         * @return the final KeyState after validating all events
+         * @throws StatusRuntimeException if validation fails
+         */
+        private KeyState validateChain(KERL_ kerl) throws StatusRuntimeException {
+            // Step 1: Check KERL is not empty
+            if (kerl.getEventsCount() == 0) {
+                throw new StatusRuntimeException(Status.UNAUTHENTICATED.withDescription("Empty KERL"));
+            }
+
+            // Step 2: Deserialize all events
+            List<KeyEvent> events = new ArrayList<>();
+            for (int i = 0; i < kerl.getEventsCount(); i++) {
+                try {
+                    var eventWithAttach = ProtobufEventFactory.from(kerl.getEvents(i));
+                    var event = eventWithAttach.event();
+                    if (event == null) {
+                        throw new StatusRuntimeException(
+                            Status.INVALID_ARGUMENT.withDescription("Event " + i + " failed to deserialize"));
+                    }
+                    events.add(event);
+                } catch (Exception e) {
+                    log.warn("Failed to deserialize event {} from KERL: {}", i, e.getMessage());
+                    throw new StatusRuntimeException(
+                        Status.INVALID_ARGUMENT.withDescription("Invalid event at index " + i));
+                }
+            }
+
+            // Step 3: Create processor for sequential validation
+            KeyEventProcessor processor = new KeyEventProcessor(parameters.kerl());
+
+            // Step 4: Process each event sequentially
+            KeyState currentState = null;
+            for (int i = 0; i < events.size(); i++) {
+                KeyEvent event = events.get(i);
+                try {
+                    currentState = processor.process(event);
+
+                    // Validate sequence number progression
+                    if (!currentState.getSequenceNumber().equals(ULong.valueOf(i))) {
+                        throw new StatusRuntimeException(Status.INVALID_ARGUMENT.withDescription(
+                            "Invalid sequence number at index " + i + ": expected " + i + " got "
+                            + currentState.getSequenceNumber()));
+                    }
+
+                    log.debug("Validated event {} in KERL chain: {}", i, event.getIlk());
+
+                } catch (InvalidKeyEventException e) {
+                    // Signature verification failed
+                    log.warn("Invalid signature at event {} in KERL: {}", i, e.getMessage());
+                    throw new StatusRuntimeException(
+                        Status.UNAUTHENTICATED.withDescription("Invalid event signature: " + e.getMessage()));
+
+                } catch (MissingEventException e) {
+                    // Previous event missing from KERL
+                    log.warn("Missing previous event for event {}: {}", i, e.getMessage());
+                    throw new StatusRuntimeException(
+                        Status.FAILED_PRECONDITION.withDescription("Incomplete KERL chain"));
+
+                } catch (StatusRuntimeException e) {
+                    // Re-throw StatusRuntimeException as-is
+                    throw e;
+
+                } catch (Exception e) {
+                    log.error("Unexpected error validating event {} in KERL", i, e);
+                    throw new StatusRuntimeException(
+                        Status.INTERNAL.withDescription("Error validating KERL chain"));
+                }
+            }
+
+            return currentState; // Final state after all events validated
+        }
+
         private boolean validate(Credentials credentials, Digest from) {
             var signedAtt = credentials.getAttestation();
             var kerl = signedAtt.getAttestation().getKerl();
-            if (kerl.getEventsCount() == 0) {
-                log.warn("Invalid credentials, no KERL from: {} on: {}", from, member.getId());
-                return false;
-            }
-            if (ProtobufEventFactory.from(kerl.getEvents(kerl.getEventsCount() - 1))
-                                    .event() instanceof EstablishmentEvent establishment) {
 
-                final var verifier = new Verifier.DefaultVerifier(establishment.getKeys());
-                if (!verifier.verify(JohnHancock.from(signedAtt.getSignature()),
-                                     signedAtt.getAttestation().toByteString())) {
-                    log.warn("Invalid attestation, invalid signature from: {} on: {}", establishment.getIdentifier(),
-                             member.getId());
-                    return false;
-                }
-                if (!verifier.verify(JohnHancock.from(signedAtt.getAttestation().getNonce()),
-                                     credentials.getNonce().toByteString())) {
-                    log.warn("Invalid attestation, invalid nonce signature from: {} on: {}",
-                             establishment.getIdentifier(), member.getId());
-                    return false;
-                }
-                return true;
-            } else {
+            // Validate the entire KERL chain
+            KeyState validatedState;
+            try {
+                validatedState = validateChain(kerl);
+            } catch (StatusRuntimeException e) {
+                log.warn("KERL chain validation failed from: {} - {}", from, e.getStatus().getDescription());
                 return false;
             }
+
+            // Verify the identifier matches the sender
+            if (validatedState.getIdentifier() instanceof SelfAddressingIdentifier sai) {
+                if (!sai.getDigest().equals(from)) {
+                    log.warn("KERL identifier {} does not match sender {}", sai.getDigest(), from);
+                    return false;
+                }
+            } else {
+                log.warn("KERL identifier is not SelfAddressingIdentifier from: {}", from);
+                return false;
+            }
+
+            // Validate attestation signature using final state's keys
+            if (validatedState.getLastEstablishmentEvent() != null) {
+                // Get the establishment event (inception or last rotation)
+                var establishment = ProtobufEventFactory.from(
+                    kerl.getEvents(validatedState.getLastEstablishmentEvent().getSequenceNumber().intValue())).event();
+
+                if (establishment instanceof EstablishmentEvent est) {
+                    final var verifier = new Verifier.DefaultVerifier(est.getKeys());
+                    if (!verifier.verify(JohnHancock.from(signedAtt.getSignature()),
+                                         signedAtt.getAttestation().toByteString())) {
+                        log.warn("Invalid attestation, invalid signature from: {} on: {}",
+                                 validatedState.getIdentifier(), member.getId());
+                        return false;
+                    }
+                    if (!verifier.verify(JohnHancock.from(signedAtt.getAttestation().getNonce()),
+                                         credentials.getNonce().toByteString())) {
+                        log.warn("Invalid attestation, invalid nonce signature from: {} on: {}",
+                                 validatedState.getIdentifier(), member.getId());
+                        return false;
+                    }
+                }
+            }
+
+            log.info("Validated complete KERL chain from: {} on: {}", from, member.getId());
+            return true;
         }
 
         private boolean validate(KERL_ kerl, Digest from) {
-            if (identifier(kerl) instanceof SelfAddressingIdentifier sai) {
-                return sai.getDigest().equals(from);
+            try {
+                // Use validateChain for complete validation
+                KeyState validatedState = validateChain(kerl);
+
+                // Verify the identifier matches the sender
+                if (validatedState.getIdentifier() instanceof SelfAddressingIdentifier sai) {
+                    if (!sai.getDigest().equals(from)) {
+                        log.warn("KERL identifier {} does not match sender {} on: {}", sai.getDigest(), from,
+                                 member.getId());
+                        return false;
+                    }
+                    return true;
+                } else {
+                    log.warn("KERL identifier is not SelfAddressingIdentifier from: {}", from);
+                    return false;
+                }
+
+            } catch (StatusRuntimeException e) {
+                log.warn("KERL validation failed from: {} - {} on: {}", from, e.getStatus().getDescription(),
+                         member.getId());
+                return false;
+            } catch (Exception e) {
+                log.error("Error validating KERL from: {} on: {}", from, member.getId(), e);
+                return false;
             }
-            return false;
         }
 
     }
@@ -494,6 +640,14 @@ public class Gorgoneion implements Closeable {
                 log.warn("Invalid nonce, invalid timestamp: {} from: {} on: {}", nInstant, from, member.getId());
                 return false;
             }
+
+            // Replay attack prevention: Check if we've seen this nonce before
+            var nonceKey = new ReplayCache.NonceKey(Digest.from(request.getNoise()), issuer, request.getTimestamp());
+            if (!replayCache.tryAdmit(nonceKey)) {
+                log.warn("Replay attack detected: duplicate nonce from: {} on: {}", from, member.getId());
+                return false;
+            }
+
             log.info("Validated nonce from: {} on: {}", from, member.getId());
             return true;
         }
@@ -549,6 +703,13 @@ public class Gorgoneion implements Closeable {
             if (now.isBefore(nInstant) || nInstant.plus(parameters.maxDuration()).isBefore(now)) {
                 log.warn("Invalid credential nonce, invalid timestamp: {} from: {} on: {}", nInstant, from,
                          member.getId());
+                return false;
+            }
+
+            // Replay attack prevention: Check if we've seen this nonce before
+            var nonceKey = new ReplayCache.NonceKey(Digest.from(sn.getNonce().getNoise()), issuer, sn.getNonce().getTimestamp());
+            if (!replayCache.tryAdmit(nonceKey)) {
+                log.warn("Replay attack detected: duplicate credential nonce from: {} on: {}", from, member.getId());
                 return false;
             }
 
