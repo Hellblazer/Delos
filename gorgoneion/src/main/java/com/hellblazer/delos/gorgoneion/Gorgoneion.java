@@ -329,9 +329,9 @@ public class Gorgoneion implements Closeable {
             return Empty.getDefaultInstance();
         }, (futureSailor, _, _, member) -> completeEnrollment(futureSailor, member, completed), () -> {
             if (completed.size() < majority) {
-                var sre = new StatusRuntimeException(Status.ABORTED.withDescription("Cannot complete enrollment"));
-                result.completeExceptionally(sre);
-                throw sre;
+                // Complete the future exceptionally and return normally
+                // Exception will be propagated when caller invokes .get() on the future
+                result.completeExceptionally(new StatusRuntimeException(Status.ABORTED.withDescription("Cannot complete enrollment")));
             } else {
                 result.complete(validations);
             }
