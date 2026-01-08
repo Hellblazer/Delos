@@ -85,6 +85,27 @@ public class Gorgoneion implements Closeable {
     private final Parameters                                            parameters;
     private final Predicate<SignedAttestation>                          verifier;
     private final ScheduledExecutorService                              scheduler;
+    /**
+     * Provisioner contract: Generates provisioning data for successfully validated credentials.
+     *
+     * <p>Contract:
+     * <ul>
+     *   <li>Called after credential validation succeeds and validations are collected from BFT quorum.
+     *   <li>Input credentials have been validated as authentic and match expected KERL chain.
+     *   <li>Validations parameter contains consensus signatures from BFT members confirming the credentials.
+     *   <li>Must return an Any message containing provisioning details for the newly admitted member.
+     *   <li>Should be idempotent: applying same valid (credentials, validations) pair should yield same result.
+     *   <li>Should not throw checked exceptions; if provisioning fails, return an error message wrapped in Any or empty Any.
+     *   <li>Null return value is treated as provisioning failure and results in no provisioning data being returned.
+     * </ul>
+     *
+     * <p>Usage:
+     * Invoked in two paths:
+     * <ul>
+     *   <li>Single-member context (line 326): Direct provision after local validation.
+     *   <li>Multi-member context (line 355): After gathering BFT quorum validations via notarization.
+     * </ul>
+     */
     private final BiFunction<Credentials, Validations, Any>             provisioner;
     private final Endorse                                               service = new Endorse();
     private final ReplayCache                                           replayCache;
@@ -198,9 +219,20 @@ public class Gorgoneion implements Closeable {
     }
 
     private Establishment establish(Credentials credentials, Validations validations) {
+        Any provisioning = null;
+        try {
+            provisioning = provisioner.apply(credentials, validations);
+            if (provisioning == null) {
+                log.warn("Provisioner returned null for credentials with {} validations", validations.getValidationsCount());
+                provisioning = Any.getDefaultInstance();
+            }
+        } catch (Exception e) {
+            log.error("Provisioner failed to generate provisioning data: {}", e.getMessage(), e);
+            provisioning = Any.getDefaultInstance();
+        }
         return Establishment.newBuilder()
                             .setValidations(validations)
-                            .setProvisioning(provisioner.apply(credentials, validations))
+                            .setProvisioning(provisioning)
                             .buildPartial();
     }
 
@@ -321,9 +353,20 @@ public class Gorgoneion implements Closeable {
         var successors = context.bftSubset(digestOf(identifier.toIdent(), parameters.digestAlgorithm()));
         if (context.size() == 1) {
             var validations = Validations.newBuilder().addValidations(validate(request)).build();
+            Any provisioning = null;
+            try {
+                provisioning = provisioner.apply(request, validations);
+                if (provisioning == null) {
+                    log.warn("Provisioner returned null for credentials with {} validations", validations.getValidationsCount());
+                    provisioning = Any.getDefaultInstance();
+                }
+            } catch (Exception e) {
+                log.error("Provisioner failed to generate provisioning data: {}", e.getMessage(), e);
+                provisioning = Any.getDefaultInstance();
+            }
             return Establishment.newBuilder()
                                 .setValidations(validations)
-                                .setProvisioning(provisioner.apply(request, validations))
+                                .setProvisioning(provisioning)
                                 .build();
         }
         final var majority = context.size() == 1 ? 1 : context.majority();
