@@ -2,9 +2,9 @@
 
 **Master Navigation Guide for Delos Distributed Systems Platform**
 
-**Last Updated**: 2026-01-09 (Phase 3.4 Complete)
-**Version**: 2.1
-**Status**: Operations & Maintenance - Phase 3.4 (80% complete): Performance, Operations, Disaster Recovery, and Troubleshooting guides published
+**Last Updated**: 2026-01-09 (Phase 3.5 Complete)
+**Version**: 2.2
+**Status**: Operations & Maintenance - Phase 3 (100% complete): All 5 operational guides published and production-ready
 
 ---
 
@@ -480,20 +480,31 @@ These documents establish the core concepts, security model, and deployment proc
 - **Length**: 1150+ lines
 - **Status**: ✅ Complete - production diagnostics and recovery
 
-### Coming Soon (Phase 3 Continuation)
+### Monitoring & Alerting
 
-**MONITORING_ALERTING.md** (⏳ In Development - Phase 3.5)
-- Metrics collection and reference
-- Key metrics to monitor (30+)
-- Dashboard setup (Grafana templates)
-- Alerting rules and thresholds
-- On-call guide
+**[MONITORING_ALERTING.md](MONITORING_ALERTING.md)** ✅ NEW
+- Prometheus and AlertManager configuration for all cluster sizes
+- 40+ key metrics reference with health ranges
+- 4 Grafana dashboards with production-ready queries
+- 12 alerting rules (5 critical, 5 warning, 2 info)
+- Alert response playbooks with escalation procedures
+- On-call guide with SLA targets
+- **Length**: 950+ lines
+- **Status**: ✅ Complete - production monitoring ready
+
+### Coming Soon
 
 **DEBUGGING_GUIDE.md** (Planned for Phase 3.6)
 - Remote debugging setup
 - Multi-node cluster debugging
 - Consensus issue diagnosis
 - Performance profiling
+
+**Phase 4: Advanced Operations** (Planned for future)
+- Capacity planning deep dive
+- Multi-cluster federation
+- Advanced troubleshooting scenarios
+- Custom metrics and extensions
 
 ---
 
