@@ -228,35 +228,53 @@ public final class Fsm<Context, Transitions> {
     }
 
     /**
-     * Pop a previously pushed state off the stack, restoring it as the current state.
+     * Pop the current state and restore the previously pushed state from the stack.
      *
      * <h2>Execution Semantics</h2>
      * <ol>
      *   <li>The current state's exit action executes (if defined)
-     *   <li>The state is popped from the stack and becomes current
-     *   <li>The popped state's entry action executes (if defined)
-     *   <li>Optional pending transition can be executed on the popped state
+     *   <li>The state is removed from the stack and becomes current again with its saved context
+     *   <li>The restored state's entry action does NOT execute (it was never exited, only suspended by push)
+     *   <li>Optional pending transition can be executed on the restored state
      * </ol>
      *
+     * <h2>Stack Restoration</h2>
+     * Pop restores the complete state that was saved by the most recent push():
+     * <ul>
+     *   <li>Restores both the state and its associated context
+     *   <li>Complements the push() operation to implement hierarchical state entry/exit
+     *   <li>Throws IllegalStateException if stack is empty (nothing to pop)
+     * </ul>
+     *
+     * <h2>Entry/Exit Action Semantics</h2>
+     * The restoration pattern maintains symmetry with suspension:
+     * <ul>
+     *   <li><strong>On push</strong>: Current state is suspended (no exit action), new state entered
+     *   <li><strong>On pop</strong>: Current state is exited, previous state restored (no entry action)
+     * </ul>
+     * This ensures that push/pop pairs maintain consistent semantics: a state that was suspended without
+     * exiting will be restored without re-entering, preserving its internal state exactly.
+     *
      * <h2>Pending Transitions</h2>
-     * After calling pop(), you can optionally fire a transition on the popped state:
+     * After calling pop(), you can optionally fire a transition on the restored state:
      * <pre>
-     *   // Pop and return to previous state
+     *   // Pop from subprocess back to parent
      *   var restored = fsm.pop();
      *
      *   // Optionally fire a transition on the restored state
-     *   restored.someTransition();
+     *   restored.continueProcessing();
      *
-     *   // Or just exit without further transition
+     *   // Or just return control
      *   return null;
      * </pre>
      *
      * <h2>Constraints</h2>
      * <ul>
      *   <li>Stack must not be empty (throws IllegalStateException if empty)
-     *   <li>Cannot pop() while a push() is already pending (throws IllegalStateException)
-     *   <li>Cannot call pop() twice without intervening transition (throws IllegalStateException)
-     *   <li>Do NOT call pop() from within entry/exit actions (causes pending transitions to elide)
+     *   <li>Cannot pop if another pop is already pending (throws IllegalStateException)
+     *   <li>Cannot pop if a push is already pending (throws IllegalStateException)
+     *   <li>Do NOT call pop() from within entry/exit actions (causes pending transitions to elide,
+     *       meaning they will be skipped/cancelled rather than executed)
      * </ul>
      *
      * @return the Transitions proxy for firing an optional pending transition on the popped state
@@ -312,19 +330,31 @@ public final class Fsm<Context, Transitions> {
      *
      * <h2>Execution Semantics</h2>
      * <ol>
-     *   <li>The current state is saved to the stack (current exit action NOT executed)
-     *   <li>The supplied state becomes the current state
+     *   <li>The current state is <strong>saved to the stack unchanged</strong> (current exit action NOT executed,
+     *       because we're not exiting the state - we're saving it for later restoration)
+     *   <li>The supplied state becomes the current state with the new context
      *   <li>The new state's entry action executes (if defined)
      *   <li>Optional pending transition can be executed on the new state
      * </ol>
      *
-     * <h2>Stack Semantics</h2>
-     * The FSM maintains a stack of saved states for hierarchical state machines. When you push a state:
+     * <h2>Why Exit Action is NOT Executed on Push</h2>
+     * Push represents a hierarchical state entry (like a subroutine call), not a state exit.
+     * The current state is suspended and saved, but not exited. Compare with transitions:
      * <ul>
-     *   <li>The previous current state is saved on the stack
+     *   <li><strong>Normal transition</strong>: StateA.exit() → state changes → StateB.entry()
+     *   <li><strong>Push</strong>: StateA → stack, StateB.entry() (no StateA.exit())
+     *   <li><strong>Pop</strong>: StateB.exit() → StateA restored from stack (no StateA.entry())
+     * </ul>
+     *
+     * <h2>Stack Semantics</h2>
+     * The FSM maintains a stack of saved states for hierarchical (nested) state machines. When you push a state:
+     * <ul>
+     *   <li>The previous current state is saved on the stack (as a complete State object with context)
      *   <li>The new state becomes the current state with the supplied context
-     *   <li>Later calling pop() will restore the previous state and context
-     *   <li>Stack depth is limited to {@value #MAX_STACK_DEPTH} to prevent unbounded growth
+     *   <li>Later calling pop() will restore the previous state and context, executing its exit action
+     *   <li>Stack depth is limited to {@value #MAX_STACK_DEPTH} (= 16) to prevent unbounded growth
+     *       during deeply nested state hierarchies. This limit accommodates most practical hierarchical
+     *       FSM designs while preventing stack overflow from programming errors or infinite recursion.
      * </ul>
      *
      * <h2>Pending Transitions</h2>
@@ -346,7 +376,9 @@ public final class Fsm<Context, Transitions> {
      *   <li>Cannot push while another push is already pending (throws IllegalStateException)
      *   <li>Cannot push after a pop is already pending (throws IllegalStateException)
      *   <li>Stack depth must not exceed {@value #MAX_STACK_DEPTH} (throws IllegalStateException)
-     *   <li>Do NOT call push() from within entry/exit actions (causes pending transitions to elide)
+     *   <li>Do NOT call push() from within entry/exit actions (causes pending transitions to elide,
+     *       meaning they will be skipped/cancelled rather than executed). This prevents transition
+     *       execution loops and maintains predictable execution order.
      * </ul>
      *
      * @param state   the new current state of the Fsm

@@ -29,9 +29,11 @@ import java.lang.annotation.Target;
  *
  * <h2>Constraints</h2>
  * <ul>
- *   <li>At most ONE method per state may be annotated with @Exit
- *   <li>If multiple @Exit methods are defined, only the first is executed
- *   <li>Exit actions must NOT call push() or pop() - this causes pending transitions to elide
+ *   <li><strong>Exactly ONE</strong> method per state must be annotated with @Exit. Defining multiple
+ *       @Exit methods on the same state is an error, though the implementation will silently execute
+ *       only the first method discovered by reflection (order is non-deterministic and JVM-dependent).
+ *       Applications should enforce this constraint during development and testing.
+ *   <li>Exit actions must NOT call push() or pop() - this causes pending transitions to elide (be skipped)
  *   <li>Exit action exceptions propagate to the transition caller
  * </ul>
  *
