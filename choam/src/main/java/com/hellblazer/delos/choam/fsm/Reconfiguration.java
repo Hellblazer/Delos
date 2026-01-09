@@ -127,14 +127,12 @@ public interface Reconfiguration {
                 return null;
             }
 
-            @Entry
-            public void vibin() {
-                context().vibeCheck();
-            }
-
-            // Check to see if we already have a full complement of committee Joins
+            // Entry to CHILLIN state: check assembly status, then proceed with waiting
             @Entry
             public void chillin() {
+                // Check current assembly status
+                context().vibeCheck();
+                // Proceed with waiting for full committee commitment
                 context().chill();
             }
         }, PROTOCOL_FAILURE {
