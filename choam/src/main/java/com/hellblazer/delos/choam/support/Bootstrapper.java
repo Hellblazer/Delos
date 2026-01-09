@@ -123,10 +123,7 @@ public class Bootstrapper {
 
     private void checkpointCompletion(int threshold, Initial mostRecent) {
         checkpoint = new HashedCertifiedBlock(params.digestAlgorithm(), mostRecent.getCheckpoint());
-        store.put(checkpoint);
-
         checkpointView = new HashedCertifiedBlock(params.digestAlgorithm(), mostRecent.getCheckpointView());
-        store.put(checkpointView);
         assert !checkpointView.height()
                               .equals(Unsigned.ulong(0)) : "Should not attempt when bootstrapping from genesis";
         var crown = HexBloom.from(checkpoint.block.getCheckpoint().getCrown());
@@ -153,7 +150,10 @@ public class Bootstrapper {
             if (!cps.validate(crown, Digest.from(checkpoint.block.getHeader().getLastCheckpointHash()))) {
                 throw new IllegalStateException("Cannot validate checkpoint: " + checkpoint.height());
             }
-            // Validate checkpoint chain integrity before restoring state
+            // Store checkpoint and view AFTER state validation succeeds but BEFORE accepting it
+            store.put(checkpoint);
+            store.put(checkpointView);
+            // Validate checkpoint chain integrity to ensure blocks are complete
             store.validateCheckpointChain(checkpoint.height());
             log.info("Restored checkpoint: {} diadem: {} chain validated on: {}", checkpoint.height(),
                      crown.compactWrapped(), params.member().getId());
