@@ -88,7 +88,7 @@ public class SliceIterator<Comm extends Link> {
     private <T> void internalIterate(Function<Comm, T> round, Runnable onMajority,
                                      SlicePredicateHandler<T, Comm> handler, Runnable onComplete, AtomicInteger tally,
                                      Runnable failedMajority, Duration frequency) {
-        Runnable proceed = () -> internalIterate(round, onMajority, handler, onComplete, tally, onMajority, frequency);
+        Runnable proceed = () -> internalIterate(round, onMajority, handler, onComplete, tally, failedMajority, frequency);
 
         var c = i + 1;
         i = c;
