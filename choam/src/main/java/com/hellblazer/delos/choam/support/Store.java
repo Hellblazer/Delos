@@ -357,6 +357,20 @@ public class Store {
      * @throws IllegalStateException if the referenced checkpoint is invalid
      */
     public void validateCheckpointChain(ULong from) throws IllegalStateException {
+        // Wrap validation in transactional context to prevent race conditions
+        // with concurrent block modifications. This ensures all getBlock() calls
+        // see a consistent snapshot of the store state.
+        transactionally(() -> {
+            validateCheckpointChainTransactional(from);
+        });
+    }
+
+    /**
+     * Internal method that performs checkpoint chain validation within a transactional context.
+     * This ensures atomic reads of checkpoint blocks, preventing race conditions where
+     * concurrent modifications could cause spurious validation failures.
+     */
+    private void validateCheckpointChainTransactional(ULong from) throws IllegalStateException {
         HashedBlock current = getBlock(from);
         if (current == null) {
             throw new IllegalStateException(
@@ -404,8 +418,8 @@ public class Store {
                     String.format("Invalid checkpoint chain from: %s - prior checkpoint hash mismatch at height %s: expected %s, found %s",
                                   from, priorCheckpointHeight, priorCheckpointHash, priorCheckpoint.hash));
                 }
-                // Continue validation recursively for available checkpoints
-                validateCheckpointChain(lastCheckpointHeight);
+                // Continue validation recursively for available checkpoints (within same transaction)
+                validateCheckpointChainTransactional(lastCheckpointHeight);
             }
         }
 
