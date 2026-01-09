@@ -499,11 +499,11 @@ public class Gorgoneion implements Closeable {
         return result;
     }
 
-    private Establishment register(Credentials request) {
+    private CompletableFuture<Establishment> registerAsync(Credentials request) {
         final var kerl = request.getAttestation().getAttestation().getKerl();
         final var identifier = identifier(kerl);
         if (identifier == null) {
-            throw new IllegalArgumentException("No identifier");
+            return CompletableFuture.failedFuture(new IllegalArgumentException("No identifier"));
         }
         log.debug("Validating credentials for: {} nonce signatures: {} on: {}", identifier,
                   request.getNonce().getSignaturesCount(), member.getId());
@@ -524,10 +524,11 @@ public class Gorgoneion implements Closeable {
                 log.error("Provisioner failed to generate provisioning data: {}", e.getMessage(), e);
                 provisioning = Any.getDefaultInstance();
             }
-            return Establishment.newBuilder()
-                                .setValidations(validations)
-                                .setProvisioning(provisioning)
-                                .build();
+            var establishment = Establishment.newBuilder()
+                                             .setValidations(validations)
+                                             .setProvisioning(provisioning)
+                                             .build();
+            return CompletableFuture.completedFuture(establishment);
         }
         final var majority = context.size() == 1 ? 1 : context.majority();
         final var redirecting = new SliceIterator<>("Credential verification", member, successors, endorsementComm,
@@ -539,8 +540,8 @@ public class Gorgoneion implements Closeable {
             return link.validate(request, parameters.registrationTimeout());
         }, (futureSailor, _, _, member) -> completeVerification(futureSailor, member, verifications), () -> {
             if (verifications.size() < majority) {
-                throw new StatusRuntimeException(
-                Status.ABORTED.withDescription("Cannot gather required credential validations"));
+                validated.completeExceptionally(new StatusRuntimeException(
+                Status.ABORTED.withDescription("Cannot gather required credential validations")));
             } else {
                 validated.complete(Validations.newBuilder()
                                               .setCoordinates(
@@ -554,15 +555,22 @@ public class Gorgoneion implements Closeable {
                           member.getId());
             }
         }, parameters.frequency());
+        // Return the chained future without blocking
+        return validated.thenCompose(v -> notarize(request, v))
+                       .thenApply(v -> establish(request, v));
+    }
+
+    private Establishment register(Credentials request) {
         try {
-            return validated.thenCompose(v -> notarize(request, v)).thenApply(v -> establish(request, v)).get();
+            return registerAsync(request).get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.error("Credential registration interrupted for identifier: {} on: {}", identifier, member.getId(), e);
+            log.error("Credential registration interrupted for identifier: {} on: {}",
+                      identifier(request.getAttestation().getAttestation().getKerl()), member.getId(), e);
             return null;
         } catch (ExecutionException e) {
-            log.error("Credential registration failed for identifier: {} on: {}", identifier, member.getId(),
-                      e.getCause());
+            log.error("Credential registration failed for identifier: {} on: {}",
+                      identifier(request.getAttestation().getAttestation().getKerl()), member.getId(), e.getCause());
             throw new StatusRuntimeException(Status.INTERNAL.withCause(e.getCause()));
         }
     }
@@ -853,18 +861,25 @@ public class Gorgoneion implements Closeable {
                 new StatusRuntimeException(Status.UNAUTHENTICATED.withDescription("Invalid credentials")));
                 return;
             }
-            try {
-                var estalishment = Gorgoneion.this.register(request);
-                if (estalishment == null) {
-                    responseObserver.onError(
-                    new StatusRuntimeException(Status.UNAUTHENTICATED.withDescription("Invalid credentials")));
-                } else {
-                    responseObserver.onNext(estalishment);
-                    responseObserver.onCompleted();
-                }
-            } catch (StatusRuntimeException e) {
-                responseObserver.onError(e);
-            }
+            // Start async registration without blocking the gRPC handler thread
+            // Use scheduler executor to ensure response is sent on a proper executor thread
+            Gorgoneion.this.registerAsync(request)
+                           .whenCompleteAsync((establishment, throwable) -> {
+                               if (throwable != null) {
+                                   if (throwable instanceof StatusRuntimeException sre) {
+                                       responseObserver.onError(sre);
+                                   } else {
+                                       responseObserver.onError(
+                                       new StatusRuntimeException(Status.INTERNAL.withCause(throwable)));
+                                   }
+                               } else if (establishment == null) {
+                                   responseObserver.onError(
+                                   new StatusRuntimeException(Status.UNAUTHENTICATED.withDescription("Invalid credentials")));
+                               } else {
+                                   responseObserver.onNext(establishment);
+                                   responseObserver.onCompleted();
+                               }
+                           }, scheduler);
         }
 
         private boolean validate(KERL_ kerl, Digest from) {
