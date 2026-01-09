@@ -74,7 +74,7 @@ import static io.grpc.Status.INVALID_ARGUMENT;
  *
  * @author hal.hildebrand
  */
-public class CHOAM {
+public class CHOAM implements ConsensusEngine {
     private static final Logger log = LoggerFactory.getLogger(CHOAM.class);
 
     private final    Map<ULong, CheckpointState>                           cachedCheckpoints     = new ConcurrentHashMap<>();
@@ -266,6 +266,7 @@ public class CHOAM {
                     .build();
     }
 
+    @Override
     public boolean active() {
         final var c = current.get();
         HashedCertifiedBlock h = head.get();
@@ -273,27 +274,33 @@ public class CHOAM {
         && c instanceof Administration && h.height().compareTo(ULong.valueOf(0)) >= 0;
     }
 
+    @Override
     public DelegatedContext<Member> context() {
         return params.context();
     }
 
+    @Override
     public ULong currentHeight() {
         final var c = head.get();
         return c == null ? null : c.height();
     }
 
+    @Override
     public Combine.Transitions getCurrentState() {
         return transitions.fsm().getCurrentState();
     }
 
+    @Override
     public Digest getId() {
         return params.member().getId();
     }
 
+    @Override
     public Session getSession() {
         return session;
     }
 
+    @Override
     public Digest getViewId() {
         final var viewChange = view.get();
         if (viewChange == null) {
@@ -325,6 +332,7 @@ public class CHOAM {
     /**
      * A view change has occurred
      */
+    @Override
     public void rotateViewKeys(ViewChange viewChange) {
         var context = viewChange.context();
         var diadem = viewChange.diadem();
@@ -383,7 +391,8 @@ public class CHOAM {
         }
     }
 
-    private void accept(HashedCertifiedBlock next) {
+    @Override
+    public void accept(HashedCertifiedBlock next) {
         head.set(next);
         store.put(next);
         final Committee c = current.get();
@@ -845,7 +854,8 @@ public class CHOAM {
         }
     }
 
-    private void recover(HashedCertifiedBlock anchor) {
+    @Override
+    public void recover(HashedCertifiedBlock anchor) {
         cancelBootstrap();
         log.info("Recovering from: {} height: {} on: {}", anchor.hash, anchor.height(), params.member().getId());
         cancelSynchronization();
@@ -866,7 +876,8 @@ public class CHOAM {
         }));
     }
 
-    private void restore() throws IllegalStateException {
+    @Override
+    public void restore() throws IllegalStateException {
         HashedCertifiedBlock lastBlock = store.getLastBlock();
         if (lastBlock == null) {
             log.info("No state to restore from on: {}", params.member().getId());
