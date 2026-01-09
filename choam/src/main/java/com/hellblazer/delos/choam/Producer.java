@@ -43,6 +43,8 @@ import java.util.concurrent.atomic.AtomicReference;
 public class Producer {
 
     private static final Logger                       log                = LoggerFactory.getLogger(Producer.class);
+    private static final int                          MAX_PENDING_BLOCKS = 10000;  // Max pending block entries
+    private static final int                          MAX_PENDING_VALIDATIONS = 100000;  // Max orphan validations
     private final        AtomicReference<HashedBlock> checkpoint         = new AtomicReference<>();
     private final        Ethereal                     controller;
     private final        ChRbcGossip                  coordinator;
@@ -292,7 +294,7 @@ public class Producer {
         final var validation = view.generateValidation(next);
         ds.offer(validation);
         final var p = new PendingBlock(next, new HashMap<>(), new AtomicBoolean());
-        pending.put(next.hash, p);
+        addPendingBlock(next.hash, p);
         p.witnesses.put(params().member(), validation);
         log.debug("Produced block: {} hash: {} height: {} prev: {} last: {} on: {}", next.block.getBodyCase(),
                   next.hash, next.height(), lb.hash, last, params().member().getId());
@@ -313,7 +315,7 @@ public class Producer {
         previousBlock.set(assemble);
         final var validation = view.generateValidation(assemble);
         final var p = new PendingBlock(assemble, new HashMap<>(), new AtomicBoolean());
-        pending.put(assemble.hash, p);
+        addPendingBlock(assemble.hash, p);
         p.witnesses.put(params().member(), validation);
         ds.offer(validation);
         log.debug("View assembly: {} block: {} height: {} body: {} from: {} on: {}", nextViewId, assemble.hash,
@@ -353,7 +355,7 @@ public class Producer {
                                                                checkpoint.get()));
         var validation = view.generateValidation(reconfiguration);
         final var p = new PendingBlock(reconfiguration, new HashMap<>(), new AtomicBoolean());
-        pending.put(reconfiguration.hash, p);
+        addPendingBlock(reconfiguration.hash, p);
         p.witnesses.put(params().member(), validation);
         ds.offer(validation);
         log.trace("Produced: {} hash: {} height: {} slate: {} on: {}", reconfiguration.block.getBodyCase(),
@@ -383,6 +385,14 @@ public class Producer {
         Digest hash = Digest.from(v.getHash());
         var p = pending.get(hash);
         if (p == null) {
+            // Bounds check: reject orphan validations if queue grows too large (DoS protection)
+            if (pendingValidations.size() >= MAX_PENDING_VALIDATIONS) {
+                if (log.isDebugEnabled()) {
+                    log.debug("Rejecting orphan validation - pending validations queue at limit: {} on: {}",
+                              MAX_PENDING_VALIDATIONS, params().member().getId());
+                }
+                return null;
+            }
             pendingValidations.computeIfAbsent(hash, _ -> new CopyOnWriteArrayList<>()).add(v);
             return null;
         }
@@ -401,6 +411,23 @@ public class Producer {
     }
 
     record PendingBlock(HashedBlock block, Map<Member, Validate> witnesses, AtomicBoolean published) {
+    }
+
+    /**
+     * Add a pending block with bounds checking to prevent DoS attacks
+     *
+     * @return true if block was added, false if rejected due to queue size limit
+     */
+    private boolean addPendingBlock(Digest hash, PendingBlock block) {
+        if (pending.size() >= MAX_PENDING_BLOCKS) {
+            if (log.isDebugEnabled()) {
+                log.debug("Rejecting pending block - queue at limit: {} on: {}", MAX_PENDING_BLOCKS,
+                          params().member().getId());
+            }
+            return false;
+        }
+        pending.put(hash, block);
+        return true;
     }
 
     /** Leaf action Driven coupling for the Earner FSM */
@@ -429,7 +456,7 @@ public class Producer {
                 var validation = view.generateValidation(next);
                 ds.offer(validation);
                 final var p = new PendingBlock(next, new HashMap<>(), new AtomicBoolean());
-                pending.put(next.hash, p);
+                addPendingBlock(next.hash, p);
                 p.witnesses.put(params().member(), validation);
                 assert next.block != null;
                 log.info("Produced: {} hash: {} height: {} for: {} on: {}", next.block.getBodyCase(), next.hash,
