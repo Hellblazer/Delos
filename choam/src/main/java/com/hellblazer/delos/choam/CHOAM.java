@@ -105,6 +105,8 @@ public class CHOAM {
     private final    ReadWriteLock                                         headLock              = new ReentrantReadWriteLock();
     private volatile Thread                                                linear;
     private final    AtomicInteger                                         syncAttempts          = new AtomicInteger(0);
+    private final    AtomicInteger                                         emptyPolls            = new AtomicInteger(0);
+    private static final int                                               MAX_EMPTY_POLLS       = 10; // ~5 seconds at 500ms poll + 100ms sleep
 
     public CHOAM(Parameters params) {
         scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
@@ -640,6 +642,12 @@ public class CHOAM {
                     return;
                 }
                 if (next == null) {
+                    int count = emptyPolls.incrementAndGet();
+                    if (count == MAX_EMPTY_POLLS) {
+                        log.warn("Consumer stall detected: {} empty polls (~5 seconds) on: {}", count, params.member().getId());
+                    } else if (count > MAX_EMPTY_POLLS && count % 5 == 0) {
+                        log.warn("Consumer still stalled: {} empty polls on: {}", count, params.member().getId());
+                    }
                     try {
                         Thread.sleep(100);
                     } catch (InterruptedException e) {
@@ -653,6 +661,7 @@ public class CHOAM {
                     }
                     continue;
                 }
+                emptyPolls.set(0);
                 try {
                     consume(next);
                 } catch (Throwable t) {
