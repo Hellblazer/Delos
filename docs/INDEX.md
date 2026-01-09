@@ -346,9 +346,54 @@ These documents establish the core concepts, security model, and deployment proc
 
 ---
 
+## Developer Enablement (Phase 2)
+
+### Transaction Flow Understanding
+
+**[TRANSACTION_FLOW_GUIDE.md](TRANSACTION_FLOW_GUIDE.md)** ✅ NEW
+- Complete 7-stage transaction lifecycle (client → consensus → execution → response)
+- Sequence diagrams for happy path and Byzantine scenarios
+- Detailed latency breakdown (typical 250ms)
+- Logging patterns at each stage for debugging
+- Key metrics to monitor
+- Common issues and diagnosis
+- Testing examples
+- **Length**: 791 lines
+- **Status**: ✅ Complete - enables developers to understand transaction flow
+
+### IDE Setup & Development Workflow
+
+**[IDE_SETUP.md](IDE_SETUP.md)** ✅ NEW
+- IntelliJ IDEA setup (recommended, with pre-configs)
+- VS Code setup (lightweight alternative)
+- Eclipse setup (not recommended)
+- Command-line development
+- IDE shortcuts reference
+- Development workflow (TDD, testing, debugging)
+- Productivity tips
+- Environment setup
+- **Length**: 614 lines
+- **Status**: ✅ Complete - get productive in 15-30 minutes
+
+### Coming Soon (Phase 2 Continuation)
+
+**API_REFERENCE.md** (In Progress)
+- Public API catalog for all core modules
+- Method signatures, parameters, examples
+- Cross-references to module READMEs
+- Target: 600+ lines
+
+**INTEGRATION_PATTERNS.md** (Planned)
+- Multi-tenant example
+- FSM workflow example
+- 5+ integration patterns
+- Target: 300-400 lines
+
+---
+
 ## Operations & Maintenance
 
-### Operational Procedures (Planned for Phase 2)
+### Operational Procedures (Planned for Phase 3)
 
 **MONITORING_GUIDE.md** (Coming Soon)
 - Metrics and observability
@@ -367,6 +412,12 @@ These documents establish the core concepts, security model, and deployment proc
 - Restore procedures
 - RTO/RPO planning
 - Incident response
+
+**DEBUGGING_GUIDE.md** (Planned for Phase 2.4)
+- Remote debugging setup
+- Multi-node cluster debugging
+- Log analysis for consensus issues
+- Common debugging scenarios
 
 ---
 
@@ -458,14 +509,14 @@ See [CLAUDE.md](../CLAUDE.md) in repository root for complete build instructions
 - ✅ **Phase 1.1**: Security Threat Model Document (1000+ lines)
 - ✅ **Phase 1.2**: Enhanced Deployment Guide (1150+ lines)
 - ✅ **Phase 1.3**: Module Documentation Template & Standardization (1/15 modules, roadmap complete)
-- ✅ **Phase 1.4**: Documentation Index (this document)
+- ✅ **Phase 1.4**: Documentation Index (this document, 685 lines)
 
-### Phase 2: Developer Enablement ⏱️ (PLANNED)
+### Phase 2: Developer Enablement 🔄 (IN PROGRESS - 50%)
 
-- **Phase 2.1**: End-to-End Transaction Flow Guide
-- **Phase 2.2**: Integration Examples & Sample Code
-- **Phase 2.3**: API Reference Documentation
-- **Phase 2.4**: Development Workflow & IDE Setup
+- ✅ **Phase 2.1**: End-to-End Transaction Flow Guide (791 lines) - COMPLETE
+- ⏱️ **Phase 2.2**: Integration Examples & Sample Code - PENDING (depends on 2.1, 2.3)
+- ⏱️ **Phase 2.3**: API Reference Documentation - IN PROGRESS
+- ✅ **Phase 2.4**: Development Workflow & IDE Setup (614 lines) - COMPLETE
 
 ### Phase 3: Operations & Maintenance ⏱️ (PLANNED)
 
