@@ -2,9 +2,9 @@
 
 **Master Navigation Guide for Delos Distributed Systems Platform**
 
-**Last Updated**: 2026-01-09 (Phase 2.2 Complete)
-**Version**: 2.0
-**Status**: Developer Enablement Complete - Phase 2 Documentation Ready
+**Last Updated**: 2026-01-09 (Phase 3.4 Complete)
+**Version**: 2.1
+**Status**: Operations & Maintenance - Phase 3.4 (80% complete): Performance, Operations, Disaster Recovery, and Troubleshooting guides published
 
 ---
 
@@ -467,16 +467,22 @@ These documents establish the core concepts, security model, and deployment proc
 - **Length**: 700+ lines
 - **Status**: ✅ Complete - backup and recovery capability
 
+### Troubleshooting Guide
+
+**[TROUBLESHOOTING_GUIDE.md](TROUBLESHOOTING_GUIDE.md)** ✅ NEW
+- 10+ comprehensive troubleshooting sections covering all major issues
+- Log analysis reference with patterns and diagnostic commands
+- Metrics interpretation guide with health status tables
+- Decision tree summary for quick reference
+- Escalation procedures for platform team involvement
+- Common issues: cluster startup, latency, consensus stalling, database issues, state divergence, identity issues, memory/GC, network connectivity, backup recovery
+- Diagnostic tools and commands
+- **Length**: 1150+ lines
+- **Status**: ✅ Complete - production diagnostics and recovery
+
 ### Coming Soon (Phase 3 Continuation)
 
-**TROUBLESHOOTING_GUIDE.md** (⏳ In Development)
-- 8+ diagnostic decision trees
-- Common issues and solutions
-- Log analysis guide
-- Metrics interpretation
-- Diagnostic commands
-
-**MONITORING_ALERTING.md** (⏳ In Development)
+**MONITORING_ALERTING.md** (⏳ In Development - Phase 3.5)
 - Metrics collection and reference
 - Key metrics to monitor (30+)
 - Dashboard setup (Grafana templates)
