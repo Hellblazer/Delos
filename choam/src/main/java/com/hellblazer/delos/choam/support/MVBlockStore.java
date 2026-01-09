@@ -29,18 +29,19 @@ import java.util.stream.StreamSupport;
 import static com.hellblazer.delos.choam.support.HashedBlock.height;
 
 /**
- * Kind of a DAO for "nosql" block storage with MVStore from H2
+ * H2 MVStore-backed implementation of BlockStore interface.
+ * Provides persistent block storage using H2's MVStore for CHOAM consensus operations.
  *
  * @author hal.hildebrand
  */
-public class Store {
+public class MVBlockStore implements BlockStore {
 
     private static final String BLOCKS              = "BLOCKS";
     private static final String CERTIFICATIONS      = "CERTIFICATIONS";
     private static final String CHECKPOINT_TEMPLATE = "CHECKPOINT-%s";
     private static final String HASH_TO_HEIGHT      = "HASH_TO_HEIGHT";
     private static final String HASHES              = "HASHES";
-    private static final Logger log                 = LoggerFactory.getLogger(Store.class);
+    private static final Logger log                 = LoggerFactory.getLogger(MVBlockStore.class);
     private static final String VIEW_CHAIN          = "VIEW_CHAIN";
 
     private final MVMap<ULong, byte[]>                   blocks;
@@ -51,7 +52,13 @@ public class Store {
     private final MVMap<Digest, ULong>                   hashToHeight;
     private final MVMap<ULong, ULong>                    viewChain;
 
-    public Store(DigestAlgorithm digestAlgorithm, MVStore store) {
+    /**
+     * Creates a new MVBlockStore backed by the specified H2 MVStore.
+     *
+     * @param digestAlgorithm the digest algorithm for block hashing
+     * @param store the H2 MVStore backend
+     */
+    public MVBlockStore(DigestAlgorithm digestAlgorithm, MVStore store) {
         this.digestAlgorithm = digestAlgorithm;
         hashes = store.openMap(HASHES, new MVMap.Builder<ULong, Digest>().valueType(new DigestType()));
         blocks = store.openMap(BLOCKS);
@@ -60,15 +67,18 @@ public class Store {
         viewChain = store.openMap(VIEW_CHAIN);
     }
 
+    @Override
     public byte[] block(Digest hash) {
         ULong height = hashToHeight.get(hash);
         return height == null ? null : blocks.get(height);
     }
 
+    @Override
     public byte[] block(ULong height) {
         return blocks.get(height);
     }
 
+    @Override
     public Iterator<ULong> blocksFrom(ULong from, ULong to, int max) {
         return new Iterator<>() {
             ULong next;
@@ -117,6 +127,7 @@ public class Store {
         };
     }
 
+    @Override
     public List<Certification> certifications(ULong height) {
         byte[] bs = certifications.get(height);
         if (bs == null) {
@@ -130,18 +141,22 @@ public class Store {
         }
     }
 
+    @Override
     public boolean completeFrom(ULong from) {
         return lastViewChainFrom(from).equals(ULong.valueOf(0));
     }
 
+    @Override
     public boolean containsBlock(ULong l) {
         return blocks.containsKey(l);
     }
 
+    @Override
     public MVMap<Integer, byte[]> createCheckpoint(ULong blockHeight) {
         return blocks.store.openMap(String.format(CHECKPOINT_TEMPLATE, blockHeight));
     }
 
+    @Override
     public void fetchBlocks(BloomFilter<ULong> blocksBff, Blocks.Builder replication, int max, ULong from, ULong to)
     throws IllegalStateException {
         StreamSupport.stream(((Iterable<ULong>) () -> blocksFrom(from, to, max)).spliterator(), false)
@@ -150,6 +165,7 @@ public class Store {
                      .forEach(block -> replication.addBlocks(block));
     }
 
+    @Override
     public void fetchViewChain(BloomFilter<ULong> chainBff, Blocks.Builder replication, int maxChainCount,
                                ULong incompleteStart, ULong target) throws IllegalStateException {
         StreamSupport.stream(((Iterable<ULong>) () -> viewChainFrom(incompleteStart, target)).spliterator(), false)
@@ -158,6 +174,7 @@ public class Store {
                      .forEach(block -> replication.addBlocks(block));
     }
 
+    @Override
     public ULong firstGap(ULong from, ULong to) {
         ULong current = from;
         while (current.compareTo(to) > 0) {
@@ -170,6 +187,7 @@ public class Store {
         return current;
     }
 
+    @Override
     public void gcFrom(ULong from, ULong to) {
         log.debug("GC'ing Store from: {} to: {}", from, to);
         Iterator<ULong> gcd = blocks.keyIteratorReverse(from.subtract(1));
@@ -187,6 +205,7 @@ public class Store {
         }
     }
 
+    @Override
     public HashedBlock getBlock(ULong height) {
         byte[] block = block(height);
         try {
@@ -197,10 +216,12 @@ public class Store {
         }
     }
 
+    @Override
     public byte[] getBlockBits(ULong height) {
         return blocks.get(height);
     }
 
+    @Override
     public CertifiedBlock getCertifiedBlock(ULong height) {
         CertifiedBlock.Builder builder = CertifiedBlock.newBuilder();
         HashedBlock block = getBlock(height);
@@ -216,24 +237,55 @@ public class Store {
         return builder.build();
     }
 
+    @Override
+    public CheckpointSegmentMap getCheckpointSegments(ULong height) {
+        var mvMap = checkpoints.get(height);
+        if (mvMap == null) {
+            mvMap = createCheckpoint(height);
+            checkpoints.put(height, mvMap);
+        }
+        var finalMvMap = mvMap;
+        return new CheckpointSegmentMap() {
+            @Override
+            public boolean containsKey(int index) {
+                return finalMvMap.containsKey(index);
+            }
+
+            @Override
+            public byte[] computeIfAbsent(int index, java.util.function.Function<Integer, byte[]> supplier) {
+                return finalMvMap.computeIfAbsent(index, supplier);
+            }
+
+            @Override
+            public int size() {
+                return finalMvMap.size();
+            }
+        };
+    }
+
+    @Override
     public HashedCertifiedBlock getLastBlock() {
         ULong lastBlock = blocks.lastKey();
         return lastBlock == null ? null : new HashedCertifiedBlock(digestAlgorithm, getCertifiedBlock(lastBlock));
     }
 
+    @Override
     public HashedCertifiedBlock getLastView() {
         ULong lastView = checkpoints.lastKey();
         return new HashedCertifiedBlock(digestAlgorithm, getCertifiedBlock(lastView));
     }
 
+    @Override
     public Digest hash(ULong height) {
         return hashes.get(height);
     }
 
+    @Override
     public Map<ULong, Digest> hashes() {
         return hashes;
     }
 
+    @Override
     public ULong lastViewChainFrom(ULong height) {
         ULong last = height;
         ULong next = viewChain.get(height);
@@ -250,6 +302,7 @@ public class Store {
         return next == null ? last : next;
     }
 
+    @Override
     public void put(HashedCertifiedBlock cb) {
         transactionally(() -> {
             Certifications certs = Certifications.newBuilder()
@@ -260,6 +313,7 @@ public class Store {
         });
     }
 
+    @Override
     public MVMap<Integer, byte[]> putCheckpoint(ULong blockHeight, File state, Checkpoint checkpoint) {
         try {
             return transactionally(() -> {
@@ -288,10 +342,12 @@ public class Store {
         }
     }
 
+    @Override
     public void rollbackTo(long version) {
         blocks.store.rollbackTo(version);
     }
 
+    @Override
     public void validate(ULong from, ULong to) throws IllegalStateException {
         AtomicReference<Digest> prevHash = new AtomicReference<>();
         blocks.cursor(to, from, false).forEachRemaining(l -> {
@@ -319,6 +375,7 @@ public class Store {
         });
     }
 
+    @Override
     public void validateViewChain(ULong from) throws IllegalStateException {
         HashedBlock previous = getBlock(from);
         if (previous == null) {
@@ -356,6 +413,7 @@ public class Store {
      * @param from the starting block height to validate from
      * @throws IllegalStateException if the referenced checkpoint is invalid
      */
+    @Override
     public void validateCheckpointChain(ULong from) throws IllegalStateException {
         // Wrap validation in transactional context to prevent race conditions
         // with concurrent block modifications. This ensures all getBlock() calls
@@ -426,10 +484,12 @@ public class Store {
         log.debug("Checkpoint chain validated from: {} through checkpoint at: {}", from, lastCheckpointHeight);
     }
 
+    @Override
     public long version() {
         return blocks.store.getStoreVersion();
     }
 
+    @Override
     public Iterator<ULong> viewChainFrom(ULong from, ULong to) {
         return new Iterator<>() {
             ULong next;

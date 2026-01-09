@@ -98,7 +98,7 @@ public class CheckpointAssemblerTest {
 
         SigningMember bootstrapping = (SigningMember) members.get(0);
 
-        Store store1 = new Store(DigestAlgorithm.DEFAULT, new MVStore.Builder().open());
+        BlockStore store1 = new MVBlockStore(DigestAlgorithm.DEFAULT, new MVStore.Builder().open());
         CheckpointState state = new CheckpointState(checkpoint,
                                                     store1.putCheckpoint(ULong.valueOf(0), chkptFile, checkpoint));
 
@@ -135,7 +135,7 @@ public class CheckpointAssemblerTest {
         CommonCommunications<Terminal, Concierge> comm = mock(CommonCommunications.class);
         when(comm.connect(any())).thenReturn(client);
 
-        Store store2 = new Store(DigestAlgorithm.DEFAULT, new MVStore.Builder().open());
+        BlockStore store2 = new MVBlockStore(DigestAlgorithm.DEFAULT, new MVStore.Builder().open());
         CheckpointAssembler boot = new CheckpointAssembler(members, Duration.ofMillis(10), ULong.valueOf(0), checkpoint,
                                                            bootstrapping, store2, comm, context, 0.00125,
                                                            DigestAlgorithm.DEFAULT);

@@ -56,7 +56,7 @@ public class CheckpointAssembler {
     private final List<Member>                              committee;
 
     public CheckpointAssembler(List<Member> committee, Duration frequency, ULong height, Checkpoint checkpoint,
-                               SigningMember member, Store store, CommonCommunications<Terminal, Concierge> comms,
+                               SigningMember member, BlockStore store, CommonCommunications<Terminal, Concierge> comms,
                                Context<Member> context, double falsePositiveRate, DigestAlgorithm digestAlgorithm) {
         this.committee = new ArrayList<>(committee);
         this.height = height;

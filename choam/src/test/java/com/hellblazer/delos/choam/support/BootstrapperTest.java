@@ -54,7 +54,7 @@ public class BootstrapperTest {
      */
     @Test
     public void testValidateCheckpointChain() throws Exception {
-        Store store = new Store(DigestAlgorithm.DEFAULT, new MVStore.Builder().open());
+        BlockStore store = new MVBlockStore(DigestAlgorithm.DEFAULT, new MVStore.Builder().open());
         TestChain testChain = new TestChain(store);
 
         // Build a chain with multiple checkpoints
@@ -76,7 +76,7 @@ public class BootstrapperTest {
      */
     @Test
     public void testValidateCheckpointChainNoCheckpoint() throws Exception {
-        Store store = new Store(DigestAlgorithm.DEFAULT, new MVStore.Builder().open());
+        BlockStore store = new MVBlockStore(DigestAlgorithm.DEFAULT, new MVStore.Builder().open());
         TestChain testChain = new TestChain(store);
 
         // Build a chain with no checkpoints (just genesis)
@@ -92,7 +92,7 @@ public class BootstrapperTest {
     @Test
     public void smoke() throws Exception {
 
-        Store bootstrapStore = new Store(DigestAlgorithm.DEFAULT, new MVStore.Builder().open());
+        BlockStore bootstrapStore = new MVBlockStore(DigestAlgorithm.DEFAULT, new MVStore.Builder().open());
         var entropy = SecureRandom.getInstance("SHA1PRNG");
         entropy.setSeed(new byte[] { 6, 6, 6 });
         var stereotomy = new StereotomyImpl(new MemKeyStore(), new MemKERL(DigestAlgorithm.DEFAULT), entropy);
@@ -139,7 +139,7 @@ public class BootstrapperTest {
             Member to = invoke.getArgument(0, Member.class);
             return mockClient(to, bootstrapStore, testChain);
         });
-        Store store = new Store(DigestAlgorithm.DEFAULT, new MVStore.Builder().open());
+        BlockStore store = new MVBlockStore(DigestAlgorithm.DEFAULT, new MVStore.Builder().open());
 
         Bootstrapper boot = new Bootstrapper(testChain.getAnchor(), Parameters.newBuilder()
                                                                               .setGenerateGenesis(true)
@@ -160,7 +160,7 @@ public class BootstrapperTest {
         assertNotNull(state.lastView());
     }
 
-    private Terminal mockClient(Member to, Store bootstrapStore, TestChain testChain) {
+    private Terminal mockClient(Member to, BlockStore bootstrapStore, TestChain testChain) {
         Terminal client = mock(Terminal.class);
         when(client.getMember()).thenReturn(to);
 

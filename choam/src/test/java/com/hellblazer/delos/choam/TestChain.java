@@ -8,7 +8,7 @@ package com.hellblazer.delos.choam;
 
 import com.hellblazer.delos.choam.proto.*;
 import com.hellblazer.delos.choam.support.HashedCertifiedBlock;
-import com.hellblazer.delos.choam.support.Store;
+import com.hellblazer.delos.choam.support.BlockStore;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import org.slf4j.LoggerFactory;
 
@@ -17,7 +17,7 @@ import org.slf4j.LoggerFactory;
  */
 public class TestChain {
 
-    private final Store                store;
+    private final BlockStore           store;
     private       HashedCertifiedBlock anchor;
     private       HashedCertifiedBlock checkpoint;
     private       HashedCertifiedBlock genesis;
@@ -26,7 +26,7 @@ public class TestChain {
     private       HashedCertifiedBlock synchronizeCheckpoint;
     private       HashedCertifiedBlock synchronizeView;
 
-    public TestChain(Store store) {
+    public TestChain(BlockStore store) {
         this.store = store;
     }
 

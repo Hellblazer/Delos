@@ -49,7 +49,7 @@ public class Bootstrapper {
     private final    CommonCommunications<Terminal, Concierge> comms;
     private final    ULong                                     lastCheckpoint;
     private final    Parameters                                params;
-    private final    Store                                     store;
+    private final    BlockStore                                store;
     private final    CompletableFuture<SynchronizedState>      sync                  = new CompletableFuture<>();
     private final    CompletableFuture<Boolean>                viewChainSynchronized = new CompletableFuture<>();
     private final    ScheduledExecutorService                  scheduler;
@@ -63,7 +63,7 @@ public class Bootstrapper {
     private volatile HashedCertifiedBlock                      checkpointView;
     private volatile HashedCertifiedBlock                      genesis;
 
-    public Bootstrapper(HashedCertifiedBlock anchor, Parameters params, Store store,
+    public Bootstrapper(HashedCertifiedBlock anchor, Parameters params, BlockStore store,
                         CommonCommunications<Terminal, Concierge> bootstrapComm, ScheduledExecutorService scheduler) {
         this.anchor = anchor;
         this.params = params;

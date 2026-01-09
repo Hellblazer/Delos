@@ -93,7 +93,7 @@ public class CHOAM {
     private final    RoundScheduler                                        roundScheduler;
     private final    Session                                               session;
     private final    AtomicBoolean                                         started               = new AtomicBoolean();
-    private final    Store                                                 store;
+    private final    BlockStore                                            store;
     private final    CommonCommunications<TxnSubmission, Submitter>        submissionComm;
     private final    Combine.Transitions                                   transitions;
     private final    TransSubmission                                       txnSubmission         = new TransSubmission();
@@ -110,7 +110,7 @@ public class CHOAM {
 
     public CHOAM(Parameters params) {
         scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
-        this.store = new Store(params.digestAlgorithm(), params.mvBuilder().clone().build());
+        this.store = new MVBlockStore(params.digestAlgorithm(), params.mvBuilder().clone().build());
         this.params = params;
         this.pending = new BoundedPriorityBlockingQueue<>(params.maxPendingBlocks(),
                                                           Comparator.comparing(HashedCertifiedBlock::height));
