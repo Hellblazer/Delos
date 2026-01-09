@@ -109,29 +109,30 @@ public class TransactionSignatureTest {
                    "Invalid signature should not verify");
     }
 
-    @Test  
+    @Test
     public void testWrongSignerRejected() throws Exception {
         // Create a transaction claiming to be from member1 but signed by member2
         ByteBuffer buff = ByteBuffer.allocate(4);
         buff.putInt(0);
         buff.flip();
-        
+
         final var member1Digeste = member1.getId().toDigeste();
-        
+
         // Sign as member2
         var sig = member2.sign(member1Digeste.toByteString().asReadOnlyByteBuffer(),
                                buff,
                                ByteString.copyFromUtf8("test").asReadOnlyByteBuffer());
-        
+
         Transaction txn = Transaction.newBuilder()
                                     .setSource(member1Digeste)  // Claims to be from member1
                                     .setNonce(0)
                                     .setContent(ByteString.copyFromUtf8("test"))
                                     .setSignature(sig.toSig())  // But signed by member2
                                     .build();
-        
+
         // This should be rejected - signature doesn't match claimed source
-        // Currently this test demonstrates the vulnerability - mismatched signer is NOT checked
+        assertFalse(Session.verify(txn, member1),
+                   "Transaction signed by member2 should not verify with member1's verifier");
     }
 
     @Test
