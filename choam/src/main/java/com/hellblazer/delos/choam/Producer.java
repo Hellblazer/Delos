@@ -172,6 +172,7 @@ public class Producer {
         if (!started.get()) {
             return SubmitResult.newBuilder().setResult(Result.NO_COMMITTEE).build();
         }
+
         if (ds.offer(transaction)) {
             return SubmitResult.newBuilder().setResult(Result.PUBLISHED).build();
         } else {

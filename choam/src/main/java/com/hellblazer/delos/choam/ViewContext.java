@@ -303,4 +303,14 @@ public class ViewContext {
         }
         return v;
     }
+
+    /**
+     * Get the verifier for a given member
+     *
+     * @param member the member to get the verifier for
+     * @return the verifier for the member, or null if not found
+     */
+    public Verifier verifierFor(Member member) {
+        return getVerifier(member);
+    }
 }
