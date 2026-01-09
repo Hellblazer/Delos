@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.4.xsd">
+
+    <!-- Tenant 1 Schema -->
+    <changeSet author="example" id="multi-tenant-t1-1">
+        <sql>create schema if not exists t1</sql>
+
+        <createTable tableName="documents" schemaName="t1">
+            <column name="tenant_id" type="VARCHAR(255)">
+                <constraints nullable="false" />
+            </column>
+            <column name="doc_id" type="VARCHAR(255)">
+                <constraints nullable="false" />
+            </column>
+            <column name="title" type="VARCHAR(1024)">
+                <constraints nullable="true" />
+            </column>
+            <column name="content" type="TEXT">
+                <constraints nullable="true" />
+            </column>
+        </createTable>
+
+        <addPrimaryKey columnNames="tenant_id,doc_id" schemaName="t1" tableName="documents" />
+
+        <rollback>
+            <sql>drop table t1.documents</sql>
+            <sql>drop schema t1</sql>
+        </rollback>
+    </changeSet>
+
+    <!-- Tenant 2 Schema -->
+    <changeSet author="example" id="multi-tenant-t2-1">
+        <sql>create schema if not exists t2</sql>
+
+        <createTable tableName="documents" schemaName="t2">
+            <column name="tenant_id" type="VARCHAR(255)">
+                <constraints nullable="false" />
+            </column>
+            <column name="doc_id" type="VARCHAR(255)">
+                <constraints nullable="false" />
+            </column>
+            <column name="title" type="VARCHAR(1024)">
+                <constraints nullable="true" />
+            </column>
+            <column name="content" type="TEXT">
+                <constraints nullable="true" />
+            </column>
+        </createTable>
+
+        <addPrimaryKey columnNames="tenant_id,doc_id" schemaName="t2" tableName="documents" />
+
+        <rollback>
+            <sql>drop table t2.documents</sql>
+            <sql>drop schema t2</sql>
+        </rollback>
+    </changeSet>
+
+    <!-- Tenant 3 Schema -->
+    <changeSet author="example" id="multi-tenant-t3-1">
+        <sql>create schema if not exists t3</sql>
+
+        <createTable tableName="documents" schemaName="t3">
+            <column name="tenant_id" type="VARCHAR(255)">
+                <constraints nullable="false" />
+            </column>
+            <column name="doc_id" type="VARCHAR(255)">
+                <constraints nullable="false" />
+            </column>
+            <column name="title" type="VARCHAR(1024)">
+                <constraints nullable="true" />
+            </column>
+            <column name="content" type="TEXT">
+                <constraints nullable="true" />
+            </column>
+        </createTable>
+
+        <addPrimaryKey columnNames="tenant_id,doc_id" schemaName="t3" tableName="documents" />
+
+        <rollback>
+            <sql>drop table t3.documents</sql>
+            <sql>drop schema t3</sql>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

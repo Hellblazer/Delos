@@ -1,13 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xmlns="http://maven.apache.org/POM/4.0.0"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
         <groupId>com.hellblazer.delos</groupId>
         <artifactId>delos.app</artifactId>
-        <version>0.0.7-SNAPSHOT</version>
+        <version>0.0.6</version>
     </parent>
 
     <artifactId>examples</artifactId>
@@ -18,8 +16,6 @@
     <modules>
         <module>simple-kv-store</module>
         <module>local-demo</module>
-        <module>multi-tenant-demo</module>
-        <module>fsm-workflow</module>
     </modules>
 
 </project>
