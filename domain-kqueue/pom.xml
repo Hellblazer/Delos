@@ -4,7 +4,7 @@
     <parent>
         <groupId>com.hellblazer.delos</groupId>
         <artifactId>delos.app</artifactId>
-        <version>0.0.6</version>
+        <version>0.0.7-SNAPSHOT</version>
     </parent>
     <name>Domain Sockets KQueue</name>
     <description>Mac/OSx Unix Domain Socket Support</description>
