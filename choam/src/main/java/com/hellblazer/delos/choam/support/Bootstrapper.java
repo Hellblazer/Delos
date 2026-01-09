@@ -40,6 +40,9 @@ import java.util.stream.Collectors;
  */
 public class Bootstrapper {
     private static final Logger log = LoggerFactory.getLogger(Bootstrapper.class);
+    private static final int    MAX_ANCHOR_ATTEMPTS      = 5;
+    private static final int    MAX_VIEW_CHAIN_ATTEMPTS  = 5;
+    private static final int    MAX_SAMPLE_ATTEMPTS      = 10;
 
     private final    HashedCertifiedBlock                      anchor;
     private final    CompletableFuture<Boolean>                anchorSynchronized    = new CompletableFuture<>();
@@ -51,6 +54,9 @@ public class Bootstrapper {
     private final    CompletableFuture<Boolean>                viewChainSynchronized = new CompletableFuture<>();
     private final    ScheduledExecutorService                  scheduler;
     private final    AtomicInteger                             sampleIndex           = new AtomicInteger();
+    private final    AtomicInteger                             anchorAttempts        = new AtomicInteger(0);
+    private final    AtomicInteger                             viewChainAttempts     = new AtomicInteger(0);
+    private final    AtomicInteger                             sampleAttempts        = new AtomicInteger(0);
     private volatile HashedCertifiedBlock                      checkpoint;
     private volatile CompletableFuture<CheckpointState>        checkpointAssembled;
     private volatile CheckpointState                           checkpointState;
@@ -392,13 +398,26 @@ public class Bootstrapper {
         if (sync.isDone()) {
             return;
         }
-        log.info("Scheduling Anchor completion ({} to {}) duration: {} on: {}", start, anchorTo,
-                 params.gossipDuration(), params.member().getId());
+        int attempts = anchorAttempts.incrementAndGet();
+        if (attempts > MAX_ANCHOR_ATTEMPTS) {
+            log.error("Anchor completion exceeded max attempts: {} on: {}", attempts, params.member().getId());
+            sync.completeExceptionally(new IllegalStateException("Anchor completion failed after " + attempts + " attempts"));
+            anchorSynchronized.completeExceptionally(new IllegalStateException("Anchor completion failed after " + attempts + " attempts"));
+            return;
+        }
+        if (attempts == MAX_ANCHOR_ATTEMPTS) {
+            log.warn("Anchor completion at max attempts ({}/{}), final retry on: {}", attempts, MAX_ANCHOR_ATTEMPTS, params.member().getId());
+        } else if (attempts > MAX_ANCHOR_ATTEMPTS / 2) {
+            log.warn("Anchor completion attempt {}/{} on: {}", attempts, MAX_ANCHOR_ATTEMPTS, params.member().getId());
+        } else {
+            log.info("Scheduling Anchor completion ({} to {}) attempt {}/{} duration: {} on: {}", start, anchorTo, attempts, MAX_ANCHOR_ATTEMPTS,
+                     params.gossipDuration(), params.member().getId());
+        }
         scheduler.schedule(() -> Thread.ofVirtual().start(Utils.wrapped(() -> {
             try {
                 anchor(start, anchorTo);
             } catch (Throwable e) {
-                log.error("Cannot execute completeViewChain on: {}", params.member().getId());
+                log.error("Cannot execute anchor on: {}", params.member().getId());
                 sync.completeExceptionally(e);
             }
         }, log)), params.gossipDuration().toNanos(), TimeUnit.NANOSECONDS);
@@ -408,7 +427,19 @@ public class Bootstrapper {
         if (sync.isDone()) {
             return;
         }
-        log.info("Scheduling state sample on: {}", params.member().getId());
+        int attempts = sampleAttempts.incrementAndGet();
+        if (attempts > MAX_SAMPLE_ATTEMPTS) {
+            log.error("Sample state exceeded max attempts: {} on: {}", attempts, params.member().getId());
+            sync.completeExceptionally(new IllegalStateException("Bootstrap sampling failed after " + attempts + " attempts"));
+            return;
+        }
+        if (attempts == MAX_SAMPLE_ATTEMPTS) {
+            log.warn("Sample state at max attempts ({}/{}), final retry on: {}", attempts, MAX_SAMPLE_ATTEMPTS, params.member().getId());
+        } else if (attempts > MAX_SAMPLE_ATTEMPTS / 2) {
+            log.warn("Sample state attempt {}/{} on: {}", attempts, MAX_SAMPLE_ATTEMPTS, params.member().getId());
+        } else {
+            log.info("Scheduling state sample attempt {}/{} on: {}", attempts, MAX_SAMPLE_ATTEMPTS, params.member().getId());
+        }
         scheduler.schedule(() -> Thread.ofVirtual().start(Utils.wrapped(() -> {
             final HashedCertifiedBlock established = genesis;
             if (sync.isDone() || established != null) {
@@ -432,8 +463,21 @@ public class Bootstrapper {
             log.trace("View chain complete on: {}", params.member().getId());
             return;
         }
-        log.info("Scheduling view chain completion ({} to {}) duration: {} on: {}", start, to, params.gossipDuration(),
-                 params.member().getId());
+        int attempts = viewChainAttempts.incrementAndGet();
+        if (attempts > MAX_VIEW_CHAIN_ATTEMPTS) {
+            log.error("View chain completion exceeded max attempts: {} on: {}", attempts, params.member().getId());
+            sync.completeExceptionally(new IllegalStateException("View chain completion failed after " + attempts + " attempts"));
+            viewChainSynchronized.completeExceptionally(new IllegalStateException("View chain completion failed after " + attempts + " attempts"));
+            return;
+        }
+        if (attempts == MAX_VIEW_CHAIN_ATTEMPTS) {
+            log.warn("View chain completion at max attempts ({}/{}), final retry on: {}", attempts, MAX_VIEW_CHAIN_ATTEMPTS, params.member().getId());
+        } else if (attempts > MAX_VIEW_CHAIN_ATTEMPTS / 2) {
+            log.warn("View chain completion attempt {}/{} on: {}", attempts, MAX_VIEW_CHAIN_ATTEMPTS, params.member().getId());
+        } else {
+            log.info("Scheduling view chain completion ({} to {}) attempt {}/{} duration: {} on: {}", start, to, attempts, MAX_VIEW_CHAIN_ATTEMPTS, params.gossipDuration(),
+                     params.member().getId());
+        }
         scheduler.schedule(() -> Thread.ofVirtual().start(Utils.wrapped(() -> {
             try {
                 completeViewChain(start, to);
