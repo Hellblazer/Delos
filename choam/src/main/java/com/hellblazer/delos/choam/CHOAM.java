@@ -104,6 +104,7 @@ public class CHOAM {
     private final    ReentrantLock                                         viewStateLock         = new ReentrantLock();
     private final    ReadWriteLock                                         headLock              = new ReentrantReadWriteLock();
     private volatile Thread                                                linear;
+    private final    AtomicInteger                                         syncAttempts          = new AtomicInteger(0);
 
     public CHOAM(Parameters params) {
         scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
@@ -1272,6 +1273,7 @@ public class CHOAM {
             HashedCertifiedBlock anchor = pending.poll();
             if (anchor != null) {
                 log.info("Synchronizing from anchor: {} on: {}", anchor.hash, params.member().getId());
+                syncAttempts.set(0);  // Reset attempts on successful anchor acquisition
                 transitions.bootstrap(anchor);
                 return;
             }
@@ -1282,10 +1284,17 @@ public class CHOAM {
                 } catch (IllegalStateException e) {
                     final var c = current.get();
                     Context<Member> memberContext = context();
+                    int attempts = syncAttempts.incrementAndGet();
                     log.debug(
-                    "Synchronization quorum formation failed: {}, members: {} desired: {} required: {}, no anchor to recover from: {} on: {}",
+                    "Synchronization quorum formation failed: {}, members: {} desired: {} required: {}, no anchor to recover from: {} attempt: {} on: {}",
                     e.getMessage(), memberContext.size(), context().getRingCount(), params.majority(),
-                    c == null ? "<no formation>" : c.getClass().getSimpleName(), params.member().getId());
+                    c == null ? "<no formation>" : c.getClass().getSimpleName(), attempts, params.member().getId());
+
+                    if (attempts >= params.maxSyncAttempts()) {
+                        log.warn("Synchronization circuit breaker triggered: max attempts ({}) exceeded on: {}",
+                                 params.maxSyncAttempts(), params.member().getId());
+                        return;
+                    }
                     awaitSynchronization();
                 }
             }, params.synchronizationCycles());
@@ -1317,6 +1326,7 @@ public class CHOAM {
         @Override
         public void recover(HashedCertifiedBlock anchor) {
             current.set(new Formation());
+            syncAttempts.set(0);  // Reset attempts on successful recovery
             log.info("Anchor discovered: {} hash: {} height: {} committee: {} on: {}", anchor.block.getBodyCase(),
                      anchor.hash, anchor.height(), current.get().getClass().getSimpleName(), params.member().getId());
             CHOAM.this.recover(anchor);

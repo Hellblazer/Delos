@@ -1,0 +1,24 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.hellblazer.delos</groupId>
+    <artifactId>delos.app</artifactId>
+    <version>0.0.6</version>
+  </parent>
+  <artifactId>liquibase-deterministic</artifactId>
+  <name>Deterministic Liquibase</name>
+  <description>A deterministic version of Liquibase, package renamed to avoid conflicts with the standard version of Liquibase</description>
+  
+  <dependencies>
+        <dependency>
+            <groupId>org.liquibase</groupId>
+            <artifactId>liquibase-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.yaml</groupId>
+            <artifactId>snakeyaml</artifactId>
+            <version>1.33</version>
+        </dependency>
+  </dependencies>
+
+</project>

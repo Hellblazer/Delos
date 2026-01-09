@@ -56,7 +56,7 @@ public record Parameters(Parameters.RuntimeParameters runtime, ReliableBroadcast
                          Parameters.BootstrapParameters bootstrap, Parameters.ProducerParameters producer,
                          Parameters.MvStoreBuilder mvBuilder, Parameters.LimiterBuilder txnLimiterBuilder,
                          ExponentialBackoffPolicy.Builder submitPolicy, int checkpointSegmentSize,
-                         boolean generateGenesis, int maxPendingBlocks) {
+                         boolean generateGenesis, int maxPendingBlocks, int maxSyncAttempts) {
 
     public static Builder newBuilder() {
         return new Builder();
@@ -697,13 +697,17 @@ public record Parameters(Parameters.RuntimeParameters runtime, ReliableBroadcast
         private int                              crowns                = 2;
         private boolean                          generateGenesis       = false;
         private int                              maxPendingBlocks      = 1000;
+        private int                              maxSyncAttempts       = 10;
 
         public Parameters build(RuntimeParameters runtime) {
+            if (maxSyncAttempts < 3) {
+                throw new IllegalArgumentException("maxSyncAttempts must be at least 3 (circuit breaker minimum)");
+            }
             return new Parameters(runtime, combine, gossipDuration, maxCheckpointSegments, submitTimeout, genesisViewId,
                                   checkpointBlockDelta, crowns, digestAlgorithm, viewSigAlgorithm,
                                   synchronizationCycles, regenerationCycles, bootstrap, producer, mvBuilder,
                                   txnLimiterBuilder, submitPolicy, checkpointSegmentSize, generateGenesis,
-                                  maxPendingBlocks);
+                                  maxPendingBlocks, maxSyncAttempts);
         }
 
         @Override
@@ -896,6 +900,18 @@ public record Parameters(Parameters.RuntimeParameters runtime, ReliableBroadcast
                 throw new IllegalArgumentException("maxPendingBlocks must be <= 100000 to prevent memory exhaustion, got: " + maxPendingBlocks);
             }
             this.maxPendingBlocks = maxPendingBlocks;
+            return this;
+        }
+
+        public int getMaxSyncAttempts() {
+            return maxSyncAttempts;
+        }
+
+        public Builder setMaxSyncAttempts(int maxSyncAttempts) {
+            if (maxSyncAttempts < 3) {
+                throw new IllegalArgumentException("maxSyncAttempts must be at least 3 (circuit breaker minimum), got: " + maxSyncAttempts);
+            }
+            this.maxSyncAttempts = maxSyncAttempts;
             return this;
         }
     }
