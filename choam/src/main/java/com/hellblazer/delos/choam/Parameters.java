@@ -889,6 +889,12 @@ public record Parameters(Parameters.RuntimeParameters runtime, ReliableBroadcast
         }
 
         public Builder setMaxPendingBlocks(int maxPendingBlocks) {
+            if (maxPendingBlocks <= 0) {
+                throw new IllegalArgumentException("maxPendingBlocks must be positive, got: " + maxPendingBlocks);
+            }
+            if (maxPendingBlocks > 100000) {
+                throw new IllegalArgumentException("maxPendingBlocks must be <= 100000 to prevent memory exhaustion, got: " + maxPendingBlocks);
+            }
             this.maxPendingBlocks = maxPendingBlocks;
             return this;
         }
