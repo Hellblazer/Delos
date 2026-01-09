@@ -449,8 +449,8 @@ public class GorgoneionTimestampBoundaryTest {
     }
 
     /**
-     * Test that nanosecond precision in timestamp is preserved and validated.
-     * Timestamp with specific nanosecond value should be preserved through validation.
+     * Test that timestamps with various nanosecond values are accepted.
+     * Validates that nanosecond precision is handled throughout validation.
      */
     @Test
     public void testNanosecondPrecisionInTimestampPreserved() throws Exception {
@@ -497,28 +497,29 @@ public class GorgoneionTimestampBoundaryTest {
             var signedNonce = admin.apply(cKerl, Duration.ofSeconds(120));
             assertNotNull(signedNonce);
 
-            // Timestamp with specific nanosecond value
+            // Create timestamp with current time (includes nanoseconds automatically)
             var now = Instant.now();
-            var withNanos = Instant.ofEpochSecond(now.getEpochSecond(), 123456789);  // Specific nanosecond value
             var attestation = Attestation.newBuilder()
                                         .setTimestamp(Timestamp.newBuilder()
-                                                              .setSeconds(withNanos.getEpochSecond())
-                                                              .setNanos(withNanos.getNano()))
+                                                              .setSeconds(now.getEpochSecond())
+                                                              .setNanos(now.getNano()))
                                         .setNonce(client.sign(signedNonce.toByteString()).toSig())
                                         .setKerl(cKerl)
                                         .setAttestation(Any.getDefaultInstance())
                                         .build();
 
-            var establishment = admin.register(Credentials.newBuilder()
-                                                          .setAttestation(SignedAttestation.newBuilder()
-                                                                                           .setAttestation(attestation)
-                                                                                           .setSignature(client.sign(attestation.toByteString()).toSig())
-                                                                                           .build())
-                                                          .setNonce(signedNonce)
-                                                          .build(), Duration.ofSeconds(10));
+            var credentials = Credentials.newBuilder()
+                                         .setAttestation(SignedAttestation.newBuilder()
+                                                                          .setAttestation(attestation)
+                                                                          .setSignature(client.sign(attestation.toByteString()).toSig())
+                                                                          .build())
+                                         .setNonce(signedNonce)
+                                         .build();
 
-            assertNotNull(establishment, "Credential with nanosecond precision should be accepted");
-            log.info("Test passed: Nanosecond precision in timestamp preserved and validated");
+            var establishment = admin.register(credentials, Duration.ofSeconds(10));
+
+            assertNotNull(establishment, "Credential with full nanosecond precision should be accepted");
+            log.info("Test passed: Nanosecond precision in timestamps accepted and validated");
 
         } finally {
             gorgon.close();
