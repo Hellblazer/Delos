@@ -414,31 +414,80 @@ These documents establish the core concepts, security model, and deployment proc
 
 ## Operations & Maintenance
 
-### Operational Procedures (Planned for Phase 3)
+### Performance Tuning
 
-**MONITORING_GUIDE.md** (Coming Soon)
-- Metrics and observability
-- Health checks
-- Alerting configuration
-- Dashboard setup
+**[PERFORMANCE_TUNING.md](PERFORMANCE_TUNING.md)** ✅ NEW
+- Baseline latencies (reads, writes, consensus)
+- Throughput metrics by cluster size
+- Resource consumption (CPU, memory, disk, network)
+- Benchmark results (single-node, 3-node, 5-node, WAN, stress tests)
+- Capacity planning: small (5K), medium (25K), large (100K+) deployments
+- JVM and CHOAM tuning parameters
+- Bottleneck analysis and identification
+- Real-world deployment scenarios
+- Performance monitoring and optimization
+- **Length**: 850+ lines
+- **Status**: ✅ Complete - foundation for all operations
 
-**TROUBLESHOOTING_GUIDE.md** (Coming Soon)
+### Operational Procedures
+
+**[OPERATIONAL_PROCEDURES.md](OPERATIONAL_PROCEDURES.md)** ✅ NEW
+- Quick reference: emergency commands, port reference
+- 5 essential runbooks with success criteria:
+  * RB-01: Start Single Node
+  * RB-02: Add Node to Running Cluster
+  * RB-03: Remove Node from Cluster
+  * RB-04: Graceful Shutdown
+  * RB-05: Rolling Update (zero-downtime)
+- Service management: systemd config, log rotation
+- Automated health check scripts
+- Maintenance tasks: monthly checklist, certificate renewal
+- Operational checklists: pre-deployment, post-deployment, incident response
+- **Length**: 1000+ lines
+- **Status**: ✅ Complete - day-to-day operations guide
+
+### Disaster Recovery & Backup
+
+**[DISASTER_RECOVERY.md](DISASTER_RECOVERY.md)** ✅ NEW
+- Backup strategy: full, incremental, transaction log
+- Backup procedures with verification:
+  * BP-01: Create Full Cluster Backup
+  * BP-02: Verify Backup Integrity
+- Restore procedures with rollback:
+  * BP-03: Restore from Full Backup
+- RTO/RPO planning and calculations
+- 6 disaster recovery scenarios:
+  * Single node failure (automatic)
+  * Multiple nodes with quorum maintained
+  * Quorum loss (requires backup restore)
+  * Data corruption (targeted restore)
+  * Byzantine/malicious node (BFT protection)
+  * Full cluster failure (complete recovery)
+- Automated recovery procedures
+- **Length**: 700+ lines
+- **Status**: ✅ Complete - backup and recovery capability
+
+### Coming Soon (Phase 3 Continuation)
+
+**TROUBLESHOOTING_GUIDE.md** (⏳ In Development)
+- 8+ diagnostic decision trees
 - Common issues and solutions
-- Diagnosis procedures
-- Recovery procedures
-- Performance troubleshooting
+- Log analysis guide
+- Metrics interpretation
+- Diagnostic commands
 
-**DISASTER_RECOVERY_GUIDE.md** (Coming Soon)
-- Backup procedures
-- Restore procedures
-- RTO/RPO planning
-- Incident response
+**MONITORING_ALERTING.md** (⏳ In Development)
+- Metrics collection and reference
+- Key metrics to monitor (30+)
+- Dashboard setup (Grafana templates)
+- Alerting rules and thresholds
+- On-call guide
 
-**DEBUGGING_GUIDE.md** (Planned for Phase 2.4)
+**DEBUGGING_GUIDE.md** (Planned for Phase 3.6)
 - Remote debugging setup
 - Multi-node cluster debugging
-- Log analysis for consensus issues
-- Common debugging scenarios
+- Consensus issue diagnosis
+- Performance profiling
 
 ---
 
@@ -549,13 +598,15 @@ See [CLAUDE.md](../CLAUDE.md) in repository root for complete build instructions
 - All examples compile and tests pass
 - Cross-module navigation and API discovery guides
 
-### Phase 3: Operations & Maintenance ⏱️ (PLANNED)
+### Phase 3: Operations & Maintenance 🔄 (60% COMPLETE - 3/5)
 
-- **Phase 3.1**: Performance Tuning & Capacity Planning
-- **Phase 3.2**: Operational Procedures (runbooks)
-- **Phase 3.3**: Disaster Recovery & Backup
-- **Phase 3.4**: Troubleshooting Decision Tree
-- **Phase 3.5**: Monitoring & Alerting Playbook
+- ✅ **Phase 3.1**: Performance Tuning & Capacity Planning (850 lines) - COMPLETE
+- ✅ **Phase 3.2**: Operational Procedures & Runbooks (1000+ lines) - COMPLETE
+- ✅ **Phase 3.3**: Disaster Recovery & Backup (700 lines) - COMPLETE
+- ⏳ **Phase 3.4**: Troubleshooting Decision Tree (pending, 900-1200 lines)
+- ⏳ **Phase 3.5**: Monitoring & Alerting Playbook (pending, 800-1000 lines)
+
+**Phase 3 Progress**: 2,550+ lines of operational documentation completed
 
 ### Phase 4: Enhancement & Polish ⏱️ (PLANNED)
 
