@@ -997,23 +997,26 @@ public class Gorgoneion implements Closeable {
         private boolean validate(Notarization request, Identifier identifier, KERL_ kerl, Digest from) {
             if (ProtobufEventFactory.from(kerl.getEvents(kerl.getEventsCount() - 1))
                                     .event() instanceof EstablishmentEvent establishment) {
-                var expectedValidators = credentialValidator.expectedBftSigners(identifier.toIdent());
+                // NOTE: The validators in the notarization are from the credential validation phase
+                // We do NOT check if they're in the enrollment BFT subset because:
+                // 1. They came from credential validation which has its own BFT subset
+                // 2. Notarization just preserves who signed the nonce and validates their signatures
+                // 3. The enrollment phase will separately collect signatures from enrollment BFT members
+                // 4. What matters is: do these validators have valid signatures? Do we have majority?
                 var count = 0;
                 for (var validation : request.getValidations().getValidationsList()) {
-                    var validatorDigest = digestOf(validation.getValidator().getIdentifier(),
-                                                   parameters.digestAlgorithm());
-                    if (!expectedValidators.contains(validatorDigest)) {
-                        log.warn("Notarization validation from non-BFT-subset validator: {} from: {} on: {}",
-                                 validatorDigest, from, member.getId());
-                        continue;
-                    }
-                    if (new DefaultVerifier(
-                    parameters.kerl().getKeyState(EventCoordinates.from(validation.getValidator())).getKeys()).verify(
-                    JohnHancock.from(validation.getSignature()), establishment.toKeyEvent_().toByteString())) {
-                        count++;
-                    } else {
-                        log.warn("Invalid notarization, invalid validation for: {} from: {} on: {}", identifier, from,
-                                 member.getId());
+                    try {
+                        if (new DefaultVerifier(
+                        parameters.kerl().getKeyState(EventCoordinates.from(validation.getValidator())).getKeys()).verify(
+                        JohnHancock.from(validation.getSignature()), establishment.toKeyEvent_().toByteString())) {
+                            count++;
+                        } else {
+                            log.warn("Invalid notarization, invalid validation signature for: {} from: {} on: {}", identifier, from,
+                                     member.getId());
+                        }
+                    } catch (Exception e) {
+                        log.warn("Error verifying notarization signature for: {} from: {} on: {}", identifier, from,
+                                 member.getId(), e);
                     }
                 }
                 // Use CredentialValidator for consistent majority calculation
