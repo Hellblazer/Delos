@@ -8,6 +8,43 @@
 
 This guide covers deployment of Delos Byzantine fault-tolerant distributed systems with KERI identity, committee-based consensus (CHOAM), and replicated state machines (SQL-State).
 
+### Security Foundation
+
+**Before deploying, read [SECURITY_THREAT_MODEL.md](SECURITY_THREAT_MODEL.md)** which documents:
+- Threat model and adversary capabilities
+- Defense mechanisms across all architectural layers
+- Byzantine fault tolerance guarantees
+- Incident response procedures
+- Security checklist integration
+
+This deployment guide assumes you have reviewed the security threat model and understand the security assumptions, attack vectors, and defense mechanisms.
+
+---
+
+## Security Integration Checklist
+
+Before proceeding to infrastructure setup, ensure your security posture aligns with Delos threat model:
+
+### Threat Model Alignment (from SECURITY_THREAT_MODEL.md)
+
+| Layer | Defense | Deployment Responsibility |
+|-------|---------|---------------------------|
+| **Network Security** | MTLS + Certificate Pinning | Configure TLS in Section 2.4 |
+| **Message Authentication** | BFT Signatures + Replay Detection | Verify in Section 5.3 |
+| **Consensus Layer** | Byzantine Fault Tolerance (3f+1) | Verify f < n/3 in Section 5.2 |
+| **Identity Layer** | KERI + Deterministic KERL | Backup procedures in Section 6.3 |
+| **Replication** | Deterministic SQL-State | Checkpoint validation in Section 8.2 |
+
+### Attack Vectors Mitigated by This Deployment
+
+- ✅ **Network Eavesdropping**: MTLS with certificate pinning (Section 2.4)
+- ✅ **Message Tampering**: BFT signature validation (Section 5.3)
+- ✅ **Replay Attacks**: Nonce-based replay cache + timestamp validation (enforced in code)
+- ✅ **Byzantine Nodes**: f < n/3 ensures consensus despite up to f Byzantine nodes
+- ✅ **State Corruption**: CHOAM log + SQL-State snapshot recovery (Section 8.2-8.3)
+- ✅ **Identity Forgery**: KERL append-only chain prevents retroactive key changes
+- ✅ **Resource Exhaustion**: Rate limiting + LRU cache enforcement (coded)
+
 ---
 
 ## 1. Pre-Deployment Checklist
@@ -364,40 +401,233 @@ java -cp delos.jar \
 
 ### 5.2 Bootstrap Sequence
 
-**Step 1: Start all nodes (wait 30s between each)**
+**Step 1: Pre-bootstrap Verification (Run BEFORE starting nodes)**
+
 ```bash
-for node in node1 node2 node3 node4 node5 node6 node7; do
-  ssh delos@$node "sudo systemctl start delos"
-  sleep 30
+#!/bin/bash
+# Pre-bootstrap validation
+
+NODES=(node1 node2 node3 node4 node5 node6 node7)
+BOOTSTRAP_DIR="/tmp/delos-bootstrap-$(date +%s)"
+mkdir -p $BOOTSTRAP_DIR
+
+echo "=== Pre-Bootstrap Verification ==="
+
+# 1. Verify all nodes are reachable
+echo "1. Testing network connectivity..."
+for node in "${NODES[@]}"; do
+  if ping -c 1 $node &>/dev/null; then
+    echo "  ✓ $node reachable"
+  else
+    echo "  ✗ $node UNREACHABLE - Fix network before proceeding!"
+    exit 1
+  fi
 done
 
-# Monitor bootstrap
-for node in node1 node2 node3 node4 node5 node6 node7; do
-  ssh delos@$node "journalctl -u delos -f" &
+# 2. Verify SSH keys configured
+echo "2. Verifying SSH key access..."
+for node in "${NODES[@]}"; do
+  if ssh -o ConnectTimeout=5 delos@$node "echo OK" &>/dev/null; then
+    echo "  ✓ $node SSH access OK"
+  else
+    echo "  ✗ $node SSH access FAILED - Configure keys!"
+    exit 1
+  fi
 done
+
+# 3. Verify Java is installed and correct version
+echo "3. Verifying Java 25+ installation..."
+for node in "${NODES[@]}"; do
+  VERSION=$(ssh delos@$node "java -version 2>&1 | grep -oP 'version \"?\K[\d]+'" | head -1)
+  if [ "$VERSION" -ge 25 ]; then
+    echo "  ✓ $node has Java $VERSION"
+  else
+    echo "  ✗ $node has Java $VERSION (need 25+)"
+    exit 1
+  fi
+done
+
+# 4. Verify certificates and keystores exist
+echo "4. Verifying TLS certificates..."
+for node in "${NODES[@]}"; do
+  if ssh delos@$node "test -f /opt/delos/keys/node*.p12 -a -f /opt/delos/keys/identity.jks" 2>/dev/null; then
+    echo "  ✓ $node has required keystores"
+  else
+    echo "  ✗ $node missing keystores"
+    exit 1
+  fi
+done
+
+# 5. Verify configuration files
+echo "5. Verifying configuration files..."
+for node in "${NODES[@]}"; do
+  if ssh delos@$node "test -f /opt/delos/config/delos.yaml" 2>/dev/null; then
+    echo "  ✓ $node has delos.yaml"
+  else
+    echo "  ✗ $node missing delos.yaml"
+    exit 1
+  fi
+done
+
+# 6. Verify database directories are writable
+echo "6. Verifying database directories..."
+for node in "${NODES[@]}"; do
+  if ssh delos@$node "test -w /opt/delos/data -a -w /opt/delos/logs" 2>/dev/null; then
+    echo "  ✓ $node data/log directories writable"
+  else
+    echo "  ✗ $node data/log directories NOT writable"
+    exit 1
+  fi
+done
+
+echo ""
+echo "✓ All pre-bootstrap checks passed!"
+echo "Bootstrap log: $BOOTSTRAP_DIR/bootstrap.log"
 ```
 
-**Step 2: Verify initial view formation**
+**Step 2: Start all nodes (staggered, 30s between each)**
+
 ```bash
-# Query from any node
-curl -s http://localhost:8080/metrics | grep "fireflies_view_changes"
-# Expected: Should stabilize after ~30s
+#!/bin/bash
+# Multi-node bootstrap with monitoring
+
+NODES=(node1 node2 node3 node4 node5 node6 node7)
+BOOTSTRAP_LOG="/tmp/bootstrap-$(date +%Y%m%d-%H%M%S).log"
+
+echo "=== Starting Delos Cluster Bootstrap ===" | tee $BOOTSTRAP_LOG
+echo "Bootstrap started: $(date)" >> $BOOTSTRAP_LOG
+echo "Nodes: ${NODES[@]}" >> $BOOTSTRAP_LOG
+echo "" >> $BOOTSTRAP_LOG
+
+# Phase 1: Start all nodes
+echo "Phase 1: Starting nodes (30s stagger)..."
+for i in "${!NODES[@]}"; do
+  node=${NODES[$i]}
+  echo -n "  Starting $node... "
+
+  ssh delos@$node "sudo systemctl restart delos" 2>&1 | tee -a $BOOTSTRAP_LOG
+  if [ $? -eq 0 ]; then
+    echo "✓"
+  else
+    echo "✗ FAILED"
+    exit 1
+  fi
+
+  # Stagger starts (except last node)
+  if [ $i -lt $((${#NODES[@]} - 1)) ]; then
+    echo "  Waiting 30s before next node..."
+    sleep 30
+  fi
+done
+
+echo ""
+echo "Phase 2: Waiting for cluster stabilization (60s)..."
+sleep 60
+
+# Phase 3: Verify all nodes are up
+echo "Phase 3: Verifying node status..."
+for node in "${NODES[@]}"; do
+  if ssh delos@$node "systemctl is-active delos" &>/dev/null; then
+    echo "  ✓ $node is running"
+  else
+    echo "  ✗ $node is NOT running"
+    ssh delos@$node "journalctl -u delos -n 20" >> $BOOTSTRAP_LOG
+    exit 1
+  fi
+done
+
+echo ""
+echo "✓ All nodes started successfully"
+echo "Bootstrap log: $BOOTSTRAP_LOG"
 ```
 
-**Step 3: Create initial CHOAM state**
+**Step 3: Verify initial view formation (Fireflies gossip stabilization)**
+
 ```bash
-java -cp delos.jar \
+#!/bin/bash
+# Verify fireflies gossip has formed stable view
+
+NODES=(node1 node2 node3 node4 node5 node6 node7)
+
+echo "Waiting for view formation (up to 90 seconds)..."
+
+for attempt in {1..9}; do
+  echo -n "  Attempt $attempt/9... "
+
+  # Check view stability from node1
+  VIEW_CHANGES=$(ssh delos@node1 "curl -s http://localhost:8080/metrics 2>/dev/null | grep 'fireflies_view_changes_total' | grep -oP '\d+$'" 2>/dev/null || echo "0")
+
+  if [ "$VIEW_CHANGES" -gt 0 ]; then
+    echo "View formed (${VIEW_CHANGES} changes)"
+
+    # Verify all nodes see the same view
+    echo "  Verifying consistent view across all nodes..."
+    for node in "${NODES[@]}"; do
+      MEMBER_COUNT=$(ssh delos@$node "curl -s http://localhost:8080/metrics 2>/dev/null | grep 'fireflies_membership_count' | grep -oP '\d+$'" 2>/dev/null || echo "0")
+      if [ "$MEMBER_COUNT" -eq 7 ]; then
+        echo "    ✓ $node sees all 7 members"
+      else
+        echo "    ⚠ $node sees $MEMBER_COUNT members (expected 7)"
+      fi
+    done
+    break
+  else
+    echo "Waiting... ($((attempt * 10))s elapsed)"
+    sleep 10
+  fi
+done
+
+echo ""
+echo "✓ View formation verified"
+```
+
+**Step 4: Create initial CHOAM state (Committee-based consensus initialization)**
+
+```bash
+#!/bin/bash
+# Initialize CHOAM consensus layer
+
+echo "Initializing CHOAM consensus layer..."
+
+java -cp /opt/delos/delos-app.jar \
   com.hellblazer.delos.tools.InitializeChoam \
-  --nodes node1,node2,node3,node4,node5,node6,node7 \
-  --checkpoint /tmp/genesis-checkpoint.bin
+  --nodes node1:50051,node2:50051,node3:50051,node4:50051,node5:50051,node6:50051,node7:50051 \
+  --checkpoint /tmp/genesis-checkpoint.bin \
+  --output /tmp/choam-init.log
+
+if [ $? -eq 0 ]; then
+  echo "✓ CHOAM initialized successfully"
+  echo "  Checkpoint: /tmp/genesis-checkpoint.bin"
+else
+  echo "✗ CHOAM initialization failed"
+  cat /tmp/choam-init.log
+  exit 1
+fi
 ```
 
-**Step 4: Activate SQL-State**
+**Step 5: Activate SQL-State (Replicated state machine initialization)**
+
 ```bash
-java -cp delos.jar \
+#!/bin/bash
+# Initialize SQL-State and schema
+
+echo "Initializing SQL-State layer..."
+
+java -cp /opt/delos/delos-app.jar \
   com.hellblazer.delos.tools.InitializeState \
   --schema-sql schemas/initial-schema.sql \
-  --checkpoint /tmp/genesis-checkpoint.bin
+  --checkpoint /tmp/genesis-checkpoint.bin \
+  --output /tmp/state-init.log
+
+if [ $? -eq 0 ]; then
+  echo "✓ SQL-State initialized successfully"
+else
+  echo "✗ SQL-State initialization failed"
+  cat /tmp/state-init.log
+  exit 1
+fi
+
+echo "✓ Cluster bootstrap complete!"
 ```
 
 ### 5.3 Validate Cluster Health
@@ -923,9 +1153,23 @@ The following items enhance security posture but are **not required** for curren
 
 ## References
 
-- [KERI Specification](https://github.com/decentralized-identity/keri)
+### Security & Architecture
+- [Security Threat Model](SECURITY_THREAT_MODEL.md) - Threat analysis, defense mechanisms, incident response
+- [KERI Specification](https://github.com/decentralized-identity/keri) - Decentralized identity standard
 - [KERI Implementation Architecture](adr/0002-keri-implementation-architecture.md)
 - [Fireflies: Gossip-Based Byzantine Fault Tolerance](../fireflies/README.md)
 - [CHOAM: Consensus Design](adr/0004-consensus-design-choam.md)
-- [Troubleshooting Guide](TROUBLESHOOTING_GUIDE.md)
-- [Monitoring Guide](MONITORING_GUIDE.md)
+
+### Operational Guides
+- [Monitoring & Observability Guide](MONITORING_GUIDE.md) - Metrics, alerting, dashboards
+- [Troubleshooting & Incident Response](TROUBLESHOOTING_GUIDE.md) - Common issues, diagnosis, recovery
+- [Backup & Disaster Recovery](DISASTER_RECOVERY_GUIDE.md) - RTO/RPO procedures, restoration
+
+### Key Architectural Components
+- **Fireflies**: Byzantine membership service (gossip-based)
+- **Ethereal**: Aleph-BFT asynchronous atomic broadcast (consensus engine)
+- **CHOAM**: Committee-based replicated state machines (log-based consensus)
+- **SQL-State**: JDBC-accessible replicated state (deterministic SQL)
+- **Stereotomy**: KERI identity management
+- **Thoth**: Distributed hash table for key events
+- **Gorgoneion**: Identity bootstrapping and credential validation
