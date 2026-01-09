@@ -42,7 +42,7 @@ public final class Fsm<Context, Transitions> {
     private final        Deque<State<Context, Transitions>> stack       = new ArrayDeque<>();
     private final        Lock                               sync;
     private final        Class<Transitions>                 transitionsType;
-    private              Context                            context;
+    private volatile     Context                            context;
     private              Transitions                        current;
     private              Logger                             log;
     private              String                             name        = "";
@@ -132,22 +132,27 @@ public final class Fsm<Context, Transitions> {
      * @return the action context object of this Fsm
      */
     public Context getContext() {
-        return context;
+        return locked(() -> context);
     }
 
     /**
      * Set the Context of the FSM
      */
     public void setContext(Context context) {
-        this.context = context;
+        locked(() -> {
+            this.context = context;
+            return null;
+        });
     }
 
     /**
      * @return the current state of the Fsm
      */
     public Transitions getCurrentState() {
-        Transitions transitions = current;
-        return transitions;
+        return locked(() -> {
+            Transitions transitions = current;
+            return transitions;
+        });
     }
 
     /**
