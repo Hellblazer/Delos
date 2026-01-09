@@ -47,6 +47,9 @@ public final class Fsm<Context, Transitions> {
     private static final ConcurrentHashMap<Class<?>, Method> DEFAULT_TRANSITION_CACHE = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, Method> TRANSITION_METHOD_CACHE = new ConcurrentHashMap<>();
 
+    // Maximum hierarchical state stack depth to prevent unbounded growth
+    private static final int                                 MAX_STACK_DEPTH = 16;
+
     private final        Transitions                        proxy;
     private final        Deque<State<Context, Transitions>> stack       = new ArrayDeque<>();
     private final        Lock                               sync;
@@ -225,10 +228,39 @@ public final class Fsm<Context, Transitions> {
     }
 
     /**
-     * Pop the state off of the stack of pushed states. This state will become the current state of the Fsm. Answer the
-     * Transitions object that may be used to send a transition to the popped state.
+     * Pop a previously pushed state off the stack, restoring it as the current state.
      *
-     * @return the Transitions object that may be used to send a transition to the popped state.
+     * <h2>Execution Semantics</h2>
+     * <ol>
+     *   <li>The current state's exit action executes (if defined)
+     *   <li>The state is popped from the stack and becomes current
+     *   <li>The popped state's entry action executes (if defined)
+     *   <li>Optional pending transition can be executed on the popped state
+     * </ol>
+     *
+     * <h2>Pending Transitions</h2>
+     * After calling pop(), you can optionally fire a transition on the popped state:
+     * <pre>
+     *   // Pop and return to previous state
+     *   var restored = fsm.pop();
+     *
+     *   // Optionally fire a transition on the restored state
+     *   restored.someTransition();
+     *
+     *   // Or just exit without further transition
+     *   return null;
+     * </pre>
+     *
+     * <h2>Constraints</h2>
+     * <ul>
+     *   <li>Stack must not be empty (throws IllegalStateException if empty)
+     *   <li>Cannot pop() while a push() is already pending (throws IllegalStateException)
+     *   <li>Cannot call pop() twice without intervening transition (throws IllegalStateException)
+     *   <li>Do NOT call pop() from within entry/exit actions (causes pending transitions to elide)
+     * </ul>
+     *
+     * @return the Transitions proxy for firing an optional pending transition on the popped state
+     * @throws IllegalStateException if stack is empty, push is pending, or pop already pending
      */
     public Transitions pop() {
         if (pendingPop) {
@@ -261,19 +293,66 @@ public final class Fsm<Context, Transitions> {
     }
 
     /**
-     * Push the current state of the Fsm on the state stack. The supplied state becomes the current state of the Fsm
+     * Push the current state onto the stack and transition to a new state.
      *
-     * @param state - the new current state of the Fsm.
+     * This is a convenience method that uses the current context. Use {@link #push(Transitions, Object)} to provide
+     * a new context for the pushed state.
+     *
+     * @param state the new current state of the Fsm
+     * @return the Transitions proxy for firing an optional pending transition on the new state
+     * @throws IllegalStateException if stack depth would exceed limit or push already pending
+     * @see #push(Transitions, Object)
      */
     public Transitions push(Transitions state) {
         return push(state, context);
     }
 
     /**
-     * Push the current state of the Fsm on the state stack. The supplied state becomes the current state of the Fsm
+     * Push the current state onto the stack and transition to a new state with a new context.
      *
-     * @param state   - the new current state of the Fsm.
-     * @param context - the new current context of the FSM
+     * <h2>Execution Semantics</h2>
+     * <ol>
+     *   <li>The current state is saved to the stack (current exit action NOT executed)
+     *   <li>The supplied state becomes the current state
+     *   <li>The new state's entry action executes (if defined)
+     *   <li>Optional pending transition can be executed on the new state
+     * </ol>
+     *
+     * <h2>Stack Semantics</h2>
+     * The FSM maintains a stack of saved states for hierarchical state machines. When you push a state:
+     * <ul>
+     *   <li>The previous current state is saved on the stack
+     *   <li>The new state becomes the current state with the supplied context
+     *   <li>Later calling pop() will restore the previous state and context
+     *   <li>Stack depth is limited to {@value #MAX_STACK_DEPTH} to prevent unbounded growth
+     * </ul>
+     *
+     * <h2>Pending Transitions</h2>
+     * After calling push(), you can optionally fire a transition on the new state:
+     * <pre>
+     *   // Push to subprocess state with new context
+     *   var subprocess = fsm.push(States.SUBPROCESS, subprocContext);
+     *
+     *   // Optionally fire a transition on the new state
+     *   subprocess.start();
+     *
+     *   // Or just exit without further transition
+     *   return null;
+     * </pre>
+     *
+     * <h2>Constraints</h2>
+     * <ul>
+     *   <li>Cannot push a null state (throws IllegalStateException)
+     *   <li>Cannot push while another push is already pending (throws IllegalStateException)
+     *   <li>Cannot push after a pop is already pending (throws IllegalStateException)
+     *   <li>Stack depth must not exceed {@value #MAX_STACK_DEPTH} (throws IllegalStateException)
+     *   <li>Do NOT call push() from within entry/exit actions (causes pending transitions to elide)
+     * </ul>
+     *
+     * @param state   the new current state of the Fsm
+     * @param context the new current context of the FSM (for the pushed state)
+     * @return the Transitions proxy for firing an optional pending transition on the new state
+     * @throws IllegalStateException if state is null, another push is pending, or stack depth exceeded
      */
     public Transitions push(Transitions state, Context context) {
         if (state == null) {
@@ -284,6 +363,10 @@ public final class Fsm<Context, Transitions> {
         }
         if (pendingPop) {
             throw new IllegalStateException(String.format("[%s] Cannot push after pop", name));
+        }
+        if (stack.size() >= MAX_STACK_DEPTH) {
+            throw new IllegalStateException(
+            String.format("[%s] Stack overflow: depth %d exceeds maximum %d", name, stack.size(), MAX_STACK_DEPTH));
         }
         pushTransition = new PendingTransition();
         pendingPush = new State<>(context, state);
