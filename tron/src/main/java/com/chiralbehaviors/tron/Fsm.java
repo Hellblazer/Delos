@@ -551,8 +551,8 @@ public final class Fsm<Context, Transitions> {
     }
 
     private String prettyPrint(State<Context, Transitions> state) {
-        return prettyPrint(state.transitions) + " [" + state.context == null ? "<>: " + getContext()
-                                                                             : state.context + "]";
+        return prettyPrint(state.transitions) + " [" +
+               (state.context == null ? "<>: " + getContext() : state.context) + "]";
     }
 
     private String prettyPrint(Method transition) {
