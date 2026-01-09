@@ -847,11 +847,273 @@ echo "✓ Test node rolled back to current state"
 
 ---
 
-## References
+## 12. Log Analysis Reference
 
-- [Deployment Guide](DEPLOYMENT_GUIDE.md)
-- [Monitoring Guide](MONITORING_GUIDE.md)
-- [CHOAM Consensus](adr/0004-consensus-design-choam.md)
-- [Fireflies: Membership Service](../fireflies/README.md)
-- [H2 Database Documentation](http://www.h2database.com/)
-- [KERI Identity Infrastructure](../stereotomy/docs/THREAT_MODEL.md)
+### Key Log Patterns
+
+**Healthy cluster startup (all nodes):**
+```
+[TRACE] Starting gossip overlay...
+[INFO]  Gossip overlay started: view_id=0, members=4
+[TRACE] Starting consensus...
+[INFO]  Consensus started, waiting for quorum...
+[TRACE] Running ballot for view 1...
+[INFO]  Quorum reached: 4/4 members active
+[INFO]  Starting transaction processing
+```
+
+**High-frequency patterns to watch:**
+```
+[WARN]  Suspecting member node2 (latency spike)
+└─ Normal if infrequent (< 1/min), concerning if frequent (> 1/sec)
+
+[ERROR] Consensus timeout in round 3
+└─ May indicate network issue or slow node
+└─ Watch for trend: single occurrence OK, >3 in 5min = problem
+
+[DEBUG] Replication lag for node3: 1500ms
+└─ Healthy: < 100ms (synchronous replication)
+└─ Warning: 100-500ms (node catching up)
+└─ Critical: > 1000ms (severe lag, investigate)
+
+[WARN]  Block validation failed: height=12345, hash_mismatch
+└─ **CRITICAL**: State divergence detected
+└─ Action: Stop node, check disk, review KERL log
+```
+
+**Error patterns requiring immediate action:**
+```
+[ERROR] Byzantine signature validation failed
+└─ Action: Check if Byzantine member is in cluster
+└─ Verify: Run `curl -s http://localhost:8080/metrics | grep byzantine_members`
+
+[ERROR] KERL chain validation failed
+└─ Action: Check identity credentials format
+└─ Verify: Restart node to re-sync KERL from peers
+
+[CRITICAL] Out of memory: heap space
+└─ Action: Increase -Xmx immediately or restart with larger heap
+└─ Verify: Check for memory leak
+
+[ERROR] Database corrupted: H2 error code 90006
+└─ Action: Stop service, run H2 RECOVER tool
+└─ Verify: Restore from backup if RECOVER fails
+```
+
+### Log Analysis Commands
+
+**Show all ERRORs in last 1000 lines:**
+```bash
+journalctl -u delos -n 1000 | grep ERROR
+```
+
+**Count errors by type (find patterns):**
+```bash
+journalctl -u delos --since "1 hour ago" | \
+  grep ERROR | sed 's/.*ERROR\s*\(.*\):.*/\1/' | sort | uniq -c | sort -rn
+```
+
+**Watch for Byzantine events:**
+```bash
+journalctl -u delos -f | grep -E "Byzantine|signature|validation|false_positive"
+```
+
+**Extract timing information (for latency analysis):**
+```bash
+journalctl -u delos --since "10 minutes ago" | \
+  grep -E "consensus|latency|duration|time" | \
+  awk '{print $1, $2, $NF}'
+```
+
+**Find memory-related messages:**
+```bash
+journalctl -u delos | grep -i "memory\|heap\|gc\|garbage"
+```
+
+**Track quorum changes:**
+```bash
+journalctl -u delos | grep -E "quorum|member.*joined|member.*left|view_change"
+```
+
+---
+
+## 13. Metrics Interpretation Guide
+
+### Critical Metrics (Check if cluster unhealthy)
+
+| Metric | Healthy | Warning | Critical |
+|--------|---------|---------|----------|
+| **fireflies_view_size** | = 4+ (all members) | 3 (one down) | ≤ 2 (quorum lost) |
+| **choam_consensus_latency_p95** | < 500ms | 500-2000ms | > 2000ms |
+| **choam_blocks_committed** | Increasing | Increasing slowly | Flat/decreasing |
+| **fireflies_suspected_count** | 0-1 | 2-3 | > 3 |
+| **fireflies_view_changes** | < 2/min | 2-5/min | > 5/min |
+
+### Performance Metrics (Track trends)
+
+| Metric | What It Means | Investigate If |
+|--------|---------------|-----------------|
+| **choam_consensus_latency_p99** | Worst-case transaction latency | > 3 seconds |
+| **choam_blocks_per_second** | Throughput (tx/sec from block size) | Decreasing trend |
+| **fireflies_gossip_latency_p95** | Network quality (time for gossip) | > 500ms (high latency network) |
+| **fireflies_suspected_duration** | How long nodes stay suspected | > 60 seconds |
+| **sql_state_apply_latency** | Time to apply committed blocks | > 500ms (database slow) |
+
+### Resource Metrics (Capacity planning)
+
+| Metric | Baseline | High Load | Problem |
+|--------|----------|-----------|---------|
+| **jvm_memory_used** | < 40% heap | 70-85% heap | > 90% heap |
+| **jvm_gc_time** | < 5 milliseconds | 10-50ms | > 100ms |
+| **process_open_files** | < 500 | 1000-2000 | > system limit |
+| **disk_usage_percent** | < 70% | 70-85% | > 90% |
+
+### Consensus Health Metrics
+
+**Starting up (first 30 seconds):**
+```
+fireflies_view_size: increasing toward target
+choam_blocks_committed: starting from 0
+fireflies_view_changes: may see 1-2 as quorum forms
+```
+
+**Running normally:**
+```
+fireflies_view_size: stable at target (e.g., 4)
+choam_blocks_committed: steadily increasing
+fireflies_view_changes: < 1 per minute
+fireflies_suspected_count: 0-1
+```
+
+**Degraded (investigate):**
+```
+fireflies_view_size: less than target
+choam_blocks_committed: not increasing or increasing slowly
+fireflies_view_changes: > 5 per minute
+fireflies_suspected_count: > 1
+choam_consensus_latency_p95: > 2 seconds
+```
+
+**Stalled (immediate action):**
+```
+fireflies_view_size: < quorum_requirement
+choam_blocks_committed: FLAT (not changing)
+fireflies_suspected_count: most members suspected
+All transaction endpoints return "No quorum"
+```
+
+### Sample Dashboard Queries
+
+**Cluster Health Overview:**
+```
+# Single metric showing health status
+fireflies_view_size / 4 * 100  # Percent of nodes healthy (e.g., 75% = 3 of 4)
+```
+
+**Transaction Processing Rate:**
+```
+# Calculate tx/sec from block commits
+rate(choam_blocks_committed[1m]) * avg(choam_block_size)
+```
+
+**Consensus Performance (p-values):**
+```
+# Show latency percentiles over last hour
+histogram_quantile(0.50, choam_consensus_latency)  # p50
+histogram_quantile(0.95, choam_consensus_latency)  # p95
+histogram_quantile(0.99, choam_consensus_latency)  # p99
+```
+
+**Network Quality:**
+```
+# Check if network is limiting performance
+fireflies_gossip_latency_p95 / fireflies_gossip_latency_p50
+# If > 10x, network has high variance
+```
+
+**System Resource Saturation:**
+```
+# Monitor if nearing limits
+jvm_memory_used / jvm_memory_max * 100          # Heap usage %
+process_open_files / process_open_files_max * 100  # FD usage %
+disk_usage_percent                              # Disk usage %
+```
+
+---
+
+## 14. Decision Tree Summary
+
+### When to Use Each Tree
+
+**Cluster Formation Issues:**
+- Use Section 1 (Cluster Not Starting) when nodes won't join
+- Use Section 9 (Network Issues) if connectivity is the problem
+
+**Performance Issues:**
+- Use Section 2 (High Latency) when transactions are slow
+- Use Section 4 (Consensus Stalled) when nothing is progressing
+- Use Section 8 (Memory/GC) if seeing performance degradation over time
+
+**Data Integrity Issues:**
+- Use Section 6 (State Inconsistency) if nodes disagree
+- Use Section 5 (Database Issues) if storage is corrupted
+- Use Section 7 (Identity Issues) if identity validation fails
+
+**Stability Issues:**
+- Use Section 3 (Nodes Suspecting) if cluster is flaky
+- Use Section 9 (Network Issues) for intermittent failures
+
+---
+
+## 15. When to Escalate
+
+**Escalate to Platform Team if:**
+
+1. **State is unrecoverable**
+   - Example: State divergence persists after restart
+   - Action: Contact platform team with:
+     - Cluster health dump: `curl -s http://localhost:8080/health/deep > health.json`
+     - Block hashes from all nodes (Section 6.1 diagnostics)
+     - KERL validation status
+
+2. **Byzantine attack detected**
+   - Example: Repeated "Byzantine signature validation failed"
+   - Action: Immediately isolate node, document all signs
+
+3. **Consensus permanently stalled**
+   - Example: Quorum lost and cannot recover (Section 4.2)
+   - Action: Prepare for disaster recovery (DISASTER_RECOVERY.md Section BP-03)
+
+4. **Persistent memory leak**
+   - Example: Memory grows despite GC (Section 8.1 diagnosis)
+   - Action: Provide heap dumps and GC logs to dev team
+
+5. **Unexplained network issues**
+   - Example: Intermittent connectivity with no obvious cause
+   - Action: Work with network team, provide packet captures
+
+---
+
+## 16. Related Documentation
+
+**Phase 3 Operations Guides:**
+- **PERFORMANCE_TUNING.md** - Baseline metrics, capacity planning, tuning parameters
+- **OPERATIONAL_PROCEDURES.md** - Runbooks for common tasks (start, add node, rolling update)
+- **DISASTER_RECOVERY.md** - Backup procedures, restore, RTO/RPO planning
+
+**Module Documentation:**
+- **CHOAM Consensus** - `/choam/README.md` - Consensus protocol details
+- **Fireflies Membership** - `/fireflies/README.md` - Gossip overlay and suspicion mechanism
+- **Stereotomy Identity** - `/stereotomy/README.md` - KERI identity and key events
+- **SQL-State** - `/sql-state/README.md` - State machine execution
+
+**Architecture & Design:**
+- **DEPLOYMENT_GUIDE.md** - Cluster setup and node bootstrap
+- **THREAT_MODEL.md** - Security considerations for troubleshooting
+- **Architecture Overview** - `/docs/ARCHITECTURE.md` - System design and components
+
+---
+
+**Last Updated**: 2026-01-09
+**Phase**: 3.4 (Operations & Maintenance)
+**Status**: Production Ready
