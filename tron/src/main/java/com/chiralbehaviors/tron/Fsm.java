@@ -23,8 +23,10 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.ArrayDeque;
+import java.util.Arrays;
 import java.util.Deque;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -38,6 +40,13 @@ import java.util.concurrent.locks.ReentrantLock;
 public final class Fsm<Context, Transitions> {
     private static final Logger                             DEFAULT_LOG = LoggerFactory.getLogger(Fsm.class);
     private static final ThreadLocal<Fsm<?, ?>>             thisFsm     = new ThreadLocal<>();
+
+    // Method reflection caches - keyed by state class for O(1) lookup
+    private static final ConcurrentHashMap<Class<?>, Method> ENTRY_ACTION_CACHE = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<Class<?>, Method> EXIT_ACTION_CACHE = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<Class<?>, Method> DEFAULT_TRANSITION_CACHE = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, Method> TRANSITION_METHOD_CACHE = new ConcurrentHashMap<>();
+
     private final        Transitions                        proxy;
     private final        Deque<State<Context, Transitions>> stack       = new ArrayDeque<>();
     private final        Lock                               sync;
@@ -303,51 +312,69 @@ public final class Fsm<Context, Transitions> {
     }
 
     private void executeEntryAction() {
-        for (Method action : current.getClass().getDeclaredMethods()) {
-            if (action.isAnnotationPresent(Entry.class)) {
-                action.setAccessible(true);
-                if (log.isTraceEnabled()) {
-                    log.trace(
-                    String.format("[%s] Entry action: %s.%s", name, prettyPrint(current), prettyPrint(action)));
+        Method action = ENTRY_ACTION_CACHE.computeIfAbsent(current.getClass(), cls -> {
+            for (Method m : cls.getDeclaredMethods()) {
+                if (m.isAnnotationPresent(Entry.class)) {
+                    m.setAccessible(true);
+                    return m;
                 }
-                try {
-                    // For entry actions with parameters, inject the context
-                    if (action.getParameterTypes().length > 0)
-                        action.invoke(current, getContext());
-                    else
-                        action.invoke(current);
-                    return;
-                } catch (IllegalAccessException | IllegalArgumentException e) {
-                    throw new IllegalStateException(e);
-                } catch (InvocationTargetException e) {
-                    Throwable targetException = e.getTargetException();
-                    if (targetException instanceof RuntimeException) {
-                        throw (RuntimeException) targetException;
-                    }
-                    throw new IllegalStateException(targetException);
+            }
+            return null;  // No entry action defined for this state
+        });
+
+        if (action != null) {
+            if (log.isTraceEnabled()) {
+                log.trace(
+                String.format("[%s] Entry action: %s.%s", name, prettyPrint(current), prettyPrint(action)));
+            }
+            try {
+                // For entry actions with parameters, inject the context
+                if (action.getParameterTypes().length > 0)
+                    action.invoke(current, getContext());
+                else
+                    action.invoke(current);
+            } catch (IllegalAccessException | IllegalArgumentException e) {
+                throw new IllegalStateException(e);
+            } catch (InvocationTargetException e) {
+                Throwable targetException = e.getTargetException();
+                if (targetException instanceof RuntimeException) {
+                    throw (RuntimeException) targetException;
                 }
+                throw new IllegalStateException(targetException);
             }
         }
     }
 
     private void executeExitAction() {
-        for (Method action : current.getClass().getDeclaredMethods()) {
-            if (action.isAnnotationPresent(Exit.class)) {
-                action.setAccessible(true);
-                if (log.isTraceEnabled()) {
-                    log.trace(
-                    String.format("[%s] Exit action: %s.%s", name, prettyPrint(current), prettyPrint(action)));
+        Method action = EXIT_ACTION_CACHE.computeIfAbsent(current.getClass(), cls -> {
+            for (Method m : cls.getDeclaredMethods()) {
+                if (m.isAnnotationPresent(Exit.class)) {
+                    m.setAccessible(true);
+                    return m;
                 }
-                try {
-                    // For exit action with parameters, inject the context
-                    if (action.getParameterTypes().length > 0)
-                        action.invoke(current, getContext());
-                    else
-                        action.invoke(current);
-                    return;
-                } catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
-                    throw new IllegalStateException(e);
+            }
+            return null;  // No exit action defined for this state
+        });
+
+        if (action != null) {
+            if (log.isTraceEnabled()) {
+                log.trace(
+                String.format("[%s] Exit action: %s.%s", name, prettyPrint(current), prettyPrint(action)));
+            }
+            try {
+                // For exit action with parameters, inject the context
+                if (action.getParameterTypes().length > 0)
+                    action.invoke(current, getContext());
+                else
+                    action.invoke(current);
+            } catch (IllegalAccessException | IllegalArgumentException e) {
+                throw new IllegalStateException(e);
+            } catch (InvocationTargetException e) {
+                Throwable targetException = e.getTargetException();
+                if (targetException instanceof RuntimeException) {
+                    throw (RuntimeException) targetException;
                 }
+                throw new IllegalStateException(targetException);
             }
         }
     }
@@ -464,20 +491,28 @@ public final class Fsm<Context, Transitions> {
     }
 
     private Method lookupDefaultTransition(InvalidTransition previousException, Method t) {
-        // look for a @Default transition for the state singleton
-        for (Method defaultTransition : current.getClass().getDeclaredMethods()) {
-            if (defaultTransition.isAnnotationPresent(Default.class)) {
-                defaultTransition.setAccessible(true);
-                return defaultTransition;
+        Method defaultMethod = DEFAULT_TRANSITION_CACHE.computeIfAbsent(current.getClass(), cls -> {
+            // look for a @Default transition for the state singleton
+            for (Method defaultTransition : cls.getDeclaredMethods()) {
+                if (defaultTransition.isAnnotationPresent(Default.class)) {
+                    defaultTransition.setAccessible(true);
+                    return defaultTransition;
+                }
             }
-        }
-        // look for a @Default transition for the state on the enclosing enum class
-        for (Method defaultTransition : current.getClass().getMethods()) {
-            if (defaultTransition.isAnnotationPresent(Default.class)) {
-                defaultTransition.setAccessible(true);
-                return defaultTransition;
+            // look for a @Default transition for the state on the enclosing enum class
+            for (Method defaultTransition : cls.getMethods()) {
+                if (defaultTransition.isAnnotationPresent(Default.class)) {
+                    defaultTransition.setAccessible(true);
+                    return defaultTransition;
+                }
             }
+            return null;  // No default transition found
+        });
+
+        if (defaultMethod != null) {
+            return defaultMethod;
         }
+
         if (previousException == null) {
             throw new InvalidTransition(String.format(prettyPrint(t)));
         } else {
@@ -492,16 +527,23 @@ public final class Fsm<Context, Transitions> {
      * @return the transition Method for the current state matching the interface definition
      */
     private Method lookupTransition(Method t) {
-        Method stateTransition = null;
-        try {
-            // First we try declared methods on the state
-            stateTransition = current.getClass().getMethod(t.getName(), t.getParameterTypes());
-        } catch (NoSuchMethodException | SecurityException e1) {
-            throw new IllegalStateException(
-            String.format("Inconcievable!  The state %s does not implement the transition %s", prettyPrint(current),
-                          prettyPrint(t)));
-        }
-        stateTransition.setAccessible(true);
+        // Create cache key: "className.methodName(param1,param2,...)
+        String cacheKey = current.getClass().getName() + "." + t.getName()
+                        + Arrays.toString(t.getParameterTypes());
+
+        Method stateTransition = TRANSITION_METHOD_CACHE.computeIfAbsent(cacheKey, key -> {
+            try {
+                // First we try declared methods on the state
+                Method m = current.getClass().getMethod(t.getName(), t.getParameterTypes());
+                m.setAccessible(true);
+                return m;
+            } catch (NoSuchMethodException | SecurityException e1) {
+                throw new IllegalStateException(
+                String.format("Inconcievable!  The state %s does not implement the transition %s",
+                              prettyPrint(current), prettyPrint(t)));
+            }
+        });
+
         return stateTransition;
     }
 
