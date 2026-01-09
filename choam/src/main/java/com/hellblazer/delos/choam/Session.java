@@ -83,6 +83,7 @@ public class Session {
         buff.flip();
         return verifier.verify(JohnHancock.of(transaction.getSignature()),
                                transaction.getSource().toByteString().asReadOnlyByteBuffer(),
+                               buff,
                                transaction.getContent().asReadOnlyByteBuffer());
     }
 
@@ -140,6 +141,12 @@ public class Session {
         if (!txn.hasSource() || !txn.hasSignature()) {
             throw new InvalidTransaction();
         }
+
+        // Verify transaction signature
+        if (!verify(txn, params.member())) {
+            throw new InvalidTransaction("Transaction signature validation failed");
+        }
+
         var hash = CHOAM.hashOf(txn, params.digestAlgorithm());
         final var timer = params.metrics() == null ? null : params.metrics().transactionLatency().time();
 
