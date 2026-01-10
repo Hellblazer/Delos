@@ -53,4 +53,86 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <profiles>
+        <!-- Fast local testing: unit tests + quick tests only (fail-fast for development) -->
+        <profile>
+            <id>fast</id>
+            <activation>
+                <property>
+                    <name>fast</name>
+                </property>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <!-- Skip the long-running consensus tests -->
+                            <excludes>
+                                <exclude>**/DeterminismVerificationTest.java</exclude>
+                                <exclude>**/CHOAMConcurrencyTest.java</exclude>
+                            </excludes>
+                            <!-- Parallelize unit tests for speed -->
+                            <threadCountSuites>4</threadCountSuites>
+                            <parallelSuite>true</parallelSuite>
+                            <!-- Isolate each test to prevent state contamination -->
+                            <reuseForks>false</reuseForks>
+                            <forkCount>2</forkCount>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- Determinism validation only: for production readiness verification -->
+        <profile>
+            <id>determinism-only</id>
+            <activation>
+                <property>
+                    <name>determinism</name>
+                </property>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <!-- Only run determinism test for Byzantine safety validation -->
+                            <includes>
+                                <include>**/DeterminismVerificationTest.java</include>
+                            </includes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- Full test suite: all tests with optimized epoch configs (CI) -->
+        <profile>
+            <id>full</id>
+            <activation>
+                <property>
+                    <name>full</name>
+                </property>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <!-- Run all tests, unit tests in parallel -->
+                            <threadCountSuites>2</threadCountSuites>
+                            <parallelSuite>true</parallelSuite>
+                            <reuseForks>false</reuseForks>
+                            <forkCount>2</forkCount>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
