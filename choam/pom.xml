@@ -4,7 +4,7 @@
     <parent>
         <groupId>com.hellblazer.delos</groupId>
         <artifactId>delos.app</artifactId>
-        <version>0.0.7</version>
+        <version>0.0.8-SNAPSHOT</version>
     </parent>
     <artifactId>choam</artifactId>
     <name>CHOAM</name>
