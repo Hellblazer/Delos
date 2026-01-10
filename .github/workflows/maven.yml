@@ -41,7 +41,7 @@ jobs:
             **/target/
           key: delos-maven-${{ github.sha }}
 
-  test-fireflies:
+  test-batch-1:
     needs: compile
     runs-on: ubuntu-latest
 
@@ -65,17 +65,17 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Fireflies Module
-        run: ./mvnw -batch-mode surefire:test -pl fireflies -Dforks=1 --file pom.xml
-      - name: Save Maven cache after tests (with test dependencies)
+      - name: Test Batch 1
+        run: ./mvnw -batch-mode surefire:test -pl choam,stereotomy,gorgoneion,tron,cryptography --file pom.xml
+      - name: Save Maven cache after batch-1 tests
         uses: actions/cache@v4
         with:
           path: |
             ~/.m2/repository
             **/target/
-          key: delos-maven-tests-fireflies-${{ github.sha }}
+          key: delos-maven-tests-batch-1-${{ github.sha }}
 
-  test-heavy-modules:
+  test-batch-2:
     needs: compile
     runs-on: ubuntu-latest
 
@@ -99,17 +99,17 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Heavy Modules (Ethereal, CHOAM, SQL-State)
-        run: ./mvnw -batch-mode surefire:test -pl ethereal,choam,sql-state --file pom.xml
-      - name: Save Maven cache after heavy tests
+      - name: Test Batch 2
+        run: ./mvnw -batch-mode surefire:test -pl fireflies,ethereal,thoth,protocols,memberships --file pom.xml
+      - name: Save Maven cache after batch-2 tests
         uses: actions/cache@v4
         with:
           path: |
             ~/.m2/repository
             **/target/
-          key: delos-maven-tests-heavy-${{ github.sha }}
+          key: delos-maven-tests-batch-2-${{ github.sha }}
 
-  test-identity-modules:
+  test-batch-3:
     needs: compile
     runs-on: ubuntu-latest
 
@@ -133,17 +133,17 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Identity Modules (Stereotomy, Gorgoneion, Thoth)
-        run: ./mvnw -batch-mode surefire:test -pl stereotomy,stereotomy-services,gorgoneion,gorgoneion-client,thoth --file pom.xml
-      - name: Save Maven cache after identity tests
+      - name: Test Batch 3
+        run: ./mvnw -batch-mode surefire:test -pl stereotomy-services,gorgoneion-client,model,delphinius,schemas --file pom.xml
+      - name: Save Maven cache after batch-3 tests
         uses: actions/cache@v4
         with:
           path: |
             ~/.m2/repository
             **/target/
-          key: delos-maven-tests-identity-${{ github.sha }}
+          key: delos-maven-tests-batch-3-${{ github.sha }}
 
-  test-light-modules:
+  test-batch-4:
     needs: compile
     runs-on: ubuntu-latest
 
@@ -167,30 +167,30 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Light Modules (Domain, Protocols, Membership, etc.)
-        run: ./mvnw -batch-mode surefire:test -pl protocols,memberships,tron,model,delphinius,schemas,liquibase-deterministic,grpc,cryptography,domain-epoll,domain-kqueue,domain-sockets,leyden,vm-socket,java-noise --file pom.xml
-      - name: Save Maven cache after light tests
+      - name: Test Batch 4
+        run: ./mvnw -batch-mode surefire:test -pl liquibase-deterministic,grpc,sql-state,domain-epoll,domain-kqueue,domain-sockets,leyden,vm-socket,java-noise --file pom.xml
+      - name: Save Maven cache after batch-4 tests
         uses: actions/cache@v4
         with:
           path: |
             ~/.m2/repository
             **/target/
-          key: delos-maven-tests-light-${{ github.sha }}
+          key: delos-maven-tests-batch-4-${{ github.sha }}
 
   build-status:
-    needs: [test-fireflies, test-heavy-modules, test-identity-modules, test-light-modules]
+    needs: [test-batch-1, test-batch-2, test-batch-3, test-batch-4]
     runs-on: ubuntu-latest
     if: always()
 
     steps:
       - name: Check Test Results
         run: |
-          if [ "${{ needs.test-fireflies.result }}" != "success" ] || [ "${{ needs.test-heavy-modules.result }}" != "success" ] || [ "${{ needs.test-identity-modules.result }}" != "success" ] || [ "${{ needs.test-light-modules.result }}" != "success" ]; then
+          if [ "${{ needs.test-batch-1.result }}" != "success" ] || [ "${{ needs.test-batch-2.result }}" != "success" ] || [ "${{ needs.test-batch-3.result }}" != "success" ] || [ "${{ needs.test-batch-4.result }}" != "success" ]; then
             echo "❌ Build FAILED: One or more test jobs failed"
-            echo "  test-fireflies: ${{ needs.test-fireflies.result }}"
-            echo "  test-heavy-modules: ${{ needs.test-heavy-modules.result }}"
-            echo "  test-identity-modules: ${{ needs.test-identity-modules.result }}"
-            echo "  test-light-modules: ${{ needs.test-light-modules.result }}"
+            echo "  test-batch-1: ${{ needs.test-batch-1.result }}"
+            echo "  test-batch-2: ${{ needs.test-batch-2.result }}"
+            echo "  test-batch-3: ${{ needs.test-batch-3.result }}"
+            echo "  test-batch-4: ${{ needs.test-batch-4.result }}"
             exit 1
           fi
           echo "✅ Build GREEN: All tests passed successfully"
