@@ -11,7 +11,44 @@ on:
         required: true
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    outputs:
+      cache-key: ${{ steps.cache.outputs.cache-primary-key }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore Maven cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            **/target/
+          key: delos-maven-${{ github.sha }}
+          restore-keys: |
+            delos-maven-${{ github.ref }}-
+            delos-maven-refs/heads/main-
+            delos-maven-
+          fail-on-cache-miss: false
+      - name: Pre-build h2-deterministic (required dependency for sql-state)
+        run: ./mvnw -batch-mode install -DskipTests -pl h2-deterministic
+      - name: Compile all modules
+        run: ./mvnw -batch-mode clean install -DskipTests --file pom.xml
+      - name: Save Maven cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            **/target/
+          key: delos-maven-release-${{ github.sha }}
+
   release:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -29,15 +66,14 @@ jobs:
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Cache Maven packages
+      - name: Restore Maven cache from test job
         uses: actions/cache@v4
         with:
           path: |
             ~/.m2/repository
-            target/
-          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-maven-
+            **/target/
+          key: delos-maven-release-${{ github.sha }}
+          fail-on-cache-miss: false
 
       - name: Configure Git
         run: |
@@ -53,13 +89,7 @@ jobs:
           cat README.md | grep -E "(Current version|<version>)" | head -5
           echo "✓ Updated README.md with release version: ${{ github.event.inputs.releaseVersion }}"
 
-      - name: Pre-build h2-deterministic (required dependency for sql-state)
-        run: ./mvnw -batch-mode install -DskipTests -pl h2-deterministic
-
-      - name: Build and test all modules
-        run: ./mvnw -batch-mode clean install
-
-      - name: Publish to GitHub Packages
+      - name: Publish to GitHub Packages (from cache, no rebuild)
         id: deploy
         run: ./mvnw -batch-mode deploy -DskipTests -s .github/settings.xml
         env:
