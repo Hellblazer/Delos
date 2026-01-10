@@ -22,12 +22,16 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * ViewCoordinatorImpl - Implements two-phase view reconfiguration pattern.
  *
- * Separates deterministic state computation (Phase 2, locked) from callback
- * execution (Phase 3, unlocked) to eliminate reentrancy violations.
+ * DESIGN: Acts as callback container and executor for two-phase reconfigure pattern.
+ * Phase 2 (locked) collects callbacks deterministically.
+ * Phase 3 (unlocked) executes collected callbacks safely without locks.
  *
- * KEY OPERATIONS:
- * - Phase 2: Compute new validators, build committees, collect callbacks
- * - Phase 3: Apply state atomically, execute callbacks (no locks)
+ * CRITICAL: This class is flexible to support CHOAM's specific callback patterns.
+ * Callbacks are caller-provided (not auto-generated) to handle complex state transitions.
+ *
+ * KEY PATTERN:
+ * - Phase 2 (locked): Collect callbacks in list during deterministic computation
+ * - Phase 3 (unlocked): Execute callbacks in deterministic order
  *
  * @author hal.hildebrand
  */
@@ -47,37 +51,23 @@ public class ViewCoordinatorImpl implements ViewCoordinator {
      */
     public ViewCoordinatorImpl(ViewState viewState, Digest initialDiadem, Context<Member> initialContext) {
         this.viewState = viewState;
-        this.state = new AtomicReference<>(new ReconfiguredState(initialDiadem, initialContext, null));
+        this.state = new AtomicReference<>(new ReconfiguredState(initialDiadem, initialContext, new ArrayList<>()));
     }
 
     @Override
     public ReconfigurationPrepared prepareReconfigure(ViewState.Snapshot snapshot, Digest hash, Reconfigure reconfigure) {
         // This method is called while viewStateLock is held by caller.
         // It must be deterministic with no side effects.
+        // Caller is responsible for collecting callbacks in the prepared state.
 
         log.debug("Preparing reconfiguration to view: {} hash: {}", new Digest(reconfigure.getId()), hash);
 
-        // Extract current state from snapshot
-        Digest currentViewId = snapshot.getViewId();
-        int currentMemberCount = snapshot.getMemberCount();
-
-        // Compute new state deterministically
-        // This is placeholder for actual validator computation logic
-        Context<Member> newContext = null;  // Would be computed from reconfigure message
-
-        // Store callbacks to execute in Phase 3 (outside lock)
+        // For CHOAM integration: Caller will provide callbacks
+        // This is a placeholder that can be overridden for different use cases
         List<Runnable> callbacks = new ArrayList<>();
 
-        // Callback 1: Log reconfiguration
-        callbacks.add(() -> {
-            log.info("Reconfigured to view: {} members: {} from: {}", hash, currentMemberCount, currentViewId);
-        });
-
-        // Additional callbacks would be added here based on reconfigure logic
-        // (committee transitions, view changes, etc.)
-
-        // Create prepared state
-        ReconfiguredState prepared = new ReconfiguredState(hash, newContext, callbacks);
+        // Create prepared state with empty callbacks - caller will add them
+        ReconfiguredState prepared = new ReconfiguredState(hash, null, callbacks);
 
         return new ReconfigurationPreparedImpl(prepared, snapshot);
     }
@@ -85,7 +75,7 @@ public class ViewCoordinatorImpl implements ViewCoordinator {
     @Override
     public void completeReconfigure(ReconfigurationPrepared prepared) {
         // This method is called WITHOUT viewStateLock held.
-        // Apply state atomically, then execute callbacks.
+        // Execute callbacks collected during Phase 2.
 
         if (!(prepared instanceof ReconfigurationPreparedImpl impl)) {
             return;
@@ -98,31 +88,58 @@ public class ViewCoordinatorImpl implements ViewCoordinator {
 
         // Now execute callbacks (after state transition, without locks)
         // Callbacks can safely acquire other locks and perform I/O
-        if (preparedState.callbacks != null) {
-            for (var callback : preparedState.callbacks) {
-                try {
-                    callback.run();
-                } catch (Exception e) {
-                    log.error("Callback execution failed during reconfigure", e);
-                }
-            }
-        }
+        executeCallbacks(preparedState.callbacks);
 
         log.debug("Reconfiguration completed, state applied, callbacks executed");
     }
 
     /**
-     * Internal state holder for reconfigured view.
+     * Execute callbacks in order (called from completeReconfigure).
+     *
+     * Each callback is executed independently; exceptions don't prevent other
+     * callbacks from running.
+     *
+     * @param callbacks List of callbacks to execute in order
      */
-    private static class ReconfiguredState {
-        final Digest viewId;
-        final Context<Member> context;
-        final List<Runnable> callbacks;
+    public void executeCallbacks(List<Runnable> callbacks) {
+        if (callbacks == null || callbacks.isEmpty()) {
+            return;
+        }
 
-        ReconfiguredState(Digest viewId, Context<Member> context, List<Runnable> callbacks) {
+        for (int i = 0; i < callbacks.size(); i++) {
+            try {
+                callbacks.get(i).run();
+            } catch (Exception e) {
+                log.error("Callback {} execution failed during reconfigure", i, e);
+                // Continue with next callback even if this one fails
+            }
+        }
+    }
+
+    /**
+     * Get current state (for testing/validation).
+     *
+     * @return Current reconfigured state
+     */
+    public ReconfiguredState getCurrentState() {
+        return state.get();
+    }
+
+    /**
+     * Internal state holder for reconfigured view.
+     *
+     * This is public (package-private) to allow callers to build
+     * ReconfigurationPrepared with their specific callbacks.
+     */
+    public static class ReconfiguredState {
+        public final Digest viewId;
+        public final Context<Member> context;
+        public final List<Runnable> callbacks;
+
+        public ReconfiguredState(Digest viewId, Context<Member> context, List<Runnable> callbacks) {
             this.viewId = viewId;
             this.context = context;
-            this.callbacks = callbacks;
+            this.callbacks = callbacks != null ? callbacks : new ArrayList<>();
         }
     }
 
@@ -141,11 +158,12 @@ public class ViewCoordinatorImpl implements ViewCoordinator {
         @Override
         public void executeCallbacks() {
             if (state.callbacks != null) {
-                for (var callback : state.callbacks) {
+                for (int i = 0; i < state.callbacks.size(); i++) {
                     try {
-                        callback.run();
+                        state.callbacks.get(i).run();
                     } catch (Exception e) {
-                        log.error("Callback execution failed", e);
+                        LoggerFactory.getLogger(ViewCoordinatorImpl.class)
+                                     .error("Callback {} execution failed", i, e);
                     }
                 }
             }
