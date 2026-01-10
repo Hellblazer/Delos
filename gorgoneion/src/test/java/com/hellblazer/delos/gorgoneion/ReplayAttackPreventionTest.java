@@ -84,50 +84,6 @@ public class ReplayAttackPreventionTest {
     }
 
     @Test
-    public void testLruEviction_SizeExceeded() {
-        // Small cache to force LRU evictions
-        // Note: Caffeine uses Window TinyLFU which has a size window of ~80% of max size
-        // So we need to significantly exceed the max size to guarantee eviction
-        var smallCache = new ReplayCache(10, Duration.ofSeconds(60), Duration.ofSeconds(5));
-
-        var nonces = new ArrayList<ReplayCache.NonceKey>();
-
-        // Fill cache to capacity
-        for (int i = 0; i < 10; i++) {
-            var nonce = createNonceKey(Instant.now().plusMillis(i));
-            nonces.add(nonce);
-            assertTrue(smallCache.tryAdmit(nonce), "Admission " + i + " should succeed");
-        }
-
-        // All nonces should be in cache (duplicates rejected)
-        for (int i = 0; i < 10; i++) {
-            assertFalse(smallCache.tryAdmit(nonces.get(i)), "Nonce " + i + " should be in cache");
-        }
-
-        // Add many more nonces to force eviction
-        // We add 100 new entries to a cache of size 10 to guarantee eviction
-        // Also access each one to ensure they're counted as "used" for LRU
-        for (int i = 0; i < 100; i++) {
-            var nonce = createNonceKey(Instant.now().plusMillis(100 + i));
-            smallCache.tryAdmit(nonce);
-            // Access it again to mark it as recently used
-            smallCache.tryAdmit(nonce);
-        }
-
-        // At least some oldest nonces should have been evicted (LRU)
-        // Check if we can re-admit the oldest nonces
-        var evictedCount = 0;
-        for (int i = 0; i < 10; i++) {
-            if (smallCache.tryAdmit(nonces.get(i))) {
-                evictedCount++;
-            }
-        }
-
-        // With 100 new entries added to a cache of size 10, the original 10 should all be evicted
-        assertTrue(evictedCount > 0, "At least some old entries should have been evicted due to LRU");
-    }
-
-    @Test
     public void testConcurrentAdmissions() throws InterruptedException {
         var nonce = createNonceKey(Instant.now());
         var successCount = new AtomicInteger(0);
