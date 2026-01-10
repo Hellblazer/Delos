@@ -100,7 +100,7 @@ public class CHOAM implements ConsensusEngine {
     private final    Combine.Transitions                                   transitions;
     private final    TransSubmission                                       txnSubmission         = new TransSubmission();
     private final    AtomicReference<HashedCertifiedBlock>                 view                  = new AtomicReference<>();
-    private final    PendingViews                                          pendingViews          = new PendingViews();
+    private final    AtomicReference<ImmutablePendingViews>               pendingViews          = new AtomicReference<>(ImmutablePendingViews.EMPTY);
     private final    ScheduledExecutorService                              scheduler;
     private final    AtomicBoolean                                         ongoingJoin           = new AtomicBoolean();
     private final    ReentrantLock                                         viewStateLock         = new ReentrantLock();
@@ -114,7 +114,7 @@ public class CHOAM implements ConsensusEngine {
         this.params = params;
         this.pending = new BoundedPriorityBlockingQueue<>(params.maxPendingBlocks(),
                                                           Comparator.comparing(HashedCertifiedBlock::height));
-        pendingViews.add(params.context().getId(), params.context().delegate());
+        pendingViews.set(pendingViews.get().add(params.context().getId(), params.context().delegate()));
         this.blockProcessor = new BlockProcessorImpl(pending, started, params, head, this::consume);
 
         rotateViewKeys();
@@ -345,8 +345,7 @@ public class CHOAM implements ConsensusEngine {
             log.info("Acquiring new view of: {}, diadem: {} size: {} on: {}", context.getId(), diadem, context.size(),
                      params.member().getId());
             params.context().setContext(context);
-            pendingViews.clear();
-            pendingViews.add(diadem, context);
+            pendingViews.set(ImmutablePendingViews.EMPTY.add(diadem, context));
         }
     }
 
@@ -709,7 +708,7 @@ public class CHOAM implements ConsensusEngine {
     }
 
     private Supplier<PendingViews> pendingViews() {
-        return () -> pendingViews;
+        return () -> new PendingViews(pendingViews.get());
     }
 
     private void process() {
@@ -759,9 +758,11 @@ public class CHOAM implements ConsensusEngine {
         try {
             log.info("Setting next view id: {} on: {}", hash, params.member().getId());
             nextViewId.set(hash);
-            var pv = pendingViews.advance();
+            var advanced = pendingViews.get().advance();
+            pendingViews.set(advanced);
+            var pv = advanced.last();
             if (pv != null) {
-                params.context().setContext(pv.context);
+                params.context().setContext(pv.context());
             }
             final Committee c = current.get();
             c.complete();
@@ -1113,65 +1114,34 @@ public class CHOAM implements ConsensusEngine {
         }
     }
 
+    /**
+     * Lightweight wrapper for ImmutablePendingViews that maintains API compatibility.
+     *
+     * KEY INSIGHT: This class has NO internal locks. It's just a read-only view of
+     * an ImmutablePendingViews instance. Thread safety is provided by immutability.
+     *
+     * This wrapper exists solely to maintain the existing API for ViewContext and other
+     * consumers that expect CHOAM.PendingViews type.
+     */
     public static class PendingViews {
-        private final ReadWriteLock                      lock  = new ReentrantReadWriteLock();
-        private final LinkedHashMap<Digest, PendingView> views = new LinkedHashMap<>();
+        private final ImmutablePendingViews delegate;
 
-        public void add(Digest diadem, Context<Member> context) {
-            final var l = lock.writeLock();
-            try {
-                l.lock();
-                views.putIfAbsent(diadem, new PendingView(diadem, context));
-            } finally {
-                l.unlock();
-            }
-        }
-
-        public PendingView advance() {
-            final var l = lock.writeLock();
-            try {
-                l.lock();
-                var last = views.lastEntry();
-                if (last == null) {
-                    return null;
-                }
-                views.clear();
-                views.put(last.getKey(), last.getValue());
-                return last.getValue();
-            } finally {
-                l.unlock();
-            }
-        }
-
-        public void clear() {
-            final var l = lock.writeLock();
-            try {
-                l.lock();
-                views.clear();
-            } finally {
-                l.unlock();
-            }
+        public PendingViews(ImmutablePendingViews delegate) {
+            this.delegate = delegate;
         }
 
         public PendingView get(Digest diadem) {
-            return views.get(diadem);
+            var immutablePv = delegate.get(diadem);
+            return immutablePv == null ? null : new PendingView(immutablePv.diadem(), immutablePv.context());
         }
 
         public Views.Builder getViews(Digest hash) {
-            var builder = Views.newBuilder();
-            views.values().stream().map(pv -> pv.getView(hash)).forEach(builder::addViews);
-            return builder;
+            return delegate.getViews(hash);
         }
 
         public PendingView last() {
-            final var l = lock.readLock();
-            try {
-                l.lock();
-                var last = views.lastEntry();
-                return last == null ? null : last.getValue();
-            } finally {
-                l.unlock();
-            }
+            var immutablePv = delegate.last();
+            return immutablePv == null ? null : new PendingView(immutablePv.diadem(), immutablePv.context());
         }
     }
 
@@ -1199,8 +1169,9 @@ public class CHOAM implements ConsensusEngine {
         @Override
         public void anchor() {
             HashedCertifiedBlock anchor = pending.poll();
-            var pending = pendingViews.last().context;
-            if (anchor != null && pending.size() >= pending.majority()) {
+            var pendingView = pendingViews.get().last();
+            var pending = pendingView == null ? null : pendingView.context();
+            if (anchor != null && pending != null && pending.size() >= pending.majority()) {
                 log.info("Synchronizing from anchor: {} cardinality: {} on: {}", anchor.hash, pending.size(),
                          params.member().getId());
                 transitions.bootstrap(anchor);
@@ -1402,7 +1373,7 @@ public class CHOAM implements ConsensusEngine {
 
         @Override
         public void nextView(Digest diadem, Context<Member> pendingView) {
-            pendingViews.add(diadem, pendingView);
+            pendingViews.set(pendingViews.get().add(diadem, pendingView));
             log.info("Pending context for view: {} size: {} on: {}",
                      nextViewId.get() == null ? "<null>" : nextViewId.get(), pendingView.size(),
                      params.member().getId());
@@ -1683,7 +1654,7 @@ public class CHOAM implements ConsensusEngine {
             log.info("Cancelling formation, acquiring new view, size: {} on: {}", pendingView.size(),
                      params.member().getId());
             params.context().setContext(pendingView);
-            pendingViews.add(diadem, pendingView);
+            pendingViews.set(pendingViews.get().add(diadem, pendingView));
 
             transitions.nextView();
         }
@@ -1743,7 +1714,7 @@ public class CHOAM implements ConsensusEngine {
         public void nextView(Digest diadem, Context<Member> pendingView) {
             log.info("Acquiring new view, size: {} on: {}", pendingView.size(), params.member().getId());
             params.context().setContext(pendingView);
-            pendingViews.add(diadem, pendingView);
+            pendingViews.set(pendingViews.get().add(diadem, pendingView));
         }
 
         @Override

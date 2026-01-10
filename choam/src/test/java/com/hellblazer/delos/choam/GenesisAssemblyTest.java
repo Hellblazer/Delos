@@ -19,6 +19,7 @@ import com.hellblazer.delos.choam.comm.TerminalClient;
 import com.hellblazer.delos.choam.comm.TerminalServer;
 import com.hellblazer.delos.choam.proto.*;
 import com.hellblazer.delos.choam.support.HashedBlock;
+import com.hellblazer.delos.choam.support.ImmutablePendingViews;
 import com.hellblazer.delos.context.StaticContext;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
@@ -160,8 +161,8 @@ public class GenesisAssemblyTest {
                     return null;
                 }
             };
-            var pending = new CHOAM.PendingViews();
-            pending.add(base.getId(), base);
+            var immutablePending = ImmutablePendingViews.EMPTY.add(base.getId(), base);
+            var pending = new CHOAM.PendingViews(immutablePending);
             var view = new GenesisContext(committee, () -> pending, built, sm, reconfigure);
 
             KeyPair keyPair = params.getViewSigAlgorithm().generateKeyPair();
