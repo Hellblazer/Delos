@@ -9,31 +9,44 @@
     <name>Delos Umbrella App</name>
 
     <modules>
+        <!-- Build shaded dependencies first - required for other modules -->
         <module>h2-deterministic</module>
+        <module>liquibase-deterministic</module>
+
+        <!-- Core infrastructure -->
         <module>fireflies</module>
         <module>protocols</module>
-        <module>sql-state</module>
         <module>memberships</module>
         <module>tron</module>
         <module>stereotomy</module>
         <module>ethereal</module>
         <module>choam</module>
+
+        <!-- SQL and state management -->
+        <module>schemas</module>
+        <module>sql-state</module>
+
+        <!-- Higher-level services -->
         <module>model</module>
         <module>delphinius</module>
-        <module>schemas</module>
         <module>stereotomy-services</module>
         <module>thoth</module>
-        <module>liquibase-deterministic</module>
+
+        <!-- gRPC and other infrastructure -->
         <module>grpc</module>
         <module>gorgoneion</module>
         <module>gorgoneion-client</module>
         <module>cryptography</module>
+
+        <!-- Platform support -->
         <module>domain-epoll</module>
         <module>domain-kqueue</module>
         <module>domain-sockets</module>
         <module>leyden</module>
         <module>vm-socket</module>
         <module>java-noise</module>
+
+        <!-- Examples -->
         <module>examples</module>
     </modules>
 
