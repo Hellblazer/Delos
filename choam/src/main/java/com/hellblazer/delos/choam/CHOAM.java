@@ -106,6 +106,7 @@ public class CHOAM implements ConsensusEngine {
     private final    ReentrantLock                                         viewStateLock         = new ReentrantLock();
     private final    ReadWriteLock                                         headLock              = new ReentrantReadWriteLock();
     private final    AtomicInteger                                         syncAttempts          = new AtomicInteger(0);
+    private final    ViewCoordinator                                       coordinator;
 
     public CHOAM(Parameters params) {
         scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
@@ -116,6 +117,10 @@ public class CHOAM implements ConsensusEngine {
                                                           Comparator.comparing(HashedCertifiedBlock::height));
         pendingViews.set(pendingViews.get().add(params.context().getId(), params.context().delegate()));
         this.blockProcessor = new BlockProcessorImpl(pending, started, params, head, this::consume);
+
+        // Initialize ViewCoordinator for two-phase reconfigure pattern
+        var viewState = new ViewStateImpl(params.context().getId(), params.context().delegate());
+        this.coordinator = new ViewCoordinatorImpl(viewState, params.context().getId(), params.context().delegate());
 
         rotateViewKeys();
         var bContext = new DelegatedContext<>(params.context());
@@ -753,51 +758,110 @@ public class CHOAM implements ConsensusEngine {
                  params.member().getId());
     }
 
-    private void reconfigure(Digest hash, Reconfigure reconfigure) {
-        viewStateLock.lock();
-        try {
-            log.info("Setting next view id: {} on: {}", hash, params.member().getId());
-            nextViewId.set(hash);
-            var advanced = pendingViews.get().advance();
-            pendingViews.set(advanced);
-            var pv = advanced.last();
-            if (pv != null) {
-                params.context().setContext(pv.context());
-            }
-            final Committee c = current.get();
-            c.complete();
-            var validators = validatorsOf(reconfigure, params.context(), params.member().getId(), log);
-            final var currentView = next.get();
+    /**
+     * Collect callbacks for reconfiguration while holding viewStateLock.
+     * Returns a list of callbacks to be executed OUTSIDE the lock.
+     *
+     * @param hash View reconfiguration hash
+     * @param reconfigure Reconfiguration message with new validators
+     * @return List of callbacks to execute after releasing lock
+     */
+    private List<Runnable> collectReconfigureCallbacks(Digest hash, Reconfigure reconfigure) {
+        List<Runnable> callbacks = new ArrayList<>();
+
+        // Callback 1: Complete old committee (must happen before transition)
+        final Committee oldCommittee = current.get();
+        callbacks.add(() -> {
+            log.trace("Completing old committee on: {}", params.member().getId());
+            oldCommittee.complete();
+        });
+
+        // Callback 2-5: Setup new committee and state updates
+        // Determine which committee type to create and the associated setup
+        var validators = validatorsOf(reconfigure, params.context(), params.member().getId(), log);
+        final HashedCertifiedBlock h = head.get();
+        final var currentView = next.get();
+
+        // Callback 2: Rotate view keys
+        callbacks.add(() -> {
+            log.trace("Rotating view keys on: {}", params.member().getId());
             transitions.rotateViewKeys();
-            final HashedCertifiedBlock h = head.get();
+        });
+
+        // Callback 3: Update view state and session
+        callbacks.add(() -> {
+            log.trace("Updating view state on: {}", params.member().getId());
             view.set(h);
             session.setView(h);
+        });
+
+        // Callback 4: Transition to new committee (Associate or Client)
+        callbacks.add(() -> {
+            log.trace("Transitioning committee on: {}", params.member().getId());
             if (validators.containsKey(params.member())) {
                 if (Dag.validate(validators.size())) {
                     current.set(new Associate(h, validators, currentView));
                 } else {
-                    log.warn("Reconfiguration to associate failed: {} committee: {} in view: {} on:{}", validators.size(),
-                             new Digest(reconfigure.getId()), current.get().getClass().getSimpleName(),
+                    log.warn("Reconfiguration to associate failed: {} committee: {} in view: {} on:{}",
+                             validators.size(), hash, current.get().getClass().getSimpleName(),
                              params.member().getId());
                     transitions.fail();
                 }
             } else {
                 current.set(new Client(validators, getViewId()));
             }
+        });
+
+        // Callback 5: Log completion
+        callbacks.add(() -> {
             if (ongoingJoin.compareAndSet(true, false)) {
                 log.trace("Halting ongoing join on: {}", params.member().getId());
             }
-            log.info("Reconfigured to view: {} committee: {} validators: {} on: {}", new Digest(reconfigure.getId()),
-                     current.get().getClass().getSimpleName(), validators.entrySet()
-                                                                         .stream()
-                                                                         .map(e -> String.format("id: %s key: %s",
-                                                                                                 e.getKey().getId(),
-                                                                                                 params.digestAlgorithm()
-                                                                                                       .digest(
-                                                                                                       e.toString())))
-                                                                         .toList(), params.member().getId());
+            log.info("Reconfigured to view: {} committee: {} validators: {} on: {}",
+                     hash, current.get().getClass().getSimpleName(),
+                     validators.entrySet().stream()
+                                .map(e -> String.format("id: %s key: %s",
+                                                        e.getKey().getId(),
+                                                        params.digestAlgorithm()
+                                                              .digest(e.toString())))
+                                .toList(),
+                     params.member().getId());
+        });
+
+        return callbacks;
+    }
+
+    private void reconfigure(Digest hash, Reconfigure reconfigure) {
+        // Phase 1 (locked): Collect callbacks for deterministic computation
+        List<Runnable> callbacks;
+        viewStateLock.lock();
+        try {
+            log.info("Setting next view id: {} on: {}", hash, params.member().getId());
+            nextViewId.set(hash);
+
+            // Update pending views
+            var advanced = pendingViews.get().advance();
+            pendingViews.set(advanced);
+            var pv = advanced.last();
+            if (pv != null) {
+                params.context().setContext(pv.context());
+            }
+
+            // Collect callbacks for execution outside lock
+            callbacks = collectReconfigureCallbacks(hash, reconfigure);
         } finally {
             viewStateLock.unlock();
+        }
+
+        // Phase 2 (unlocked): Execute collected callbacks
+        // This allows callbacks to acquire other locks without reentrancy risks
+        log.debug("Executing reconfigure callbacks on: {}", params.member().getId());
+        for (int i = 0; i < callbacks.size(); i++) {
+            try {
+                callbacks.get(i).run();
+            } catch (Exception e) {
+                log.error("Callback {} execution failed during reconfigure on: {}", i, params.member().getId(), e);
+            }
         }
     }
 
