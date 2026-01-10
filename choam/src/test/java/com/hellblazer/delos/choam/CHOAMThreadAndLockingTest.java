@@ -100,7 +100,7 @@ public class CHOAMThreadAndLockingTest {
                                                               .setBatchInterval(Duration.ofMillis(150))
                                                               .setEthereal(Config.newBuilder()
                                                                                  .setNumberOfEpochs(3)
-                                                                                 .setEpochLength(10))
+                                                                                 .setEpochLength(11))
                                                               .build())
                                .setCheckpointBlockDelta(5);
 
