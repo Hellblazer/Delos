@@ -65,8 +65,8 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Batch 1
-        run: ./mvnw -batch-mode surefire:test -pl choam,stereotomy,gorgoneion,tron,cryptography --file pom.xml
+      - name: Test Batch 1 (CHOAM dominant)
+        run: ./mvnw -batch-mode surefire:test -pl choam,tron,schemas,domain-epoll,domain-kqueue,domain-sockets --file pom.xml
       - name: Save Maven cache after batch-1 tests
         uses: actions/cache@v4
         with:
@@ -100,7 +100,7 @@ jobs:
             delos-maven-
           fail-on-cache-miss: false
       - name: Test Batch 2
-        run: ./mvnw -batch-mode surefire:test -pl fireflies,ethereal,thoth,protocols,memberships --file pom.xml
+        run: ./mvnw -batch-mode surefire:test -pl fireflies,cryptography,stereotomy,thoth,java-noise --file pom.xml
       - name: Save Maven cache after batch-2 tests
         uses: actions/cache@v4
         with:
@@ -134,7 +134,7 @@ jobs:
             delos-maven-
           fail-on-cache-miss: false
       - name: Test Batch 3
-        run: ./mvnw -batch-mode surefire:test -pl stereotomy-services,gorgoneion-client,model,delphinius,schemas --file pom.xml
+        run: ./mvnw -batch-mode surefire:test -pl protocols,ethereal,memberships,gorgoneion,gorgoneion-client,vm-socket --file pom.xml
       - name: Save Maven cache after batch-3 tests
         uses: actions/cache@v4
         with:
@@ -168,7 +168,7 @@ jobs:
             delos-maven-
           fail-on-cache-miss: false
       - name: Test Batch 4
-        run: ./mvnw -batch-mode surefire:test -pl liquibase-deterministic,grpc,sql-state,domain-epoll,domain-kqueue,domain-sockets,leyden,vm-socket,java-noise --file pom.xml
+        run: ./mvnw -batch-mode surefire:test -pl stereotomy-services,grpc,sql-state,liquibase-deterministic,leyden --file pom.xml
       - name: Save Maven cache after batch-4 tests
         uses: actions/cache@v4
         with:
