@@ -65,8 +65,8 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Batch 1 (Light CHOAM unit tests + other modules)
-        run: ./mvnw -batch-mode surefire:test -pl choam -Dtest='DynamicTest,SessionTest,PendingQueueBoundsTest,TransactionSignatureTest' --file pom.xml && ./mvnw -batch-mode surefire:test -pl tron,schemas,domain-epoll,domain-kqueue,domain-sockets --file pom.xml
+      - name: Test Batch 1 (Light CHOAM unit tests + other modules + services)
+        run: ./mvnw -batch-mode surefire:test -pl choam -Dtest='DynamicTest,SessionTest,PendingQueueBoundsTest,TransactionSignatureTest' --file pom.xml && ./mvnw -batch-mode surefire:test -pl tron,schemas,domain-epoll,domain-kqueue,domain-sockets,stereotomy-services,grpc,sql-state,liquibase-deterministic,leyden --file pom.xml
       - name: Save Maven cache after batch-1 tests
         uses: actions/cache@v4
         with:
@@ -167,8 +167,8 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Batch 4 (CHOAM Byzantine safety tests + services layer)
-        run: ./mvnw -batch-mode surefire:test -pl choam -Dtest='GenesisAssemblyTest,ByzantineFaultInjectionTest,DeterminismVerificationTest,CHOAMThreadAndLockingTest' --file pom.xml && ./mvnw -batch-mode surefire:test -pl stereotomy-services,grpc,sql-state,liquibase-deterministic,leyden --file pom.xml
+      - name: Test Batch 4 (CHOAM Byzantine safety tests ONLY)
+        run: ./mvnw -batch-mode surefire:test -pl choam -Dtest='GenesisAssemblyTest,ByzantineFaultInjectionTest,DeterminismVerificationTest,CHOAMThreadAndLockingTest' --file pom.xml
       - name: Save Maven cache after batch-4 tests
         uses: actions/cache@v4
         with:
