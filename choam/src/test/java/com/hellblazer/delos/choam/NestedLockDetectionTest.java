@@ -7,7 +7,6 @@
 package com.hellblazer.delos.choam;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Disabled;
 
 import java.lang.reflect.Field;
 import java.util.concurrent.locks.ReentrantLock;
@@ -47,14 +46,8 @@ public class NestedLockDetectionTest {
      *
      * EXPECTED WITH CURRENT CODE: FAIL (internal lock detected, proving nested locking exists)
      * EXPECTED AFTER PHASE 1: PASS (no internal lock, ImmutablePendingViews has no locks)
-     *
-     * STATUS: Disabled during Phase 0. Will be enabled after Phase 1 eliminates nested locking.
-     * This test is disabled here because it MUST fail to prove the problem exists, but CI should
-     * remain green during Phase 0. Once Phase 1 extracts ImmutablePendingViews, this test will pass
-     * and @Disabled annotation will be removed.
      */
     @Test
-    @Disabled("Phase 0: Nested locking test disabled until Phase 1 fixes the problem. Will pass after Phase 1.")
     public void pendingViewsShouldNotHaveInternalLock() {
         try {
             // Use reflection to access CHOAM.PendingViews (static inner class)
