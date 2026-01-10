@@ -80,6 +80,7 @@ public class CHOAM implements ConsensusEngine {
 
     private final    Map<ULong, CheckpointState>                           cachedCheckpoints     = new ConcurrentHashMap<>();
     private final    CheckpointManager                                    checkpointManager;
+    private final    BlockProcessor                                       blockProcessor;
     private final    ReliableBroadcaster                                   combine;
     private final    CommonCommunications<Terminal, Concierge>             comm;
     private final    AtomicReference<Committee>                            current               = new AtomicReference<>();
@@ -104,10 +105,7 @@ public class CHOAM implements ConsensusEngine {
     private final    AtomicBoolean                                         ongoingJoin           = new AtomicBoolean();
     private final    ReentrantLock                                         viewStateLock         = new ReentrantLock();
     private final    ReadWriteLock                                         headLock              = new ReentrantReadWriteLock();
-    private volatile Thread                                                linear;
     private final    AtomicInteger                                         syncAttempts          = new AtomicInteger(0);
-    private final    AtomicInteger                                         emptyPolls            = new AtomicInteger(0);
-    private static final int                                               MAX_EMPTY_POLLS       = 10; // ~5 seconds at 500ms poll + 100ms sleep
 
     public CHOAM(Parameters params) {
         scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
@@ -117,6 +115,7 @@ public class CHOAM implements ConsensusEngine {
         this.pending = new BoundedPriorityBlockingQueue<>(params.maxPendingBlocks(),
                                                           Comparator.comparing(HashedCertifiedBlock::height));
         pendingViews.add(params.context().getId(), params.context().delegate());
+        this.blockProcessor = new BlockProcessorImpl(pending, started, params, head, this::consume);
 
         rotateViewKeys();
         var bContext = new DelegatedContext<>(params.context());
@@ -366,11 +365,7 @@ public class CHOAM implements ConsensusEngine {
         if (!started.compareAndSet(true, false)) {
             return;
         }
-        var l = linear;
-        linear = null;
-        if (l != null) {
-            l.interrupt();
-        }
+        blockProcessor.stop();
         try {
             scheduler.shutdownNow();
         } catch (Throwable e) {
@@ -633,56 +628,6 @@ public class CHOAM implements ConsensusEngine {
         }
     }
 
-    private void consumer() {
-        try {
-            while (started.get()) {
-                HashedCertifiedBlock next = null;
-                try {
-                    next = pending.poll(500, TimeUnit.MILLISECONDS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    if (!started.get()) {
-                        log.debug("Consumer thread interrupted during shutdown on: {}", params.member().getId());
-                    } else {
-                        log.warn("Consumer thread interrupted unexpectedly on: {}", params.member().getId(), e);
-                    }
-                    return;
-                }
-                if (!started.get()) {
-                    return;
-                }
-                if (next == null) {
-                    int count = emptyPolls.incrementAndGet();
-                    if (count == MAX_EMPTY_POLLS) {
-                        log.warn("Consumer stall detected: {} empty polls (~5 seconds) on: {}", count, params.member().getId());
-                    } else if (count > MAX_EMPTY_POLLS && count % 5 == 0) {
-                        log.warn("Consumer still stalled: {} empty polls on: {}", count, params.member().getId());
-                    }
-                    try {
-                        Thread.sleep(100);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        if (!started.get()) {
-                            log.debug("Consumer thread interrupted during sleep on: {}", params.member().getId());
-                        } else {
-                            log.warn("Consumer thread interrupted during sleep on: {}", params.member().getId(), e);
-                        }
-                        return;
-                    }
-                    continue;
-                }
-                emptyPolls.set(0);
-                try {
-                    consume(next);
-                } catch (Throwable t) {
-                    log.error("Error consuming block: {} hash: {} height: {} on: {}", next.block.getBodyCase(), next.hash,
-                              next.height(), params.member().getId(), t);
-                }
-            }
-        } finally {
-            log.debug("Consumer thread exiting on: {}", params.member().getId());
-        }
-    }
 
     private void execute(List<Transaction> execs) {
         final var h = head.get();
@@ -1327,13 +1272,8 @@ public class CHOAM implements ConsensusEngine {
 
         @Override
         public void combine() {
-            final var current = linear;
-            if (current == null) {
-                log.trace("Combining Consumer for: {} on: {}", context().getId(), params.member().getId());
-                linear = Thread.ofVirtual()
-                               .name("Linear[%s on: %s]".formatted(context().getId(), params.member().getId()))
-                               .start(Utils.wrapped(CHOAM.this::consumer, log));
-            }
+            log.trace("Starting block processor for: {} on: {}", context().getId(), params.member().getId());
+            blockProcessor.start();
         }
 
         @Override
