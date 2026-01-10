@@ -65,8 +65,8 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Batch 1 (Light CHOAM unit tests + other modules)
-        run: ./mvnw -batch-mode surefire:test -pl choam -Dtest='DynamicTest,SessionTest,PendingQueueBoundsTest,TransactionSignatureTest' --file pom.xml && ./mvnw -batch-mode surefire:test -pl tron,schemas,domain-epoll,domain-kqueue,domain-sockets --file pom.xml
+      - name: Test Batch 1 (CHOAM checkpoint test + other modules)
+        run: ./mvnw -batch-mode surefire:test -pl choam -Dtest='CHOAMCheckpointTest,DynamicTest,SessionTest' --file pom.xml && ./mvnw -batch-mode surefire:test -pl tron,schemas,domain-epoll,domain-kqueue,domain-sockets --file pom.xml
       - name: Save Maven cache after batch-1 tests
         uses: actions/cache@v4
         with:
@@ -134,7 +134,7 @@ jobs:
             delos-maven-
           fail-on-cache-miss: false
       - name: Test Batch 3 (CHOAM correctness tests + consensus layer)
-        run: ./mvnw -batch-mode surefire:test -pl choam -Dtest='CHOAMFSMErrorPathsTest,CallbackReentrancyTest,ViewStateContractTest,NestedLockDetectionTest,CHOAMCheckpointTest' --file pom.xml && ./mvnw -batch-mode surefire:test -pl protocols,ethereal,memberships,gorgoneion,gorgoneion-client,vm-socket --file pom.xml
+        run: ./mvnw -batch-mode surefire:test -pl choam -Dtest='CHOAMFSMErrorPathsTest,CallbackReentrancyTest,ViewStateContractTest,NestedLockDetectionTest,PendingQueueBoundsTest,TransactionSignatureTest' --file pom.xml && ./mvnw -batch-mode surefire:test -pl protocols,ethereal,memberships,gorgoneion,gorgoneion-client,vm-socket --file pom.xml
       - name: Save Maven cache after batch-3 tests
         uses: actions/cache@v4
         with:
