@@ -396,6 +396,12 @@ public class CHOAM implements ConsensusEngine {
         head.set(next);
         store.put(next);
         final Committee c = current.get();
+        if (c == null) {
+            log.error("No committee to accept block: {} hash: {} height: {} on: {}", next.block.getBodyCase(),
+                      next.hash, next.height(), params.member().getId());
+            transitions.fail();
+            return;
+        }
         c.accept(next);
         log.info("Accepted block: {} hash: {} height: {} body: {} on: {}", next.block.getBodyCase(), next.hash,
                  next.height(), next.block.getBodyCase(), params.member().getId());
@@ -611,13 +617,22 @@ public class CHOAM implements ConsensusEngine {
             if (!h.hash.equals(next.getPrevious())) {
                 log.debug("Invalid previous: {} expecting: {} block: {} hash: {} height: {} on: {}", next.getPrevious(),
                           h.hash, next.block.getBodyCase(), next.hash, next.height(), params.member().getId());
-            } else if (current.get().validate(next)) {
-                log.trace("Accept: {} hash: {} height: {} on: {}", next.block.getBodyCase(), next.hash, next.height(),
-                          params.member().getId());
-                accept(next);
             } else {
-                log.debug("Invalid block: {} hash: {} height: {} on: {}", next.block.getBodyCase(), next.hash,
-                          next.height(), params.member().getId());
+                final Committee c = current.get();
+                if (c == null) {
+                    log.error("No committee to validate block: {} hash: {} height: {} on: {}",
+                              next.block.getBodyCase(), next.hash, next.height(), params.member().getId());
+                    transitions.fail();
+                    return;
+                }
+                if (c.validate(next)) {
+                    log.trace("Accept: {} hash: {} height: {} on: {}", next.block.getBodyCase(), next.hash, next.height(),
+                              params.member().getId());
+                    accept(next);
+                } else {
+                    log.debug("Invalid block: {} hash: {} height: {} on: {}", next.block.getBodyCase(), next.hash,
+                              next.height(), params.member().getId());
+                }
             }
         } else if (h.height().compareTo(next.height()) < 0) {
             log.trace("Premature block: {} : {} height: {} current: {} on: {}", next.block.getBodyCase(), next.hash,
@@ -759,21 +774,53 @@ public class CHOAM implements ConsensusEngine {
     }
 
     /**
-     * Collect callbacks for reconfiguration while holding viewStateLock.
-     * Returns a list of callbacks to be executed OUTSIDE the lock.
+     * Collect callbacks for two-phase reconfiguration (Phase 3A.2 pattern).
      *
-     * @param hash View reconfiguration hash
-     * @param reconfigure Reconfiguration message with new validators
-     * @return List of callbacks to execute after releasing lock
+     * Callback Sequence (STRICT ORDER - do NOT reorder):
+     * 1. Complete old committee (CB1) - Stops producer threads
+     * 2. Rotate view keys (CB2) - Updates cryptographic state
+     * 3. Update view state (CB3) - Changes session context
+     * 4. Transition to new committee (CB4) - Creates Associate or Client
+     * 5. Log completion (CB5) - Marks join as complete
+     *
+     * IMPORTANT: Callbacks are NOT atomic. Partial execution is possible:
+     * - CB1 can fail while CB2-5 succeed (old producer partially stopped)
+     * - CB4 can fail while CB1-3 succeed (new committee not created, old stopped)
+     * - If CB4 fails, FSM enters PROTOCOL_FAILURE state (detected by callers)
+     *
+     * Byzantine Safety: All nodes execute callbacks in same order, so divergence
+     * occurs only if specific callback throws (deterministic on all nodes).
+     *
+     * Recovery: The FSM (Combiner) handles intermediate states via transitions.fail()
+     * called from CB4 on creation failures.
+     *
+     * Phase 3A.2 Reference: Two-phase execution pattern
+     * - Phase 1 (locked): This method runs under viewStateLock
+     * - Phase 2 (unlocked): reconfigure() executes these callbacks outside lock
+     *
+     * @param hash View change hash (Reconfigure protobuf)
+     * @param reconfigure Reconfiguration metadata
+     * @return List of callbacks to execute in order (outside lock)
      */
     private List<Runnable> collectReconfigureCallbacks(Digest hash, Reconfigure reconfigure) {
         List<Runnable> callbacks = new ArrayList<>();
 
         // Callback 1: Complete old committee (must happen before transition)
+        // NOTE: oldCommittee captured here - remains valid even if current is modified
         final Committee oldCommittee = current.get();
         callbacks.add(() -> {
             log.trace("Completing old committee on: {}", params.member().getId());
-            oldCommittee.complete();
+            // Note: oldCommittee can be null during recovery/startup (see Phase 4A analysis)
+            if (oldCommittee != null) {
+                try {
+                    oldCommittee.complete();
+                } catch (Throwable e) {
+                    log.error("Failed to complete old committee on: {}", params.member().getId(), e);
+                    // Continue - don't block new committee startup
+                }
+            } else {
+                log.debug("No old committee to complete (recovery scenario) on: {}", params.member().getId());
+            }
         });
 
         // Callback 2-5: Setup new committee and state updates
@@ -796,11 +843,20 @@ public class CHOAM implements ConsensusEngine {
         });
 
         // Callback 4: Transition to new committee (Associate or Client)
+        // CRITICAL: This callback can fail (Producer.start() exceptions)
+        // Failure here means old committee stopped but new not created (atomicity broken)
+        // FSM must handle intermediate state via transitions.fail()
         callbacks.add(() -> {
             log.trace("Transitioning committee on: {}", params.member().getId());
             if (validators.containsKey(params.member())) {
                 if (Dag.validate(validators.size())) {
-                    current.set(new Associate(h, validators, currentView));
+                    try {
+                        current.set(new Associate(h, validators, currentView));
+                    } catch (Throwable e) {
+                        log.error("Failed to create Associate committee on: {}", params.member().getId(), e);
+                        transitions.fail();
+                        // Keep old committee reference (if Callback 1 succeeded)
+                    }
                 } else {
                     log.warn("Reconfiguration to associate failed: {} committee: {} in view: {} on:{}",
                              validators.size(), hash, current.get().getClass().getSimpleName(),
@@ -808,7 +864,12 @@ public class CHOAM implements ConsensusEngine {
                     transitions.fail();
                 }
             } else {
-                current.set(new Client(validators, getViewId()));
+                try {
+                    current.set(new Client(validators, getViewId()));
+                } catch (Throwable e) {
+                    log.error("Failed to create Client committee on: {}", params.member().getId(), e);
+                    transitions.fail();
+                }
             }
         });
 
@@ -1118,6 +1179,11 @@ public class CHOAM implements ConsensusEngine {
                 return;
             }
             final var c = current.get();
+            if (c == null) {
+                log.error("No committee for synchronized process on: {}", params.member().getId());
+                transitions.fail();
+                return;
+            }
             if (!c.validate(hcb)) {
                 log.error("Protocol violation. New block is not validated: {} hash: {} on: {}", hcb.block.getBodyCase(),
                           hcb.hash, params.member().getId());
@@ -1133,7 +1199,13 @@ public class CHOAM implements ConsensusEngine {
                          params.member().getId(), hcb.block.getBodyCase(), hcb.hash, 0, header.getHeight());
                 return;
             }
-            if (!current.get().validateRegeneration(hcb)) {
+            final var c = current.get();
+            if (c == null) {
+                log.error("No committee for genesis block validation on: {}", params.member().getId());
+                transitions.fail();
+                return;
+            }
+            if (!c.validateRegeneration(hcb)) {
                 log.error("Protocol violation. Genesis block is not validated: {} hash {} on: {}",
                           hcb.block.getBodyCase(), hcb.hash, params.member().getId());
                 return;
