@@ -20,6 +20,7 @@ import com.hellblazer.delos.choam.fsm.Combine.Mercantile;
 import com.hellblazer.delos.choam.proto.*;
 import com.hellblazer.delos.choam.proto.SubmitResult.Result;
 import com.hellblazer.delos.choam.support.*;
+import com.hellblazer.delos.choam.support.CheckpointManagerImpl;
 import com.hellblazer.delos.choam.support.Bootstrapper.SynchronizedState;
 import com.hellblazer.delos.choam.support.HashedCertifiedBlock.NullBlock;
 import com.hellblazer.delos.context.Context;
@@ -78,7 +79,7 @@ public class CHOAM implements ConsensusEngine {
     private static final Logger log = LoggerFactory.getLogger(CHOAM.class);
 
     private final    Map<ULong, CheckpointState>                           cachedCheckpoints     = new ConcurrentHashMap<>();
-    private final    AtomicReference<HashedCertifiedBlock>                 checkpoint            = new AtomicReference<>();
+    private final    CheckpointManager                                    checkpointManager;
     private final    ReliableBroadcaster                                   combine;
     private final    CommonCommunications<Terminal, Concierge>             comm;
     private final    AtomicReference<Committee>                            current               = new AtomicReference<>();
@@ -111,6 +112,7 @@ public class CHOAM implements ConsensusEngine {
     public CHOAM(Parameters params) {
         scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
         this.store = new MVBlockStore(params.digestAlgorithm(), params.mvBuilder().clone().build());
+        this.checkpointManager = new CheckpointManagerImpl(store, params);
         this.params = params;
         this.pending = new BoundedPriorityBlockingQueue<>(params.maxPendingBlocks(),
                                                           Comparator.comparing(HashedCertifiedBlock::height));
@@ -136,7 +138,6 @@ public class CHOAM implements ConsensusEngine {
         }));
         head.set(new NullBlock(params.digestAlgorithm()));
         view.set(new NullBlock(params.digestAlgorithm()));
-        checkpoint.set(new NullBlock(params.digestAlgorithm()));
         final Trampoline service = new Trampoline();
         comm = params.communications()
                      .create(params.member(), params.context().getId(), service, service.getClass().getCanonicalName(),
@@ -426,7 +427,7 @@ public class CHOAM implements ConsensusEngine {
             transitions.fail();
             return null;
         }
-        final HashedBlock c = checkpoint.get();
+        final HashedBlock c = checkpointManager.currentCheckpoint();
         Checkpoint cp = checkpoint(params.digestAlgorithm(), state, params.checkpointSegmentSize(), c.hash,
                                    params.crowns(), params.member().getId());
         if (cp == null) {
@@ -482,7 +483,7 @@ public class CHOAM implements ConsensusEngine {
 
             @Override
             public Block genesis(Map<Digest, Join> joining, Digest nextViewId, HashedBlock previous) {
-                final HashedCertifiedBlock cp = checkpoint.get();
+                final HashedCertifiedBlock cp = checkpointManager.currentCheckpoint();
                 final HashedCertifiedBlock v = view.get();
                 log.trace("Genesis cp: {} view: {} previous: {} on: {}", cp.hash, v.hash, previous.hash,
                           params.member().getId());
@@ -796,8 +797,8 @@ public class CHOAM implements ConsensusEngine {
         }
         case CHECKPOINT: {
             params.processor().beginBlock(h.height(), h.hash);
-            var lastCheckpoint = checkpoint.get().height();
-            checkpoint.set(h);
+            var lastCheckpoint = checkpointManager.currentCheckpoint().height();
+            ((CheckpointManagerImpl) checkpointManager).updateCheckpoint(h);
             store.gcFrom(h.height(), lastCheckpoint.add(1));
         }
         default:
@@ -887,12 +888,12 @@ public class CHOAM implements ConsensusEngine {
                                                              store.getCertifiedBlock(ULong.valueOf(0)));
         genesis.set(geni);
         head.set(geni);
-        checkpoint.set(geni);
+        ((CheckpointManagerImpl) checkpointManager).updateCheckpoint(geni);
         CertifiedBlock lastCheckpoint = store.getCertifiedBlock(
         ULong.valueOf(lastBlock.block.getHeader().getLastCheckpoint()));
         if (lastCheckpoint != null) {
             HashedCertifiedBlock ckpt = new HashedCertifiedBlock(params.digestAlgorithm(), lastCheckpoint);
-            checkpoint.set(ckpt);
+            ((CheckpointManagerImpl) checkpointManager).updateCheckpoint(ckpt);
             head.set(ckpt);
             HashedCertifiedBlock lastView = new HashedCertifiedBlock(params.digestAlgorithm(), store.getCertifiedBlock(
             ULong.valueOf(ckpt.block.getHeader().getLastReconfig())));
@@ -906,12 +907,11 @@ public class CHOAM implements ConsensusEngine {
         }
 
         log.info("Restored to: {} lastView: {} lastCheckpoint: {} lastBlock: {} on: {}", geni.hash, view.get().hash,
-                 checkpoint.get().hash, lastBlock.hash, params.member().getId());
+                 checkpointManager.currentCheckpoint().hash, lastBlock.hash, params.member().getId());
     }
 
     private void restoreFrom(HashedCertifiedBlock block, CheckpointState checkpoint) {
-        cachedCheckpoints.put(block.height(), checkpoint);
-        params.restorer().accept(block, checkpoint);
+        checkpointManager.restoreFromCheckpoint(block, checkpoint);
         restore();
     }
 
@@ -996,7 +996,7 @@ public class CHOAM implements ConsensusEngine {
         if (g != null) {
             Initial.Builder initial = Initial.newBuilder();
             initial.setGenesis(g.certifiedBlock);
-            HashedCertifiedBlock cp = checkpoint.get();
+            HashedCertifiedBlock cp = checkpointManager.currentCheckpoint();
             if (cp != null) {
                 ULong height = ULong.valueOf(request.getHeight());
 
@@ -1647,7 +1647,7 @@ public class CHOAM implements ConsensusEngine {
             var pv = pendingViews();
             producer = new Producer(nextViewId.get(),
                                     new ViewContext(context, params, pv, signer, validators, constructBlock()),
-                                    head.get(), checkpoint.get(), getLabel(), scheduler);
+                                    head.get(), checkpointManager.currentCheckpoint(), getLabel(), scheduler);
             producer.start();
         }
 
@@ -1716,7 +1716,7 @@ public class CHOAM implements ConsensusEngine {
             assert hb.height().equals(ULong.valueOf(0));
             final var c = head.get();
             genesis.set(c);
-            checkpoint.set(c);
+            ((CheckpointManagerImpl) checkpointManager).updateCheckpoint(c);
             view.set(c);
             process();
         }
