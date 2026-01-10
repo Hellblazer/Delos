@@ -17,6 +17,8 @@ pom.xml.bak
 /ff.log
 chkpoint.txt
 **/.pm
+.pm-archives
+**/.pm-archives
 .quint
 **/.quint
 
