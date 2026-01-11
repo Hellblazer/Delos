@@ -20,6 +20,11 @@
 
 		<!-- Test Only Deps below this line -->
 		<dependency>
+			<groupId>io.dropwizard</groupId>
+			<artifactId>dropwizard-metrics</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
 			<groupId>org.junit.jupiter</groupId>
 			<artifactId>junit-jupiter</artifactId>
 			<scope>test</scope>
