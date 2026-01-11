@@ -60,6 +60,10 @@
             <groupId>com.macasaet.fernet</groupId>
             <artifactId>fernet-java8</artifactId>
         </dependency>
+        <dependency>
+            <groupId>io.dropwizard</groupId>
+            <artifactId>dropwizard-metrics</artifactId>
+        </dependency>
 
         <!-- Test Only Dependencies Below This Line -->
         <dependency>
