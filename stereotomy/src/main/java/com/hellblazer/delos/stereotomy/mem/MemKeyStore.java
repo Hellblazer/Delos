@@ -8,7 +8,10 @@ package com.hellblazer.delos.stereotomy.mem;
 
 import com.hellblazer.delos.stereotomy.KeyCoordinates;
 import com.hellblazer.delos.stereotomy.StereotomyKeyStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import javax.security.auth.Destroyable;
 import java.security.KeyPair;
 import java.util.Map;
 import java.util.Optional;
@@ -18,6 +21,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * @author hal.hildebrand
  */
 public class MemKeyStore implements StereotomyKeyStore {
+    private static final Logger log = LoggerFactory.getLogger(MemKeyStore.class);
 
     private final Map<KeyCoordinates, KeyPair> keys        = new ConcurrentHashMap<>();
     private final Map<KeyCoordinates, KeyPair> nextKeys    = new ConcurrentHashMap<>();
@@ -40,17 +44,46 @@ public class MemKeyStore implements StereotomyKeyStore {
 
     @Override
     public void removeKey(KeyCoordinates keyCoordinates) {
-        this.keys.remove(keyCoordinates);
+        var removed = this.keys.remove(keyCoordinates);
+        if (removed != null) {
+            destroyKeyPair(removed);
+        }
     }
 
     @Override
     public void removeKey(String alias) {
-        aliasedKeys.remove(alias);
+        var removed = aliasedKeys.remove(alias);
+        if (removed != null) {
+            destroyKeyPair(removed);
+        }
     }
 
     @Override
     public void removeNextKey(KeyCoordinates keyCoordinates) {
-        this.nextKeys.remove(keyCoordinates);
+        var removed = this.nextKeys.remove(keyCoordinates);
+        if (removed != null) {
+            destroyKeyPair(removed);
+        }
+    }
+
+    /**
+     * FIXED (CRIT-6): Destroy private key material when removing keys.
+     *
+     * If the private key implements Destroyable, explicitly destroy it to
+     * prevent memory dumps from recovering the private key material.
+     */
+    private void destroyKeyPair(KeyPair keyPair) {
+        if (keyPair == null) {
+            return;
+        }
+        var privateKey = keyPair.getPrivate();
+        if (privateKey instanceof Destroyable d) {
+            try {
+                d.destroy();
+            } catch (Exception e) {
+                log.warn("Failed to destroy private key material", e);
+            }
+        }
     }
 
     @Override
