@@ -19,6 +19,15 @@ import com.hellblazer.delos.ethereal.Adder.State;
  */
 public class Waiting implements Comparable<Waiting> {
 
+    public record CountersState(int missing, int waiting) {
+        /**
+         * Returns true if both counters are zero (parents ready).
+         */
+        public boolean isReady() {
+            return missing == 0 && waiting == 0;
+        }
+    }
+
     private final    List<Waiting>          children       = new ArrayList<>();
     private final    PreUnit                pu;
     private final    PreUnit_s              serialized;
@@ -122,6 +131,17 @@ public class Waiting implements Comparable<Waiting> {
      */
     public synchronized boolean parentsOutput() {
         return waitingParents == 0 && missingParents == 0;
+    }
+
+    /**
+     * Atomically read the current state of both counters in a single synchronized operation.
+     * This provides a way to safely check both counters without TOCTOU races across
+     * multiple method calls. Useful for validation and testing.
+     *
+     * @return CountersState containing both counter values at a consistent point in time
+     */
+    public synchronized CountersState getCountersState() {
+        return new CountersState(missingParents, waitingParents);
     }
 
     public PreUnit pu() {

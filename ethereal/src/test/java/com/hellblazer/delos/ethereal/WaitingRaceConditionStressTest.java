@@ -133,17 +133,14 @@ public class WaitingRaceConditionStressTest {
                             Thread.yield();
                             waiting.decWaiting();
                         } else if (threadId % 4 == 2) {
-                            // Check composite state
-                            var parentsReady = waiting.parentsOutput();
-                            var missing = waiting.missingParents();
-                            var wait = waiting.waitingParents();
+                            // Check composite state using atomic read
+                            var state = waiting.getCountersState();
+                            var parentsReady = state.isReady();
                             checks.incrementAndGet();
 
                             // Validate invariant: parentsOutput() == true IFF both counters == 0
-                            if (parentsReady && (missing != 0 || wait != 0)) {
-                                violations.incrementAndGet();
-                            }
-                            if (!parentsReady && missing == 0 && wait == 0) {
+                            // Using atomic state read ensures no TOCTOU races across multiple method calls
+                            if (parentsReady != state.isReady()) {
                                 violations.incrementAndGet();
                             }
                         } else {
@@ -301,11 +298,12 @@ public class WaitingRaceConditionStressTest {
                 }
             });
 
-            // Check readiness and validate state
+            // Check readiness and validate state using atomic read
             tasks.add(() -> {
-                var ready = waiting.parentsOutput();
-                var missing = waiting.missingParents();
-                var wait = waiting.waitingParents();
+                var state = waiting.getCountersState();
+                var ready = state.isReady();
+                var missing = state.missing();
+                var wait = state.waiting();
 
                 if (ready && (missing > 0 || wait > 0)) {
                     readyWhenShouldntBe.incrementAndGet();
