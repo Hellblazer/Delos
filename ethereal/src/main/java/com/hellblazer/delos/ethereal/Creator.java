@@ -8,6 +8,7 @@ package com.hellblazer.delos.ethereal;
 
 import com.google.protobuf.ByteString;
 import com.hellblazer.delos.context.Context;
+import com.hellblazer.delos.cryptography.Verifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,13 +43,15 @@ public class Creator {
     private final        Queue<Unit>                          lastTiming;
     private final        int                                  quorum;
     private final        Consumer<Unit>                       send;
+    private final        Verifier[]                           verifiers;
 
     public Creator(Config config, DataSource ds, Queue<Unit> lastTiming, Consumer<Unit> send,
-                   Function<Integer, EpochProofBuilder> epochProofBuilder) {
+                   Function<Integer, EpochProofBuilder> epochProofBuilder, Verifier[] verifiers) {
         this.conf = config;
         this.ds = ds;
         this.epochProofBuilder = epochProofBuilder;
         this.send = send;
+        this.verifiers = verifiers;
         this.candidates = new CopyOnWriteArrayList<>();
         for (int i = 0; i < config.nProc(); i++) {
             candidates.add(null);
@@ -150,12 +153,33 @@ public class Creator {
         return count;
     }
 
+    /**
+     * Creates a new unit, signs it, and verifies the self-produced signature for Byzantine safety.
+     * <p>
+     * CRITICAL BYZANTINE SAFETY (Delos-vupk C3): Self-produced units MUST be verified immediately
+     * after signing to detect signer misconfiguration. A Byzantine attacker could exploit a
+     * misconfigured signer that produces invalid signatures, causing honest nodes to reject the
+     * unit and potentially disrupting consensus. Fail-fast verification ensures that signer
+     * problems are caught locally before broadcasting invalid units.
+     * </p>
+     */
     private void createUnit(Unit[] parents, int level, ByteString data) {
         assert parents.length == conf.nProc();
         final int e = epoch.get();
         Unit u = PreUnit.newFreeUnit(conf.pid(), e, parents, level, data, conf.digestAlgorithm(), conf.signer());
         assert parentsOnPreviousLevel(u) >= quorum : "Parents: " + Arrays.asList(u.parents()) + " of: " + u
         + " for level: " + (u.level() - 1) + " count: " + parentsOnPreviousLevel(u) + " quorum: " + quorum;
+
+        // BYZANTINE SAFETY: Verify self-signature immediately after creation
+        // This ensures our signer is properly configured and signatures will be accepted by peers
+        if (!u.verify(verifiers)) {
+            final var errorMsg = String.format(
+            "CRITICAL: Self-produced unit %s failed signature verification on %s. " +
+            "This indicates signer misconfiguration. Unit will NOT be broadcast.", u, conf.logLabel());
+            log.error(errorMsg);
+            throw new IllegalStateException(errorMsg);
+        }
+
         if (log.isTraceEnabled()) {
             log.trace("Created unit: {} parents: {} on: {}", u, parents, conf.logLabel());
         } else {

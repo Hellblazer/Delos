@@ -337,7 +337,7 @@ public interface PreUnit {
             if (creator >= verifiers.length) {
                 return false;
             }
-            return verifiers[creator].verify(signature, PreUnit.forSigning(creator, crown, data, salt));
+            return verifiers[creator].verify(signature, PreUnit.forSigning(id(), crown, data, salt));
         }
 
         @Override

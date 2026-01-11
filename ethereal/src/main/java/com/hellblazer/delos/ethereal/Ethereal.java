@@ -71,7 +71,7 @@ public class Ethereal {
             assert u.creator() == config.pid();
             log.trace("Sending: {} on: {}", u, config.logLabel());
             insert(u);
-        }, epoch -> new epochProofImpl(config, epoch, new sharesDB(config, new ConcurrentHashMap<>())));
+        }, epoch -> new epochProofImpl(config, epoch, new sharesDB(config, new ConcurrentHashMap<>())), verifiers);
 
         log.trace("Configured {} processes {}", config.nProc(), config.logLabel());
     }
