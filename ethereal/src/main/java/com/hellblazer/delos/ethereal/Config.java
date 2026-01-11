@@ -58,6 +58,15 @@ public record Config(String label, short nProc, int epochLength, short pid, Sign
             if (pByz <= -1) {
                 pByz = 1.0 / bias;
             }
+
+            // CRITICAL: Validate nProc meets Byzantine fault tolerance requirements (f < n/3)
+            // Requires minimum 3f+1 nodes to tolerate f faults. Also validates that n is valid
+            // for BFT consensus (e.g., 3f+1, 3f+2, or 3f+3).
+            if (!Dag.validate(nProc)) {
+                throw new IllegalArgumentException(
+                    "Invalid nProc: " + nProc + ". Must be >= 4 and satisfy Byzantine fault tolerance requirements (n >= 3f+1)");
+            }
+
             final var minimalQuorum = Context.minimalQuorum(nProc, bias);
             if (wtk == null) {
                 wtk = new NoOpWeakThresholdKey(minimalQuorum + 1);
