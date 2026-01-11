@@ -18,7 +18,43 @@ import java.util.Objects;
 
 /**
  * Configuration for an Ethereal instantiation.
+ * <p>
+ * <strong>Byzantine Fault Tolerance Requirements:</strong>
+ * <p>
+ * Ethereal uses Aleph-BFT consensus which requires:
+ * - n >= 3f+1 nodes to tolerate f Byzantine failures
+ * - Byzantine quorum: > 2n/3 nodes (equivalent to 2f+1 for n=3f+1)
+ * - Minimum network size: n=4 (tolerates f=1)
+ * <p>
+ * <strong>Reliable Broadcast (RBC) Delivery Guarantees:</strong>
+ * <p>
+ * RBC ensures that if any honest node delivers a unit, all honest nodes eventually deliver it:
+ * 1. <em>Validity</em>: If an honest node broadcasts a unit, all honest nodes eventually deliver it
+ * 2. <em>Agreement</em>: If an honest node delivers a unit, all honest nodes eventually deliver it
+ * 3. <em>Integrity</em>: A unit is delivered at most once, and only if it was broadcast
+ * <p>
+ * These guarantees hold because:
+ * - Gossip to 2f+1 nodes ensures at least f+1 honest nodes receive the unit
+ * - Honest nodes re-gossip to all other nodes
+ * - Byzantine nodes (at most f) cannot prevent propagation to n-f honest nodes
+ * <p>
+ * <strong>Quorum Intersection Property:</strong>
+ * <p>
+ * Any two quorums Q1, Q2 of size 2f+1 intersect in at least f+1 nodes:
+ * - Overlap = |Q1| + |Q2| - n = (2f+1) + (2f+1) - (3f+1) = f+1
+ * - Since overlap > f, at least one honest node is in the intersection
+ * - This guarantees Byzantine safety for consensus
  *
+ * @param label           Human-readable label for logging
+ * @param nProc           Total number of nodes (must satisfy n >= 3f+1)
+ * @param epochLength     Number of levels per epoch
+ * @param pid             Process ID of this node
+ * @param signer          Cryptographic signer for this node
+ * @param digestAlgorithm Hash algorithm for content addressing
+ * @param numberOfEpochs  Number of epochs to run (< 0 for unbounded)
+ * @param WTKey           Weak threshold key for aggregation
+ * @param bias            BFT bias parameter (typically 3 for n=3f+1)
+ * @param fpr             False positive rate for Bloom filters
  * @author hal.hildebrand
  */
 public record Config(String label, short nProc, int epochLength, short pid, Signer signer,

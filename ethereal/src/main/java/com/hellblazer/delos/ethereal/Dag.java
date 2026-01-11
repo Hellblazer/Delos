@@ -285,9 +285,33 @@ public interface Dag {
             });
         }
 
+        /**
+         * RBC Delivery Guarantee (Aleph-BFT §2.2):
+         * <p>
+         * With f Byzantine nodes in n = 3f+1 nodes:
+         * - Byzantine quorum requires > 2n/3 nodes (equivalent to >= 2f+1 when n=3f+1)
+         * - Any quorum of 2f+1 nodes contains at least f+1 honest nodes (majority)
+         * - If 2f+1 nodes receive a unit, all honest nodes eventually receive it via gossip
+         * - Byzantine nodes cannot prevent delivery (liveness guarantee)
+         * <p>
+         * Quorum calculation: floor(2n/3) + 1
+         * <p>
+         * Examples:
+         * - n=4, f=1: quorum=3 (any 3 of 4 has ≥2 honest)
+         * - n=7, f=2: quorum=5 (any 5 of 7 has ≥3 honest)
+         * - n=10, f=3: quorum=7 (any 7 of 10 has ≥4 honest)
+         * <p>
+         * This ensures Byzantine safety: any two quorums intersect in at least f+1 nodes,
+         * guaranteeing at least one honest node in the intersection.
+         *
+         * @param cardinality the number of nodes
+         * @return true if cardinality forms a Byzantine quorum (> 2n/3)
+         */
         @Override
         public boolean isQuorum(short cardinality) {
-            return cardinality >= Context.minimalQuorum(nProc(), config.bias());
+            // Byzantine quorum: > 2/3 of nodes
+            // Equivalent to: cardinality >= floor(2n/3) + 1
+            return cardinality > nProc() * 2 / 3;
         }
 
         @Override
