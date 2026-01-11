@@ -253,14 +253,30 @@ public class Creator {
      * 2. Thread B calls newEpoch(N+1), begins transition
      * 3. Thread A processes unit with epoch N while epoch state is inconsistent
      *
+     * Additionally, this method prevents DUPLICATE EPOCH CREATION: concurrent newEpoch() calls
+     * must not create the same epoch twice. Check-then-act atomicity ensures that only one
+     * thread can successfully transition to a given epoch.
+     *
      * A Byzantine attacker could exploit this window to inject old-epoch units that bypass validation,
      * potentially causing consensus divergence between honest nodes.
      **/
-    private synchronized void newEpoch(int epoch, ByteString data, int from) {
-        this.epoch.set(epoch);
+    private synchronized void newEpoch(int targetEpoch, ByteString data, int from) {
+        int currentEpoch = this.epoch.get();
 
-        resetEpoch(epoch);
-        epochProof.set(epochProofBuilder.apply(epoch));
+        // PREVENT DUPLICATE EPOCH CREATION: Only transition if moving to a new epoch
+        // Check and act are atomic because this entire method is synchronized.
+        // Multiple threads cannot create the same epoch because the first thread to
+        // update this.epoch will cause subsequent threads to return early.
+        if (targetEpoch <= currentEpoch) {
+            log.debug("Ignoring redundant epoch transition: current={}, target={} on: {}",
+                      currentEpoch, targetEpoch, conf.logLabel());
+            return;
+        }
+
+        this.epoch.set(targetEpoch);
+
+        resetEpoch(targetEpoch);
+        epochProof.set(epochProofBuilder.apply(targetEpoch));
         createUnit(new Unit[conf.nProc()], 0, data);
     }
 
