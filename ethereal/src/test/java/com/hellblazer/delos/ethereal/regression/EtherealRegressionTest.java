@@ -8,6 +8,7 @@ package com.hellblazer.delos.ethereal.regression;
 
 import com.hellblazer.delos.ethereal.Ethereal;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.condition.DisabledIfEnvironmentVariable;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -22,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @Tag("large")
-@Disabled("Integration test harness - requires full consensus cluster formation")
+@DisabledIfEnvironmentVariable(named = "CI", matches = "true")
 public class EtherealRegressionTest {
 
     @Nested

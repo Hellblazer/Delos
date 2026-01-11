@@ -21,6 +21,7 @@ import com.hellblazer.delos.stereotomy.mem.MemKeyStore;
 import com.hellblazer.delos.utils.Utils;
 
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.condition.DisabledIfEnvironmentVariable;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.*;
@@ -41,7 +42,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @Tag("large")
-@Disabled("Integration test harness - cluster bootstrap requires manual setup and investigation")
+@DisabledIfEnvironmentVariable(named = "CI", matches = "true")
 public class RegressionTestHarness {
 
     private static final int CARDINALITY = 4;  // Reduced from 12 for faster bootstrap
