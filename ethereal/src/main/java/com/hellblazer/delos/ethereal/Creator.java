@@ -95,8 +95,18 @@ public class Creator {
     /**
      * Unit is examined and stored to be used as parents of future units. When there are enough new parents, a new unit
      * is produced. lastTiming is a channel on which the last timing unit of each epoch is expected to appear.
+     *
+     * CRITICAL BYZANTINE SAFETY (Delos-hbcb): This method MUST be synchronized to ensure atomic
+     * epoch checking during the entire consume->update->ready->createUnit sequence. Without
+     * synchronization, a race exists where:
+     * 1. update() validates unit against epoch N (synchronized)
+     * 2. Epoch transitions to N+1 after update() returns
+     * 3. ready() and createUnit() execute with inconsistent epoch state
+     *
+     * This prevents Byzantine nodes from exploiting the transition window between update() and
+     * createUnit() to inject units with old epoch values.
      */
-    public void consume(Unit u) {
+    public synchronized void consume(Unit u) {
         log.trace("Processing next unit: {} on: {}", u, conf.logLabel());
         update(u);
         var built = ready();
@@ -112,6 +122,16 @@ public class Creator {
     }
 
     public void stop() {
+    }
+
+    /**
+     * Get the current epoch for testing/verification.
+     * Package-private for test access.
+     *
+     * SYNCHRONIZED: Prevents TOCTOU race where epoch could change between read and use.
+     */
+    synchronized int getCurrentEpoch() {
+        return epoch.get();
     }
 
     private built buildParents() {
@@ -226,8 +246,17 @@ public class Creator {
     /**
      * switches the creator to a chosen epoch, resets candidates and shares and creates a dealing with the provided
      * data.
+     *
+     * CRITICAL BYZANTINE SAFETY (Delos-hbcb): This method MUST be synchronized to prevent epoch transition
+     * race conditions. Without synchronization, a TOCTOU vulnerability exists where:
+     * 1. Thread A reads epoch N via epoch.get()
+     * 2. Thread B calls newEpoch(N+1), begins transition
+     * 3. Thread A processes unit with epoch N while epoch state is inconsistent
+     *
+     * A Byzantine attacker could exploit this window to inject old-epoch units that bypass validation,
+     * potentially causing consensus divergence between honest nodes.
      **/
-    private void newEpoch(int epoch, ByteString data, int from) {
+    private synchronized void newEpoch(int epoch, ByteString data, int from) {
         this.epoch.set(epoch);
 
         resetEpoch(epoch);
@@ -271,6 +300,15 @@ public class Creator {
 
     /**
      * takes a unit and updates the receiver's state with information contained in the unit.
+     *
+     * CRITICAL BYZANTINE SAFETY (Delos-hbcb): This method is called from synchronized consume(),
+     * inheriting its synchronization. The epoch transition logic must execute atomically with
+     * epoch checking to prevent TOCTOU races where:
+     * 1. Thread A reads epoch N via epoch.get()
+     * 2. Thread B triggers epoch transition to N+1 via newEpoch()
+     * 3. Thread A processes unit with epoch N against new epoch state
+     *
+     * This prevents Byzantine nodes from injecting old-epoch units during transition windows.
      */
     private void update(Unit unit) {
         log.trace("updating: {} on: {}", unit, conf.logLabel());
