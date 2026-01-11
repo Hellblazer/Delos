@@ -115,6 +115,9 @@ public class EtherealTest {
         final var prefix = UUID.randomUUID().toString();
         int maxSize = 1024 * 1024;
         var expectedEpochs = NUM_EPOCHS + 1;
+        // Create verifiers array from members for signature validation
+        var verifiers = members.stream().map(m -> (com.hellblazer.delos.cryptography.Verifier) m).toArray(
+        com.hellblazer.delos.cryptography.Verifier[]::new);
         var epochCountDown = new CountDownLatch(NPROC * expectedEpochs);
         for (short i = 0; i < (short) NPROC; i++) {
             var level = new AtomicInteger();
@@ -135,7 +138,7 @@ public class EtherealTest {
                 if (pid == 0) {
                     System.out.println("new epoch: " + ep);
                 }
-            }, "Test: " + i, null);
+            }, "Test: " + i, verifiers);
 
             var gossiper = new ChRbcGossip(context.getId(), (SigningMember) member, members, controller.processor(),
                                            com, metrics,
@@ -245,6 +248,9 @@ public class EtherealTest {
 
         final var prefix = UUID.randomUUID().toString();
         int maxSize = 1024 * 1024;
+        // Create verifiers array from members for signature validation
+        var verifiers = members.stream().map(m -> (com.hellblazer.delos.cryptography.Verifier) m).toArray(
+        com.hellblazer.delos.cryptography.Verifier[]::new);
         for (short i = 0; i < (short) NPROC; i++) {
             var level = new AtomicInteger();
             var ds = new SimpleDataSource();
@@ -264,7 +270,7 @@ public class EtherealTest {
                 if (pid == 0) {
                     System.out.println("new epoch: " + ep);
                 }
-            }, "Test: " + i, null);
+            }, "Test: " + i, verifiers);
 
             var gossiper = new ChRbcGossip(context.getId(), (SigningMember) member, members, controller.processor(),
                                            com, metrics,

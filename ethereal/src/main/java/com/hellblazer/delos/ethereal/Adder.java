@@ -772,9 +772,15 @@ public class Adder {
         missing(pubf, builder);
     }
 
+    /**
+     * Validate signed commit signature.
+     * CRITICAL: Fails CLOSED (rejects) when verifiers unavailable.
+     * Never accepts signatures when verifiers cannot validate them (fail-safe design).
+     */
     private boolean validate(SignedCommit c) {
         if (verifiers == null || verifiers.length == 0) {
-            return true;
+            log.warn("Cannot validate commit - verifiers unavailable on: {}", conf.logLabel());
+            return false;  // CRITICAL FIX: Fail-closed, not fail-open
         }
         var commit = c.getCommit();
         var source = commit.getSource();
@@ -797,9 +803,15 @@ public class Adder {
         return valid;
     }
 
+    /**
+     * Validate signed pre-vote signature.
+     * CRITICAL: Fails CLOSED (rejects) when verifiers unavailable.
+     * Never accepts signatures when verifiers cannot validate them (fail-safe design).
+     */
     private boolean validate(SignedPreVote pv) {
         if (verifiers == null || verifiers.length == 0) {
-            return true;
+            log.warn("Cannot validate prevote - verifiers unavailable on: {}", conf.logLabel());
+            return false;  // CRITICAL FIX: Fail-closed, not fail-open
         }
         var vote = pv.getVote();
         var source = vote.getSource();

@@ -14,6 +14,7 @@ import com.hellblazer.delos.ethereal.linear.UnanimousVoter.SuperMajorityDecider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
@@ -130,6 +131,15 @@ public class Extender {
         return permutation;
     }
 
+    /**
+     * Deterministic linear extension per Aleph-BFT §4, Algorithm 2.
+     * Uses cryptographic hash-based ordering for process ID permutation to ensure determinism
+     * across all JVM versions, vendors, and architectures.
+     *
+     * Previous implementation used Collections.shuffle(Random), which is not provably
+     * deterministic across JVM versions. This implementation uses explicit hash-based ordering
+     * via cryptographic digest, providing mathematical guarantee of determinism.
+     */
     private List<Short> pidOrder(int level, Unit tu) {
         var pids = new ArrayList<Short>();
         for (int pid = 0; pid < conf.nProc(); pid++) {
@@ -138,7 +148,26 @@ public class Extender {
         if (tu == null) {
             return pids;
         }
-        Collections.shuffle(pids, new Random(tu.hash().fold()));
+        // Deterministic ordering via cryptographic hash-based comparison
+        // For each process ID, compute H(unit_hash || pid) and sort by hash value
+        // This ensures all honest nodes compute identical permutation (Aleph §4 requirement)
+        pids.sort((pid1, pid2) -> {
+            var hash1 = computeProcessHash(tu, pid1);
+            var hash2 = computeProcessHash(tu, pid2);
+            return hash1.compareTo(hash2);
+        });
         return pids;
+    }
+
+    /**
+     * Compute deterministic hash for process ID in timing unit context.
+     * Hash(unit_hash || pid) provides cryptographically-bound ordering.
+     * Result is deterministic across all JVM implementations.
+     */
+    private Digest computeProcessHash(Unit tu, short pid) {
+        var buffer = ByteBuffer.allocate(Short.BYTES + Long.BYTES);
+        buffer.putLong(tu.hash().fold());
+        buffer.putShort(pid);
+        return conf.digestAlgorithm().digest(buffer.array());
     }
 }
