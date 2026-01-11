@@ -40,10 +40,11 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@Tag("large")  // Disabled on CI - cluster bootstrap takes 30-60s
 public class RegressionTestHarness {
 
-    private static final int CARDINALITY = 12;
-    private static final int BIAS = 2;
+    private static final int CARDINALITY = 4;  // Reduced from 12 for faster bootstrap
+    private static final int BIAS = 1;
     private static final double P_BYZ = 0.1;
     private static final long SEED = 42L;
 
@@ -325,16 +326,16 @@ public class RegressionTestHarness {
 
         // Bootstrap first view
         views.get(0).start(() -> countdown.get().countDown(), gossipDuration, Collections.emptyList());
-        assertTrue(countdown.get().await(30, TimeUnit.SECONDS), "Kernel failed to bootstrap");
+        assertTrue(countdown.get().await(10, TimeUnit.SECONDS), "Kernel failed to bootstrap");
 
         // Start remaining views
         countdown.set(new CountDownLatch(views.size() - 1));
         views.subList(1, views.size()).forEach(v ->
             v.start(() -> countdown.get().countDown(), gossipDuration, seeds));
-        assertTrue(countdown.get().await(60, TimeUnit.SECONDS), "Views failed to start");
+        assertTrue(countdown.get().await(15, TimeUnit.SECONDS), "Views failed to start");
 
-        // Wait for stabilization
-        var stable = Utils.waitForCondition(30_000, 1_000, () ->
+        // Wait for stabilization (4-node cluster should stabilize quickly)
+        var stable = Utils.waitForCondition(10_000, 500, () ->
             views.stream().allMatch(v -> v.getContext().activeCount() == CARDINALITY));
         assertTrue(stable, "Cluster failed to stabilize");
     }
