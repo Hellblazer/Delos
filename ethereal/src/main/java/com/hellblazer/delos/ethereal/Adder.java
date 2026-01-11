@@ -448,6 +448,9 @@ public class Adder {
             return;
         }
 
+        // TODO: Delos-vupk - Add PreUnit signature verification when gossip protocol updated to sign units
+        // Currently skipped as gossip protocol doesn't populate signatures in PreUnit_s
+
         if (u.toByteString().size() > maxSize) {
             failed.add(digest);
             log.trace("Invalid size: {} > {} id: {} on: {}", u.toByteString().size(), maxSize, decoded,
