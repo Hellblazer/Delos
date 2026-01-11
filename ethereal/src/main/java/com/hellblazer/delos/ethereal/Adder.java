@@ -13,6 +13,7 @@ import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.cryptography.JohnHancock;
 import com.hellblazer.delos.cryptography.Signer;
 import com.hellblazer.delos.cryptography.Verifier;
+import com.hellblazer.delos.cryptography.batch.BatchVerificationContext;
 import com.hellblazer.delos.cryptography.proto.Biff;
 import com.hellblazer.delos.ethereal.proto.*;
 import com.hellblazer.delos.utils.Entropy;
@@ -246,73 +247,269 @@ public class Adder {
                 }
             });
 
-            // CRITICAL: Sort prevotes by (unit_hash, source) for deterministic processing order.
-            // This ensures Byzantine consensus safety by guaranteeing all honest nodes process
-            // votes in the same order, preventing divergence from adversarial message ordering.
-            update.getPrevotesList().stream()
-                .sorted((pv1, pv2) -> {
-                    var hash1 = Digest.from(pv1.getVote().getHash());
-                    var hash2 = Digest.from(pv2.getVote().getHash());
-                    var hashCompare = hash1.compareTo(hash2);
-                    if (hashCompare != 0) {
-                        return hashCompare;
-                    }
-                    return Short.compare((short) pv1.getVote().getSource(), (short) pv2.getVote().getSource());
-                })
-                .forEach(pv -> {
-                    final var hash = Digest.from(pv.getVote().getHash());
-                    if (failed.contains(hash)) {
-                        return;
-                    }
-                    final var signature = JohnHancock.from(pv.getSignature());
-                    var validated = new AtomicBoolean();
-                    signedPrevotes.computeIfAbsent(signature.toDigest(conf.digestAlgorithm()), h -> {
-                        validated.set(validate(pv));
-                        if (validated.get()) {
-                            return pv;
-                        } else {
-                            return null;
-                        }
-                    });
-                    if (validated.get()) {
-                        prevote(Digest.from(pv.getVote().getHash()), (short) pv.getVote().getSource());
-                    }
-                });
-
-            // CRITICAL: Sort commits by (unit_hash, source) for deterministic processing order.
-            // This ensures Byzantine consensus safety by guaranteeing all honest nodes process
-            // commits in the same order, preventing divergence from adversarial message ordering.
-            update.getCommitsList().stream()
-                .sorted((c1, c2) -> {
-                    var hash1 = Digest.from(c1.getCommit().getHash());
-                    var hash2 = Digest.from(c2.getCommit().getHash());
-                    var hashCompare = hash1.compareTo(hash2);
-                    if (hashCompare != 0) {
-                        return hashCompare;
-                    }
-                    return Short.compare((short) c1.getCommit().getSource(), (short) c2.getCommit().getSource());
-                })
-                .forEach(c -> {
-                    final var hash = Digest.from(c.getCommit().getHash());
-                    if (failed.contains(hash)) {
-                        return;
-                    }
-                    final var signature = JohnHancock.from(c.getSignature());
-                    final var digest = signature.toDigest(conf.digestAlgorithm());
-                    var validated = new AtomicBoolean();
-                    signedCommits.computeIfAbsent(digest, h -> {
-                        validated.set(validate(c));
-                        if (validated.get()) {
-                            return c;
-                        } else {
-                            return null;
-                        }
-                    });
-                    if (validated.get()) {
-                        commit(Digest.from(c.getCommit().getHash()), (short) c.getCommit().getSource());
-                    }
-                });
+            processPrevotesWithBatching(update.getPrevotesList());
+            processCommitsWithBatching(update.getCommitsList());
         });
+    }
+
+    /**
+     * Process prevotes with batch verification for improved performance.
+     *
+     * Maintains deterministic sorted order (by unit_hash, source) for Byzantine consensus safety.
+     * Collects prevotes for batch verification, validates them together, then processes results
+     * in sorted order to ensure all honest nodes reach identical state.
+     */
+    private void processPrevotesWithBatching(List<SignedPreVote> prevotes) {
+        // CRITICAL: Sort by (unit_hash, source) for deterministic processing order
+        var sortedPrevotes = prevotes.stream()
+            .sorted((pv1, pv2) -> {
+                var hash1 = Digest.from(pv1.getVote().getHash());
+                var hash2 = Digest.from(pv2.getVote().getHash());
+                var hashCompare = hash1.compareTo(hash2);
+                if (hashCompare != 0) {
+                    return hashCompare;
+                }
+                return Short.compare((short) pv1.getVote().getSource(), (short) pv2.getVote().getSource());
+            })
+            .toList();
+
+        // Collect prevotes for batch verification
+        List<SignedPreVote> toVerify = new ArrayList<>();
+        for (var pv : sortedPrevotes) {
+            final var hash = Digest.from(pv.getVote().getHash());
+            if (failed.contains(hash)) {
+                continue;
+            }
+            var source = pv.getVote().getSource();
+            if (source < 0 || source >= verifiers.length || verifiers[source] == null) {
+                log.warn("Invalid prevote source: {} on: {}", source, conf.logLabel());
+                continue;
+            }
+            final var signature = JohnHancock.from(pv.getSignature());
+            final var signatureDigest = signature.toDigest(conf.digestAlgorithm());
+            if (!signedPrevotes.containsKey(signatureDigest)) {
+                toVerify.add(pv);
+            }
+        }
+
+        // Batch verify if we have multiple prevotes, otherwise verify individually
+        boolean[] validationResults = new boolean[toVerify.size()];
+        if (toVerify.size() >= 4) {
+            validationResults = batchVerifyPrevotes(toVerify);
+        } else {
+            for (int i = 0; i < toVerify.size(); i++) {
+                validationResults[i] = validate(toVerify.get(i));
+            }
+        }
+
+        // Process results in sorted order to maintain Byzantine safety
+        int verifyIndex = 0;
+        for (var pv : sortedPrevotes) {
+            final var hash = Digest.from(pv.getVote().getHash());
+            if (failed.contains(hash)) {
+                continue;
+            }
+            var source = pv.getVote().getSource();
+            if (source < 0 || source >= verifiers.length || verifiers[source] == null) {
+                continue;
+            }
+            final var signature = JohnHancock.from(pv.getSignature());
+            final var signatureDigest = signature.toDigest(conf.digestAlgorithm());
+
+            // Find the corresponding validation result
+            boolean validated = false;
+            if (!signedPrevotes.containsKey(signatureDigest)) {
+                if (verifyIndex < validationResults.length) {
+                    validated = validationResults[verifyIndex++];
+                }
+                if (validated) {
+                    signedPrevotes.put(signatureDigest, pv);
+                }
+            } else {
+                validated = signedPrevotes.get(signatureDigest) != null;
+            }
+
+            if (validated) {
+                prevote(Digest.from(pv.getVote().getHash()), (short) pv.getVote().getSource());
+            }
+        }
+    }
+
+    /**
+     * Batch verify prevotes using signature batch verification.
+     * Returns array of boolean results corresponding to input prevotes.
+     */
+    private boolean[] batchVerifyPrevotes(List<SignedPreVote> prevotes) {
+        byte[][] messages = new byte[prevotes.size()][];
+        byte[][] signatures = new byte[prevotes.size()][];
+        byte[][] publicKeys = new byte[prevotes.size()][];
+
+        try {
+            for (int i = 0; i < prevotes.size(); i++) {
+                var pv = prevotes.get(i);
+                var source = pv.getVote().getSource();
+
+                messages[i] = pv.getVote().toByteArray();
+                signatures[i] = pv.getSignature().toByteArray();
+
+                // Extract public key bytes from verifier
+                var verifier = verifiers[source];
+                var key = verifier.getKey();
+                if (key == null) {
+                    // Fallback to individual verification if public key unavailable
+                    log.trace("No public key available for batch verification of prevote from source: {}", source);
+                    return null;
+                }
+                publicKeys[i] = key.getEncoded();
+            }
+
+            // Perform batch verification
+            final long startBatch = System.nanoTime();
+            var results = com.hellblazer.delos.cryptography.batch.BatchVerifierFactory
+                .createVerifier()
+                .batchVerify(messages, signatures, publicKeys);
+            final long batchTimeUs = (System.nanoTime() - startBatch) / 1000;
+            log.debug("Timing - prevote batch verify: {}μs count={} on: {}", batchTimeUs, prevotes.size(),
+                     conf.logLabel());
+            return results;
+        } catch (Exception e) {
+            log.warn("Batch verification failed, falling back to individual verification: {}", e.getMessage());
+            // Fall back to individual verification
+            boolean[] results = new boolean[prevotes.size()];
+            for (int i = 0; i < prevotes.size(); i++) {
+                results[i] = validate(prevotes.get(i));
+            }
+            return results;
+        }
+    }
+
+    /**
+     * Process commits with batch verification for improved performance.
+     *
+     * Maintains deterministic sorted order (by unit_hash, source) for Byzantine consensus safety.
+     */
+    private void processCommitsWithBatching(List<SignedCommit> commits) {
+        // CRITICAL: Sort by (unit_hash, source) for deterministic processing order
+        var sortedCommits = commits.stream()
+            .sorted((c1, c2) -> {
+                var hash1 = Digest.from(c1.getCommit().getHash());
+                var hash2 = Digest.from(c2.getCommit().getHash());
+                var hashCompare = hash1.compareTo(hash2);
+                if (hashCompare != 0) {
+                    return hashCompare;
+                }
+                return Short.compare((short) c1.getCommit().getSource(), (short) c2.getCommit().getSource());
+            })
+            .toList();
+
+        // Collect commits for batch verification
+        List<SignedCommit> toVerify = new ArrayList<>();
+        for (var c : sortedCommits) {
+            final var hash = Digest.from(c.getCommit().getHash());
+            if (failed.contains(hash)) {
+                continue;
+            }
+            var source = c.getCommit().getSource();
+            if (source < 0 || source >= verifiers.length || verifiers[source] == null) {
+                log.warn("Invalid commit source: {} on: {}", source, conf.logLabel());
+                continue;
+            }
+            final var signature = JohnHancock.from(c.getSignature());
+            final var signatureDigest = signature.toDigest(conf.digestAlgorithm());
+            if (!signedCommits.containsKey(signatureDigest)) {
+                toVerify.add(c);
+            }
+        }
+
+        // Batch verify if we have multiple commits, otherwise verify individually
+        boolean[] validationResults = new boolean[toVerify.size()];
+        if (toVerify.size() >= 4) {
+            validationResults = batchVerifyCommits(toVerify);
+        } else {
+            for (int i = 0; i < toVerify.size(); i++) {
+                validationResults[i] = validate(toVerify.get(i));
+            }
+        }
+
+        // Process results in sorted order to maintain Byzantine safety
+        int verifyIndex = 0;
+        for (var c : sortedCommits) {
+            final var hash = Digest.from(c.getCommit().getHash());
+            if (failed.contains(hash)) {
+                continue;
+            }
+            var source = c.getCommit().getSource();
+            if (source < 0 || source >= verifiers.length || verifiers[source] == null) {
+                continue;
+            }
+            final var signature = JohnHancock.from(c.getSignature());
+            final var digest = signature.toDigest(conf.digestAlgorithm());
+
+            // Find the corresponding validation result
+            boolean validated = false;
+            if (!signedCommits.containsKey(digest)) {
+                if (verifyIndex < validationResults.length) {
+                    validated = validationResults[verifyIndex++];
+                }
+                if (validated) {
+                    signedCommits.put(digest, c);
+                }
+            } else {
+                validated = signedCommits.get(digest) != null;
+            }
+
+            if (validated) {
+                commit(Digest.from(c.getCommit().getHash()), (short) c.getCommit().getSource());
+            }
+        }
+    }
+
+    /**
+     * Batch verify commits using signature batch verification.
+     * Returns array of boolean results corresponding to input commits.
+     */
+    private boolean[] batchVerifyCommits(List<SignedCommit> commits) {
+        byte[][] messages = new byte[commits.size()][];
+        byte[][] signatures = new byte[commits.size()][];
+        byte[][] publicKeys = new byte[commits.size()][];
+
+        try {
+            for (int i = 0; i < commits.size(); i++) {
+                var c = commits.get(i);
+                var source = c.getCommit().getSource();
+
+                messages[i] = c.getCommit().toByteArray();
+                signatures[i] = c.getSignature().toByteArray();
+
+                // Extract public key bytes from verifier
+                var verifier = verifiers[source];
+                var key = verifier.getKey();
+                if (key == null) {
+                    // Fallback to individual verification if public key unavailable
+                    log.trace("No public key available for batch verification of commit from source: {}", source);
+                    return null;
+                }
+                publicKeys[i] = key.getEncoded();
+            }
+
+            // Perform batch verification
+            final long startBatch = System.nanoTime();
+            var results = com.hellblazer.delos.cryptography.batch.BatchVerifierFactory
+                .createVerifier()
+                .batchVerify(messages, signatures, publicKeys);
+            final long batchTimeUs = (System.nanoTime() - startBatch) / 1000;
+            log.debug("Timing - commit batch verify: {}μs count={} on: {}", batchTimeUs, commits.size(),
+                     conf.logLabel());
+            return results;
+        } catch (Exception e) {
+            log.warn("Batch verification failed, falling back to individual verification: {}", e.getMessage());
+            // Fall back to individual verification
+            boolean[] results = new boolean[commits.size()];
+            for (int i = 0; i < commits.size(); i++) {
+                results[i] = validate(commits.get(i));
+            }
+            return results;
+        }
     }
 
     /**

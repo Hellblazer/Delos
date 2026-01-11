@@ -128,6 +128,16 @@ public interface Verifier {
         public boolean verify(SigningThreshold threshold, JohnHancock signature, InputStream message) {
             return signature.verify(threshold, keys, message);
         }
+
+        @Override
+        public PublicKey getKey() {
+            // Return single key if only one exists (common case for single signer verifiers)
+            if (keys.size() == 1) {
+                return keys.values().iterator().next();
+            }
+            // Multiple keys or no keys - not suitable for simple batch operations
+            return null;
+        }
     }
 
     class NoVerifier implements Verifier {
