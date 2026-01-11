@@ -47,7 +47,7 @@ public class Creator {
     private final        List<Unit>                           candidates;
     private final        Config                               conf;
     private final        DataSource                           ds;
-    private final        AtomicInteger                        epoch      = new AtomicInteger(0);
+    private final        AtomicInteger                        epoch      = new AtomicInteger(-1);
     private final        AtomicBoolean                        epochDone  = new AtomicBoolean();
     private final        AtomicReference<EpochProofBuilder>   epochProof = new AtomicReference<>();
     private final        Function<Integer, EpochProofBuilder> epochProofBuilder;
@@ -143,7 +143,7 @@ public class Creator {
     }
 
     public void start() {
-        newEpoch(epoch.get(), ByteString.EMPTY, -1);
+        newEpoch(epoch.get() + 1, ByteString.EMPTY, -1);
     }
 
     public void stop() {
