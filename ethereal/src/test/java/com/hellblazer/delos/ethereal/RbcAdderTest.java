@@ -268,6 +268,115 @@ public class RbcAdderTest {
     }
 
     @Test
+    public void deterministicOrderingOfVotes() throws Exception {
+        // Test that prevotes and commits are processed in deterministic order
+        // regardless of the order they arrive in gossip messages
+        final var dag1 = new DagImpl(config, 0);
+        final var dag2 = new DagImpl(config, 0);
+
+        var verifiers = members.stream()
+            .map(m -> (com.hellblazer.delos.cryptography.Verifier) m)
+            .toArray(com.hellblazer.delos.cryptography.Verifier[]::new);
+
+        var adder1 = new Adder(0, dag1, 1024 * 1024, config, new ConcurrentSkipListSet<>(), verifiers);
+        var adder2 = new Adder(0, dag2, 1024 * 1024, config, new ConcurrentSkipListSet<>(), verifiers);
+
+        // Produce dealing units on both adders
+        var u0 = unit(0, 0);
+        adder1.produce(u0);
+        adder2.produce(u0);
+
+        // Propose units from other nodes
+        for (int pid = 1; pid < 4; pid++) {
+            var u = unit(pid, 0);
+            adder1.propose(u.hash(), u.toPreUnit_s());
+            adder2.propose(u.hash(), u.toPreUnit_s());
+        }
+
+        // Create prevotes for each unit from different members
+        var prevotes = new java.util.ArrayList<com.hellblazer.delos.ethereal.proto.SignedPreVote>();
+        for (int pid = 0; pid < 4; pid++) {
+            var u = unit(pid, 0);
+            for (int voter = 0; voter < 4; voter++) {
+                if (voter != pid) {
+                    var prevote = Adder.prevote(u.id(), u.hash(), (short) voter,
+                        members.get(voter), config.digestAlgorithm());
+                    prevotes.add(prevote.signed());
+                }
+            }
+        }
+
+        // Create commits for each unit from different members
+        var commits = new java.util.ArrayList<com.hellblazer.delos.ethereal.proto.SignedCommit>();
+        for (int pid = 0; pid < 4; pid++) {
+            var u = unit(pid, 0);
+            for (int committer = 0; committer < 4; committer++) {
+                if (committer != pid) {
+                    var commit = Adder.commit(u.id(), u.hash(), (short) committer,
+                        members.get(committer), config.digestAlgorithm());
+                    commits.add(commit.signed());
+                }
+            }
+        }
+
+        // Create two Missing messages with same votes but in different order
+        var missing1 = com.hellblazer.delos.ethereal.proto.Missing.newBuilder()
+            .setEpoch(0)
+            .addAllPrevotes(prevotes)  // Natural order
+            .addAllCommits(commits)    // Natural order
+            .build();
+
+        // Reverse the order for the second message
+        java.util.Collections.reverse(prevotes);
+        java.util.Collections.reverse(commits);
+        var missing2 = com.hellblazer.delos.ethereal.proto.Missing.newBuilder()
+            .setEpoch(0)
+            .addAllPrevotes(prevotes)  // Reversed order
+            .addAllCommits(commits)    // Reversed order
+            .build();
+
+        // Process updates - should produce identical state despite different input order
+        adder1.updateFrom(missing1);
+        adder2.updateFrom(missing2);
+
+        // Verify both adders have identical state
+        assertEquals(adder1.getPrevotes().size(), adder2.getPrevotes().size(),
+            "Prevotes count should match");
+        assertEquals(adder1.getCommits().size(), adder2.getCommits().size(),
+            "Commits count should match");
+        assertEquals(adder1.getSignedPrevotes().size(), adder2.getSignedPrevotes().size(),
+            "Signed prevotes count should match");
+        assertEquals(adder1.getSignedCommits().size(), adder2.getSignedCommits().size(),
+            "Signed commits count should match");
+
+        // Verify the actual vote counts for each unit match
+        for (int pid = 0; pid < 4; pid++) {
+            var u = unit(pid, 0);
+            var prevotes1 = adder1.getPrevotes().get(u.hash());
+            var prevotes2 = adder2.getPrevotes().get(u.hash());
+
+            if (prevotes1 != null && prevotes2 != null) {
+                assertEquals(prevotes1.size(), prevotes2.size(),
+                    "Prevote count for unit " + pid + " should match");
+            } else {
+                assertEquals(prevotes1, prevotes2,
+                    "Prevote presence for unit " + pid + " should match");
+            }
+
+            var commits1 = adder1.getCommits().get(u.hash());
+            var commits2 = adder2.getCommits().get(u.hash());
+
+            if (commits1 != null && commits2 != null) {
+                assertEquals(commits1.size(), commits2.size(),
+                    "Commit count for unit " + pid + " should match");
+            } else {
+                assertEquals(commits1, commits2,
+                    "Commit presence for unit " + pid + " should match");
+            }
+        }
+    }
+
+    @Test
     public void waitingForParents() {
         final var dag = new DagImpl(config, 0);
         var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>(), null);

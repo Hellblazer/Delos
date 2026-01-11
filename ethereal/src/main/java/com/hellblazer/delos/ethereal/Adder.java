@@ -217,7 +217,11 @@ public class Adder {
     }
 
     /**
-     * Update the commit, prevote and unit state from the supplied update
+     * Update the commit, prevote and unit state from the supplied update.
+     *
+     * CRITICAL: Processes prevotes and commits in deterministic order (sorted by unit hash, then source)
+     * to prevent Byzantine consensus divergence. All honest nodes must process votes in the same order
+     * regardless of gossip message ordering.
      */
     public void updateFrom(Missing update) {
         assert update.getEpoch() == epoch : "Update from incorrect epoch: " + update.getEpoch() + " expected: " + epoch
@@ -231,45 +235,73 @@ public class Adder {
                     propose(digest, u);
                 }
             });
-            update.getPrevotesList().forEach(pv -> {
-                final var hash = Digest.from(pv.getVote().getHash());
-                if (failed.contains(hash)) {
-                    return;
-                }
-                final var signature = JohnHancock.from(pv.getSignature());
-                var validated = new AtomicBoolean();
-                signedPrevotes.computeIfAbsent(signature.toDigest(conf.digestAlgorithm()), h -> {
-                    validated.set(validate(pv));
+
+            // CRITICAL: Sort prevotes by (unit_hash, source) for deterministic processing order.
+            // This ensures Byzantine consensus safety by guaranteeing all honest nodes process
+            // votes in the same order, preventing divergence from adversarial message ordering.
+            update.getPrevotesList().stream()
+                .sorted((pv1, pv2) -> {
+                    var hash1 = Digest.from(pv1.getVote().getHash());
+                    var hash2 = Digest.from(pv2.getVote().getHash());
+                    var hashCompare = hash1.compareTo(hash2);
+                    if (hashCompare != 0) {
+                        return hashCompare;
+                    }
+                    return Short.compare((short) pv1.getVote().getSource(), (short) pv2.getVote().getSource());
+                })
+                .forEach(pv -> {
+                    final var hash = Digest.from(pv.getVote().getHash());
+                    if (failed.contains(hash)) {
+                        return;
+                    }
+                    final var signature = JohnHancock.from(pv.getSignature());
+                    var validated = new AtomicBoolean();
+                    signedPrevotes.computeIfAbsent(signature.toDigest(conf.digestAlgorithm()), h -> {
+                        validated.set(validate(pv));
+                        if (validated.get()) {
+                            return pv;
+                        } else {
+                            return null;
+                        }
+                    });
                     if (validated.get()) {
-                        return pv;
-                    } else {
-                        return null;
+                        prevote(Digest.from(pv.getVote().getHash()), (short) pv.getVote().getSource());
                     }
                 });
-                if (validated.get()) {
-                    prevote(Digest.from(pv.getVote().getHash()), (short) pv.getVote().getSource());
-                }
-            });
-            update.getCommitsList().forEach(c -> {
-                final var hash = Digest.from(c.getCommit().getHash());
-                if (failed.contains(hash)) {
-                    return;
-                }
-                final var signature = JohnHancock.from(c.getSignature());
-                final var digest = signature.toDigest(conf.digestAlgorithm());
-                var validated = new AtomicBoolean();
-                signedCommits.computeIfAbsent(digest, h -> {
-                    validated.set(validate(c));
+
+            // CRITICAL: Sort commits by (unit_hash, source) for deterministic processing order.
+            // This ensures Byzantine consensus safety by guaranteeing all honest nodes process
+            // commits in the same order, preventing divergence from adversarial message ordering.
+            update.getCommitsList().stream()
+                .sorted((c1, c2) -> {
+                    var hash1 = Digest.from(c1.getCommit().getHash());
+                    var hash2 = Digest.from(c2.getCommit().getHash());
+                    var hashCompare = hash1.compareTo(hash2);
+                    if (hashCompare != 0) {
+                        return hashCompare;
+                    }
+                    return Short.compare((short) c1.getCommit().getSource(), (short) c2.getCommit().getSource());
+                })
+                .forEach(c -> {
+                    final var hash = Digest.from(c.getCommit().getHash());
+                    if (failed.contains(hash)) {
+                        return;
+                    }
+                    final var signature = JohnHancock.from(c.getSignature());
+                    final var digest = signature.toDigest(conf.digestAlgorithm());
+                    var validated = new AtomicBoolean();
+                    signedCommits.computeIfAbsent(digest, h -> {
+                        validated.set(validate(c));
+                        if (validated.get()) {
+                            return c;
+                        } else {
+                            return null;
+                        }
+                    });
                     if (validated.get()) {
-                        return c;
-                    } else {
-                        return null;
+                        commit(Digest.from(c.getCommit().getHash()), (short) c.getCommit().getSource());
                     }
                 });
-                if (validated.get()) {
-                    commit(Digest.from(c.getCommit().getHash()), (short) c.getCommit().getSource());
-                }
-            });
         });
     }
 
