@@ -21,6 +21,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Stream;
@@ -57,6 +58,13 @@ public class Adder {
     private final        Map<Long, Waiting>         waitingById     = new TreeMap<>();
     private final        Map<Digest, Waiting>       waitingForRound = new TreeMap<>();
     private volatile     int                        round           = 0;
+
+    // CRITICAL (Delos-wfz7): Track units by (creator, height) to detect equivocation
+    // Byzantine nodes may produce multiple units with same (creator, height) but different content
+    private final        Map<Short, Map<Integer, Waiting>> unitsByCreatorHeight = new HashMap<>();
+    // CRITICAL (Delos-wfz7): Blacklist creators that have equivocated
+    // Once equivocation detected, all future units/votes from that creator are rejected
+    private final        Set<Short>                 blacklistedCreators = new ConcurrentSkipListSet<>();
 
     public Adder(int epoch, Dag dag, int maxSize, Config conf, Set<Digest> failed, Verifier[] verifiers) {
         this.epoch = epoch;
@@ -96,6 +104,8 @@ public class Adder {
             signedPrevotes.clear();
             prevotes.clear();
             missing.clear();
+            unitsByCreatorHeight.clear();
+            blacklistedCreators.clear();
         });
     }
 
@@ -312,6 +322,12 @@ public class Adder {
      * @param member - the index of the member
      */
     void commit(Digest digest, short member) {
+        // CRITICAL (Delos-wfz7): Reject commits from blacklisted creators
+        if (blacklistedCreators.contains(member)) {
+            log.trace("Ignoring commit from blacklisted creator: {} on: {}", member, conf.logLabel());
+            return;
+        }
+
         if (failed.contains(digest)) {
             return;
         }
@@ -399,6 +415,10 @@ public class Adder {
         return waitingForRound;
     }
 
+    Set<Short> getBlacklistedCreators() {
+        return blacklistedCreators;
+    }
+
     /**
      * A preVote was received
      *
@@ -406,6 +426,12 @@ public class Adder {
      * @param member - the index of the member
      */
     void prevote(Digest digest, short member) {
+        // CRITICAL (Delos-wfz7): Reject prevotes from blacklisted creators
+        if (blacklistedCreators.contains(member)) {
+            log.trace("Ignoring prevote from blacklisted creator: {} on: {}", member, conf.logLabel());
+            return;
+        }
+
         if (failed.contains(digest)) {
             return;
         }
@@ -496,6 +522,12 @@ public class Adder {
             return;
         }
 
+        // CRITICAL (Delos-wfz7): Check if creator is blacklisted for equivocation
+        if (blacklistedCreators.contains(decoded.creator())) {
+            log.debug("Rejecting unit from blacklisted creator: {} on: {}", decoded, conf.logLabel());
+            return;
+        }
+
         // TODO: Delos-vupk - Add PreUnit signature verification when gossip protocol updated to sign units
         // Currently skipped as gossip protocol doesn't populate signatures in PreUnit_s
 
@@ -515,6 +547,27 @@ public class Adder {
             return;
         }
 
+        // CRITICAL (Delos-wfz7): Detect equivocation - same (creator, height) with different content
+        var existingAtHeight = unitsByCreatorHeight.computeIfAbsent(decoded.creator(), k -> new HashMap<>())
+                                                   .get(decoded.height());
+        if (existingAtHeight != null) {
+            // Same (creator, height) already seen - check if it's the same unit
+            if (!existingAtHeight.hash().equals(digest)) {
+                // EQUIVOCATION DETECTED: Different unit at same (creator, height)
+                // This is definitive proof of Byzantine behavior
+                blacklistedCreators.add(decoded.creator());
+                failed.add(digest);
+                log.error("EQUIVOCATION DETECTED: creator={} height={} existing_hash={} new_hash={} on: {}. "
+                          + "Creator blacklisted.", decoded.creator(), decoded.height(), existingAtHeight.hash(),
+                          digest, conf.logLabel());
+                throw new IllegalStateException(
+                String.format("Equivocation detected: creator=%d height=%d produced conflicting units %s and %s",
+                              decoded.creator(), decoded.height(), existingAtHeight.hash(), digest));
+            }
+            // Same unit proposed twice - idempotent, just return
+            return;
+        }
+
         // CRITICAL: Bound waiting collection to prevent DoS (Delos-v0k5)
         if (waiting.size() >= MAX_COLLECTION_SIZE) {
             failed.add(digest);
@@ -523,6 +576,9 @@ public class Adder {
             return;
         }
         waiting.put(digest, wpu);
+
+        // CRITICAL (Delos-wfz7): Track this unit by (creator, height) for equivocation detection
+        unitsByCreatorHeight.get(decoded.creator()).put(decoded.height(), wpu);
 
         if (preunit.height() - 1 > round) {
             wpu.setState(State.WAITING_ON_ROUND);
