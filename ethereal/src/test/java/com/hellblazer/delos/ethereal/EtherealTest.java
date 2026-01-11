@@ -291,6 +291,7 @@ public class EtherealTest {
             gossipers.forEach(e -> {
                 e.start(gossipPeriod);
             });
+            controllers.forEach(Ethereal::completeIt);
             finished.await(LARGE_TESTS ? 90 : 10, TimeUnit.SECONDS);
         } finally {
             controllers.forEach(c -> System.out.println(c.dump()));
