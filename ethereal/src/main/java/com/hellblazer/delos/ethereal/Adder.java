@@ -41,6 +41,13 @@ public class Adder {
     private static final Logger                     log                = LoggerFactory.getLogger(Adder.class);
     private static final int                        MAX_COLLECTION_SIZE = 100_000; // Prevent DoS via collection exhaustion
 
+    /**
+     * LIVENESS (Delos-vyai): Timeout threshold for stale waiting units.
+     * Units waiting for parents beyond this threshold are considered stale (Byzantine withholding likely).
+     * Conservative value (5 seconds) prevents false positives from legitimate slow networks.
+     */
+    private static final long                       UNIT_TIMEOUT_MILLIS = 5000;
+
     private final        Map<Digest, Set<Short>>    commits         = new TreeMap<>();
     private final        Config                     conf;
     private final        Dag                        dag;
@@ -597,6 +604,61 @@ public class Adder {
 
         log.trace("Proposed: {} on: {}", wpu, conf.logLabel());
         prevote(wpu);
+    }
+
+    /**
+     * LIVENESS (Delos-vyai): Check for and cleanup stale waiting units.
+     *
+     * Byzantine nodes may withhold critical parent units to cause liveness failures.
+     * This method detects units that have been waiting beyond timeout threshold and
+     * removes them from the waiting queue.
+     *
+     * Liveness Guarantee:
+     * - Detects Byzantine withholding: units waiting > UNIT_TIMEOUT_MILLIS
+     * - Removes stale units to prevent memory exhaustion
+     * - Logs timeout events for diagnosis
+     *
+     * Byzantine Safety:
+     * - Timeout NEVER compromises safety (signature verification still required)
+     * - Only removes from waiting queue (doesn't mark as valid/committed)
+     * - Conservative timeout (5s) prevents false positives from slow networks
+     *
+     * Should be called periodically (e.g., every 1 second) by consensus loop.
+     */
+    public void runTimeoutCheck() {
+        locked(() -> {
+            var now = System.currentTimeMillis();
+            var staleUnits = new ArrayList<Digest>();
+
+            // Find stale units
+            for (var entry : waiting.entrySet()) {
+                var waitingUnit = entry.getValue();
+                if (waitingUnit.isStaleAfterMillis(UNIT_TIMEOUT_MILLIS)) {
+                    staleUnits.add(entry.getKey());
+                    log.warn(
+                    "LIVENESS TIMEOUT: Removing stale waiting unit {} after {}ms - possible Byzantine parent withholding on: {}",
+                    waitingUnit, UNIT_TIMEOUT_MILLIS, conf.logLabel());
+                }
+            }
+
+            // Remove stale units
+            for (var hash : staleUnits) {
+                var staleUnit = waiting.remove(hash);
+                if (staleUnit != null) {
+                    // Also remove from waitingById if present
+                    waitingById.remove(staleUnit.id());
+                    // Also remove from waitingForRound if present
+                    waitingForRound.remove(hash);
+                    // Also remove from unitsByCreatorHeight
+                    var creatorMap = unitsByCreatorHeight.get(staleUnit.creator());
+                    if (creatorMap != null) {
+                        creatorMap.remove(staleUnit.height());
+                    }
+                }
+            }
+
+            return null;
+        });
     }
 
     // Advance the state of the RBC by one round

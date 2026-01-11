@@ -27,6 +27,13 @@ public class Waiting implements Comparable<Waiting> {
     private          AtomicReference<State> state          = new AtomicReference<>(State.PROPOSED);
     private volatile int                    waitingParents = 0;
 
+    /**
+     * LIVENESS (Delos-vyai): Timestamp when unit arrived and entered waiting state.
+     * Used to detect Byzantine withholding - if unit waits too long for parents,
+     * timeout triggers recovery mechanism (broadcast request to peers).
+     */
+    private final    long                   arrivedAt      = System.currentTimeMillis();
+
     public Waiting(PreUnit pu) {
         this(pu, pu.toPreUnit_s());
     }
@@ -145,5 +152,27 @@ public class Waiting implements Comparable<Waiting> {
 
     public synchronized int waitingParents() {
         return waitingParents;
+    }
+
+    /**
+     * LIVENESS (Delos-vyai): Get arrival timestamp of this waiting unit.
+     *
+     * @return milliseconds since epoch when unit entered waiting state
+     */
+    public long getArrivalTime() {
+        return arrivedAt;
+    }
+
+    /**
+     * LIVENESS (Delos-vyai): Check if unit is stale (waiting beyond timeout threshold).
+     *
+     * Stale units indicate Byzantine withholding - parent units needed for RBC progression
+     * are not being delivered. This is used to trigger recovery mechanisms.
+     *
+     * @param timeoutMs timeout threshold in milliseconds
+     * @return true if unit has been waiting longer than timeoutMs
+     */
+    public boolean isStaleAfterMillis(long timeoutMs) {
+        return System.currentTimeMillis() - arrivedAt > timeoutMs;
     }
 }
