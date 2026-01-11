@@ -41,13 +41,6 @@ public class Adder {
     private static final Logger                     log                = LoggerFactory.getLogger(Adder.class);
     private static final int                        MAX_COLLECTION_SIZE = 100_000; // Prevent DoS via collection exhaustion
 
-    /**
-     * LIVENESS (Delos-vyai): Timeout threshold for stale waiting units.
-     * Units waiting for parents beyond this threshold are considered stale (Byzantine withholding likely).
-     * Conservative value (5 seconds) prevents false positives from legitimate slow networks.
-     */
-    private static final long                       UNIT_TIMEOUT_MILLIS = 5000;
-
     private final        Map<Digest, Set<Short>>    commits         = new TreeMap<>();
     private final        Config                     conf;
     private final        Dag                        dag;
@@ -618,7 +611,7 @@ public class Adder {
      * removes them from the waiting queue.
      *
      * Liveness Guarantee:
-     * - Detects Byzantine withholding: units waiting > UNIT_TIMEOUT_MILLIS
+     * - Detects Byzantine withholding: units waiting > configured timeout
      * - Removes stale units to prevent memory exhaustion
      * - Logs timeout events for diagnosis
      *
@@ -637,11 +630,11 @@ public class Adder {
             // Find stale units
             for (var entry : waiting.entrySet()) {
                 var waitingUnit = entry.getValue();
-                if (waitingUnit.isStaleAfterMillis(UNIT_TIMEOUT_MILLIS)) {
+                if (waitingUnit.isStaleAfterMillis(conf.unitTimeoutMillis())) {
                     staleUnits.add(entry.getKey());
                     log.warn(
                     "LIVENESS TIMEOUT: Removing stale waiting unit {} after {}ms - possible Byzantine parent withholding on: {}",
-                    waitingUnit, UNIT_TIMEOUT_MILLIS, conf.logLabel());
+                    waitingUnit, conf.unitTimeoutMillis(), conf.logLabel());
                 }
             }
 

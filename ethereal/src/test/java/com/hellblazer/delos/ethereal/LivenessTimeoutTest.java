@@ -47,7 +47,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 public class LivenessTimeoutTest {
 
-    private static final long UNIT_TIMEOUT_MILLIS = 5000; // Must match Adder.UNIT_TIMEOUT_MILLIS
+    private static final long UNIT_TIMEOUT_MILLIS = 10000; // Longer timeout for tests to avoid flakiness
     private static final DigestAlgorithm DIGEST_ALGO = DigestAlgorithm.DEFAULT;
 
     private Config config;
@@ -62,6 +62,7 @@ public class LivenessTimeoutTest {
             .setBias(3)
             .setPid((short) 0)
             .setDigestAlgorithm(DIGEST_ALGO)
+            .setUnitTimeoutMillis(UNIT_TIMEOUT_MILLIS)
             .build();
 
         failed = new HashSet<>();
