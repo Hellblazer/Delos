@@ -43,30 +43,54 @@ public class Extender {
     /**
      * roundSorter picks information about newly picked timing unit from the timingRounds channel, finds all units
      * belonging to their timing round and establishes linear order on them. Sends slices of ordered units to output.
+     *
+     * PROFILING: Delos-5hlw - Measure time spent in chooseNextTimingUnits
      */
     public TimingRound chooseNextTimingUnits(TimingRound lastTU, Consumer<List<Unit>> output) {
+        final long startTotal = System.nanoTime();
         TimingRound next;
         TimingRound last = lastTU;
+        int roundCount = 0;
 
         do {
             log.trace("Choose TR, last: {} on: {}", lastTU, conf.logLabel());
+            final long startRound = System.nanoTime();
             next = nextRound(last);
+            final long roundTime = System.nanoTime() - startRound;
+            roundCount++;
+
             if (next != null && !next.equals(last)) {
+                final long startOrdering = System.nanoTime();
                 var units = next.orderedUnits(conf.digestAlgorithm(), conf.logLabel());
+                final long orderingTime = System.nanoTime() - startOrdering;
+
                 log.trace("Output of: {} preBlock: {} on: {}", next, units, conf.logLabel());
+                log.debug("Timing - round#{} nextRound: {}μs orderedUnits: {}μs on: {}",
+                    roundCount, roundTime / 1000, orderingTime / 1000, conf.logLabel());
                 output.accept(units);
                 last = next;
             } else {
                 log.trace("Exit choose TR, last: {} on: {}", next, conf.logLabel());
+                final long totalTime = System.nanoTime() - startTotal;
+                log.debug("Timing - chooseNextTimingUnits total: {}μs ({} rounds) on: {}",
+                    totalTime / 1000, roundCount, conf.logLabel());
                 return next;
             }
         } while (next != null && !next.equals(last));
+
+        final long totalTime = System.nanoTime() - startTotal;
         log.trace("Exit choose TR, last: {} on: {}", next, conf.logLabel());
+        log.debug("Timing - chooseNextTimingUnits total: {}μs ({} rounds) on: {}",
+            totalTime / 1000, roundCount, conf.logLabel());
         return next;
     }
 
     public TimingRound nextRound(TimingRound lastTU) {
+        final long startTotal = System.nanoTime();
+        final long startMaxLevel = System.nanoTime();
         var dagMaxLevel = dag.maxLevel();
+        final long maxLevelTime = System.nanoTime() - startMaxLevel;
+
         log.trace("Begin round, {} dag mxLvl: {} on: {}", lastTU, dagMaxLevel, FIRST_DECIDED_ROUND, logLabel);
         var level = 0;
         final Unit previousTU = lastTU == null ? null : lastTU.currentTU();
@@ -79,39 +103,63 @@ public class Extender {
             return lastTU;
         }
 
+        final long startUnits = System.nanoTime();
         var units = dag.unitsOnLevel(level);
+        final long unitsTime = System.nanoTime() - startUnits;
 
         var decided = false;
         Unit currentTU = null;
+        int unitCount = 0;
+        long totalVotingTime = 0;
 
-        for (Unit uc : permutation(level, units, previousTU)) {
+        final long startPerm = System.nanoTime();
+        var perm = permutation(level, units, previousTU);
+        final long permTime = System.nanoTime() - startPerm;
+
+        for (Unit uc : perm) {
             if (uc == null) {
                 continue;
             }
+            unitCount++;
+            final long startVoting = System.nanoTime();
             var decision = getDecider(uc, deciders).decideUnitIsPopular(dagMaxLevel);
+            final long votingTime = System.nanoTime() - startVoting;
+            totalVotingTime += votingTime;
+
             if (decision.decision() == Vote.POPULAR) {
                 currentTU = uc;
                 decided = true;
                 deciders.clear();
                 log.trace("Popular: {} decided on: {} level: {} max: {} on: {}", uc, decision.decisionLevel(), level,
                           dagMaxLevel, logLabel);
+                log.debug("Timing - nextRound decided POPULAR: unit#{}({}μs) totalVoting: {}μs on: {}",
+                    unitCount, votingTime / 1000, totalVotingTime / 1000, logLabel);
                 break;
             }
             if (decision.decision() == Vote.UNDECIDED) {
                 log.trace("Undecided: {} decided on: {} level: {} max: {} on: {}", uc, decision.decisionLevel(), level,
                           dagMaxLevel, logLabel);
+                log.debug("Timing - nextRound UNDECIDED after {} units ({}μs voting) on: {}",
+                    unitCount, totalVotingTime / 1000, logLabel);
                 break;
             }
             log.trace("Unpopular: {} decided on: {} level: {} max: {} on: {}", uc, decision.decisionLevel(), level,
                       dagMaxLevel, logLabel);
-
         }
+
         if (!decided) {
             log.trace("No round decided, dag mxLvl: {} level: {} max: {} on: {}", dagMaxLevel, level, logLabel);
+            final long totalTime = System.nanoTime() - startTotal;
+            log.debug("Timing - nextRound NO_DECISION: maxLevel: {}μs unitsOnLevel: {}μs permutation: {}μs voting: {}μs total: {}μs on: {}",
+                maxLevelTime / 1000, unitsTime / 1000, permTime / 1000, totalVotingTime / 1000, totalTime / 1000, logLabel);
             return lastTU;
         }
+
         final var current = new TimingRound(currentTU, level, lastTU == null ? null : lastTU.currentTU());
         log.trace("{} dag mxLvl: {} on: {}", current, dagMaxLevel, logLabel);
+        final long totalTime = System.nanoTime() - startTotal;
+        log.debug("Timing - nextRound DECIDED: maxLevel: {}μs unitsOnLevel: {}μs permutation: {}μs voting({} units): {}μs total: {}μs on: {}",
+            maxLevelTime / 1000, unitsTime / 1000, permTime / 1000, unitCount, totalVotingTime / 1000, totalTime / 1000, logLabel);
         return current;
     }
 

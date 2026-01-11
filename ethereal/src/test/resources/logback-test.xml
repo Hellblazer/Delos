@@ -24,7 +24,7 @@
     <logger name="com.hellblazer.delos.ethereal.Creator" level="info" additivity="false">
         <appender-ref ref="STDOUT"/>
     </logger>
-    <logger name="com.hellblazer.delos.ethereal.linear.Extender" level="info" additivity="false">
+    <logger name="com.hellblazer.delos.ethereal.linear.Extender" level="debug" additivity="false">
         <appender-ref ref="STDOUT"/>
     </logger>
     <logger name="com.hellblazer.delos.ethereal.linear.TimingRound" level="info" additivity="false">
