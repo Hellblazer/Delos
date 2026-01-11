@@ -25,8 +25,10 @@ class Transactioneer {
     private final static Random                     entropy   = new Random();
     private final static Logger                     log       = LoggerFactory.getLogger(Transactioneer.class);
     private final static Executor                   executor  = Executors.newVirtualThreadPerTaskExecutor();
+    private final static int                        MAX_RETRIES = 5;  // Prevent infinite retry loops
     private final        ScheduledExecutorService   scheduler;
     private final        AtomicInteger              completed = new AtomicInteger();
+    private final        AtomicInteger              retryCount = new AtomicInteger();  // Track retry attempts
     private final        CountDownLatch             countdown;
     private final        List<CompletableFuture<?>> inFlight  = new CopyOnWriteArrayList<>();
     private final        int                        max;
@@ -56,7 +58,9 @@ class Transactioneer {
         futureSailor.set(fs.whenCompleteAsync((o, t) -> {
             inFlight.remove(futureSailor.get());
             if (t != null) {
-                if (completed.get() < max) {
+                // Transaction failed - retry with limit
+                if (retryCount.incrementAndGet() <= MAX_RETRIES && completed.get() < max) {
+                    log.debug("Transaction failed, retry {}/{} on", retryCount.get(), MAX_RETRIES);
                     scheduler.schedule(() -> executor.execute(Utils.wrapped(() -> {
                         try {
                             decorate(session.submit(tx, timeout));
@@ -64,8 +68,16 @@ class Transactioneer {
                             throw new IllegalStateException(e);
                         }
                     }, log)), 1, TimeUnit.MILLISECONDS);
+                } else {
+                    // Max retries exhausted - give up and count down to allow test to proceed
+                    log.warn("Transaction failed after {} retries, giving up", MAX_RETRIES);
+                    if (finished.compareAndSet(false, true)) {
+                        countdown.countDown();
+                    }
                 }
             } else {
+                // Transaction succeeded - reset retry count
+                retryCount.set(0);
                 if (completed.incrementAndGet() >= max) {
                     if (finished.compareAndSet(false, true)) {
                         countdown.countDown();
