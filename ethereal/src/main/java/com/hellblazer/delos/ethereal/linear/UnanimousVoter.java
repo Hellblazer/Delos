@@ -162,22 +162,32 @@ public record UnanimousVoter(Dag dag, Unit uc, Map<Digest, Vote> votingMemo, Str
 
     static final int firstVotingRound = 1;
 
+    /**
+     * Computes and caches vote for unit u atomically using computeIfAbsent.
+     * This ensures thread-safe memoization - only one thread computes the vote,
+     * all others wait and receive the cached result. Critical for Byzantine
+     * fault tolerance to prevent wasted computation on malicious inputs.
+     *
+     * @param u the unit to vote on
+     * @return the vote result (POPULAR, UNPOPULAR, or UNDECIDED)
+     */
     public Vote voteUsing(Unit u) {
         var roundDiff = u.level() - uc.level();
         if (roundDiff < firstVotingRound) {
             return Vote.UNDECIDED;
         }
-        var cachedResult = votingMemo.get(u.hash());
-        if (cachedResult != null) {
-            return cachedResult;
-        }
-        AtomicReference<Vote> result = new AtomicReference<>(Vote.UNDECIDED);
 
-        try {
+        // CRITICAL (Delos-pac9): Atomic compute-and-cache using computeIfAbsent
+        // Guarantees only one thread computes the vote, preventing TOCTOU races
+        // and duplicate expensive computations under Byzantine attack scenarios
+        return votingMemo.computeIfAbsent(u.hash(), hash -> {
+            AtomicReference<Vote> result = new AtomicReference<>(Vote.UNDECIDED);
+
             if (roundDiff == firstVotingRound) {
                 result.set(initialVote(uc, u));
                 return result.get();
             }
+
             var commonVote = lazyCommonVote(u.level() - 1);
             AtomicReference<Vote> lastVote = new AtomicReference<>();
             voteUsingPrimeAncestors(uc, u, dag, (uc, uPrA) -> {
@@ -206,9 +216,7 @@ public record UnanimousVoter(Dag dag, Unit uc, Map<Digest, Vote> votingMemo, Str
             log.trace("Vote result: {} candidate: {} prime ancestor: {} on: {}", lastVote.get(), uc, u, logLabel);
             result.set(lastVote.get());
             return result.get();
-        } finally {
-            votingMemo.put(u.hash(), result.get());
-        }
+        });
     }
 
     private Supplier<Vote> lazyCommonVote(int level) {
