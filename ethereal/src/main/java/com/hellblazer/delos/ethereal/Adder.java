@@ -293,10 +293,18 @@ public class Adder {
         }
 
         // Batch verify if we have multiple prevotes, otherwise verify individually
-        boolean[] validationResults = new boolean[toVerify.size()];
+        boolean[] validationResults;
         if (toVerify.size() >= 4) {
             validationResults = batchVerifyPrevotes(toVerify);
+            // If batch verification failed (returned null), fall back to individual verification
+            if (validationResults == null) {
+                validationResults = new boolean[toVerify.size()];
+                for (int i = 0; i < toVerify.size(); i++) {
+                    validationResults[i] = validate(toVerify.get(i));
+                }
+            }
         } else {
+            validationResults = new boolean[toVerify.size()];
             for (int i = 0; i < toVerify.size(); i++) {
                 validationResults[i] = validate(toVerify.get(i));
             }
@@ -422,10 +430,18 @@ public class Adder {
         }
 
         // Batch verify if we have multiple commits, otherwise verify individually
-        boolean[] validationResults = new boolean[toVerify.size()];
+        boolean[] validationResults;
         if (toVerify.size() >= 4) {
             validationResults = batchVerifyCommits(toVerify);
+            // If batch verification failed (returned null), fall back to individual verification
+            if (validationResults == null) {
+                validationResults = new boolean[toVerify.size()];
+                for (int i = 0; i < toVerify.size(); i++) {
+                    validationResults[i] = validate(toVerify.get(i));
+                }
+            }
         } else {
+            validationResults = new boolean[toVerify.size()];
             for (int i = 0; i < toVerify.size(); i++) {
                 validationResults[i] = validate(toVerify.get(i));
             }
