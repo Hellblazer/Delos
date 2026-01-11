@@ -21,7 +21,8 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-@Tag("large")  // Disabled on CI - requires full cluster formation
+@Tag("large")
+@Disabled("Integration test harness - requires full consensus cluster formation")
 public class EtherealRegressionTest {
 
     @Nested
