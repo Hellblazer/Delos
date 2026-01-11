@@ -64,6 +64,7 @@ public class CHOAMCheckpointTest {
     private ScheduledExecutorService scheduler;
     private ExecutorService executor;
     private Map<Digest, AtomicInteger> checkpointCounts;
+    private List<File> createdCheckpointFiles = new ArrayList<>();
 
     @BeforeEach
     public void before() throws Exception {
@@ -121,21 +122,21 @@ public class CHOAMCheckpointTest {
             };
             params.getProducer().ethereal().setSigner(m);
             var runtime = Parameters.RuntimeParameters.newBuilder();
-            final File checkpointFile;
-            try {
-                checkpointFile = File.createTempFile("checkpoint-", ".dat");
-                checkpointFile.deleteOnExit();
-            } catch (IOException e) {
-                fail(e);
-                throw new RuntimeException(e);
-            }
             return new CHOAM(params.build(runtime.setMember(m)
                                                  .setMetrics(metrics)
                                                  .setCommunications(routers.get(m.getId()))
                                                  .setProcessor(processor)
                                                  .setCheckpointer(h -> {
                                                      counter.incrementAndGet();
-                                                     return checkpointFile;
+                                                     try {
+                                                         // Create a NEW temp file for each checkpoint
+                                                         // (matching production behavior in SqlStateMachine)
+                                                         File checkpointFile = File.createTempFile("checkpoint-", ".dat");
+                                                         createdCheckpointFiles.add(checkpointFile);
+                                                         return checkpointFile;
+                                                     } catch (IOException e) {
+                                                         throw new RuntimeException(e);
+                                                     }
                                                  })
                                                  .setContext(context)
                                                  .build()));
@@ -157,6 +158,14 @@ public class CHOAMCheckpointTest {
         }
         if (executor != null) {
             executor.shutdown();
+        }
+        if (createdCheckpointFiles != null) {
+            createdCheckpointFiles.forEach(f -> {
+                if (f != null && f.exists()) {
+                    f.delete();
+                }
+            });
+            createdCheckpointFiles.clear();
         }
         members = null;
         registry = null;
