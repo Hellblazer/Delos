@@ -316,29 +316,40 @@ public interface Dag {
 
         @Override
         public void iterateMaxUnitsPerProcess(Consumer<Unit> work) {
-            read(() -> maximalUnitsPerProcess().forEach(work));
+            // PERFORMANCE (Delos-b0qn): Use snapshot-based iteration to reduce lock hold time.
+            List<Unit> snapshot = read(() -> maximalUnitsPerProcess());
+            snapshot.forEach(work);
         }
 
         @Override
         public void iterateUnits(Function<Unit, Boolean> consumer) {
-            read(() -> {
-                for (Unit u : units.values()) {
-                    if (!consumer.apply(u)) {
-                        break;
-                    }
+            // PERFORMANCE (Delos-b0qn): Use snapshot-based iteration to reduce lock hold time.
+            // Instead of holding the read lock during the entire iteration (which can be long
+            // if the consumer callback is slow), we:
+            // 1. Take a snapshot of units while holding the read lock (fast O(n) copy)
+            // 2. Release the lock immediately
+            // 3. Iterate over the snapshot without holding the lock
+            //
+            // This allows concurrent write operations (insert) to proceed during iteration,
+            // improving throughput under load while maintaining consistency (snapshot is atomic).
+            List<Unit> snapshot = read(() -> new ArrayList<>(units.values()));
+            for (Unit u : snapshot) {
+                if (!consumer.apply(u)) {
+                    break;
                 }
-            });
+            }
         }
 
         @Override
         public void iterateUnitsOnLevel(int level, Function<Unit, Boolean> work) {
-            read(() -> {
-                for (var u : unitsOnLevel(level)) {
-                    if (u != null && !work.apply(u)) {
-                        return;
-                    }
+            // PERFORMANCE (Delos-b0qn): Use snapshot-based iteration to reduce lock hold time.
+            // Take snapshot of units on level while holding lock, then iterate snapshot outside lock.
+            List<Unit> snapshot = read(() -> unitsOnLevel(level));
+            for (var u : snapshot) {
+                if (u != null && !work.apply(u)) {
+                    return;
                 }
-            });
+            }
         }
 
         @Override
