@@ -289,10 +289,17 @@ public class SqlStateMachine {
                     fos.flush();
                 } catch (IOException e) {
                     log.error("unable to checkpoint: {} on: {}", height, id, e);
+                    if (checkpoint.exists()) {
+                        checkpoint.delete();
+                    }
+                    return null;
                 } finally {
                     temp.delete();
                 }
-                assert checkpoint.exists() : "Written file does not exist: " + checkpoint.getAbsolutePath();
+                if (!checkpoint.exists()) {
+                    log.error("Checkpoint file was not created: {} on: {}", checkpoint.getAbsolutePath(), id);
+                    return null;
+                }
                 return checkpoint;
             } catch (SQLException e) {
                 log.error("unable to checkpoint: {} on: {}", height, id, e);
