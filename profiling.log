@@ -1,0 +1,20 @@
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::arrayBaseOffset has been called by com.google.protobuf.UnsafeUtil$MemoryAccessor (file:/Users/hal.hildebrand/.m2/repository/com/google/protobuf/protobuf-java/4.28.2/protobuf-java-4.28.2.jar)
+WARNING: Please consider reporting this to the maintainers of class com.google.protobuf.UnsafeUtil$MemoryAccessor
+WARNING: sun.misc.Unsafe::arrayBaseOffset will be removed in a future release
+43:13.390 RouterImpl - Communications created for: [491eb9d182ff] on: [491eb9d182ff]
+43:13.397 RouterImpl - Communications created for: [b5c7aeeb3987] on: [b5c7aeeb3987]
+43:13.399 RouterImpl - Communications created for: [ac68abb6ed23] on: [ac68abb6ed23]
+43:13.401 RouterImpl - Communications created for: [d0587f919153] on: [d0587f919153]
+new epoch: 0
+43:13.437 RouterImpl - Started router: [dbbb87ce-185f-4945-b727-a27a31dfb899-FSR650YL_cR8Z3MKlkfdhOEbbisKbj0O9bKuJlX5ewJk] on: [491eb9d182ff]
+43:13.438 RouterImpl - Started router: [dbbb87ce-185f-4945-b727-a27a31dfb899-Ftceu6zmH0Ui0zfPBaazqrpUDrv-U0dFnqF4IluTE4Ig] on: [b5c7aeeb3987]
+43:13.438 RouterImpl - Started router: [dbbb87ce-185f-4945-b727-a27a31dfb899-FrGirtu0jzcDyS9xN2XTBF1FU-YRUUyxQtV12R5VlV5s] on: [ac68abb6ed23]
+43:13.438 RouterImpl - Started router: [dbbb87ce-185f-4945-b727-a27a31dfb899-F0Fh_kZFTWMDFpQPzLlN3JY_9mK0IIJv-TsIg0z4WJXs] on: [d0587f919153]
+new epoch: 1
+new epoch: 2
+new epoch: 3
+43:18.074 ServerConnectionCache - Closing connection cache on: [491eb9d182ff]
+43:18.075 ServerConnectionCache - Closing connection cache on: [b5c7aeeb3987]
+43:18.075 ServerConnectionCache - Closing connection cache on: [ac68abb6ed23]
+43:18.076 ServerConnectionCache - Closing connection cache on: [d0587f919153]
