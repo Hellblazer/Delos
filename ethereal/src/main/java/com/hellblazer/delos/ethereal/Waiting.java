@@ -67,14 +67,12 @@ public class Waiting implements Comparable<Waiting> {
         return pu.creator();
     }
 
-    public void decMissing() {
-        final var m = missingParents;
-        missingParents = m - 1;
+    public synchronized void decMissing() {
+        missingParents--;
     }
 
-    public void decWaiting() {
-        final var w = waitingParents;
-        waitingParents = w - 1;
+    public synchronized void decWaiting() {
+        waitingParents--;
     }
 
     public Unit decoded() {
@@ -97,25 +95,26 @@ public class Waiting implements Comparable<Waiting> {
         return pu.id();
     }
 
-    public void incMissing() {
-        final var m = missingParents;
-        missingParents = m + 1;
+    public synchronized void incMissing() {
+        missingParents++;
     }
 
-    public void incWaiting() {
-        final var w = waitingParents;
-        waitingParents = w + 1;
+    public synchronized void incWaiting() {
+        waitingParents++;
     }
 
-    public int missingParents() {
-        final var current = missingParents;
-        return current;
+    public synchronized int missingParents() {
+        return missingParents;
     }
 
-    public boolean parentsOutput() {
-        final int cMissingParents = missingParents;
-        final int cWaitingParents = waitingParents;
-        return cWaitingParents == 0 && cMissingParents == 0;
+    /**
+     * Composite atomicity check for parent output readiness.
+     * CRITICAL: Synchronization ensures both missing and waiting counters are checked atomically.
+     * Prevents TOCTOU (Time-of-Check-Time-of-Use) race where another thread could modify counters
+     * between the check and use, potentially causing incorrect consensus decisions.
+     */
+    public synchronized boolean parentsOutput() {
+        return waitingParents == 0 && missingParents == 0;
     }
 
     public PreUnit pu() {
@@ -144,8 +143,7 @@ public class Waiting implements Comparable<Waiting> {
         + ")";
     }
 
-    public int waitingParents() {
-        final var current = waitingParents;
-        return current;
+    public synchronized int waitingParents() {
+        return waitingParents;
     }
 }
