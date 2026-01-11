@@ -64,7 +64,7 @@ public class CHOAMCheckpointTest {
     private ScheduledExecutorService scheduler;
     private ExecutorService executor;
     private Map<Digest, AtomicInteger> checkpointCounts;
-    private List<File> createdCheckpointFiles = new ArrayList<>();
+    private List<File> createdCheckpointFiles = new CopyOnWriteArrayList<>();
 
     @BeforeEach
     public void before() throws Exception {
