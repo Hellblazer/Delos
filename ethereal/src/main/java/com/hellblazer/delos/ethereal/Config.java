@@ -45,21 +45,22 @@ import java.util.Objects;
  * - Since overlap > f, at least one honest node is in the intersection
  * - This guarantees Byzantine safety for consensus
  *
- * @param label           Human-readable label for logging
- * @param nProc           Total number of nodes (must satisfy n >= 3f+1)
- * @param epochLength     Number of levels per epoch
- * @param pid             Process ID of this node
- * @param signer          Cryptographic signer for this node
- * @param digestAlgorithm Hash algorithm for content addressing
- * @param numberOfEpochs  Number of epochs to run (< 0 for unbounded)
- * @param WTKey           Weak threshold key for aggregation
- * @param bias            BFT bias parameter (typically 3 for n=3f+1)
- * @param fpr             False positive rate for Bloom filters
+ * @param label             Human-readable label for logging
+ * @param nProc             Total number of nodes (must satisfy n >= 3f+1)
+ * @param epochLength       Number of levels per epoch
+ * @param pid               Process ID of this node
+ * @param signer            Cryptographic signer for this node
+ * @param digestAlgorithm   Hash algorithm for content addressing
+ * @param numberOfEpochs    Number of epochs to run (< 0 for unbounded)
+ * @param WTKey             Weak threshold key for aggregation
+ * @param bias              BFT bias parameter (typically 3 for n=3f+1)
+ * @param fpr               False positive rate for Bloom filters
+ * @param unitTimeoutMillis Timeout threshold for stale waiting units (1000-60000ms, default 5000ms)
  * @author hal.hildebrand
  */
 public record Config(String label, short nProc, int epochLength, short pid, Signer signer,
                      DigestAlgorithm digestAlgorithm, int numberOfEpochs, WeakThresholdKey WTKey, double bias,
-                     double fpr) {
+                     double fpr, long unitTimeoutMillis) {
 
     public static Builder newBuilder() {
         return new Builder();
@@ -85,6 +86,7 @@ public record Config(String label, short nProc, int epochLength, short pid, Sign
         private double           pByz            = -1;
         private short            pid;
         private Signer           signer          = new MockSigner(SignatureAlgorithm.DEFAULT, ULong.MIN);
+        private long             unitTimeoutMillis = 5000L;  // Default 5 seconds
         private WeakThresholdKey wtk;
 
         public Builder() {
@@ -112,7 +114,12 @@ public record Config(String label, short nProc, int epochLength, short pid, Sign
             if (epochLength <= 10) {
                 throw new IllegalArgumentException("Epoch length must be at least 11: " + epochLength);
             }
-            return new Config(label, nProc, epochLength, pid, signer, digestAlgorithm, numberOfEpochs, wtk, bias, fpr);
+            if (unitTimeoutMillis < 1000 || unitTimeoutMillis > 60000) {
+                throw new IllegalArgumentException(
+                    "unitTimeoutMillis must be between 1000 and 60000 (1-60 seconds): " + unitTimeoutMillis);
+            }
+            return new Config(label, nProc, epochLength, pid, signer, digestAlgorithm, numberOfEpochs, wtk, bias, fpr,
+                              unitTimeoutMillis);
         }
 
         @Override
@@ -220,6 +227,15 @@ public record Config(String label, short nProc, int epochLength, short pid, Sign
 
         public Builder setpByz(double pByz) {
             this.pByz = pByz;
+            return this;
+        }
+
+        public long getUnitTimeoutMillis() {
+            return unitTimeoutMillis;
+        }
+
+        public Builder setUnitTimeoutMillis(long unitTimeoutMillis) {
+            this.unitTimeoutMillis = unitTimeoutMillis;
             return this;
         }
     }

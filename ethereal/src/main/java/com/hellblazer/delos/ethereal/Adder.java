@@ -564,6 +564,10 @@ public class Adder {
                 // This is definitive proof of Byzantine behavior
                 blacklistedCreators.add(decoded.creator());
                 failed.add(digest);
+
+                // Cleanup: remove from waiting if it was added (defensive - ensures no partial state)
+                waiting.remove(digest);
+
                 log.error("EQUIVOCATION DETECTED: creator={} height={} existing_hash={} new_hash={} on: {}. "
                           + "Creator blacklisted.", decoded.creator(), decoded.height(), existingAtHeight.hash(),
                           digest, conf.logLabel());
