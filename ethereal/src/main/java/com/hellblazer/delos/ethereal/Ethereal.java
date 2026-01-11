@@ -402,7 +402,6 @@ public class Ethereal {
         public void close() {
             adder.close();
             more.set(false);
-            dag.close();
         }
 
         public void noMoreUnits() {
