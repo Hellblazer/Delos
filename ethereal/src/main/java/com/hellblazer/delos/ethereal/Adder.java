@@ -977,10 +977,14 @@ public class Adder {
             return false;
         }
         var signature = JohnHancock.from(c.getSignature());
+        final long startVerify = System.nanoTime();
         var valid = verifier.verify(signature, commit.toByteString());
+        final long verifyTimeUs = (System.nanoTime() - startVerify) / 1000;
         if (!valid) {
             log.warn("Invalid commit signature from source: {} signer algo: {} verifier: {} on: {}",
                      source, conf.signer().algorithm(), verifier, conf.logLabel());
+        } else {
+            log.debug("Timing - commit sig verify: {}μs source={} on: {}", verifyTimeUs, source, conf.logLabel());
         }
         return valid;
     }
@@ -1008,10 +1012,14 @@ public class Adder {
             return false;
         }
         var signature = JohnHancock.from(pv.getSignature());
+        final long startVerify = System.nanoTime();
         var valid = verifier.verify(signature, vote.toByteString());
+        final long verifyTimeUs = (System.nanoTime() - startVerify) / 1000;
         if (!valid) {
             log.warn("Invalid prevote signature from source: {} signer algo: {} verifier: {} on: {}",
                      source, conf.signer().algorithm(), verifier, conf.logLabel());
+        } else {
+            log.debug("Timing - prevote sig verify: {}μs source={} on: {}", verifyTimeUs, source, conf.logLabel());
         }
         return valid;
     }

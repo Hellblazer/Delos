@@ -45,7 +45,7 @@
     <logger name="com.hellblazer.delos.comm" level="warn" additivity="false">
         <appender-ref ref="STDOUT"/>
     </logger>
-    <logger name="com.hellblazer.delos.ethereal.Adder" level="info" additivity="false">
+    <logger name="com.hellblazer.delos.ethereal.Adder" level="debug" additivity="false">
         <appender-ref ref="STDOUT"/>
     </logger>
     <logger name="com.hellblazer.delos.ethereal.Dag" level="info" additivity="false">
