@@ -33,6 +33,17 @@ import java.util.function.Function;
 public class Creator {
 
     private static final Logger                               log        = LoggerFactory.getLogger(Creator.class);
+    /**
+     * BYZANTINE SAFETY (Delos-40h0): Maximum allowed depth for parent chain traversal.
+     * Prevents unbounded stack growth and DoS attacks where Byzantine nodes
+     * create arbitrarily long unit chains. This limit ensures that parent
+     * lookups and consensus operations complete in bounded time/space.
+     *
+     * The depth is conservative to allow for normal consensus operation while
+     * preventing malicious chains. In practice, unit chains rarely exceed a few
+     * hundred units in depth even under heavy load.
+     */
+    private static final int                                  MAX_UNIT_DEPTH = 10_000;
     private final        List<Unit>                           candidates;
     private final        Config                               conf;
     private final        DataSource                           ds;
@@ -161,8 +172,15 @@ public class Creator {
             Unit p = parents[i];
 
             // Ensure all parents are < level
-            for (; p != null && p.level() >= level; p = p.predecessor())
-                ;
+            // BYZANTINE SAFETY (Delos-40h0): Enforce max depth limit during traversal
+            int depth = 0;
+            for (; p != null && p.level() >= level && depth < MAX_UNIT_DEPTH; p = p.predecessor()) {
+                depth++;
+            }
+            if (depth >= MAX_UNIT_DEPTH && p != null && p.level() >= level) {
+                log.warn("Unit chain exceeded MAX_UNIT_DEPTH {} during parent counting on: {}. "
+                         + "Truncating traversal to prevent DoS attack.", MAX_UNIT_DEPTH, conf.logLabel());
+            }
             parents[i] = p;
 
             // Count parents directly above this level
