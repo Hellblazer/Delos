@@ -315,6 +315,43 @@ public class EquivocationDetectionTest {
                     "Duplicate proposal of same unit should not trigger equivocation");
     }
 
+    /**
+     * Test that equivocating unit is not left in waiting map after detection.
+     * Verifies cleanup of partial state on equivocation exception.
+     *
+     * Byzantine Safety: No partial state should remain after detecting Byzantine behavior.
+     */
+    @Test
+    public void testEquivocationCleansUpWaitingState() {
+        // Create first unit at height 1 for creator 1
+        var unit1 = createUnit((short) 1, 1, ByteString.copyFromUtf8("data1"));
+        adder.propose(unit1.hash(), unit1.toPreUnit_s());
+
+        // Verify first unit was accepted
+        var waiting1 = adder.getWaiting().get(unit1.hash());
+        assertNotNull(waiting1, "First unit should be accepted");
+
+        // Create second unit at same height (equivocation) with different data
+        var unit2 = createUnitAtHeight((short) 1, 1, ByteString.copyFromUtf8("data2"));
+
+        // Attempt to propose equivocating unit - should throw exception
+        assertThrows(IllegalStateException.class, () -> {
+            adder.propose(unit2.hash(), unit2.toPreUnit_s());
+        }, "Equivocation should be detected and rejected");
+
+        // CRITICAL: Verify equivocating unit is NOT in waiting map (cleanup happened)
+        var waiting2 = adder.getWaiting().get(unit2.hash());
+        assertNull(waiting2, "Equivocating unit should not remain in waiting map after exception");
+
+        // Verify first unit is still present (not affected by cleanup)
+        waiting1 = adder.getWaiting().get(unit1.hash());
+        assertNotNull(waiting1, "First unit should still be in waiting");
+
+        // Verify creator is blacklisted
+        assertTrue(adder.getBlacklistedCreators().contains((short) 1),
+                   "Equivocating creator should be blacklisted");
+    }
+
     // Helper methods
 
     /**
