@@ -115,11 +115,18 @@ public class BootstrappingTest extends AbstractDhtTest {
         assertNotNull(invitation);
         assertNotEquals(Validations.getDefaultInstance(), invitation);
         assertTrue(invitation.getValidations().getValidationsCount() >= context.majority());
-        // Verify client KERL published
-        Utils.waitForCondition(30_000, 1000, () -> testKerl.getKeyEvent(client.getEvent().getCoordinates()) != null);
-        var keyS = testKerl.getKeyEvent(client.getEvent().getCoordinates());
+        // Verify client KERL published to at least one member (enrollment happens on subset)
+        Utils.waitForCondition(30_000, 1000, () -> dhts.values().stream()
+                                                        .anyMatch(d -> d.asKERL().getKeyEvent(client.getEvent().getCoordinates()) != null));
 
-        assertNotNull(keyS);
+        // Find which member has the client event
+        var keyS = dhts.values().stream()
+                       .map(d -> d.asKERL().getKeyEvent(client.getEvent().getCoordinates()))
+                       .filter(k -> k != null)
+                       .findFirst()
+                       .orElse(null);
+
+        assertNotNull(keyS, "Client KERL should be published to at least one member");
         admin.close();
     }
 

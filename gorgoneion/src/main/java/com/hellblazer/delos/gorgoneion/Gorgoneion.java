@@ -375,6 +375,11 @@ public class Gorgoneion implements Closeable {
     }
 
     private void enroll(Notarization request) {
+        if (observer == null) {
+            log.error("KERL observer is null, cannot publish notarization on: {}", member.getId());
+            return;
+        }
+        log.trace("Enrolling notarization with KERL events: {} on: {}", request.getKerl().getEventsCount(), member.getId());
         observer.publish(request.getKerl(), Collections.singletonList(request.getValidations()));
     }
 
@@ -493,6 +498,12 @@ public class Gorgoneion implements Closeable {
                 // Exception will be propagated when caller invokes .get() on the future
                 result.completeExceptionally(new StatusRuntimeException(Status.ABORTED.withDescription("Cannot complete enrollment")));
             } else {
+                // Also enroll locally on the coordinating member to publish to its own KERL
+                try {
+                    enroll(notarization);
+                } catch (Exception e) {
+                    log.error("Failed to enroll notarization locally for: {} on: {}", identifier, member.getId(), e);
+                }
                 result.complete(validations);
             }
         }, parameters.frequency());
