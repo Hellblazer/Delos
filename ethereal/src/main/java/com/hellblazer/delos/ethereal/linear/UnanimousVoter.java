@@ -28,6 +28,7 @@ public record UnanimousVoter(Dag dag, Unit uc, Map<Digest, Vote> votingMemo, Str
 
     private static final Logger log = LoggerFactory.getLogger(UnanimousVoter.class);
     private static final int DETERMINISTIC_VOTE_PREFIX = 10;
+    private static final int MAX_VOTE_MEMO_SIZE = 10_000;
 
     private record R(Vote vote, boolean finished) {}
 
@@ -175,6 +176,13 @@ public record UnanimousVoter(Dag dag, Unit uc, Map<Digest, Vote> votingMemo, Str
         var roundDiff = u.level() - uc.level();
         if (roundDiff < firstVotingRound) {
             return Vote.UNDECIDED;
+        }
+
+        // Bound cache size to prevent memory exhaustion in long-running instances
+        if (votingMemo.size() >= MAX_VOTE_MEMO_SIZE) {
+            log.debug("Vote memo cache approaching limit ({}), clearing old entries on: {}",
+                      MAX_VOTE_MEMO_SIZE, logLabel);
+            votingMemo.clear();
         }
 
         // CRITICAL (Delos-pac9): Atomic compute-and-cache using computeIfAbsent
