@@ -61,7 +61,6 @@ public class EtherealTest {
     }
 
     @Test
-    @Disabled("Ethereal context test produces only 1 epoch (29 blocks) instead of 3 epochs (87 blocks). Root cause needs investigation.")
     public void context() throws Exception {
         one(0);
     }
@@ -296,7 +295,6 @@ public class EtherealTest {
             gossipers.forEach(e -> {
                 e.start(gossipPeriod);
             });
-            controllers.forEach(Ethereal::completeIt);
             // Timeout must account for NUM_EPOCHS * EPOCH_LENGTH seconds for consensus to complete
             // Standard tests: 3 epochs × 30 sec + 20 sec buffer = 110 sec
             // Large tests: 7 nodes may need more time = 180 sec
