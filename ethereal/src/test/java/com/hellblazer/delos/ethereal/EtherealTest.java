@@ -26,6 +26,7 @@ import com.hellblazer.delos.stereotomy.StereotomyImpl;
 import com.hellblazer.delos.stereotomy.mem.MemKERL;
 import com.hellblazer.delos.stereotomy.mem.MemKeyStore;
 import com.hellblazer.delos.utils.Entropy;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.security.NoSuchAlgorithmException;
@@ -60,7 +61,7 @@ public class EtherealTest {
     }
 
     @Test
-    @org.junit.jupiter.api.Disabled("Ethereal context test produces only 1 epoch (29 blocks) instead of 3 epochs (87 blocks). Root cause needs investigation - possibly data exhaustion or early epoch termination logic. Can be re-enabled with ETHEREAL_CONTEXT_ENABLED env var.")
+    @Disabled("Ethereal context test produces only 1 epoch (29 blocks) instead of 3 epochs (87 blocks). Root cause needs investigation.")
     public void context() throws Exception {
         one(0);
     }
