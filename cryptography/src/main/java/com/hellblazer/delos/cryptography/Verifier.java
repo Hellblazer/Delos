@@ -68,6 +68,16 @@ public interface Verifier {
         return verify(threshold, signature, BbBackedInputStream.aggregate(message.getBytes()));
     }
 
+    /**
+     * Get the public key for batch verification.
+     * Verifiers that support batch verification should override this method.
+     *
+     * @return the PublicKey for batch verification, or null if not available
+     */
+    default PublicKey getKey() {
+        return null;
+    }
+
     class DefaultVerifier implements Verifier {
         private final Map<Integer, PublicKey> keys;
 
