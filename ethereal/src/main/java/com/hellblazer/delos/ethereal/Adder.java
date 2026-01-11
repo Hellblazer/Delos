@@ -37,7 +37,9 @@ import static com.hellblazer.delos.ethereal.PreUnit.id;
  */
 public class Adder {
 
-    private static final Logger                     log             = LoggerFactory.getLogger(Adder.class);
+    private static final Logger                     log                = LoggerFactory.getLogger(Adder.class);
+    private static final int                        MAX_COLLECTION_SIZE = 100_000; // Prevent DoS via collection exhaustion
+
     private final        Map<Digest, Set<Short>>    commits         = new TreeMap<>();
     private final        Config                     conf;
     private final        Dag                        dag;
@@ -284,6 +286,13 @@ public class Adder {
         if (dag.contains(digest)) {
             return; // already output
         }
+
+        // CRITICAL: Bound commits collection (Delos-v0k5)
+        if (commits.size() >= MAX_COLLECTION_SIZE) {
+            log.warn("Commits collection exhausted ({} entries) - possible DoS attack on: {}", MAX_COLLECTION_SIZE,
+                     conf.logLabel());
+            return;
+        }
         final Set<Short> committed = commits.computeIfAbsent(digest, h -> new HashSet<>());
         var wpu = waiting.get(digest);
 
@@ -370,6 +379,13 @@ public class Adder {
         }
         if (dag.contains(digest)) {
             return; // already output
+        }
+
+        // CRITICAL: Bound prevotes collection (Delos-v0k5)
+        if (prevotes.size() >= MAX_COLLECTION_SIZE) {
+            log.warn("Prevotes collection exhausted ({} entries) - possible DoS attack on: {}", MAX_COLLECTION_SIZE,
+                     conf.logLabel());
+            return;
         }
         final Set<Short> prepared = prevotes.computeIfAbsent(digest, h -> new HashSet<>());
         if (!prepared.add(member)) {
@@ -466,11 +482,27 @@ public class Adder {
             log.warn("Invalid parents: {} on: {}", decoded, conf.nProc() - 1, conf.logLabel());
             return;
         }
+
+        // CRITICAL: Bound waiting collection to prevent DoS (Delos-v0k5)
+        if (waiting.size() >= MAX_COLLECTION_SIZE) {
+            failed.add(digest);
+            log.warn("Waiting collection exhausted ({} entries) - possible DoS attack on: {}", MAX_COLLECTION_SIZE,
+                     conf.logLabel());
+            return;
+        }
         waiting.put(digest, wpu);
 
         if (preunit.height() - 1 > round) {
             wpu.setState(State.WAITING_ON_ROUND);
             log.trace("Proposed, waiting: {} current round: {} on: {}", wpu, round, conf.logLabel());
+
+            // CRITICAL: Bound waitingForRound collection (Delos-v0k5)
+            if (waitingForRound.size() >= MAX_COLLECTION_SIZE) {
+                failed.add(digest);
+                log.warn("WaitingForRound collection exhausted ({} entries) - possible DoS attack on: {}",
+                         MAX_COLLECTION_SIZE, conf.logLabel());
+                return;
+            }
             waitingForRound.put(digest, wpu);
             return;
         }
