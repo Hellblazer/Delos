@@ -114,6 +114,21 @@ public class SqlStateMachine {
     private final AtomicReference<SecureRandom> entropy        = new AtomicReference<>();
     private final AtomicReference<Current>      executingBlock = new AtomicReference<>();
     private final TxnExec                       executor       = new TxnExec();
+    /**
+     * Deterministic secure random for replica synchronization.
+     * <p>
+     * CRITICAL: This instance is seeded with block hashes via begin() to ensure all replicas
+     * produce identical random values. The determinism relies on:
+     * 1. All replicas create SecureRandom.getInstance("SHA1PRNG") identically
+     * 2. setSeed() is called with same block hash sequence across all replicas
+     * 3. All replicas generate same number of random values per block (CHOAM guarantees this)
+     * 4. This instance is NEVER used before the first begin() call
+     * <p>
+     * SHA1PRNG.setSeed() supplements internal state deterministically - as long as all replicas
+     * start from getInstance() and follow the same setSeed() sequence, they remain synchronized.
+     * <p>
+     * See SecureRandomDeterminismTest and SqlStateMachineEntropyPatternTest for verification.
+     */
     private final SecureRandom                  secureEntropy;
     private final EventTrampoline               trampoline     = new EventTrampoline();
     private final String                        url;
@@ -125,6 +140,7 @@ public class SqlStateMachine {
 
     {
         try {
+            // Create deterministic random instance - MUST NOT be used before first begin() call
             secureEntropy = SecureRandom.getInstance("SHA1PRNG");
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("Unable to get SHA1PRNG secure random instance", e);
@@ -593,13 +609,29 @@ public class SqlStateMachine {
         return returnValue;
     }
 
+    /**
+     * Begin execution of a new block, seeding random sources for determinism.
+     * <p>
+     * CRITICAL FOR REPLICA CONSISTENCY: This method seeds both H2's session random
+     * (java.util.Random) and our secure entropy (SecureRandom) with the block hash.
+     * This ensures all replicas produce identical random values when SQL code uses
+     * RAND(), RANDOM_UUID(), or other random functions.
+     * <p>
+     * The seeding pattern relies on SHA1PRNG.setSeed() mixing the seed into internal
+     * state deterministically. All replicas maintain synchronized state by:
+     * 1. Processing blocks in same order (CHOAM consensus guarantee)
+     * 2. Calling setSeed() with identical block hashes
+     * 3. Generating same number of random values per block (deterministic execution)
+     */
     private void begin(ULong height, Digest blkHash) {
         final var session = getSession();
         if (session == null) {
             return;
         }
         executingBlock.set(new Current(height, blkHash));
+        // Seed H2 session random for RAND() function
         session.getRandom().setSeed(new DigestHasher(blkHash, height.longValue()).identityHash());
+        // Seed secure entropy for RANDOM_UUID() and crypto operations
         secureEntropy.setSeed(blkHash.getBytes());
         entropy.set(secureEntropy);
         clock.incrementHeight();
