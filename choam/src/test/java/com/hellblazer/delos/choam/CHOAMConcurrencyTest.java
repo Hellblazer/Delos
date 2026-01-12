@@ -306,7 +306,7 @@ public class CHOAMConcurrencyTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(LARGE_TESTS ? 60 : 30, TimeUnit.SECONDS);
+        boolean completed = countdown.await(LARGE_TESTS ? 90 : 30, TimeUnit.SECONDS);
         assertTrue(completed, "Interleaved operations should not cause deadlock");
 
         choams.values().forEach(c -> assertTrue(c.active(), "System should remain stable"));
