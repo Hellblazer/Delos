@@ -295,20 +295,31 @@ public class Creator {
     private synchronized void newEpoch(int targetEpoch, ByteString data, int from) {
         int currentEpoch = this.epoch.get();
 
-        // PREVENT DUPLICATE EPOCH CREATION: Only transition if moving to a new epoch
+        // PREVENT DUPLICATE EPOCH STATE TRANSITIONS: Only update state if moving to a new epoch
         // Check and act are atomic because this entire method is synchronized.
-        // Multiple threads cannot create the same epoch because the first thread to
-        // update this.epoch will cause subsequent threads to return early.
-        if (targetEpoch <= currentEpoch) {
-            log.debug("Ignoring redundant epoch transition: current={}, target={} on: {}",
-                      currentEpoch, targetEpoch, conf.logLabel());
-            return;
+        // This prevents duplicate epoch creation when concurrent threads attempt to transition
+        // to the same epoch - only the first thread updates the epoch state.
+        //
+        // CRITICAL FIX: Units MUST be created for every newEpoch() call, even if the epoch
+        // has already been reached. Skipping unit creation breaks consensus advancement.
+        // Multiple concurrent paths (different timing units, threshold triggers) may call
+        // newEpoch() for the same targetEpoch - all must create units.
+        boolean isNewEpoch = targetEpoch > currentEpoch;
+
+        if (isNewEpoch) {
+            this.epoch.set(targetEpoch);
+            resetEpoch(targetEpoch);
+            epochProof.set(epochProofBuilder.apply(targetEpoch));
+            log.debug("Transitioning to new epoch: {} from {} on: {}",
+                      targetEpoch, currentEpoch, conf.logLabel());
+        } else {
+            log.debug("Epoch {} already reached (current={}), skipping state update on: {}",
+                      targetEpoch, currentEpoch, conf.logLabel());
         }
 
-        this.epoch.set(targetEpoch);
-
-        resetEpoch(targetEpoch);
-        epochProof.set(epochProofBuilder.apply(targetEpoch));
+        // ALWAYS create the unit regardless of whether this is a new epoch.
+        // This is required for consensus to progress - timing units and epoch proofs
+        // must be converted to units and propagated through gossip layers.
         createUnit(new Unit[conf.nProc()], 0, data);
     }
 
