@@ -815,7 +815,7 @@ public class KerlDHT implements ProtoKERLService {
                           .stream()
                           .max(Ordering.natural().onResultOf(Multiset.Entry::getCount))
                           .orElse(null);
-        var majority = context.size() == 1 ? 1 : context.toleranceLevel() + 1;
+        var majority = context.size() == 1 ? 1 : context.majority();
         if (max != null) {
             if (max.getCount() >= majority) {
                 try {
@@ -834,11 +834,12 @@ public class KerlDHT implements ProtoKERLService {
     }
 
     private boolean failedMajority(CompletableFuture<?> result, int maxAgree, String operation) {
+        var majority = context.size() == 1 ? 1 : context.majority();
         log.debug("Unable to achieve majority read: {}, max agree: {} required: {} on: {}", operation, maxAgree,
-                  context.toleranceLevel() + 1, member.getId());
+                  majority, member.getId());
         return result.completeExceptionally(new CompletionException(
         "Unable to achieve majority read: " + operation + ", max agree: " + maxAgree + " required: "
-        + context.toleranceLevel() + 1 + " on: " + member.getId()));
+        + majority + " on: " + member.getId()));
     }
 
     private void initializeSchema() {
@@ -933,7 +934,7 @@ public class KerlDHT implements ProtoKERLService {
         var max = max(gathered);
         if (max != null) {
             tally.set(max.getCount());
-            var ctxMajority = context.size() == 1 ? 1 : context.toleranceLevel() + 1;
+            var ctxMajority = context.size() == 1 ? 1 : context.majority();
             final var majority = tally.get() >= ctxMajority;
             if (majority) {
                 result.complete(max.getElement());
@@ -1021,15 +1022,18 @@ public class KerlDHT implements ProtoKERLService {
 
     private boolean valid(Digest from, int ring) {
         if (ring >= context.getRingCount() || ring < 0) {
-            log.warn("invalid ring {} from {} on: {}", ring, from, member.getId());
+            log.warn("Invalid ring: {} (valid range: 0-{}) from: {} on: {}",
+                    ring, context.getRingCount() - 1, from, member.getId());
             return false;
         }
         Member fromMember = context.getMember(from);
         if (fromMember == null) {
+            log.warn("Unknown member: {} for ring: {} on: {}", from, ring, member.getId());
             return false;
         }
         Member successor = context.successor(ring, fromMember);
         if (successor == null) {
+            log.warn("No successor found for member: {} on ring: {} on: {}", from, ring, member.getId());
             return false;
         }
         return successor.equals(member);
