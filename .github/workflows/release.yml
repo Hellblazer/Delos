@@ -89,7 +89,12 @@ jobs:
           cat README.md | grep -E "(Current version|<version>)" | head -5
           echo "✓ Updated README.md with release version: ${{ github.event.inputs.releaseVersion }}"
 
-      - name: Publish to GitHub Packages (from cache, no rebuild)
+      - name: Build and test release version
+        run: |
+          ./mvnw -batch-mode install -Ppre -DskipTests -pl h2-deterministic
+          ./mvnw -batch-mode clean install
+
+      - name: Deploy release to GitHub Packages
         id: deploy
         run: ./mvnw -batch-mode deploy -DskipTests -s .github/settings.xml
         env:
