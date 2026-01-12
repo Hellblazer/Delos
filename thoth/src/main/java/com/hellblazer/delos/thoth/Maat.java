@@ -101,7 +101,8 @@ public class Maat extends DelegatedKERL {
             var signer = (EstablishmentEvent) ev;
             if ((signer.getIdentifier() instanceof SelfAddressingIdentifier sai)) {
                 if (!successors.contains(sai.getDigest())) {
-                    log.warn("Signature: {} not successor of: {} ", signer.getCoordinates(), event.getCoordinates());
+                    log.warn("Rejecting signature: {} not successor of: {} ", signer.getCoordinates(), event.getCoordinates());
+                    return;
                 }
                 mapped.add(new validator(signer, e.getValue()));
                 log.trace("Signature: {} valid for: {}", signer.getCoordinates(), event.getCoordinates());
@@ -120,6 +121,10 @@ public class Maat extends DelegatedKERL {
 
         var verified = 0;
         for (var r : mapped) {
+            if (r.validating.getKeys().isEmpty()) {
+                log.warn("Validator has no keys: {} for event: {}", r.validating.getCoordinates(), event.getCoordinates());
+                continue;
+            }
             var verifier = new DefaultVerifier(r.validating.getKeys().get(0));
             if (verifier.verify(r.signature, serialized)) {
                 verified++;
