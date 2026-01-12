@@ -34,6 +34,7 @@ import com.hellblazer.delos.ethereal.Dag;
 import com.hellblazer.delos.membership.GroupIterator;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.membership.RoundScheduler;
+import com.hellblazer.delos.membership.stereotomy.ControlledIdentifierMember;
 import com.hellblazer.delos.membership.messaging.rbc.ReliableBroadcaster;
 import com.hellblazer.delos.membership.messaging.rbc.ReliableBroadcaster.MessageAdapter;
 import com.hellblazer.delos.membership.messaging.rbc.ReliableBroadcaster.Msg;
@@ -1744,8 +1745,18 @@ public class CHOAM implements ConsensusEngine {
                 // During Genesis, use member identity key for signing to match GenesisContext.verifiersByPid()
                 // which returns member identity verifiers. Consensus keys aren't exchanged until Join messages
                 // are processed after Genesis consensus completes.
+                // Cache the signer to avoid repeated KERL/keystore lookups on every sign() operation during Genesis.
+                // ControlledIdentifierMember.sign() calls identifier.getSigner() which does expensive lookups each time.
+                // By caching the Signer here, Genesis signatures use the cached instance avoiding the overhead.
+                Signer genesisSigner = ((ControlledIdentifierMember) params.member()).getIdentifier().getSigner();
+                if (genesisSigner == null) {
+                    throw new IllegalStateException(
+                    "Cannot obtain signer for Genesis from member: " + params.member().getId());
+                }
+                log.trace("Cached Genesis signer: {} for member: {} on: {}", genesisSigner.getClass().getSimpleName(),
+                          params.member().getId(), params.member().getId());
                 var supp = pendingViews();
-                ViewContext vc = new GenesisContext(formation, supp, params, params.member(), constructBlock());
+                ViewContext vc = new GenesisContext(formation, supp, params, genesisSigner, constructBlock());
                 var inView = ViewMember.newBuilder(c.member).setView(params.genesisViewId().toDigeste()).build();
                 var svm = SignedViewMember.newBuilder()
                                           .setVm(inView)
