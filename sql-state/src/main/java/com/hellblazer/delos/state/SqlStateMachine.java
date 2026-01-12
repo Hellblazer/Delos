@@ -221,6 +221,7 @@ public class SqlStateMachine {
 
     public void close() {
         log.info("Closing: {} on: {}", url, id);
+        closeStatements();
         try {
             connection().rollback();
         } catch (SQLException e1) {
@@ -228,6 +229,30 @@ public class SqlStateMachine {
         try {
             connection().close();
         } catch (SQLException e) {
+        }
+    }
+
+    private void closeStatements() {
+        if (deleteEvents != null) {
+            try {
+                deleteEvents.close();
+            } catch (SQLException e) {
+                log.warn("Error closing deleteEvents statement on: {}", id, e);
+            }
+        }
+        if (getEvents != null) {
+            try {
+                getEvents.close();
+            } catch (SQLException e) {
+                log.warn("Error closing getEvents statement on: {}", id, e);
+            }
+        }
+        if (updateCurrent != null) {
+            try {
+                updateCurrent.close();
+            } catch (SQLException e) {
+                log.warn("Error closing updateCurrent statement on: {}", id, e);
+            }
         }
     }
 
@@ -777,6 +802,7 @@ public class SqlStateMachine {
     }
 
     private void initializeStatements() throws SQLException {
+        closeStatements(); // Close old statements before reassignment
         deleteEvents = connection.prepareStatement(DELETE_FROM_DALOS_INTERNAL_TRAMPOLINE);
         getEvents = connection.prepareStatement(SELECT_FROM_DALOS_INTERNAL_TRAMPOLINE);
         updateCurrent = connection.prepareStatement(UPDATE_CURRENT);
@@ -1037,7 +1063,7 @@ public class SqlStateMachine {
             }
         }
 
-        private void publish(Event event) {
+        private synchronized void publish(Event event) {
             if (pending.size() >= MAX_PENDING_EVENTS) {
                 log.warn("Event queue full ({}), dropping oldest event: {}",
                          MAX_PENDING_EVENTS, pending.get(0).discriminator());
