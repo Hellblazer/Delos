@@ -778,6 +778,7 @@ public class SqlStateMachine {
                 }
             }
         } catch (JdbcSQLNonTransientException | JdbcSQLNonTransientConnectionException e) {
+            log.trace("Event retrieval failed (connection likely closed) on: {}: {}", id, e.getMessage());
         } catch (SQLException e) {
             log.error("Error retrieving published events on: {}", id, e.getCause());
             throw new IllegalStateException("Cannot retrieve published events", e.getCause());
@@ -786,6 +787,7 @@ public class SqlStateMachine {
         try {
             deleteEvents.execute();
         } catch (JdbcSQLNonTransientException | JdbcSQLNonTransientConnectionException e) {
+            log.trace("Event cleanup failed (connection likely closed) on: {}: {}", id, e.getMessage());
         } catch (SQLException e) {
             log.error("Error cleaning published events on: {}", id, e);
             throw new IllegalStateException("Cannot clean published events", e);
@@ -980,6 +982,8 @@ public class SqlStateMachine {
     }
 
     private static class EventTrampoline {
+        private static final int MAX_PENDING_EVENTS = 10_000;
+
         private volatile Consumer<List<Event>> handler;
         private volatile List<Event>           pending = new ArrayList<>();
 
@@ -1002,6 +1006,11 @@ public class SqlStateMachine {
         }
 
         private void publish(Event event) {
+            if (pending.size() >= MAX_PENDING_EVENTS) {
+                log.warn("Event queue full ({}), dropping oldest event: {}",
+                         MAX_PENDING_EVENTS, pending.get(0).discriminator());
+                pending.remove(0);
+            }
             pending.add(event);
         }
 
@@ -1013,7 +1022,7 @@ public class SqlStateMachine {
     private record baseAndAccessor(Liquibase liquibase, MigrationAccessor ra) implements AutoCloseable {
         @Override
         public void close() throws LiquibaseException {
-            ra.clone();
+            ra.close();
             liquibase.close();
         }
     }
