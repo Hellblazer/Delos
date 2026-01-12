@@ -789,6 +789,14 @@ public class KerlDHT implements ProtoKERLService {
             return;
         }
         scheduler.shutdownNow();
+        try {
+            if (!scheduler.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)) {
+                log.warn("Scheduler did not terminate within timeout on: {}", member.getId());
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("Interrupted while waiting for scheduler termination on: {}", member.getId());
+        }
         dhtComms.deregister(context.getId());
         reconcileComms.deregister(context.getId());
     }

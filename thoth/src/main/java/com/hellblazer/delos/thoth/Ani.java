@@ -103,10 +103,21 @@ public class Ani {
             }
             byte[][] signatures = new byte[state.getWitnesses().size()][];
             final var endorsements = ksa.attachments().endorsements();
+            int endorsementCount = 0;
             if (!endorsements.isEmpty()) {
                 for (var entry : endorsements.entrySet()) {
-                    signatures[entry.getKey()] = entry.getValue().getBytes()[0];
+                    if (entry.getKey() >= 0 && entry.getKey() < signatures.length) {
+                        signatures[entry.getKey()] = entry.getValue().getBytes()[0];
+                        endorsementCount++;
+                    } else {
+                        log.warn("Endorsement index {} out of bounds (0-{}) for witnesses on: {}",
+                                entry.getKey(), signatures.length - 1, member);
+                    }
                 }
+            }
+            if (endorsementCount == 0 && !state.getWitnesses().isEmpty()) {
+                log.warn("No valid endorsements found for event: {} with {} witnesses on: {}",
+                        state.getCoordinates(), state.getWitnesses().size(), member);
             }
             witnessed = new JohnHancock(algo, signatures, state.getSequenceNumber()).verify(state.getSigningThreshold(),
                                                                                             witnesses,
