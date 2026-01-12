@@ -11,6 +11,7 @@ import com.hellblazer.delos.stereotomy.StereotomyKeyStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.security.auth.DestroyFailedException;
 import javax.security.auth.Destroyable;
 import java.security.KeyPair;
 import java.util.Map;
