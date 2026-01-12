@@ -79,9 +79,22 @@ public class MemKeyStore implements StereotomyKeyStore {
         var privateKey = keyPair.getPrivate();
         if (privateKey instanceof Destroyable d) {
             try {
+                // Check if already destroyed
+                if (d.isDestroyed()) {
+                    log.trace("Private key material already destroyed: {}", privateKey.getClass().getSimpleName());
+                    return;
+                }
                 d.destroy();
+                log.trace("Successfully destroyed private key material: {}", privateKey.getClass().getSimpleName());
+            } catch (DestroyFailedException e) {
+                // Some key implementations (e.g., BouncyCastle) don't support destruction
+                // This is expected and not a security issue - the key will be GC'd normally
+                log.debug("Key type {} does not support explicit destruction (expected for some implementations): {}",
+                         privateKey.getClass().getSimpleName(), e.getMessage());
             } catch (Exception e) {
-                log.warn("Failed to destroy private key material", e);
+                // Unexpected exception during destroy
+                log.warn("Unexpected error destroying private key material (type: {}): {}",
+                        privateKey.getClass().getSimpleName(), e.getMessage(), e);
             }
         }
     }
