@@ -48,9 +48,14 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * This test validates that refactoring doesn't introduce non-deterministic behavior.
  *
+ * OPTIMIZATION: Tests use reduced parameters for speed (3 epochs, 15 levels).
+ * Use -Dlarge_tests=true for thorough testing (12 epochs, 33 levels).
+ * NOTE: Uses 3×15 (not 2×11) for fast mode to maintain adequate determinism coverage.
+ *
  * @author hal.hildebrand
  */
 public class DeterminismVerificationTest {
+    private static final boolean LARGE_TESTS = Boolean.getBoolean("large_tests");
     private static final int CARDINALITY = 4;  // f=1 Byzantine tolerance (4 = 3f+1)
     private static final int TRANSACTION_BATCH_SIZE = 10;
 
@@ -78,17 +83,17 @@ public class DeterminismVerificationTest {
         var params = Parameters.newBuilder()
                                .setGenerateGenesis(true)
                                .setGenesisViewId(origin.prefix(entropy.nextLong()))
-                               .setGossipDuration(Duration.ofMillis(10))
+                               .setGossipDuration(Duration.ofMillis(LARGE_TESTS ? 10 : 20))
                                .setProducer(Parameters.ProducerParameters.newBuilder()
                                                               .setMaxBatchCount(1000)
                                                               .setMaxBatchByteSize(50 * 1024 * 1024)
-                                                              .setGossipDuration(Duration.ofMillis(10))
-                                                              .setBatchInterval(Duration.ofMillis(50))
+                                                              .setGossipDuration(Duration.ofMillis(LARGE_TESTS ? 10 : 20))
+                                                              .setBatchInterval(Duration.ofMillis(LARGE_TESTS ? 50 : 50))
                                                               .setEthereal(Config.newBuilder()
-                                                                                 .setNumberOfEpochs(12)
-                                                                                 .setEpochLength(33))
+                                                                                 .setNumberOfEpochs(LARGE_TESTS ? 12 : 3)
+                                                                                 .setEpochLength(LARGE_TESTS ? 33 : 15))
                                                               .build())
-                               .setCheckpointBlockDelta(5);
+                               .setCheckpointBlockDelta(LARGE_TESTS ? 5 : 3);
 
         var stereotomy = new StereotomyImpl(new MemKeyStore(), new MemKERL(DigestAlgorithm.DEFAULT), entropy);
 
@@ -162,7 +167,7 @@ public class DeterminismVerificationTest {
         choams.values().forEach(CHOAM::start);
 
         // Wait for consensus to form
-        boolean activated = Utils.waitForCondition(30_000, 1_000,
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 20_000, 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -181,7 +186,7 @@ public class DeterminismVerificationTest {
 
         transactioneers.forEach(Transactioneer::start);
         try {
-            final var complete = countdown.await(30, TimeUnit.SECONDS);
+            final var complete = countdown.await(LARGE_TESTS ? 30 : 25, TimeUnit.SECONDS);
             assertTrue(complete, "Transactions did not complete in time");
         } finally {
             routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));

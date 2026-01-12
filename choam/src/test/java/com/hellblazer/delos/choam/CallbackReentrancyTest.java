@@ -55,9 +55,13 @@ import static org.junit.jupiter.api.Assertions.*;
  * Callbacks should NEVER execute while locks are held, as they may trigger user code that acquires other locks,
  * leading to deadlock or inconsistent state. ReentrantLock.isHeldByCurrentThread() allows detection.
  *
+ * OPTIMIZATION: Tests use reduced parameters for speed (2 epochs, 11 levels).
+ * Use -Dlarge_tests=true for thorough testing (12 epochs, 33 levels).
+ *
  * @author hal.hildebrand
  */
 public class CallbackReentrancyTest {
+    private static final boolean LARGE_TESTS = Boolean.getBoolean("large_tests");
     private static final int CARDINALITY = 4;  // f=1 Byzantine tolerance
 
     /**
@@ -88,17 +92,17 @@ public class CallbackReentrancyTest {
         var params = Parameters.newBuilder()
                                .setGenerateGenesis(true)
                                .setGenesisViewId(origin.prefix(entropy.nextLong()))
-                               .setGossipDuration(Duration.ofMillis(10))
+                               .setGossipDuration(Duration.ofMillis(LARGE_TESTS ? 10 : 20))
                                .setProducer(Parameters.ProducerParameters.newBuilder()
                                                               .setMaxBatchCount(1000)
                                                               .setMaxBatchByteSize(50 * 1024 * 1024)
-                                                              .setGossipDuration(Duration.ofMillis(10))
-                                                              .setBatchInterval(Duration.ofMillis(50))
+                                                              .setGossipDuration(Duration.ofMillis(LARGE_TESTS ? 10 : 20))
+                                                              .setBatchInterval(Duration.ofMillis(LARGE_TESTS ? 50 : 50))
                                                               .setEthereal(Config.newBuilder()
-                                                                                 .setNumberOfEpochs(12)
-                                                                                 .setEpochLength(33))
+                                                                                 .setNumberOfEpochs(LARGE_TESTS ? 12 : 2)
+                                                                                 .setEpochLength(LARGE_TESTS ? 33 : 11))
                                                               .build())
-                               .setCheckpointBlockDelta(5);
+                               .setCheckpointBlockDelta(LARGE_TESTS ? 5 : 3);
 
         var stereotomy = new StereotomyImpl(new MemKeyStore(), new MemKERL(DigestAlgorithm.DEFAULT), entropy);
 
@@ -207,7 +211,7 @@ public class CallbackReentrancyTest {
         choams.values().forEach(CHOAM::start);
 
         // Wait for consensus to form (triggers reconfigure events)
-        boolean activated = Utils.waitForCondition(30_000, 1_000,
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -226,7 +230,7 @@ public class CallbackReentrancyTest {
 
         transactioneers.forEach(Transactioneer::start);
         try {
-            final var complete = countdown.await(30, TimeUnit.SECONDS);
+            final var complete = countdown.await(LARGE_TESTS ? 30 : 25, TimeUnit.SECONDS);
             assertTrue(complete, "Transactions did not complete in time");
         } finally {
             routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));

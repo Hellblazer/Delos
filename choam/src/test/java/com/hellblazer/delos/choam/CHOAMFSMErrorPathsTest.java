@@ -55,9 +55,13 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * Critical for validating FSM integration during Phase 1-3 decomposition.
  *
+ * OPTIMIZATION: Tests use reduced parameters for speed (2 epochs, 11 levels).
+ * Use -Dlarge_tests=true for thorough testing (12 epochs, 33 levels).
+ *
  * @author hal.hildebrand
  */
 public class CHOAMFSMErrorPathsTest {
+    private static final boolean LARGE_TESTS = Boolean.getBoolean("large_tests");
     private static final int CARDINALITY = 4;
 
     private Map<Digest, CHOAM> choams;
@@ -81,17 +85,17 @@ public class CHOAMFSMErrorPathsTest {
         var params = Parameters.newBuilder()
                                .setGenerateGenesis(true)
                                .setGenesisViewId(origin.prefix(entropy.nextLong()))
-                               .setGossipDuration(Duration.ofMillis(10))
+                               .setGossipDuration(Duration.ofMillis(LARGE_TESTS ? 10 : 20))
                                .setProducer(Parameters.ProducerParameters.newBuilder()
                                                               .setMaxBatchCount(1000)
                                                               .setMaxBatchByteSize(50 * 1024 * 1024)
-                                                              .setGossipDuration(Duration.ofMillis(10))
-                                                              .setBatchInterval(Duration.ofMillis(50))
+                                                              .setGossipDuration(Duration.ofMillis(LARGE_TESTS ? 10 : 20))
+                                                              .setBatchInterval(Duration.ofMillis(LARGE_TESTS ? 50 : 50))
                                                               .setEthereal(Config.newBuilder()
-                                                                                 .setNumberOfEpochs(12)
-                                                                                 .setEpochLength(33))
+                                                                                 .setNumberOfEpochs(LARGE_TESTS ? 12 : 2)
+                                                                                 .setEpochLength(LARGE_TESTS ? 33 : 11))
                                                               .build())
-                               .setCheckpointBlockDelta(5);
+                               .setCheckpointBlockDelta(LARGE_TESTS ? 5 : 3);
 
         var stereotomy = new StereotomyImpl(new MemKeyStore(), new MemKERL(DigestAlgorithm.DEFAULT), entropy);
 
@@ -160,7 +164,7 @@ public class CHOAMFSMErrorPathsTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(30_000, 1_000,
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -173,7 +177,7 @@ public class CHOAMFSMErrorPathsTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(30, TimeUnit.SECONDS);
+        boolean completed = countdown.await(LARGE_TESTS ? 30 : 20, TimeUnit.SECONDS);
         assertTrue(completed, "FSM should recover from any transition failures");
 
         routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
@@ -185,7 +189,7 @@ public class CHOAMFSMErrorPathsTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(30_000, 1_000,
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -200,7 +204,7 @@ public class CHOAMFSMErrorPathsTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(30_000, 1_000,
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -215,7 +219,7 @@ public class CHOAMFSMErrorPathsTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(45, TimeUnit.SECONDS);
+        boolean completed = countdown.await(LARGE_TESTS ? 45 : 25, TimeUnit.SECONDS);
         assertTrue(completed, "FSM error handling should allow continued operation");
 
         // Verify system remains active after potential errors
@@ -259,7 +263,7 @@ public class CHOAMFSMErrorPathsTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(30_000, 1_000,
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -274,7 +278,7 @@ public class CHOAMFSMErrorPathsTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(60, TimeUnit.SECONDS);
+        boolean completed = countdown.await(LARGE_TESTS ? 60 : 30, TimeUnit.SECONDS);
         assertTrue(completed, "FSM state should remain consistent across members");
 
         // All members should be in consistent state (all active)
@@ -289,7 +293,7 @@ public class CHOAMFSMErrorPathsTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(30_000, 1_000,
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -318,7 +322,7 @@ public class CHOAMFSMErrorPathsTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(30_000, 1_000,
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -333,7 +337,7 @@ public class CHOAMFSMErrorPathsTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(60, TimeUnit.SECONDS);
+        boolean completed = countdown.await(LARGE_TESTS ? 60 : 30, TimeUnit.SECONDS);
         assertTrue(completed, "Concurrent FSM transitions should not cause conflicts");
 
         routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
