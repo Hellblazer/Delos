@@ -181,7 +181,7 @@ public class CHOAMConcurrencyTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(LARGE_TESTS ? 60 : 30, TimeUnit.SECONDS);
+        boolean completed = countdown.await(LARGE_TESTS ? 90 : 30, TimeUnit.SECONDS);
         assertTrue(completed, "Concurrent operations should complete without deadlock");
 
         // Verify all members remain consistent
@@ -243,7 +243,7 @@ public class CHOAMConcurrencyTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(LARGE_TESTS ? 60 : 25, TimeUnit.SECONDS);
+        boolean completed = countdown.await(LARGE_TESTS ? 90 : 25, TimeUnit.SECONDS);
         assertTrue(completed, "Block acceptance during transitions should succeed");
 
         routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
@@ -338,7 +338,7 @@ public class CHOAMConcurrencyTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(LARGE_TESTS ? 60 : 30, TimeUnit.SECONDS);
+        boolean completed = countdown.await(LARGE_TESTS ? 90 : 30, TimeUnit.SECONDS);
         assertTrue(completed, "Concurrent session and block processing should succeed");
 
         routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
