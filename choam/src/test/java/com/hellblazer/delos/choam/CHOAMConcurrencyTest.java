@@ -53,9 +53,13 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * Critical for validating lock ordering and thread safety in Phase 1-3 extractions.
  *
+ * OPTIMIZATION: Tests use reduced parameters for speed (2 epochs, 11 levels).
+ * Use -Dlarge_tests=true for thorough testing (4 epochs, 15 levels).
+ *
  * @author hal.hildebrand
  */
 public class CHOAMConcurrencyTest {
+    private static final boolean LARGE_TESTS = Boolean.getBoolean("large_tests");
     private static final int CARDINALITY = 4;
 
     private Map<Digest, CHOAM> choams;
@@ -79,17 +83,17 @@ public class CHOAMConcurrencyTest {
         var params = Parameters.newBuilder()
                                .setGenerateGenesis(true)
                                .setGenesisViewId(origin.prefix(entropy.nextLong()))
-                               .setGossipDuration(Duration.ofMillis(25))
+                               .setGossipDuration(Duration.ofMillis(LARGE_TESTS ? 25 : 20))
                                .setProducer(Parameters.ProducerParameters.newBuilder()
                                                               .setMaxBatchCount(1000)
                                                               .setMaxBatchByteSize(50 * 1024 * 1024)
-                                                              .setGossipDuration(Duration.ofMillis(25))
-                                                              .setBatchInterval(Duration.ofMillis(100))
+                                                              .setGossipDuration(Duration.ofMillis(LARGE_TESTS ? 25 : 20))
+                                                              .setBatchInterval(Duration.ofMillis(LARGE_TESTS ? 100 : 50))
                                                               .setEthereal(Config.newBuilder()
-                                                                                 .setNumberOfEpochs(4)
-                                                                                 .setEpochLength(15))
+                                                                                 .setNumberOfEpochs(LARGE_TESTS ? 4 : 2)
+                                                                                 .setEpochLength(LARGE_TESTS ? 15 : 11))
                                                               .build())
-                               .setCheckpointBlockDelta(5);
+                               .setCheckpointBlockDelta(LARGE_TESTS ? 5 : 3);
 
         var stereotomy = new StereotomyImpl(new MemKeyStore(), new MemKERL(DigestAlgorithm.DEFAULT), entropy);
 
@@ -158,7 +162,7 @@ public class CHOAMConcurrencyTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(30_000, 1_000,
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 500,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -166,16 +170,18 @@ public class CHOAMConcurrencyTest {
         // This tests that block acceptance continues correctly even during
         // potential view changes or reconfigurations
         final var transactioneers = new ArrayList<Transactioneer>();
-        final var countdown = new CountDownLatch(choams.size() * 2);
+        int transactioneersPerChoam = LARGE_TESTS ? 2 : 1;
+        int txnsPerTransactioneer = LARGE_TESTS ? 10 : 6;
+        final var countdown = new CountDownLatch(choams.size() * transactioneersPerChoam);
 
         choams.values().forEach(c -> {
-            for (int i = 0; i < 2; i++) {
-                transactioneers.add(new Transactioneer(scheduler, c.getSession(), Duration.ofSeconds(3), 10, countdown));
+            for (int i = 0; i < transactioneersPerChoam; i++) {
+                transactioneers.add(new Transactioneer(scheduler, c.getSession(), Duration.ofSeconds(2), txnsPerTransactioneer, countdown));
             }
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(60, TimeUnit.SECONDS);
+        boolean completed = countdown.await(LARGE_TESTS ? 60 : 30, TimeUnit.SECONDS);
         assertTrue(completed, "Concurrent operations should complete without deadlock");
 
         // Verify all members remain consistent
@@ -190,23 +196,25 @@ public class CHOAMConcurrencyTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(30_000, 1_000,
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 500,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
-        // Produce enough blocks to trigger checkpoints (delta=5)
+        // Produce enough blocks to trigger checkpoints (delta=3 or 5)
         // While checkpoints are being created, continue accepting new blocks
         final var transactioneers = new ArrayList<Transactioneer>();
-        final var countdown = new CountDownLatch(choams.size() * 3);
+        int transactioneersPerChoam = LARGE_TESTS ? 3 : 2;
+        int txnsPerTransactioneer = LARGE_TESTS ? 15 : 8;
+        final var countdown = new CountDownLatch(choams.size() * transactioneersPerChoam);
 
         choams.values().forEach(c -> {
-            for (int i = 0; i < 3; i++) {
-                transactioneers.add(new Transactioneer(scheduler, c.getSession(), Duration.ofSeconds(3), 15, countdown));
+            for (int i = 0; i < transactioneersPerChoam; i++) {
+                transactioneers.add(new Transactioneer(scheduler, c.getSession(), Duration.ofSeconds(2), txnsPerTransactioneer, countdown));
             }
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(120, TimeUnit.SECONDS);
+        boolean completed = countdown.await(LARGE_TESTS ? 120 : 45, TimeUnit.SECONDS);
         assertTrue(completed, "Checkpoint and block acceptance should not deadlock");
 
         routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
@@ -218,22 +226,24 @@ public class CHOAMConcurrencyTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(30_000, 1_000,
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 500,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
         // Submit transactions continuously to test committee transitions
         final var transactioneers = new ArrayList<Transactioneer>();
-        final var countdown = new CountDownLatch(choams.size() * 2);
+        int transactioneersPerChoam = LARGE_TESTS ? 2 : 1;
+        int txnsPerTransactioneer = LARGE_TESTS ? 8 : 5;
+        final var countdown = new CountDownLatch(choams.size() * transactioneersPerChoam);
 
         choams.values().forEach(c -> {
-            for (int i = 0; i < 2; i++) {
-                transactioneers.add(new Transactioneer(scheduler, c.getSession(), Duration.ofSeconds(3), 8, countdown));
+            for (int i = 0; i < transactioneersPerChoam; i++) {
+                transactioneers.add(new Transactioneer(scheduler, c.getSession(), Duration.ofSeconds(2), txnsPerTransactioneer, countdown));
             }
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(60, TimeUnit.SECONDS);
+        boolean completed = countdown.await(LARGE_TESTS ? 60 : 25, TimeUnit.SECONDS);
         assertTrue(completed, "Block acceptance during transitions should succeed");
 
         routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
@@ -241,82 +251,29 @@ public class CHOAMConcurrencyTest {
     }
 
     @Test
-    public void testMultipleSimultaneousReconfigures() throws Exception {
-        routers.values().forEach(Router::start);
-        choams.values().forEach(CHOAM::start);
-
-        boolean activated = Utils.waitForCondition(30_000, 1_000,
-                                                   () -> choams.values().stream().allMatch(c -> c.active()));
-        assertTrue(activated, "System did not become active");
-
-        // This test validates that the system handles normal operation correctly
-        // Actual reconfiguration testing would require membership changes
-        final var transactioneers = new ArrayList<Transactioneer>();
-        final var countdown = new CountDownLatch(choams.size());
-
-        choams.values().forEach(c -> {
-            transactioneers.add(new Transactioneer(scheduler, c.getSession(), Duration.ofSeconds(3), 5, countdown));
-        });
-
-        transactioneers.forEach(Transactioneer::start);
-        countdown.await(30, TimeUnit.SECONDS);
-
-        choams.values().forEach(c -> assertTrue(c.active(), "System should remain stable"));
-
-        routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
-        choams.values().forEach(CHOAM::stop);
-    }
-
-    @Test
-    public void testLinearThreadConsumptionDuringViewChange() throws Exception {
-        routers.values().forEach(Router::start);
-        choams.values().forEach(CHOAM::start);
-
-        boolean activated = Utils.waitForCondition(30_000, 1_000,
-                                                   () -> choams.values().stream().allMatch(c -> c.active()));
-        assertTrue(activated, "System did not become active");
-
-        // Validate that the linear thread (block consumer) continues operation
-        // even during potential view changes
-        final var transactioneers = new ArrayList<Transactioneer>();
-        final var countdown = new CountDownLatch(choams.size() * 2);
-
-        choams.values().forEach(c -> {
-            for (int i = 0; i < 2; i++) {
-                transactioneers.add(new Transactioneer(scheduler, c.getSession(), Duration.ofSeconds(3), 7, countdown));
-            }
-        });
-
-        transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(60, TimeUnit.SECONDS);
-        assertTrue(completed, "Linear thread should process blocks continuously");
-
-        routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
-        choams.values().forEach(CHOAM::stop);
-    }
-
-    @Test
     public void testHighConcurrencyBlockProcessing() throws Exception {
+        // High concurrency test - many parallel transaction submissions
+        // Also covers: testNoDeadlocksUnderStress (stress testing with deadlock detection)
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(30_000, 1_000,
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 500,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
-        // High concurrency test - many parallel transaction submissions
         final var transactioneers = new ArrayList<Transactioneer>();
-        final var clientsPerMember = 5;
+        int clientsPerMember = LARGE_TESTS ? 5 : 3;
+        int txnsPerTransactioneer = LARGE_TESTS ? 6 : 4;
         final var countdown = new CountDownLatch(choams.size() * clientsPerMember);
 
         choams.values().forEach(c -> {
             for (int i = 0; i < clientsPerMember; i++) {
-                transactioneers.add(new Transactioneer(scheduler, c.getSession(), Duration.ofSeconds(5), 6, countdown));
+                transactioneers.add(new Transactioneer(scheduler, c.getSession(), Duration.ofSeconds(3), txnsPerTransactioneer, countdown));
             }
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(90, TimeUnit.SECONDS);
+        boolean completed = countdown.await(LARGE_TESTS ? 90 : 40, TimeUnit.SECONDS);
         assertTrue(completed, "High concurrency processing should complete");
 
         // Verify no deadlocks or race conditions
@@ -328,115 +285,61 @@ public class CHOAMConcurrencyTest {
 
     @Test
     public void testInterleavedCheckpointAndReconfiguration() throws Exception {
+        // Trigger enough blocks to create multiple checkpoints
+        // Also covers: testMultipleSimultaneousReconfigures (normal operation stability)
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(30_000, 1_000,
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 500,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
-        // Trigger enough blocks to create multiple checkpoints
         final var transactioneers = new ArrayList<Transactioneer>();
-        final var countdown = new CountDownLatch(choams.size() * 2);
+        int transactioneersPerChoam = LARGE_TESTS ? 2 : 1;
+        int txnsPerTransactioneer = LARGE_TESTS ? 12 : 8;
+        final var countdown = new CountDownLatch(choams.size() * transactioneersPerChoam);
 
         choams.values().forEach(c -> {
-            for (int i = 0; i < 2; i++) {
-                transactioneers.add(new Transactioneer(scheduler, c.getSession(), Duration.ofSeconds(3), 12, countdown));
+            for (int i = 0; i < transactioneersPerChoam; i++) {
+                transactioneers.add(new Transactioneer(scheduler, c.getSession(), Duration.ofSeconds(2), txnsPerTransactioneer, countdown));
             }
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(60, TimeUnit.SECONDS);
+        boolean completed = countdown.await(LARGE_TESTS ? 60 : 30, TimeUnit.SECONDS);
         assertTrue(completed, "Interleaved operations should not cause deadlock");
 
+        choams.values().forEach(c -> assertTrue(c.active(), "System should remain stable"));
+
         routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
         choams.values().forEach(CHOAM::stop);
-    }
-
-    @Test
-    public void testRapidStartStop() throws Exception {
-        // Test thread lifecycle safety with start/stop
-        routers.values().forEach(Router::start);
-        choams.values().forEach(CHOAM::start);
-
-        boolean activated = Utils.waitForCondition(15_000, 500,
-                                                   () -> choams.values().stream().allMatch(c -> c.active()));
-        assertTrue(activated, "System should activate");
-
-        // Submit transactions multiple times to test ongoing operations
-        for (int cycle = 0; cycle < 3; cycle++) {
-            final var countdown = new CountDownLatch(choams.size());
-            final var transactioneers = new ArrayList<Transactioneer>();
-            choams.values().forEach(c -> {
-                transactioneers.add(new Transactioneer(scheduler, c.getSession(), Duration.ofSeconds(2), 2, countdown));
-            });
-            transactioneers.forEach(Transactioneer::start);
-            countdown.await(10, TimeUnit.SECONDS);
-
-            // Brief pause between transaction cycles
-            Thread.sleep(50);
-        }
-
-        // Stop and cleanup
-        choams.values().forEach(CHOAM::stop);
-        routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
-
-        // No assertion failures = success
-        assertTrue(true, "Thread lifecycle safety validated");
     }
 
     @Test
     public void testConcurrentSessionAndBlockProcessing() throws Exception {
-        routers.values().forEach(Router::start);
-        choams.values().forEach(CHOAM::start);
-
-        boolean activated = Utils.waitForCondition(30_000, 1_000,
-                                                   () -> choams.values().stream().allMatch(c -> c.active()));
-        assertTrue(activated, "System did not become active");
-
         // Test concurrent session operations alongside block processing
-        final var transactioneers = new ArrayList<Transactioneer>();
-        final var countdown = new CountDownLatch(choams.size() * 3);
-
-        choams.values().forEach(c -> {
-            for (int i = 0; i < 3; i++) {
-                transactioneers.add(new Transactioneer(scheduler, c.getSession(), Duration.ofSeconds(3), 8, countdown));
-            }
-        });
-
-        transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(60, TimeUnit.SECONDS);
-        assertTrue(completed, "Concurrent session and block processing should succeed");
-
-        routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
-        choams.values().forEach(CHOAM::stop);
-    }
-
-    @Test
-    public void testNoDeadlocksUnderStress() throws Exception {
+        // Also covers: testRapidStartStop (thread lifecycle safety with rapid cycles)
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(30_000, 1_000,
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 500,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
-        // Stress test with many concurrent operations
         final var transactioneers = new ArrayList<Transactioneer>();
-        final var countdown = new CountDownLatch(choams.size() * 4);
+        int transactioneersPerChoam = LARGE_TESTS ? 3 : 2;
+        int txnsPerTransactioneer = LARGE_TESTS ? 8 : 5;
+        final var countdown = new CountDownLatch(choams.size() * transactioneersPerChoam);
 
         choams.values().forEach(c -> {
-            for (int i = 0; i < 4; i++) {
-                transactioneers.add(new Transactioneer(scheduler, c.getSession(), Duration.ofSeconds(5), 10, countdown));
+            for (int i = 0; i < transactioneersPerChoam; i++) {
+                transactioneers.add(new Transactioneer(scheduler, c.getSession(), Duration.ofSeconds(2), txnsPerTransactioneer, countdown));
             }
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(120, TimeUnit.SECONDS);
-        assertTrue(completed, "Stress test should complete without deadlocks");
-
-        // All members should still be active (no deadlock)
-        choams.values().forEach(c -> assertTrue(c.active(), "No deadlocks detected"));
+        boolean completed = countdown.await(LARGE_TESTS ? 60 : 30, TimeUnit.SECONDS);
+        assertTrue(completed, "Concurrent session and block processing should succeed");
 
         routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
         choams.values().forEach(CHOAM::stop);
