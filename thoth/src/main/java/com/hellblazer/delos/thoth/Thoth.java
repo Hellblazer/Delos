@@ -54,6 +54,7 @@ public class Thoth {
 
         if (commiting == null) {
             log.info("No pending commitment for delegation: {}", coords);
+            return;
         }
 
         commiting.accept(coords);
@@ -102,18 +103,24 @@ public class Thoth {
             if (!initialized.compareAndSet(false, true)) {
                 return;
             }
-            var commitment = ProtobufEventFactory.INSTANCE.attachment(incp, new AttachmentImpl(
-            Seal.EventSeal.construct(coordinates.getIdentifier(), coordinates.getDigest(),
-                                     coordinates.getSequenceNumber().longValue())));
-            ControlledIdentifier<SelfAddressingIdentifier> cid = stereotomy.commit(incp, commitment);
-            identifier = cid;
-            controller = (SelfAddressingIdentifier) identifier.getDelegatingIdentifier().get();
-            pending = null;
-            if (onInception != null) {
-                log.info("Notifying inception complete for: {} controller: {}", identifier.getIdentifier(), controller);
-                onInception.accept(identifier);
+            try {
+                var commitment = ProtobufEventFactory.INSTANCE.attachment(incp, new AttachmentImpl(
+                Seal.EventSeal.construct(coordinates.getIdentifier(), coordinates.getDigest(),
+                                         coordinates.getSequenceNumber().longValue())));
+                ControlledIdentifier<SelfAddressingIdentifier> cid = stereotomy.commit(incp, commitment);
+                identifier = cid;
+                controller = (SelfAddressingIdentifier) identifier.getDelegatingIdentifier().get();
+                pending = null;
+                if (onInception != null) {
+                    log.info("Notifying inception complete for: {} controller: {}", identifier.getIdentifier(), controller);
+                    onInception.accept(identifier);
+                }
+                log.info("Created delegated identifier: {} controller: {}", identifier.getIdentifier(), controller);
+            } catch (Exception e) {
+                log.error("Failed to complete inception, resetting initialized flag", e);
+                initialized.set(false);
+                throw e;
             }
-            log.info("Created delegated identifier: {} controller: {}", identifier.getIdentifier(), controller);
         };
     }
 

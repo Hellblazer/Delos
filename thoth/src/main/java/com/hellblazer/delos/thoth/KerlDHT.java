@@ -837,15 +837,23 @@ public class KerlDHT implements ProtoKERLService {
         ConsoleUIService service = (ConsoleUIService) Scope.getCurrentScope().get(Attr.ui, UIService.class);
         service.setOutputStream(
         new PrintStream(new LoggingOutputStream(LoggerFactory.getLogger("liquibase"), LogLevel.INFO)));
-        var database = new H2Database();
         try (var connection = connectionPool.getConnection()) {
-            database.setConnection(new liquibase.database.jvm.JdbcConnection(connection));
-            try (Liquibase liquibase = new Liquibase("/initialize-thoth.xml", new ClassLoaderResourceAccessor(),
-                                                     database)) {
-                liquibase.update((String) null);
-            } catch (LiquibaseException e) {
-                log.error("Unable to initialize schema on: {}", member.getId(), e);
-                throw new IllegalStateException(e);
+            var database = new H2Database();
+            try {
+                database.setConnection(new liquibase.database.jvm.JdbcConnection(connection));
+                try (Liquibase liquibase = new Liquibase("/initialize-thoth.xml", new ClassLoaderResourceAccessor(),
+                                                         database)) {
+                    liquibase.update((String) null);
+                } catch (LiquibaseException e) {
+                    log.error("Unable to initialize schema on: {}", member.getId(), e);
+                    throw new IllegalStateException(e);
+                }
+            } finally {
+                try {
+                    database.close();
+                } catch (Exception e) {
+                    log.warn("Error closing database during schema initialization on: {}", member.getId(), e);
+                }
             }
         } catch (SQLException e) {
             log.error("Unable to initialize schema on: {}", member.getId(), e);
@@ -1082,7 +1090,11 @@ public class KerlDHT implements ProtoKERLService {
                 }
                 return builder.build();
             } catch (IOException | SQLException e) {
+                reconcileLog.error("Cannot acquire KERL for reconciliation on: {}", member.getId(), e);
                 throw new IllegalStateException("Cannot acquire KERL", e);
+            } catch (Exception e) {
+                reconcileLog.error("Error during reconciliation on: {}", member.getId(), e);
+                return Update.getDefaultInstance();
             }
         }
 
