@@ -47,14 +47,15 @@ public class MigrationAccessor extends AbstractResourceAccessor implements AutoC
 
     private LinkedHashSet<Path> rootPaths = new LinkedHashSet<>();
     private Path                tempFile;
+    private FileSystem          fileSystem;
 
     public MigrationAccessor(ByteString jar) throws IOException {
         tempFile = Files.createTempFile("cl_", ".jar");
         Files.delete(tempFile);
         Files.copy(new ByteBufferBackedInputStream(jar.asReadOnlyByteBuffer()), tempFile);
         tempFile.toFile().deleteOnExit();
-        FileSystem root = FileSystems.newFileSystem(tempFile);
-        rootPaths.add(root.getPath("/"));
+        fileSystem = FileSystems.newFileSystem(tempFile);
+        rootPaths.add(fileSystem.getPath("/"));
     }
 
     protected void addRootPath(Path path) {
@@ -91,37 +92,42 @@ public class MigrationAccessor extends AbstractResourceAccessor implements AutoC
             if (isCompressedFile(rootPath)) {
                 String finalPath = streamPath;
 
-                // Can't close zipFile here, as we are (possibly) returning its child stream
                 ZipFile zipFile = new ZipFile(rootPath.toFile());
-                if (relativeTo != null) {
-                    ZipEntry relativeEntry = zipFile.getEntry(relativeTo);
-                    if (relativeEntry == null || relativeEntry.isDirectory()) {
-                        // not a file, maybe a directory
-                        finalPath = relativeTo + "/" + streamPath;
-                    } else {
-                        // is a file, find path relative to parent
-                        String actualRelativeTo = relativeTo;
-                        if (actualRelativeTo.contains("/")) {
-                            actualRelativeTo = relativeTo.replaceFirst("/[^/]+?$", "");
+                boolean streamCreated = false;
+                try {
+                    if (relativeTo != null) {
+                        ZipEntry relativeEntry = zipFile.getEntry(relativeTo);
+                        if (relativeEntry == null || relativeEntry.isDirectory()) {
+                            // not a file, maybe a directory
+                            finalPath = relativeTo + "/" + streamPath;
                         } else {
-                            actualRelativeTo = "";
+                            // is a file, find path relative to parent
+                            String actualRelativeTo = relativeTo;
+                            if (actualRelativeTo.contains("/")) {
+                                actualRelativeTo = relativeTo.replaceFirst("/[^/]+?$", "");
+                            } else {
+                                actualRelativeTo = "";
+                            }
+                            finalPath = actualRelativeTo + "/" + streamPath;
                         }
-                        finalPath = actualRelativeTo + "/" + streamPath;
+
                     }
 
-                }
+                    // resolve any ..'s and duplicated /'s and convert back to standard '/'
+                    // separator format
+                    finalPath = Paths.get(finalPath.replaceFirst("^/", "")).normalize().toString().replace("\\", "/");
 
-                // resolve any ..'s and duplicated /'s and convert back to standard '/'
-                // separator format
-                finalPath = Paths.get(finalPath.replaceFirst("^/", "")).normalize().toString().replace("\\", "/");
-
-                ZipEntry entry = zipFile.getEntry(finalPath);
-                if (entry != null) {
-                    // closing this stream will close zipFile
-                    stream = new CloseChildWillCloseParentStream(zipFile.getInputStream(entry), zipFile);
-                    streamURI = URI.create(rootPath.normalize().toUri() + "!" + entry.toString());
-                } else {
-                    zipFile.close();
+                    ZipEntry entry = zipFile.getEntry(finalPath);
+                    if (entry != null) {
+                        // closing this stream will close zipFile
+                        stream = new CloseChildWillCloseParentStream(zipFile.getInputStream(entry), zipFile);
+                        streamURI = URI.create(rootPath.normalize().toUri() + "!" + entry.toString());
+                        streamCreated = true;
+                    }
+                } finally {
+                    if (!streamCreated) {
+                        zipFile.close();
+                    }
                 }
             } else {
                 Path finalRootPath = rootPath;
@@ -321,10 +327,17 @@ public class MigrationAccessor extends AbstractResourceAccessor implements AutoC
     }
 
     public void close() {
+        if (fileSystem != null) {
+            try {
+                fileSystem.close();
+            } catch (IOException e) {
+                Scope.getCurrentScope().getLog(getClass()).warning("Failed to close FileSystem: " + tempFile, e);
+            }
+        }
         try {
             Files.delete(tempFile);
         } catch (IOException e) {
-            // ignored
+            Scope.getCurrentScope().getLog(getClass()).warning("Failed to delete temp file: " + tempFile, e);
         }
     }
 

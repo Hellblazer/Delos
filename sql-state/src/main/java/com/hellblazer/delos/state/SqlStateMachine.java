@@ -518,8 +518,9 @@ public class SqlStateMachine {
                 try {
                     exec.clearBatch();
                     exec.clearParameters();
-                } catch (JdbcSQLNonTransientException | JdbcSQLNonTransientConnectionException e) {
-                    // ignore
+                } catch (SQLException e) {
+                    // Ignore all cleanup exceptions to avoid masking original exception
+                    log.trace("Error during call cleanup on: {}", id, e);
                 }
             }
         });
@@ -557,7 +558,12 @@ public class SqlStateMachine {
     }
 
     private List<ResultSet> acceptPreparedStatement(Statement statement) throws SQLException {
-        return execute(statement.getSql(), exec -> {
+        String sql = statement.getSql();
+        if (sql == null || sql.isEmpty()) {
+            log.warn("Empty or null SQL in statement on: {}", id);
+            return Collections.emptyList();
+        }
+        return execute(sql, exec -> {
             List<ResultSet> results = new ArrayList<>();
             try {
                 switch (statement.getExecution()) {
@@ -589,8 +595,9 @@ public class SqlStateMachine {
                 try {
                     exec.clearBatch();
                     exec.clearParameters();
-                } catch (JdbcSQLNonTransientException | JdbcSQLNonTransientConnectionException e) {
-                    // ignore
+                } catch (SQLException e) {
+                    // Ignore all cleanup exceptions to avoid masking original exception
+                    log.trace("Error during statement cleanup on: {}", id, e);
                 }
             }
         });
