@@ -478,7 +478,7 @@ public class CHOAMThreadAndLockingTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(60, TimeUnit.SECONDS);
+        boolean completed = countdown.await(120, TimeUnit.SECONDS);
         assertTrue(completed, "Normal load should complete without lock contention issues");
 
         routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));

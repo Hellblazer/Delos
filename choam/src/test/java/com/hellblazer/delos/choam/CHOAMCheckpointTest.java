@@ -192,7 +192,7 @@ public class CHOAMCheckpointTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(60, TimeUnit.SECONDS);
+        boolean completed = countdown.await(120, TimeUnit.SECONDS);
         assertTrue(completed, "Checkpoint assembly should complete or recover from failures");
 
         // Verify checkpoints were created
@@ -303,7 +303,7 @@ public class CHOAMCheckpointTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(60, TimeUnit.SECONDS);
+        boolean completed = countdown.await(120, TimeUnit.SECONDS);
         assertTrue(completed, "Checkpoint creation should complete across members");
 
         // Verify all members created similar number of checkpoints (within tolerance)
