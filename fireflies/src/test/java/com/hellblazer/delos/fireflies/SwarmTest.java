@@ -248,7 +248,7 @@ public class SwarmTest {
                                    .setMaxPending(50)
                                    .setMaximumTxfr(20)
                                    .setJoinRetries(30)
-                                   .setSeedingTimout(Duration.ofSeconds(10))
+                                   .setSeedingTimout(Duration.ofSeconds(IS_CI ? 60 : 10))
                                    .setRetryDelay(Duration.ofMillis(largeTests ? 1000 : 200))
                                    .build();
         registry = new MetricRegistry();
