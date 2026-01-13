@@ -4,7 +4,7 @@
     <parent>
         <groupId>com.hellblazer.delos</groupId>
         <artifactId>delos.app</artifactId>
-        <version>0.1.0</version>
+        <version>0.1.1-SNAPSHOT</version>
     </parent>
     <artifactId>h2-deterministic</artifactId>
     <name>Deterministic H2</name>
