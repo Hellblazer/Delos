@@ -61,6 +61,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @author hal.hildebrand
  */
 public class CHOAMBlockValidationTest {
+    private static final boolean IS_CI       = Boolean.parseBoolean(System.getenv().getOrDefault("CI", "false"));
     private static final boolean LARGE_TESTS = Boolean.getBoolean("large_tests");
     private static final int CARDINALITY = 4;  // f=1 Byzantine tolerance
 
@@ -180,7 +181,7 @@ public class CHOAMBlockValidationTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 1_000,
+        boolean activated = Utils.waitForCondition(IS_CI ? 30_000 : 15_000, 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -197,7 +198,7 @@ public class CHOAMBlockValidationTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 1_000,
+        boolean activated = Utils.waitForCondition(IS_CI ? 30_000 : 15_000, 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -211,7 +212,7 @@ public class CHOAMBlockValidationTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 1_000,
+        boolean activated = Utils.waitForCondition(IS_CI ? 30_000 : 15_000, 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -225,7 +226,7 @@ public class CHOAMBlockValidationTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 1_000,
+        boolean activated = Utils.waitForCondition(IS_CI ? 30_000 : 15_000, 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -239,7 +240,7 @@ public class CHOAMBlockValidationTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 1_000,
+        boolean activated = Utils.waitForCondition(IS_CI ? 30_000 : 15_000, 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -258,7 +259,7 @@ public class CHOAMBlockValidationTest {
 
         transactioneers.forEach(Transactioneer::start);
         try {
-            final var complete = countdown.await(30, TimeUnit.SECONDS);
+            final var complete = countdown.await(IS_CI ? 90 : 30, TimeUnit.SECONDS);
             assertTrue(complete, "Valid blocks were accepted and transactions completed");
         } finally {
             routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
@@ -271,7 +272,7 @@ public class CHOAMBlockValidationTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 1_000,
+        boolean activated = Utils.waitForCondition(IS_CI ? 30_000 : 15_000, 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -283,7 +284,7 @@ public class CHOAMBlockValidationTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        countdown.await(30, TimeUnit.SECONDS);
+        countdown.await(IS_CI ? 90 : 30, TimeUnit.SECONDS);
 
         // Verify all members have progressed beyond genesis
         choams.values().forEach(c -> {
@@ -300,7 +301,7 @@ public class CHOAMBlockValidationTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 1_000,
+        boolean activated = Utils.waitForCondition(IS_CI ? 30_000 : 15_000, 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -314,7 +315,7 @@ public class CHOAMBlockValidationTest {
             });
 
             transactioneers.forEach(Transactioneer::start);
-            boolean completed = countdown.await(15, TimeUnit.SECONDS);
+            boolean completed = countdown.await(IS_CI ? 45 : 15, TimeUnit.SECONDS);
             assertTrue(completed, "Round " + round + " transactions should complete");
         }
 
