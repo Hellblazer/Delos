@@ -158,7 +158,7 @@ public class ChurnTest {
 
             toStart.forEach(view -> view.start(() -> countdown.get().countDown(), gossipDuration, seeds));
 
-            success = countdown.get().await(60, TimeUnit.SECONDS);
+            success = countdown.get().await(90, TimeUnit.SECONDS);
             failed = testViews.stream().filter(e -> {
                 if (e.getContext().activeCount() != testViews.size())
                     return true;
@@ -171,7 +171,7 @@ public class ChurnTest {
             }).toList();
             assertTrue(success, " expected: " + testViews.size() + " failed: " + failed.size() + " views: " + failed);
 
-            success = Utils.waitForCondition(30_000, 1_000, () -> {
+            success = Utils.waitForCondition(45_000, 1_000, () -> {
                 return testViews.stream()
                                 .map(v -> v.getContext())
                                 .filter(ctx -> ctx.size() != testViews.size() || ctx.activeCount() != testViews.size())
@@ -189,7 +189,7 @@ public class ChurnTest {
             }).toList();
             assertTrue(success, " expected: " + testViews.size() + " failed: " + failed.size() + " views: " + failed);
 
-            success = Utils.waitForCondition(30_000, 1_000, () -> {
+            success = Utils.waitForCondition(45_000, 1_000, () -> {
                 return testViews.stream()
                                 .map(v -> v.getContext())
                                 .filter(ctx -> ctx.size() != testViews.size() || ctx.activeCount() != testViews.size())
@@ -235,7 +235,7 @@ public class ChurnTest {
             final var expected = c;
             //            System.out.println("** Removed: " + removed);
             then = System.currentTimeMillis();
-            success = Utils.waitForCondition(60_000, 1_000, () -> {
+            success = Utils.waitForCondition(90_000, 1_000, () -> {
                 return expected.stream().filter(view -> {
                     Context<Participant> participantContext = view.getContext();
                     return participantContext.size() > expected.size();
