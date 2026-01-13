@@ -112,34 +112,42 @@ public class SwarmTest {
                                  .map(m -> new Seed(m.getIdentifier().getIdentifier(), "0"))  // Use OS dynamic port allocation
                                  .limit(largeTests ? 100 : 10)
                                  .toList();
-        final var bootstrapSeed = seeds.subList(0, 1);
+        // Use minimal bootstrap set for large tests: 5 nodes provide observer diversity
+        // without single-node bottleneck, while still testing 95 simultaneous joins
+        final int bootstrapCount = largeTests ? 5 : 1;
+        final var bootstrapSeeds = seeds.subList(0, bootstrapCount);
 
         final var gossipDuration = Duration.ofMillis(largeTests ? 150 : 5);
 
-        var countdown = new AtomicReference<>(new CountDownLatch(1));
-        views.get(0).start(() -> countdown.get().countDown(), gossipDuration, Collections.emptyList());
+        // Start initial bootstrap kernel
+        var countdown = new AtomicReference<>(new CountDownLatch(bootstrapCount));
+        for (int i = 0; i < bootstrapCount; i++) {
+            var bootstrapSeed = i == 0 ? Collections.<Seed>emptyList() : List.of(seeds.get(0));
+            views.get(i).start(() -> countdown.get().countDown(), gossipDuration, bootstrapSeed);
+        }
 
-        assertTrue(countdown.get().await(60, TimeUnit.SECONDS), "Kernel did not bootstrap");
+        assertTrue(countdown.get().await(60, TimeUnit.SECONDS), "Bootstrap kernel did not stabilize");
 
-        var bootstrappers = views.subList(0, seeds.size());
-        countdown.set(new CountDownLatch(seeds.size() - 1));
-        bootstrappers.subList(1, bootstrappers.size())
-                     .forEach(v -> v.start(() -> countdown.get().countDown(), gossipDuration, bootstrapSeed));
+        // Wait for bootstrap kernel to stabilize before allowing joins
+        var success = Utils.waitForCondition(30_000, 1_000, () -> {
+            return views.subList(0, bootstrapCount).stream()
+                        .allMatch(v -> v.getContext().activeCount() == bootstrapCount);
+        });
+        assertTrue(success, "Bootstrap kernel did not reach consensus");
 
-        // Test that all bootstrappers up
-        var success = countdown.get().await(largeTests ? 2400 : 60, TimeUnit.SECONDS);
-        var failed = bootstrappers.stream()
-                                  .filter(e -> e.getContext().activeCount() != bootstrappers.size())
-                                  .map(
-                                  v -> String.format("%s : %s ", v.getNode().getId(), v.getContext().activeCount()))
-                                  .toList();
-        assertTrue(success, " expected: " + bootstrappers.size() + " failed: " + failed.size() + " views: " + failed);
+        // Now start remaining nodes joining through multiple bootstrap seeds
+        var joiners = views.subList(bootstrapCount, seeds.size());
+        countdown.set(new CountDownLatch(joiners.size()));
+        joiners.forEach(v -> v.start(() -> countdown.get().countDown(), gossipDuration, bootstrapSeeds));
 
-        // Start remaining views
-        countdown.set(new CountDownLatch(views.size() - seeds.size()));
-        views.forEach(v -> v.start(() -> countdown.get().countDown(), gossipDuration, seeds));
-
-        success = countdown.get().await(largeTests ? 2400 : 120, TimeUnit.SECONDS);
+        // Test that all joiners completed
+        success = countdown.get().await(largeTests ? 2400 : 60, TimeUnit.SECONDS);
+        var failed = joiners.stream()
+                           .filter(e -> e.getContext().activeCount() != seeds.size())
+                           .map(v -> String.format("%s : %s ", v.getNode().getId(), v.getContext().activeCount()))
+                           .toList();
+        assertTrue(success, "Joiners did not complete, expected: " + joiners.size() + " failed: " + failed.size()
+                   + " views: " + failed);
 
         // Test that all views are up
         failed = views.stream().filter(e -> e.getContext().activeCount() != CARDINALITY).map(v -> {
