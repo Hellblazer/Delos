@@ -54,22 +54,6 @@
         </dependency>
     </dependencies>
 
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <configuration>
-                    <!-- Parallelize tests to reduce CI time from 20+ min to ~10 min -->
-                    <forkCount>2</forkCount>
-                    <reuseForks>false</reuseForks>
-                    <!-- Each fork gets isolated JVM to prevent state pollution -->
-                    <!-- Tests use dynamic ports (0) to avoid conflicts -->
-                </configuration>
-            </plugin>
-        </plugins>
-    </build>
-
     <profiles>
         <!-- Fast local testing: unit tests + quick tests only (fail-fast for development) -->
         <profile>
