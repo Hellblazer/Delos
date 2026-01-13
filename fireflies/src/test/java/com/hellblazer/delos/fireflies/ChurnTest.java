@@ -299,7 +299,10 @@ public class ChurnTest {
     private void initialize() {
         executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
         executor2 = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
-        var parameters = Parameters.newBuilder().setMaximumTxfr(10).build();
+        var parameters = Parameters.newBuilder()
+                                   .setMaximumTxfr(10)
+                                   .setSeedingTimeout(Duration.ofSeconds(IS_CI ? 60 : 15))
+                                   .build();
         registry = new MetricRegistry();
         node0Registry = new MetricRegistry();
 
