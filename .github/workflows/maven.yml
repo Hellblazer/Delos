@@ -143,7 +143,7 @@ jobs:
             **/target/
           key: delos-maven-tests-batch-2b-${{ github.sha }}
 
-  test-batch-3:
+  test-batch-3a:
     needs: compile
     runs-on: ubuntu-latest
 
@@ -167,15 +167,83 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Batch 3 (CHOAM concurrency + correctness + identity/consensus/services layers)
-        run: ./mvnw -batch-mode surefire:test -pl choam -Dtest='CHOAMConcurrencyTest,CHOAMFSMErrorPathsTest,CallbackReentrancyTest,ViewStateContractTest,NestedLockDetectionTest' -Dlarge_tests=true --file pom.xml && ./mvnw -batch-mode surefire:test -pl cryptography,fireflies,stereotomy,thoth,java-noise,protocols,ethereal,memberships,gorgoneion,gorgoneion-client,vm-socket,stereotomy-services,grpc,liquibase-deterministic,leyden --file pom.xml
-      - name: Save Maven cache after batch-3 tests
+      - name: Test Batch 3a (CHOAM concurrency + correctness tests)
+        run: ./mvnw -batch-mode surefire:test -pl choam -Dtest='CHOAMConcurrencyTest,CHOAMFSMErrorPathsTest,CallbackReentrancyTest,ViewStateContractTest,NestedLockDetectionTest' -Dlarge_tests=true --file pom.xml
+      - name: Save Maven cache after batch-3a tests
         uses: actions/cache@v4
         with:
           path: |
             ~/.m2/repository
             **/target/
-          key: delos-maven-tests-batch-3-${{ github.sha }}
+          key: delos-maven-tests-batch-3a-${{ github.sha }}
+
+  test-batch-3b:
+    needs: compile
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          cache: 'maven'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore Maven cache from compile job
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            **/target/
+          key: delos-maven-${{ github.sha }}
+          restore-keys: |
+            delos-maven-${{ github.ref }}-
+            delos-maven-refs/heads/main-
+            delos-maven-
+          fail-on-cache-miss: false
+      - name: Test Batch 3b (Consensus layer - fireflies + ethereal)
+        run: ./mvnw -batch-mode surefire:test -pl fireflies,ethereal --file pom.xml
+      - name: Save Maven cache after batch-3b tests
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            **/target/
+          key: delos-maven-tests-batch-3b-${{ github.sha }}
+
+  test-batch-3c:
+    needs: compile
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          cache: 'maven'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore Maven cache from compile job
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            **/target/
+          key: delos-maven-${{ github.sha }}
+          restore-keys: |
+            delos-maven-${{ github.ref }}-
+            delos-maven-refs/heads/main-
+            delos-maven-
+          fail-on-cache-miss: false
+      - name: Test Batch 3c (Identity/services layer)
+        run: ./mvnw -batch-mode surefire:test -pl cryptography,stereotomy,thoth,java-noise,protocols,memberships,gorgoneion,gorgoneion-client,vm-socket,stereotomy-services,grpc,liquibase-deterministic,leyden --file pom.xml
+      - name: Save Maven cache after batch-3c tests
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            **/target/
+          key: delos-maven-tests-batch-3c-${{ github.sha }}
 
   test-batch-4:
     needs: compile
@@ -212,19 +280,21 @@ jobs:
           key: delos-maven-tests-batch-4-${{ github.sha }}
 
   build-status:
-    needs: [test-batch-1, test-batch-2a, test-batch-2b, test-batch-3, test-batch-4]
+    needs: [test-batch-1, test-batch-2a, test-batch-2b, test-batch-3a, test-batch-3b, test-batch-3c, test-batch-4]
     runs-on: ubuntu-latest
     if: always()
 
     steps:
       - name: Check Test Results
         run: |
-          if [ "${{ needs.test-batch-1.result }}" != "success" ] || [ "${{ needs.test-batch-2a.result }}" != "success" ] || [ "${{ needs.test-batch-2b.result }}" != "success" ] || [ "${{ needs.test-batch-3.result }}" != "success" ] || [ "${{ needs.test-batch-4.result }}" != "success" ]; then
+          if [ "${{ needs.test-batch-1.result }}" != "success" ] || [ "${{ needs.test-batch-2a.result }}" != "success" ] || [ "${{ needs.test-batch-2b.result }}" != "success" ] || [ "${{ needs.test-batch-3a.result }}" != "success" ] || [ "${{ needs.test-batch-3b.result }}" != "success" ] || [ "${{ needs.test-batch-3c.result }}" != "success" ] || [ "${{ needs.test-batch-4.result }}" != "success" ]; then
             echo "❌ Build FAILED: One or more test jobs failed"
             echo "  test-batch-1: ${{ needs.test-batch-1.result }}"
             echo "  test-batch-2a: ${{ needs.test-batch-2a.result }}"
             echo "  test-batch-2b: ${{ needs.test-batch-2b.result }}"
-            echo "  test-batch-3: ${{ needs.test-batch-3.result }}"
+            echo "  test-batch-3a: ${{ needs.test-batch-3a.result }}"
+            echo "  test-batch-3b: ${{ needs.test-batch-3b.result }}"
+            echo "  test-batch-3c: ${{ needs.test-batch-3c.result }}"
             echo "  test-batch-4: ${{ needs.test-batch-4.result }}"
             exit 1
           fi
