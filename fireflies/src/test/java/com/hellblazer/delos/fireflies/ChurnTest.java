@@ -39,6 +39,20 @@ import java.util.stream.IntStream;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
+ * Tests dynamic cluster membership with node joins and departures.
+ *
+ * <p>Uses streaming join protocol with immediate acknowledgment (< 100ms) and 60s deadline.
+ * View changes take ~10-15s locally, ~15-20s on CI due to resource contention.
+ *
+ * <p>Timeout Strategy (with IS_CI multipliers):
+ * <ul>
+ *   <li>Bootstrap kernel: 30s/60s (initial cluster formation)</li>
+ *   <li>Seed joins: 60s/120s (streaming join + view change)</li>
+ *   <li>Batch joins: 90s/180s (includes batch overhead)</li>
+ *   <li>Stabilization: 45s/90s (gossip propagation)</li>
+ *   <li>Churn recovery: 90s/180s (departure detection + re-convergence)</li>
+ * </ul>
+ *
  * @author hal.hildebrand
  */
 public class ChurnTest {
@@ -119,7 +133,8 @@ public class ChurnTest {
 
         views.get(0).start(() -> countdown.get().countDown(), gossipDuration, Collections.emptyList());
 
-        assertTrue(countdown.get().await(30, TimeUnit.SECONDS), "Kernel did not bootstrap");
+        // Bootstrap timeout: kernel formation (no join protocol involved)
+        assertTrue(countdown.get().await(IS_CI ? 60 : 30, TimeUnit.SECONDS), "Kernel did not bootstrap");
 
         testViews.add(views.get(0));
 
@@ -128,8 +143,8 @@ public class ChurnTest {
 
         bootstrappers.forEach(v -> v.start(() -> countdown.get().countDown(), gossipDuration, bootstrapSeed));
 
-        // Test that all seeds up
-        var success = countdown.get().await(30, TimeUnit.SECONDS);
+        // Bootstrap seed join: uses streaming join with 60s deadline + view change (15-20s CI)
+        var success = countdown.get().await(IS_CI ? 120 : 60, TimeUnit.SECONDS);
         testViews.addAll(bootstrappers);
 
         var failed = testViews.stream()
@@ -159,7 +174,8 @@ public class ChurnTest {
 
             toStart.forEach(view -> view.start(() -> countdown.get().countDown(), gossipDuration, seeds));
 
-            success = countdown.get().await(90, TimeUnit.SECONDS);
+            // Batch join timeout: streaming join (60s) + view change (15-20s CI) + batch overhead
+            success = countdown.get().await(IS_CI ? 180 : 90, TimeUnit.SECONDS);
             failed = testViews.stream().filter(e -> {
                 if (e.getContext().activeCount() != testViews.size())
                     return true;
@@ -172,7 +188,8 @@ public class ChurnTest {
             }).toList();
             assertTrue(success, " expected: " + testViews.size() + " failed: " + failed.size() + " views: " + failed);
 
-            success = Utils.waitForCondition(45_000, 1_000, () -> {
+            // Stabilization after join: gossip propagation across cluster
+            success = Utils.waitForCondition(IS_CI ? 90_000 : 45_000, 1_000, () -> {
                 return testViews.stream()
                                 .map(v -> v.getContext())
                                 .filter(ctx -> ctx.size() != testViews.size() || ctx.activeCount() != testViews.size())
@@ -190,7 +207,8 @@ public class ChurnTest {
             }).toList();
             assertTrue(success, " expected: " + testViews.size() + " failed: " + failed.size() + " views: " + failed);
 
-            success = Utils.waitForCondition(45_000, 1_000, () -> {
+            // Final stabilization check: ensure full cluster convergence
+            success = Utils.waitForCondition(IS_CI ? 90_000 : 45_000, 1_000, () -> {
                 return testViews.stream()
                                 .map(v -> v.getContext())
                                 .filter(ctx -> ctx.size() != testViews.size() || ctx.activeCount() != testViews.size())
@@ -236,7 +254,8 @@ public class ChurnTest {
             final var expected = c;
             //            System.out.println("** Removed: " + removed);
             then = System.currentTimeMillis();
-            success = Utils.waitForCondition(90_000, 1_000, () -> {
+            // Churn stabilization: cluster must detect departures and re-converge
+            success = Utils.waitForCondition(IS_CI ? 180_000 : 90_000, 1_000, () -> {
                 return expected.stream().filter(view -> {
                     Context<Participant> participantContext = view.getContext();
                     return participantContext.size() > expected.size();
