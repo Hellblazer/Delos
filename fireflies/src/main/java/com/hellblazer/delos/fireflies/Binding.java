@@ -60,6 +60,8 @@ class Binding {
     private final        View                                    view;
     private final        ScheduledExecutorService                scheduler;
 
+    private final        AtomicInteger                            reseedDepth = new AtomicInteger(0);
+
     public Binding(View view, List<Seed> seeds, Duration duration, DynamicContext<Participant> context,
                    CommonCommunications<Entrance, Service> approaches, Node node, Parameters params,
                    FireflyMetrics metrics, DigestAlgorithm digestAlgo, ScheduledExecutorService scheduler) {
@@ -146,7 +148,7 @@ class Binding {
 
     private void complete(Member member, CompletableFuture<Bound> gateway, HashMultiset<Bootstrapping> trusts,
                           Set<SignedNote> iss, Digest v, int majority, CompletableFuture<Boolean> complete,
-                          AtomicInteger remaining, ListenableFuture<Gateway> futureSailor) {
+                          AtomicInteger remaining, ListenableFuture<Gateway> futureSailor, AtomicInteger abandon) {
         if (complete.isDone()) {
             return;
         }
@@ -160,6 +162,18 @@ class Binding {
             if (cause instanceof StatusRuntimeException sre) {
                 log.warn("Error retrieving Gateway: {} from: {} on: {}", sre.getMessage(), member.getId(),
                          node.getId());
+                // Check for OUT_OF_RANGE - stale observer information requiring reseed
+                if (sre.getStatus().getCode() == io.grpc.Status.Code.OUT_OF_RANGE) {
+                    log.info("OUT_OF_RANGE detected in complete(), setting abandon=MAX_VALUE for view: {} from: {} on: {}",
+                             v, member.getId(), node.getId());
+                    // Set abandon to trigger reseed in continuation callback or whenComplete handler
+                    abandon.set(Integer.MAX_VALUE);
+                    // Force completion with false to trigger reseed check immediately
+                    if (!complete.isDone()) {
+                        complete.complete(false);
+                    }
+                    return;
+                }
             } else {
                 log.error("Error retrieving Gateway from: {} on: {}", member.getId(), node.getId(), cause);
             }
@@ -218,12 +232,23 @@ class Binding {
         }
     }
 
-    private void gatewaySRE(Digest v, Entrance link, StatusRuntimeException sre, AtomicInteger abandon) {
+    private void gatewaySRE(Digest v, Entrance link, StatusRuntimeException sre, AtomicInteger abandon,
+                            CompletableFuture<Boolean> complete) {
         switch (sre.getStatus().getCode()) {
         case OUT_OF_RANGE -> {
-            log.debug("Gateway view: {} invalid: {} from: {} on: {}", v, sre.getMessage(), link.getMember().getId(),
-                      node.getId());
-            abandon.incrementAndGet();
+            log.info("Gateway view: {} OUT_OF_RANGE (stale observers) from: {} msg: {} on: {}", v,
+                     link.getMember().getId(), sre.getMessage(), node.getId());
+            // OUT_OF_RANGE means stale observer info - trigger immediate reseed
+            // This prevents infinite loops when all contacted observers have lost observer status
+            abandon.set(Integer.MAX_VALUE);
+            log.info("Set abandon=MAX_VALUE to trigger reseed check, completing iteration for view: {} on: {}", v,
+                     node.getId());
+            // Force iteration to stop and trigger abandon threshold check
+            if (!complete.isDone()) {
+                complete.complete(false);
+            } else {
+                log.warn("Complete already done when handling OUT_OF_RANGE for view: {} on: {}", v, node.getId());
+            }
         }
         case FAILED_PRECONDITION -> {
             log.trace("Gateway view: {} unavailable: {} from: {} on: {}", v, sre.getMessage(), link.getMember().getId(),
@@ -247,7 +272,7 @@ class Binding {
 
     private boolean join(Member member, CompletableFuture<Bound> gateway, Optional<ListenableFuture<Gateway>> fs,
                          HashMultiset<Bootstrapping> trusts, Set<SignedNote> initialSeedSet, Digest v, int majority,
-                         CompletableFuture<Boolean> complete, AtomicInteger remaining) {
+                         CompletableFuture<Boolean> complete, AtomicInteger remaining, AtomicInteger abandon) {
         if (complete.isDone()) {
             log.trace("join round already completed for: {} on: {}", member.getId(), node.getId());
             return false;
@@ -265,7 +290,7 @@ class Binding {
         }
         var futureSailor = fs.get();
         futureSailor.addListener(
-        () -> complete(member, gateway, trusts, initialSeedSet, v, majority, complete, remaining, futureSailor),
+        () -> complete(member, gateway, trusts, initialSeedSet, v, majority, complete, remaining, futureSailor, abandon),
         r -> Thread.ofVirtual().start(r));
 
         return true;
@@ -347,6 +372,7 @@ class Binding {
                 }
                 if (success) {
                     scheduler.shutdown();
+                    reseedDepth.set(0); // Reset on successful join
                     return;
                 }
                 log.info("Join unsuccessful, abandoned: {} trusts: {} on: {}", abandon.get(), trusts.entrySet()
@@ -358,14 +384,38 @@ class Binding {
                                                                                                     e.getCount()))
                                                                                                     .toList(),
                          node.getId());
+                // Check if we need to reseed due to stale observers (OUT_OF_RANGE)
+                if (abandon.get() >= majority) {
+                    final int depth = reseedDepth.incrementAndGet();
+                    final int maxReseedDepth = 3; // Limit to prevent infinite loops during high churn
+                    if (depth > maxReseedDepth) {
+                        log.warn(
+                        "Abandoning Gateway view: {} abandons: {} reseed depth: {} exceeds max: {} giving up on: {}", v,
+                        abandon.get(), depth, maxReseedDepth, node.getId());
+                        scheduler.shutdown();
+                        reseedDepth.set(0); // Reset for next attempt
+                        return;
+                    }
+                    log.info("Abandoning Gateway view: {} abandons: {} >= majority: {} reseeding (depth: {}) on: {}", v,
+                             abandon.get(), majority, depth, node.getId());
+                    scheduler.shutdown();
+                    seeding();
+                    return;
+                }
                 abandon.set(0);
                 if (retries.get() < params.joinRetries()) {
-                    log.info("Failed to join view: {} retry: {} out of: {} on: {}", v, retries.incrementAndGet(),
-                             params.joinRetries(), node.getId());
+                    final int currentRetry = retries.incrementAndGet();
+                    // Moderate exponential backoff: baseDelay * 2^min(retry-1, 3) with jitter
+                    // Capped at 8x base delay to prevent excessive wait times
+                    // retry 1-3: 1x, 2x, 4x, then stays at 8x
+                    final long exponentialDelay = params.retryDelay().toNanos() * (1L << Math.min(currentRetry - 1, 3));
+                    final long delayWithJitter = Entropy.nextBitsStreamLong(exponentialDelay);
+                    log.info("Failed to join view: {} retry: {} out of: {} backoff: {}ms on: {}", v, currentRetry,
+                             params.joinRetries(), TimeUnit.NANOSECONDS.toMillis(delayWithJitter), node.getId());
                     trusts.clear();
                     initialSeedSet.clear();
                     scheduler.schedule(() -> Thread.ofVirtual().start(Utils.wrapped(regate.get(), log)),
-                                       Entropy.nextBitsStreamLong(params.retryDelay().toNanos()), TimeUnit.NANOSECONDS);
+                                       delayWithJitter, TimeUnit.NANOSECONDS);
                 } else {
                     scheduler.shutdown();
                     log.error("Failed to join view: {} cannot obtain majority Gateway on: {}", view, node.getId());
@@ -375,15 +425,27 @@ class Binding {
             var remaining = new AtomicInteger(sample.size());
             redirecting.iterate((link) -> join(v, link, gateway, join, abandon, complete),
                                 (futureSailor, _, _, member) -> join(member, gateway, futureSailor, trusts,
-                                                                     initialSeedSet, v, majority, complete, remaining),
+                                                                     initialSeedSet, v, majority, complete, remaining, abandon),
                                 () -> {
                                     if (!view.started.get() || gateway.isDone()) {
                                         return;
                                     }
                                     if (abandon.get() >= majority) {
+                                        final int depth = reseedDepth.incrementAndGet();
+                                        final int maxReseedDepth = 3;
+                                        if (depth > maxReseedDepth) {
+                                            log.warn(
+                                            "Continuation: Abandoning view: {} abandons: {} reseed depth: {} exceeds max: {} giving up on: {}",
+                                            v, abandon.get(), depth, maxReseedDepth, node.getId());
+                                            scheduler.shutdown();
+                                            reseedDepth.set(0);
+                                            complete.completeExceptionally(
+                                            new TimeoutException("Failed Join - reseed depth exceeded"));
+                                            return;
+                                        }
                                         log.debug(
-                                        "Abandoning Gateway view: {} abandons: {} majority: {} reseeding on: {}", v,
-                                        abandon.get(), majority, node.getId());
+                                        "Abandoning Gateway view: {} abandons: {} majority: {} reseeding (depth: {}) on: {}",
+                                        v, abandon.get(), majority, depth, node.getId());
                                         scheduler.shutdown();
                                         complete.completeExceptionally(new TimeoutException("Failed Join"));
                                         seeding();
@@ -408,7 +470,7 @@ class Binding {
             }
             return g;
         } catch (StatusRuntimeException sre) {
-            gatewaySRE(v, link, sre, abandon);
+            gatewaySRE(v, link, sre, abandon, complete);
             return null;
         } catch (Throwable t) {
             log.info("Gateway view: {} error: {} from: {} on: {}", v, t, link.getMember().getId(), node.getId());
