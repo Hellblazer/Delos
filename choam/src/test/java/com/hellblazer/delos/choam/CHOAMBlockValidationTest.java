@@ -141,19 +141,35 @@ public class CHOAMBlockValidationTest {
 
     @AfterEach
     public void after() throws Exception {
-        if (routers != null) {
-            routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
-            routers = null;
-        }
         if (choams != null) {
             choams.values().forEach(e -> e.stop());
             choams = null;
         }
+        if (routers != null) {
+            routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
+            routers = null;
+        }
         if (scheduler != null) {
             scheduler.shutdown();
+            try {
+                if (!scheduler.awaitTermination(10, TimeUnit.SECONDS)) {
+                    scheduler.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                scheduler.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
         }
         if (executor != null) {
             executor.shutdown();
+            try {
+                if (!executor.awaitTermination(10, TimeUnit.SECONDS)) {
+                    executor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                executor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
         }
         members = null;
         registry = null;
