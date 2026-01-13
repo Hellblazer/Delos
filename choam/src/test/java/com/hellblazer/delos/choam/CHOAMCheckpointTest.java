@@ -145,19 +145,35 @@ public class CHOAMCheckpointTest {
 
     @AfterEach
     public void after() throws Exception {
-        if (routers != null) {
-            routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
-            routers = null;
-        }
         if (choams != null) {
             choams.values().forEach(e -> e.stop());
             choams = null;
         }
+        if (routers != null) {
+            routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
+            routers = null;
+        }
         if (scheduler != null) {
             scheduler.shutdown();
+            try {
+                if (!scheduler.awaitTermination(10, TimeUnit.SECONDS)) {
+                    scheduler.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                scheduler.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
         }
         if (executor != null) {
             executor.shutdown();
+            try {
+                if (!executor.awaitTermination(10, TimeUnit.SECONDS)) {
+                    executor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                executor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
         }
         if (createdCheckpointFiles != null) {
             createdCheckpointFiles.forEach(f -> {
@@ -198,9 +214,6 @@ public class CHOAMCheckpointTest {
         // Verify checkpoints were created
         boolean anyCheckpoints = checkpointCounts.values().stream().anyMatch(c -> c.get() > 0);
         assertTrue(anyCheckpoints, "At least some checkpoints should have been created");
-
-        routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
-        choams.values().forEach(CHOAM::stop);
     }
 
     @Test
@@ -247,9 +260,6 @@ public class CHOAMCheckpointTest {
                                                  .stream()
                                                  .anyMatch(c -> c.get() > 0);
         assertTrue(hasCheckpoints, "Checkpoint chain validation requires at least some checkpoints created");
-
-        routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
-        choams.values().forEach(CHOAM::stop);
     }
 
     @Test
@@ -278,9 +288,6 @@ public class CHOAMCheckpointTest {
         // Verify checkpoints were created under load
         boolean checkpointsCreated = checkpointCounts.values().stream().anyMatch(c -> c.get() > 0);
         assertTrue(checkpointsCreated, "Checkpoints should be created during high load");
-
-        routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
-        choams.values().forEach(CHOAM::stop);
     }
 
     @Test
@@ -315,9 +322,6 @@ public class CHOAMCheckpointTest {
             assertTrue(max - min <= tolerance,
                       String.format("Checkpoint counts should be consistent: max=%d, min=%d", max, min));
         }
-
-        routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
-        choams.values().forEach(CHOAM::stop);
     }
 
     @Test
@@ -345,8 +349,5 @@ public class CHOAMCheckpointTest {
 
         // System should remain active throughout
         choams.values().forEach(c -> assertTrue(c.active(), "System should remain active during checkpoints"));
-
-        routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
-        choams.values().forEach(CHOAM::stop);
     }
 }
