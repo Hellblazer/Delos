@@ -51,6 +51,7 @@ public class ByzantineAttackTest {
 
     private static final int     EPOCH_LENGTH = 20;
     private static final boolean LARGE_TESTS  = Boolean.getBoolean("large_tests");
+    private static final boolean IS_CI        = Boolean.parseBoolean(System.getenv().getOrDefault("CI", "false"));
     private static final int     NPROC        = LARGE_TESTS ? 7 : 4;
     private static final int     NUM_EPOCHS   = 2;
     private static final long    DELAY_MS     = 5;
@@ -489,11 +490,12 @@ public class ByzantineAttackTest {
             comms.forEach(Router::start);
             gossipers.forEach(e -> e.start(gossipPeriod));
 
-            var timeout = LARGE_TESTS ? 60 : 30;
+            // CI needs longer timeout due to resource contention (2-3x slower than local)
+            var timeout = LARGE_TESTS ? 60 : (IS_CI ? 90 : 30);
             var completed = finished.await(timeout, TimeUnit.SECONDS);
 
             if (!completed) {
-                System.out.println(scenarioName + " - Timeout waiting for completion");
+                System.out.println(scenarioName + " - Timeout waiting for completion after " + timeout + "s");
             }
         } finally {
             controllers.forEach(Ethereal::stop);
