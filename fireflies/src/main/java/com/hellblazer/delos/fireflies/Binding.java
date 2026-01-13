@@ -389,7 +389,7 @@ class Binding {
                 // Check if we need to reseed due to stale observers (OUT_OF_RANGE)
                 if (abandon.get() >= majority) {
                     final int depth = reseedDepth.incrementAndGet();
-                    final int maxReseedDepth = 3; // Limit to prevent infinite loops during high churn
+                    final int maxReseedDepth = 6; // Allow more attempts during cascading view changes on CI
                     if (depth > maxReseedDepth) {
                         log.warn(
                         "Abandoning Gateway view: {} abandons: {} reseed depth: {} exceeds max: {} giving up on: {}", v,
