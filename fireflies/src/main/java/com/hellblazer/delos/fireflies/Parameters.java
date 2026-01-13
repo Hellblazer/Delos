@@ -59,7 +59,7 @@ public record Parameters(int joinRetries, int minimumBiffCardinality, int rebutt
         /**
          * Timeout for contacting seed gateways during seeding and join operations
          */
-        private Duration seedingTimout          = Duration.ofSeconds(15);
+        private Duration seedingTimout          = Duration.ofSeconds(60);
         /**
          * Max number of times to attempt validation when joining a view
          */
@@ -67,7 +67,7 @@ public record Parameters(int joinRetries, int minimumBiffCardinality, int rebutt
         /**
          * Minimum number of rounds to check for view change
          */
-        private int      viewChangeRounds       = 7;
+        private int      viewChangeRounds       = 6;
         private Duration populateDuration       = Duration.ofMillis(20);
 
         public Parameters build() {

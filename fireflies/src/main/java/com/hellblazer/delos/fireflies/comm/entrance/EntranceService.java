@@ -8,7 +8,7 @@ package com.hellblazer.delos.fireflies.comm.entrance;
 
 import com.codahale.metrics.Timer.Context;
 import com.hellblazer.delos.cryptography.Digest;
-import com.hellblazer.delos.fireflies.proto.Gateway;
+import com.hellblazer.delos.fireflies.proto.JoinResponse;
 import com.hellblazer.delos.fireflies.proto.Join;
 import com.hellblazer.delos.fireflies.proto.Redirect;
 import com.hellblazer.delos.fireflies.proto.Registration;
@@ -19,7 +19,7 @@ import io.grpc.stub.StreamObserver;
  */
 public interface EntranceService {
 
-    void join(Join request, Digest from, StreamObserver<Gateway> responseObserver, Context timer);
+    void join(Join request, Digest from, StreamObserver<JoinResponse> responseObserver, Context timer);
 
     Redirect seed(Registration request, Digest from);
 }

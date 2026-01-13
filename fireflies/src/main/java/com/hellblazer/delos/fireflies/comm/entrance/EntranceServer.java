@@ -12,7 +12,7 @@ import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.fireflies.FireflyMetrics;
 import com.hellblazer.delos.fireflies.View.Service;
 import com.hellblazer.delos.fireflies.proto.EntranceGrpc.EntranceImplBase;
-import com.hellblazer.delos.fireflies.proto.Gateway;
+import com.hellblazer.delos.fireflies.proto.JoinResponse;
 import com.hellblazer.delos.fireflies.proto.Join;
 import com.hellblazer.delos.fireflies.proto.Redirect;
 import com.hellblazer.delos.fireflies.proto.Registration;
@@ -35,7 +35,7 @@ public class EntranceServer extends EntranceImplBase {
     }
 
     @Override
-    public void join(Join request, StreamObserver<Gateway> responseObserver) {
+    public void join(Join request, StreamObserver<JoinResponse> responseObserver) {
         Context timer = metrics == null ? null : metrics.inboundJoinDuration().time();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();

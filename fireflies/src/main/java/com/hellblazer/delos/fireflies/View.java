@@ -426,6 +426,10 @@ public class View {
         return !pendingRebuttals.isEmpty();
     }
 
+    boolean hasOngoingViewChange() {
+        return !observations.isEmpty();
+    }
+
     void initiate(SignedViewChange viewChange) {
         observations.put(node.getId(), new SVU(viewChange, digestAlgo));
     }
@@ -1873,7 +1877,7 @@ public class View {
          * Asynchronously add a member to the next view
          */
         @Override
-        public void join(Join join, Digest from, StreamObserver<Gateway> responseObserver, Timer.Context timer) {
+        public void join(Join join, Digest from, StreamObserver<JoinResponse> responseObserver, Timer.Context timer) {
             if (!started.get()) {
                 responseObserver.onError(
                 new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("Not started")));

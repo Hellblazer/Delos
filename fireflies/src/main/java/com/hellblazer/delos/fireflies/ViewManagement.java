@@ -399,7 +399,7 @@ public class ViewManagement {
         }
     }
 
-    void join(Join join, Digest from, StreamObserver<Gateway> responseObserver, Timer.Context timer) {
+    void join(Join join, Digest from, StreamObserver<JoinResponse> responseObserver, Timer.Context timer) {
         final var joinView = Digest.from(join.getView());
         if (!joined()) {
             log.trace("Not joined, ignored join of view: {} from: {} on: {}", joinView, from, node.getId());
@@ -464,6 +464,23 @@ public class ViewManagement {
                 new StatusRuntimeException(Status.RESOURCE_EXHAUSTED.withDescription("No room at the inn")));
                 return;
             }
+
+            // Phase 1: Send immediate acknowledgment (best-effort, not critical)
+            var ack = JoinAcknowledgment.newBuilder()
+                                        .setView(thisView.toDigeste())
+                                        .setEstimatedWaitTimeMs(estimateViewChangeTime())
+                                        .setJoinSequenceNumber(pendingJoins.size())
+                                        .build();
+            try {
+                responseObserver.onNext(JoinResponse.newBuilder().setAck(ack).build());
+                log.debug("Join acknowledged for: {} view: {} estimated wait: {}ms queue position: {} on: {}", from,
+                          thisView, ack.getEstimatedWaitTimeMs(), ack.getJoinSequenceNumber(), node.getId());
+            } catch (Throwable t) {
+                // Log but don't abort - acknowledgment is optional, Gateway delivery is critical
+                log.debug("Could not send join acknowledgment to: {} on: {} (continuing with join)", from, node.getId(), t);
+            }
+
+            // Phase 2: Register Gateway callback
             pendingJoins.computeIfAbsent(from, d -> seeds -> {
                 log.info("Gateway established for: {} view: {}  context: {} cardinality: {} on: {}", from,
                          currentView(), context.getId(), cardinality(), node.getId());
@@ -472,6 +489,13 @@ public class ViewManagement {
             joins.put(note.getId(), note);
             log.debug("Member pending join: {} view: {} context: {} on: {}", from, currentView(), context.getId(),
                       node.getId());
+
+            // Phase 3: Trigger view change if not already in progress
+            if (!view.hasOngoingViewChange()) {
+                log.debug("Triggering view change for pending join: {} on: {}", from, node.getId());
+                view.scheduleViewChange(0); // Immediate scheduling
+            }
+
             var enjoining = new SliceIterator<>("Enjoining[%s:%s]".formatted(currentView(), from), node,
                                                 observers.keySet().stream().map(context::getActiveMember).toList(),
                                                 view.comm, scheduler);
@@ -678,11 +702,18 @@ public class ViewManagement {
     /**
      * @return true if the receiver is part of the BFT Observers of this group
      */
+    private long estimateViewChangeTime() {
+        // Estimate based on view change rounds and typical round time
+        // viewChangeRounds + finalizeViewRounds, approximately 1.5s per round under load
+        var totalRounds = params.viewChangeRounds() + params.finalizeViewRounds();
+        return (long) (totalRounds * 1500); // milliseconds
+    }
+
     private boolean isObserver() {
         return observers.containsKey(node.getId());
     }
 
-    private void joined(Collection<SignedNote> seedSet, Digest from, StreamObserver<Gateway> responseObserver,
+    private void joined(Collection<SignedNote> seedSet, Digest from, StreamObserver<JoinResponse> responseObserver,
                         Timer.Context timer) {
         var unique = new HashSet<>(seedSet);
         final var initialSeeds = new ArrayList<>(seedSet);
@@ -705,7 +736,7 @@ public class ViewManagement {
         log.info("Gateway initial seeding: {} successors: {} for: {} on: {}", gateway.getInitialSeedSetCount(),
                  successors.size(), from, node.getId());
         try {
-            responseObserver.onNext(gateway);
+            responseObserver.onNext(JoinResponse.newBuilder().setGateway(gateway).build());
             responseObserver.onCompleted();
         } catch (RejectedExecutionException e) {
             log.trace("In shutdown on: {}", node.getId());

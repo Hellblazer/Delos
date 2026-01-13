@@ -7,11 +7,15 @@
 package com.hellblazer.delos.fireflies.comm.entrance;
 
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.SettableFuture;
 import com.hellblazer.delos.archipelago.ManagedServerChannel;
 import com.hellblazer.delos.archipelago.ServerConnectionCache.CreateClientCommunications;
 import com.hellblazer.delos.fireflies.FireflyMetrics;
 import com.hellblazer.delos.fireflies.proto.*;
 import com.hellblazer.delos.membership.Member;
+import io.grpc.stub.StreamObserver;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.concurrent.ExecutionException;
@@ -21,16 +25,17 @@ import java.util.concurrent.TimeUnit;
  * @author hal.hildebrand
  */
 public class EntranceClient implements Entrance {
+    private static final Logger log = LoggerFactory.getLogger(EntranceClient.class);
 
-    private final ManagedServerChannel              channel;
+    private final ManagedServerChannel            channel;
     private final EntranceGrpc.EntranceBlockingStub client;
-    private final FireflyMetrics                    metrics;
-    private final EntranceGrpc.EntranceFutureStub   ayncClient;
+    private final FireflyMetrics                  metrics;
+    private final EntranceGrpc.EntranceStub       asyncClient;
 
     public EntranceClient(ManagedServerChannel channel, FireflyMetrics metrics) {
         this.channel = channel;
         this.client = channel.wrap(EntranceGrpc.newBlockingStub(channel));
-        ayncClient = channel.wrap(EntranceGrpc.newFutureStub(channel));
+        asyncClient = channel.wrap(EntranceGrpc.newStub(channel));
         this.metrics = metrics;
     }
 
@@ -57,27 +62,47 @@ public class EntranceClient implements Entrance {
             metrics.outboundJoin().update(serializedSize);
         }
 
-        ListenableFuture<Gateway> result = ayncClient.withDeadlineAfter(timeout.toNanos(), TimeUnit.NANOSECONDS)
-                                                     .join(join);
-        result.addListener(() -> {
-            Gateway g = null;
-            try {
-                g = result.get();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } catch (ExecutionException e) {
-                // nothing
-            }
-            if (metrics != null) {
-                try {
-                    var serializedSize = g.getSerializedSize();
-                    metrics.inboundBandwidth().mark(serializedSize);
-                    metrics.inboundGateway().update(serializedSize);
-                } catch (Throwable e) {
-                    // nothing
+        SettableFuture<Gateway> result = SettableFuture.create();
+
+        asyncClient.withDeadlineAfter(timeout.toNanos(), TimeUnit.NANOSECONDS).join(join, new StreamObserver<JoinResponse>() {
+            private JoinAcknowledgment ack;
+            private Gateway gateway;
+
+            @Override
+            public void onNext(JoinResponse response) {
+                if (response.hasAck()) {
+                    ack = response.getAck();
+                    log.debug("Join acknowledged for view: {} estimated wait: {}ms queue position: {}",
+                              ack.getView(), ack.getEstimatedWaitTimeMs(), ack.getJoinSequenceNumber());
+                } else if (response.hasGateway()) {
+                    gateway = response.getGateway();
+                    if (metrics != null) {
+                        try {
+                            var serializedSize = gateway.getSerializedSize();
+                            metrics.inboundBandwidth().mark(serializedSize);
+                            metrics.inboundGateway().update(serializedSize);
+                        } catch (Throwable e) {
+                            // ignore
+                        }
+                    }
                 }
             }
-        }, Runnable::run);
+
+            @Override
+            public void onError(Throwable t) {
+                result.setException(t);
+            }
+
+            @Override
+            public void onCompleted() {
+                if (gateway != null) {
+                    result.set(gateway);
+                } else {
+                    result.setException(new IllegalStateException("No Gateway received in join response"));
+                }
+            }
+        });
+
         return result;
     }
 

@@ -121,7 +121,7 @@ message Update {
 // Eísodos
 service Entrance {
   rpc seed (Registration) returns (Redirect) {}
-  rpc join (Join) returns (Gateway) {}
+  rpc join (Join) returns (stream JoinResponse) {}
 }
 
 message Validation {
@@ -154,4 +154,17 @@ message Gateway {
 message BootstrapTrust {
   crypto.HexBloome diadem = 1;
   repeated SignedNote successors = 2;
+}
+
+message JoinAcknowledgment {
+  crypto.Digeste view = 1;
+  uint64 estimatedWaitTimeMs = 2;
+  uint64 joinSequenceNumber = 3;
+}
+
+message JoinResponse {
+  oneof response {
+    JoinAcknowledgment ack = 1;
+    Gateway gateway = 2;
+  }
 }
