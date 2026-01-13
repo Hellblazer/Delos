@@ -135,19 +135,37 @@ public class SwarmTest {
         });
         assertTrue(success, "Bootstrap kernel did not reach consensus");
 
-        // Now start remaining nodes joining through multiple bootstrap seeds
-        var joiners = views.subList(bootstrapCount, seeds.size());
-        countdown.set(new CountDownLatch(joiners.size()));
-        joiners.forEach(v -> v.start(() -> countdown.get().countDown(), gossipDuration, bootstrapSeeds));
+        // Start seed nodes joining through bootstrap kernel
+        var bootstrappers = views.subList(0, seeds.size());
+        var seedJoiners = bootstrappers.subList(bootstrapCount, bootstrappers.size());
+        countdown.set(new CountDownLatch(seedJoiners.size()));
+        seedJoiners.forEach(v -> v.start(() -> countdown.get().countDown(), gossipDuration, bootstrapSeeds));
 
-        // Test that all joiners completed
+        // Test that seed joiners completed
         success = countdown.get().await(largeTests ? 2400 : 60, TimeUnit.SECONDS);
-        var failed = joiners.stream()
-                           .filter(e -> e.getContext().activeCount() != seeds.size())
-                           .map(v -> String.format("%s : %s ", v.getNode().getId(), v.getContext().activeCount()))
-                           .toList();
-        assertTrue(success, "Joiners did not complete, expected: " + joiners.size() + " failed: " + failed.size()
-                   + " views: " + failed);
+        var failed = seedJoiners.stream()
+                                .filter(e -> e.getContext().activeCount() != seeds.size())
+                                .map(v -> String.format("%s : %s ", v.getNode().getId(), v.getContext().activeCount()))
+                                .toList();
+        assertTrue(success, "Seed joiners did not complete, expected: " + seedJoiners.size() + " failed: "
+                   + failed.size() + " views: " + failed);
+
+        // Start remaining non-seed views
+        if (views.size() > seeds.size()) {
+            countdown.set(new CountDownLatch(views.size() - seeds.size()));
+            views.subList(seeds.size(), views.size())
+                 .forEach(v -> v.start(() -> countdown.get().countDown(), gossipDuration, seeds));
+
+            success = countdown.get().await(largeTests ? 2400 : 120, TimeUnit.SECONDS);
+            failed = views.subList(seeds.size(), views.size())
+                          .stream()
+                          .filter(e -> e.getContext().activeCount() != CARDINALITY)
+                          .map(v -> String.format("%s : %s ", v.getNode().getId(), v.getContext().activeCount()))
+                          .toList();
+            assertTrue(success,
+                       "Non-seed views did not complete, expected: " + (views.size() - seeds.size()) + " failed: "
+                       + failed.size() + " views: " + failed);
+        }
 
         // Test that all views are up
         failed = views.stream().filter(e -> e.getContext().activeCount() != CARDINALITY).map(v -> {
