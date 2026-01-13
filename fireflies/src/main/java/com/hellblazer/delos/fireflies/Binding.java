@@ -334,6 +334,8 @@ class Binding {
                              .map(sn -> new NoteWrapper(sn, digestAlgo))
                              .map(nw -> view.new Participant(nw))
                              .collect(Collectors.toList());
+        // Randomize observer contact order to spread load and increase likelihood of fresh view
+        Entropy.secureShuffle(sample);
         log.info("Redirecting to: {} context: {} sample: {} on: {}", v, this.context.getId(), sample.size(),
                  node.getId());
         var gateway = new CompletableFuture<Bound>();
@@ -396,10 +398,18 @@ class Binding {
                         reseedDepth.set(0); // Reset for next attempt
                         return;
                     }
-                    log.info("Abandoning Gateway view: {} abandons: {} >= majority: {} reseeding (depth: {}) on: {}", v,
-                             abandon.get(), majority, depth, node.getId());
-                    scheduler.shutdown();
-                    seeding();
+                    // Reseed with backoff to allow gossip propagation
+                    // Use higher base delay than retry (2x) since view changes need time to propagate
+                    // Gossip propagation typically takes 500-1000ms for 100-node networks
+                    final long reseedBaseDelay = params.retryDelay().toNanos() * 2;
+                    final long reseedExponentialDelay = reseedBaseDelay * (1L << Math.min(depth - 1, 3));
+                    final long reseedDelayWithJitter = Entropy.nextBitsStreamLong(reseedExponentialDelay);
+                    log.info("Abandoning Gateway view: {} abandons: {} >= majority: {} reseeding (depth: {}) after backoff: {}ms on: {}",
+                             v, abandon.get(), majority, depth, TimeUnit.NANOSECONDS.toMillis(reseedDelayWithJitter), node.getId());
+                    trusts.clear();
+                    initialSeedSet.clear();
+                    scheduler.schedule(() -> Thread.ofVirtual().start(Utils.wrapped(() -> seeding(), log)),
+                                       reseedDelayWithJitter, TimeUnit.NANOSECONDS);
                     return;
                 }
                 abandon.set(0);
