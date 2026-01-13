@@ -442,7 +442,7 @@ class Binding {
                                     }
                                     if (abandon.get() >= majority) {
                                         final int depth = reseedDepth.incrementAndGet();
-                                        final int maxReseedDepth = 3;
+                                        final int maxReseedDepth = 6; // Allow more attempts during cascading view changes on CI
                                         if (depth > maxReseedDepth) {
                                             log.warn(
                                             "Continuation: Abandoning view: {} abandons: {} reseed depth: {} exceeds max: {} giving up on: {}",
