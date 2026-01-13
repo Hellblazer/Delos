@@ -177,7 +177,7 @@ public class CHOAMBlockValidationTest {
     }
 
     @Test
-    public void testRejectBlockWithInvalidSignature() throws Exception {
+    public void testBlockValidation() throws Exception {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
@@ -185,142 +185,30 @@ public class CHOAMBlockValidationTest {
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
-        // Note: This test validates that CHOAM's internal block validation logic
-        // would reject blocks with invalid signatures. Since we cannot easily inject
-        // malformed blocks into the consensus pipeline, this test validates the
-        // system remains stable when processing normal blocks.
-        // Future enhancement: Add mock injection capability to test actual rejection paths
-        assertTrue(true, "Block signature validation is handled internally by CHOAM");
-    }
+        // Verify height progression from genesis
+        choams.values().forEach(c -> assertTrue(c.currentHeight().longValue() >= 0, "Height should start at genesis"));
 
-    @Test
-    public void testRejectBlockWithInvalidHash() throws Exception {
-        routers.values().forEach(Router::start);
-        choams.values().forEach(CHOAM::start);
-
-        boolean activated = Utils.waitForCondition(IS_CI ? 30_000 : 15_000, 1_000,
-                                                   () -> choams.values().stream().allMatch(c -> c.active()));
-        assertTrue(activated, "System did not become active");
-
-        // Similar to signature test - validates system stability
-        // Future enhancement: Mock block injection for invalid hash testing
-        assertTrue(true, "Block hash validation is handled internally by CHOAM");
-    }
-
-    @Test
-    public void testRejectBlockWithGapInHeight() throws Exception {
-        routers.values().forEach(Router::start);
-        choams.values().forEach(CHOAM::start);
-
-        boolean activated = Utils.waitForCondition(IS_CI ? 30_000 : 15_000, 1_000,
-                                                   () -> choams.values().stream().allMatch(c -> c.active()));
-        assertTrue(activated, "System did not become active");
-
-        // Validates that CHOAM handles height gaps correctly through synchronization
-        // The system should recover from any height gaps through the sync protocol
-        assertTrue(true, "Height gap handling validated through synchronization");
-    }
-
-    @Test
-    public void testRejectBlockFromNonMember() throws Exception {
-        routers.values().forEach(Router::start);
-        choams.values().forEach(CHOAM::start);
-
-        boolean activated = Utils.waitForCondition(IS_CI ? 30_000 : 15_000, 1_000,
-                                                   () -> choams.values().stream().allMatch(c -> c.active()));
-        assertTrue(activated, "System did not become active");
-
-        // CHOAM validates block producers against view membership
-        // Non-member blocks are rejected at the committee level
-        assertTrue(true, "Non-member block rejection validated at committee level");
-    }
-
-    @Test
-    public void testAcceptValidBlock() throws Exception {
-        routers.values().forEach(Router::start);
-        choams.values().forEach(CHOAM::start);
-
-        boolean activated = Utils.waitForCondition(IS_CI ? 30_000 : 15_000, 1_000,
-                                                   () -> choams.values().stream().allMatch(c -> c.active()));
-        assertTrue(activated, "System did not become active");
-
-        // Submit transactions to trigger block production
-        final var transactioneers = new ArrayList<Transactioneer>();
-        final var clientCount = 2;
-        final var transactionsPerClient = 5;
-        final var countdown = new CountDownLatch(clientCount * choams.size());
-        final var timeout = Duration.ofSeconds(3);
-
-        choams.values().forEach(c -> {
-            for (int i = 0; i < clientCount; i++) {
-                transactioneers.add(new Transactioneer(scheduler, c.getSession(), timeout, transactionsPerClient, countdown));
-            }
-        });
-
-        transactioneers.forEach(Transactioneer::start);
-        try {
-            final var complete = countdown.await(IS_CI ? 90 : 30, TimeUnit.SECONDS);
-            assertTrue(complete, "Valid blocks were accepted and transactions completed");
-        } finally {
-            routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
-            choams.values().forEach(CHOAM::stop);
-        }
-    }
-
-    @Test
-    public void testBlockHeightProgression() throws Exception {
-        routers.values().forEach(Router::start);
-        choams.values().forEach(CHOAM::start);
-
-        boolean activated = Utils.waitForCondition(IS_CI ? 30_000 : 15_000, 1_000,
-                                                   () -> choams.values().stream().allMatch(c -> c.active()));
-        assertTrue(activated, "System did not become active");
-
-        // Trigger some block production
-        final var transactioneers = new ArrayList<Transactioneer>();
-        final var countdown = new CountDownLatch(choams.size());
-        choams.values().forEach(c -> {
-            transactioneers.add(new Transactioneer(scheduler, c.getSession(), Duration.ofSeconds(3), 3, countdown));
-        });
-
-        transactioneers.forEach(Transactioneer::start);
-        countdown.await(IS_CI ? 90 : 30, TimeUnit.SECONDS);
-
-        // Verify all members have progressed beyond genesis
-        choams.values().forEach(c -> {
-            ULong height = c.currentHeight();
-            assertTrue(height.longValue() >= 0, "Block height should progress from genesis");
-        });
-
-        routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
-        choams.values().forEach(CHOAM::stop);
-    }
-
-    @Test
-    public void testConsecutiveBlockValidation() throws Exception {
-        routers.values().forEach(Router::start);
-        choams.values().forEach(CHOAM::start);
-
-        boolean activated = Utils.waitForCondition(IS_CI ? 30_000 : 15_000, 1_000,
-                                                   () -> choams.values().stream().allMatch(c -> c.active()));
-        assertTrue(activated, "System did not become active");
-
-        // Produce multiple blocks and verify each is validated correctly
+        // Produce multiple rounds of blocks to verify validation
         for (int round = 0; round < 3; round++) {
-            final var countdown = new CountDownLatch(choams.size());
+            final var countdown = new CountDownLatch(choams.size() * 2);
             final var transactioneers = new ArrayList<Transactioneer>();
 
             choams.values().forEach(c -> {
-                transactioneers.add(new Transactioneer(scheduler, c.getSession(), Duration.ofSeconds(3), 2, countdown));
+                for (int i = 0; i < 2; i++) {
+                    transactioneers.add(new Transactioneer(scheduler, c.getSession(), Duration.ofSeconds(3), 3, countdown));
+                }
             });
 
             transactioneers.forEach(Transactioneer::start);
-            boolean completed = countdown.await(IS_CI ? 45 : 15, TimeUnit.SECONDS);
-            assertTrue(completed, "Round " + round + " transactions should complete");
+            boolean completed = countdown.await(IS_CI ? 90 : 30, TimeUnit.SECONDS);
+            assertTrue(completed, "Round " + round + " block validation should complete");
         }
 
-        // All members should have processed multiple blocks successfully
-        choams.values().forEach(c -> assertTrue(c.active(), "Member should remain active after multiple blocks"));
+        // Verify all members processed blocks successfully and remain active
+        choams.values().forEach(c -> {
+            assertTrue(c.active(), "Member should remain active after block validation");
+            assertTrue(c.currentHeight().longValue() > 0, "Block height should progress beyond genesis");
+        });
 
         routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
         choams.values().forEach(CHOAM::stop);

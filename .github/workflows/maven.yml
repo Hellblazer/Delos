@@ -99,7 +99,7 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Batch 2a (CHOAM checkpoint tests - heavy)
+      - name: Test Batch 2a (CHOAM checkpoint tests)
         run: ./mvnw -batch-mode surefire:test -pl choam -Dtest='CHOAMCheckpointTest,SynchronizationCircuitBreakerTest,CheckpointValidationRaceTest' --file pom.xml
       - name: Save Maven cache after batch-2a tests
         uses: actions/cache@v4

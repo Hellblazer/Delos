@@ -190,7 +190,7 @@ public class CHOAMCheckpointTest {
     }
 
     @Test
-    public void testCheckpointAssemblyFailureMidOperation() throws Exception {
+    public void testBasicCheckpointOperation() throws Exception {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
@@ -198,50 +198,7 @@ public class CHOAMCheckpointTest {
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
-        // Produce enough blocks to trigger multiple checkpoints (delta=5)
-        final var transactioneers = new ArrayList<Transactioneer>();
-        final var countdown = new CountDownLatch(choams.size() * 2);
-
-        choams.values().forEach(c -> {
-            for (int i = 0; i < 2; i++) {
-                transactioneers.add(new Transactioneer(scheduler, c.getSession(), Duration.ofSeconds(3), 15, countdown));
-            }
-        });
-
-        transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(IS_CI ? 360 : 120, TimeUnit.SECONDS);
-        assertTrue(completed, "Checkpoint assembly should complete or recover from failures");
-
-        // Verify checkpoints were created
-        boolean anyCheckpoints = checkpointCounts.values().stream().anyMatch(c -> c.get() > 0);
-        assertTrue(anyCheckpoints, "At least some checkpoints should have been created");
-    }
-
-    @Test
-    public void testCheckpointRestoreWithCorruptedState() throws Exception {
-        // This test validates that checkpoint restoration handles errors gracefully
-        routers.values().forEach(Router::start);
-        choams.values().forEach(CHOAM::start);
-
-        boolean activated = Utils.waitForCondition(IS_CI ? 60_000 : 30_000, 1_000,
-                                                   () -> choams.values().stream().allMatch(c -> c.active()));
-        assertTrue(activated, "System did not become active");
-
-        // Note: Actual corruption testing would require stopping and restarting with
-        // corrupted checkpoint files. This test validates normal checkpoint operation.
-        assertTrue(true, "Checkpoint corruption handling validated through normal operation");
-    }
-
-    @Test
-    public void testCheckpointChainValidation() throws Exception {
-        routers.values().forEach(Router::start);
-        choams.values().forEach(CHOAM::start);
-
-        boolean activated = Utils.waitForCondition(IS_CI ? 60_000 : 30_000, 1_000,
-                                                   () -> choams.values().stream().allMatch(c -> c.active()));
-        assertTrue(activated, "System did not become active");
-
-        // Produce blocks to create a chain of checkpoints
+        // Produce blocks to trigger checkpoints (delta=5) and verify consistency
         final var transactioneers = new ArrayList<Transactioneer>();
         final var countdown = new CountDownLatch(choams.size() * 3);
 
@@ -253,18 +210,20 @@ public class CHOAMCheckpointTest {
 
         transactioneers.forEach(Transactioneer::start);
         boolean completed = countdown.await(IS_CI ? 270 : 90, TimeUnit.SECONDS);
-        assertTrue(completed, "Checkpoint chain should be created successfully");
+        assertTrue(completed, "Basic checkpoint operation should complete");
 
-        // Verify checkpoints were created during the chain
-        // Note: checkpoint counts may vary due to block production timing
-        boolean hasCheckpoints = checkpointCounts.values()
-                                                 .stream()
-                                                 .anyMatch(c -> c.get() > 0);
-        assertTrue(hasCheckpoints, "Checkpoint chain validation requires at least some checkpoints created");
+        // Verify checkpoints created and consistent across members
+        List<Integer> counts = checkpointCounts.values().stream().map(AtomicInteger::get).toList();
+        assertFalse(counts.isEmpty(), "Should have checkpoint counts");
+        assertTrue(counts.stream().anyMatch(c -> c > 0), "At least some checkpoints should be created");
+
+        int max = counts.stream().max(Integer::compare).orElse(0);
+        int min = counts.stream().min(Integer::compare).orElse(0);
+        assertTrue(max - min <= 2, String.format("Checkpoint counts should be consistent: max=%d, min=%d", max, min));
     }
 
     @Test
-    public void testCheckpointCreationDuringHighLoad() throws Exception {
+    public void testCheckpointUnderLoad() throws Exception {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
@@ -272,7 +231,7 @@ public class CHOAMCheckpointTest {
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
-        // High load scenario - many parallel transactions
+        // High load with continuous transactions to test checkpoint under stress
         final var transactioneers = new ArrayList<Transactioneer>();
         final var countdown = new CountDownLatch(choams.size() * 4);
 
@@ -284,71 +243,11 @@ public class CHOAMCheckpointTest {
 
         transactioneers.forEach(Transactioneer::start);
         boolean completed = countdown.await(IS_CI ? 360 : 120, TimeUnit.SECONDS);
-        assertTrue(completed, "Checkpoints should be created correctly under high load");
+        assertTrue(completed, "Checkpoint under load should complete");
 
-        // Verify checkpoints were created under load
-        boolean checkpointsCreated = checkpointCounts.values().stream().anyMatch(c -> c.get() > 0);
-        assertTrue(checkpointsCreated, "Checkpoints should be created during high load");
-    }
-
-    @Test
-    public void testCheckpointConsistencyAcrossMembers() throws Exception {
-        routers.values().forEach(Router::start);
-        choams.values().forEach(CHOAM::start);
-
-        boolean activated = Utils.waitForCondition(IS_CI ? 60_000 : 30_000, 1_000,
-                                                   () -> choams.values().stream().allMatch(c -> c.active()));
-        assertTrue(activated, "System did not become active");
-
-        // Produce blocks to trigger checkpoints
-        final var transactioneers = new ArrayList<Transactioneer>();
-        final var countdown = new CountDownLatch(choams.size() * 2);
-
-        choams.values().forEach(c -> {
-            for (int i = 0; i < 2; i++) {
-                transactioneers.add(new Transactioneer(scheduler, c.getSession(), Duration.ofSeconds(3), 12, countdown));
-            }
-        });
-
-        transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(IS_CI ? 360 : 120, TimeUnit.SECONDS);
-        assertTrue(completed, "Checkpoint creation should complete across members");
-
-        // Verify all members created similar number of checkpoints (within tolerance)
-        List<Integer> counts = checkpointCounts.values().stream().map(AtomicInteger::get).toList();
-        if (!counts.isEmpty()) {
-            int max = counts.stream().max(Integer::compare).orElse(0);
-            int min = counts.stream().min(Integer::compare).orElse(0);
-            int tolerance = 2;  // Allow up to 2 checkpoint difference due to timing
-            assertTrue(max - min <= tolerance,
-                      String.format("Checkpoint counts should be consistent: max=%d, min=%d", max, min));
-        }
-    }
-
-    @Test
-    public void testConcurrentCheckpointAndBlockAcceptance() throws Exception {
-        routers.values().forEach(Router::start);
-        choams.values().forEach(CHOAM::start);
-
-        boolean activated = Utils.waitForCondition(IS_CI ? 60_000 : 30_000, 1_000,
-                                                   () -> choams.values().stream().allMatch(c -> c.active()));
-        assertTrue(activated, "System did not become active");
-
-        // Continuous transactions to test concurrent checkpoint and block operations
-        final var transactioneers = new ArrayList<Transactioneer>();
-        final var countdown = new CountDownLatch(choams.size() * 3);
-
-        choams.values().forEach(c -> {
-            for (int i = 0; i < 3; i++) {
-                transactioneers.add(new Transactioneer(scheduler, c.getSession(), Duration.ofSeconds(3), 16, countdown));
-            }
-        });
-
-        transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(IS_CI ? 270 : 90, TimeUnit.SECONDS);
-        assertTrue(completed, "Concurrent checkpoint and block operations should succeed");
-
-        // System should remain active throughout
-        choams.values().forEach(c -> assertTrue(c.active(), "System should remain active during checkpoints"));
+        // Verify system remained stable and checkpoints created
+        choams.values().forEach(c -> assertTrue(c.active(), "System should remain active under load"));
+        assertTrue(checkpointCounts.values().stream().anyMatch(c -> c.get() > 0),
+                   "Checkpoints should be created under load");
     }
 }
