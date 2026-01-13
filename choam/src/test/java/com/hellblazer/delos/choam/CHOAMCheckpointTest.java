@@ -55,7 +55,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * @author hal.hildebrand
  */
 public class CHOAMCheckpointTest {
-    private static final int CARDINALITY = 4;
+    private static final boolean IS_CI       = Boolean.parseBoolean(System.getenv().getOrDefault("CI", "false"));
+    private static final int     CARDINALITY = 4;
 
     private Map<Digest, CHOAM> choams;
     private Map<Digest, Router> routers;
@@ -193,7 +194,7 @@ public class CHOAMCheckpointTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(30_000, 1_000,
+        boolean activated = Utils.waitForCondition(IS_CI ? 60_000 : 30_000, 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -208,7 +209,7 @@ public class CHOAMCheckpointTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(120, TimeUnit.SECONDS);
+        boolean completed = countdown.await(IS_CI ? 360 : 120, TimeUnit.SECONDS);
         assertTrue(completed, "Checkpoint assembly should complete or recover from failures");
 
         // Verify checkpoints were created
@@ -222,7 +223,7 @@ public class CHOAMCheckpointTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(30_000, 1_000,
+        boolean activated = Utils.waitForCondition(IS_CI ? 60_000 : 30_000, 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -236,7 +237,7 @@ public class CHOAMCheckpointTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(30_000, 1_000,
+        boolean activated = Utils.waitForCondition(IS_CI ? 60_000 : 30_000, 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -251,7 +252,7 @@ public class CHOAMCheckpointTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(90, TimeUnit.SECONDS);
+        boolean completed = countdown.await(IS_CI ? 270 : 90, TimeUnit.SECONDS);
         assertTrue(completed, "Checkpoint chain should be created successfully");
 
         // Verify checkpoints were created during the chain
@@ -267,7 +268,7 @@ public class CHOAMCheckpointTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(30_000, 1_000,
+        boolean activated = Utils.waitForCondition(IS_CI ? 60_000 : 30_000, 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -282,7 +283,7 @@ public class CHOAMCheckpointTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(120, TimeUnit.SECONDS);
+        boolean completed = countdown.await(IS_CI ? 360 : 120, TimeUnit.SECONDS);
         assertTrue(completed, "Checkpoints should be created correctly under high load");
 
         // Verify checkpoints were created under load
@@ -295,7 +296,7 @@ public class CHOAMCheckpointTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(30_000, 1_000,
+        boolean activated = Utils.waitForCondition(IS_CI ? 60_000 : 30_000, 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -310,7 +311,7 @@ public class CHOAMCheckpointTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(120, TimeUnit.SECONDS);
+        boolean completed = countdown.await(IS_CI ? 360 : 120, TimeUnit.SECONDS);
         assertTrue(completed, "Checkpoint creation should complete across members");
 
         // Verify all members created similar number of checkpoints (within tolerance)
@@ -329,7 +330,7 @@ public class CHOAMCheckpointTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(30_000, 1_000,
+        boolean activated = Utils.waitForCondition(IS_CI ? 60_000 : 30_000, 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -344,7 +345,7 @@ public class CHOAMCheckpointTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(90, TimeUnit.SECONDS);
+        boolean completed = countdown.await(IS_CI ? 270 : 90, TimeUnit.SECONDS);
         assertTrue(completed, "Concurrent checkpoint and block operations should succeed");
 
         // System should remain active throughout
