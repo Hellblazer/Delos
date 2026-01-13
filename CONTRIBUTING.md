@@ -315,7 +315,7 @@ Include:
 Title: Consensus timeout during high-load scenarios
 
 Environment:
-- Delos version: 0.0.5-SNAPSHOT
+- Delos version: 0.0.11-SNAPSHOT
 - JDK: 25.0.1
 - OS: Ubuntu 22.04
 

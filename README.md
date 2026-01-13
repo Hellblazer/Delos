@@ -104,12 +104,12 @@ Add to your project's `pom.xml`:
   <dependency>
     <groupId>com.hellblazer.delos</groupId>
     <artifactId>fireflies</artifactId>
-    <version>0.0.4-SNAPSHOT</version>
+    <version>0.0.11-SNAPSHOT</version>
   </dependency>
   <dependency>
     <groupId>com.hellblazer.delos</groupId>
     <artifactId>stereotomy</artifactId>
-    <version>0.0.4-SNAPSHOT</version>
+    <version>0.0.11-SNAPSHOT</version>
   </dependency>
 </dependencies>
 ```
@@ -251,7 +251,7 @@ Delos is a maturing distributed platform:
 - **SQL-State**: Mature with comprehensive testing
 - Other modules: Continuing development
 
-Current version: `0.0.4-SNAPSHOT` — No official release yet, but core layers are production-hardened.
+Current version: `0.0.11-SNAPSHOT` — No official release yet, but core layers are production-hardened.
 
 ## IDE Integration
 
