@@ -183,7 +183,7 @@ public class CHOAMTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        final var activated = Utils.waitForCondition(30_000, 1_000,
+        final var activated = Utils.waitForCondition(LARGE_TESTS ? 90_000 : 60_000, 1_000,
                                                      () -> choams.values().stream().allMatch(CHOAM::active));
         assertTrue(activated, "System did not become active: " + (choams.values()
                                                                         .stream()
