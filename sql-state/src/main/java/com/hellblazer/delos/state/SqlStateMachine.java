@@ -592,6 +592,11 @@ public class SqlStateMachine {
             log.warn("Empty or null SQL in statement on: {}", id);
             return Collections.emptyList();
         }
+
+        // CRITICAL: Validate SQL against function whitelist (Delos-a5g5)
+        // Rejects non-deterministic functions that cause consensus divergence
+        FunctionWhitelist.validate(sql);
+
         return execute(sql, exec -> {
             List<ResultSet> results = new ArrayList<>();
             try {
