@@ -19,6 +19,28 @@
             <artifactId>snakeyaml</artifactId>
             <version>1.33</version>
         </dependency>
+
+        <!-- Test only deps below this line -->
+        <dependency>
+            <groupId>com.hellblazer.delos</groupId>
+            <artifactId>h2-deterministic</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-params</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <scope>test</scope>
+        </dependency>
   </dependencies>
 
 </project>

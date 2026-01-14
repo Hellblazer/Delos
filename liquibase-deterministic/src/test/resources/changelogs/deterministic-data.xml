@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!--
+        Deterministic data insertion test.
+
+        DETERMINISM REQUIREMENTS:
+        - Explicit values (no RAND(), no UUID generation)
+        - No CURRENT_TIMESTAMP, NOW(), or other time functions
+        - Use explicit timestamps (e.g., epoch milliseconds)
+        - Sequential IDs
+        - Deterministic ordering of inserts
+
+        FORBIDDEN OPERATIONS:
+        - ❌ INSERT INTO users (id, created_at) VALUES (1, NOW());
+        - ❌ INSERT INTO users (id, uuid) VALUES (1, UUID());
+        - ❌ INSERT INTO users (id, random_value) VALUES (1, RAND());
+
+        SAFE OPERATIONS:
+        - ✅ INSERT INTO users (id, created_at) VALUES (1, 1704067200000);
+        - ✅ INSERT INTO users (id, uuid) VALUES (1, '550e8400-e29b-41d4-a716-446655440000');
+        - ✅ INSERT INTO users (id, random_value) VALUES (1, 42);
+     -->
+
+    <changeSet id="1" author="test">
+        <comment>Create table for deterministic data insertion</comment>
+        <createTable tableName="test_data">
+            <column name="id" type="BIGINT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="value" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="2" author="test">
+        <comment>Insert deterministic data (explicit values only)</comment>
+        <insert tableName="test_data">
+            <column name="id" valueNumeric="1"/>
+            <column name="name" value="Alice"/>
+            <column name="value" valueNumeric="100"/>
+            <column name="created_at" valueNumeric="1704067200000"/>
+        </insert>
+        <insert tableName="test_data">
+            <column name="id" valueNumeric="2"/>
+            <column name="name" value="Bob"/>
+            <column name="value" valueNumeric="200"/>
+            <column name="created_at" valueNumeric="1704067200001"/>
+        </insert>
+        <insert tableName="test_data">
+            <column name="id" valueNumeric="3"/>
+            <column name="name" value="Charlie"/>
+            <column name="value" valueNumeric="300"/>
+            <column name="created_at" valueNumeric="1704067200002"/>
+        </insert>
+    </changeSet>
+
+    <changeSet id="3" author="test">
+        <comment>Test update determinism (explicit values)</comment>
+        <update tableName="test_data">
+            <column name="value" valueNumeric="150"/>
+            <where>id = 1</where>
+        </update>
+    </changeSet>
+
+    <changeSet id="4" author="test">
+        <comment>Test delete determinism</comment>
+        <delete tableName="test_data">
+            <where>id = 3</where>
+        </delete>
+    </changeSet>
+
+    <changeSet id="5" author="test">
+        <comment>Insert more data to verify ordering</comment>
+        <insert tableName="test_data">
+            <column name="id" valueNumeric="4"/>
+            <column name="name" value="David"/>
+            <column name="value" valueNumeric="400"/>
+            <column name="created_at" valueNumeric="1704067200003"/>
+        </insert>
+        <insert tableName="test_data">
+            <column name="id" valueNumeric="5"/>
+            <column name="name" value="Eve"/>
+            <column name="value" valueNumeric="500"/>
+            <column name="created_at" valueNumeric="1704067200004"/>
+        </insert>
+    </changeSet>
+
+</databaseChangeLog>
