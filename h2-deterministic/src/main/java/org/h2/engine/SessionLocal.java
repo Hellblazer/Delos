@@ -995,9 +995,29 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
         }
     }
 
+    /**
+     * Get or create the Random instance for this session.
+     * <p>
+     * CRITICAL FOR DETERMINISM: Random is initialized with seed 0L (deterministic),
+     * NOT new Random() which uses System.currentTimeMillis() (non-deterministic).
+     * <p>
+     * This initial seed is ALWAYS overwritten by SqlStateMachine.begin() before SQL
+     * execution, which reseeds with block hash for Byzantine fault tolerance. The 0L
+     * seed ensures that if getRandom() is somehow called before begin(), it returns
+     * a deterministically-seeded instance rather than a time-based one.
+     * <p>
+     * WARNING: java.util.Random is NOT provably deterministic across JVM vendors/versions.
+     * Evidence from Delos-3nsd (Ethereal) shows Collections.shuffle(Random) varies across
+     * JVMs. This is ACCEPTED RISK because all replicas run identical JVM (deployment
+     * constraint). Validation via multi-JVM test suite (Delos-cvdm).
+     * <p>
+     * @return the Random instance for this session (singleton pattern)
+     */
     public Random getRandom() {
         if (random == null) {
-            random = new Random();
+            // Use deterministic seed 0L, NOT new Random() which uses System.currentTimeMillis()
+            // SqlStateMachine.begin() will reseed with block hash before actual SQL execution
+            random = new Random(0L);
         }
         return random;
     }
