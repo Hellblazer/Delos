@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!--
+        Index creation test for determinism validation.
+
+        DETERMINISM REQUIREMENTS:
+        - Explicit index names (no auto-generation)
+        - Consistent column ordering in composite indexes
+        - Explicit UNIQUE constraints
+        - Sequential changeset IDs
+     -->
+
+    <changeSet id="1" author="test">
+        <comment>Create base table for index testing</comment>
+        <createTable tableName="products">
+            <column name="id" type="BIGINT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="sku" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="name" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="category" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="price" type="DECIMAL(10,2)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="stock_quantity" type="INT">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="2" author="test">
+        <comment>Create unique index on SKU</comment>
+        <createIndex indexName="idx_products_sku" tableName="products" unique="true">
+            <column name="sku"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="3" author="test">
+        <comment>Create non-unique index on category</comment>
+        <createIndex indexName="idx_products_category" tableName="products" unique="false">
+            <column name="category"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="4" author="test">
+        <comment>Create composite index on category and price</comment>
+        <createIndex indexName="idx_products_category_price" tableName="products" unique="false">
+            <column name="category"/>
+            <column name="price"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="5" author="test">
+        <comment>Create descending index on price (tests sort order determinism)</comment>
+        <createIndex indexName="idx_products_price_desc" tableName="products" unique="false">
+            <column name="price" descending="true"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

@@ -51,8 +51,12 @@ public class CloseWatcher extends PhantomReference<Object> {
 
     /**
      * Check for an collected object.
+     * <p>
+     * Polls the reference queue for CloseWatcher instances whose referents have been
+     * garbage collected. If a watcher is found and its closeable is still non-null,
+     * it indicates a resource leak (object was garbage collected without being closed).
      *
-     * @return the first watcher
+     * @return the first watcher with an unclosed resource, or null if none found
      */
     public static CloseWatcher pollUnclosed() {
         while (true) {
@@ -60,9 +64,8 @@ public class CloseWatcher extends PhantomReference<Object> {
             if (cw == null) {
                 return null;
             }
-            if (refs != null) {
-                refs.remove(cw);
-            }
+            // Remove from tracking set. refs is final and non-null, so no null check needed.
+            refs.remove(cw);
             if (cw.closeable != null) {
                 return cw;
             }

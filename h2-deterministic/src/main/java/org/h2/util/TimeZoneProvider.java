@@ -157,8 +157,61 @@ public abstract class TimeZoneProvider {
 
     /**
      * Returns the time zone provider for the system default time zone.
+     * <p>
+     * <strong>CRITICAL DETERMINISM OVERRIDE:</strong> This method ALWAYS returns UTC,
+     * ignoring the system's actual default time zone. This is an intentional deviation
+     * from standard H2 behavior required for Byzantine fault-tolerant replicated state machines.
+     * <p>
+     * <strong>Rationale:</strong>
+     * <ul>
+     *   <li><strong>System Timezone Non-Determinism:</strong> Different replicas may run on
+     *       systems with different timezone configurations (e.g., one in UTC, another in
+     *       America/New_York). If SQL operations like CURRENT_TIMESTAMP or date arithmetic
+     *       used the system timezone, replicas would compute different results</li>
+     *   <li><strong>Daylight Saving Time:</strong> DST transitions are timezone-specific and
+     *       time-dependent. Even replicas in the same timezone would diverge during DST
+     *       transitions if they accessed system time independently</li>
+     *   <li><strong>Configuration Drift:</strong> System timezone changes (via timedatectl,
+     *       /etc/timezone, etc.) would cause immediate state divergence without warning</li>
+     * </ul>
+     * <p>
+     * <strong>Byzantine Failure Scenario:</strong>
+     * <pre>
+     * Replica A (system timezone: UTC):
+     *   SELECT CAST('2024-03-10 02:30:00' AS TIMESTAMP WITH TIME ZONE);
+     *   → 2024-03-10 02:30:00+00:00
      *
-     * @return the time zone provider for the system default time zone
+     * Replica B (system timezone: America/New_York, DST active):
+     *   SELECT CAST('2024-03-10 02:30:00' AS TIMESTAMP WITH TIME ZONE);
+     *   → 2024-03-10 02:30:00-05:00 (different offset!)
+     *
+     * Result: State divergence, consensus failure
+     * </pre>
+     * <p>
+     * <strong>Impact on Applications:</strong>
+     * <ul>
+     *   <li><strong>Timestamps:</strong> All timestamp operations use UTC. Applications
+     *       needing local time must handle conversion in application layer</li>
+     *   <li><strong>Date Arithmetic:</strong> Date math operations like DATEADD use UTC,
+     *       avoiding DST ambiguities</li>
+     *   <li><strong>JDBC Behavior:</strong> JDBC drivers expect system timezone to be honored.
+     *       This override may surprise applications, but it's necessary for correctness</li>
+     * </ul>
+     * <p>
+     * <strong>Alternative Considered:</strong> Allow timezone configuration via CHOAM transaction
+     * parameter, ensuring all replicas use identical timezone. Rejected because:
+     * <ul>
+     *   <li>Adds complexity to transaction protocol</li>
+     *   <li>UTC is the standard for distributed systems (ISO 8601, RFC 3339)</li>
+     *   <li>Eliminates entire class of DST-related bugs</li>
+     * </ul>
+     * <p>
+     * <strong>Testing:</strong> Multi-replica tests run on systems with different timezones
+     * to verify this override prevents divergence.
+     * <p>
+     * Related: Delos-mcpw (TimeZoneProvider determinism documentation)
+     *
+     * @return always UTC, never the system's actual default timezone
      */
     public static TimeZoneProvider getDefault() {
         return UTC;

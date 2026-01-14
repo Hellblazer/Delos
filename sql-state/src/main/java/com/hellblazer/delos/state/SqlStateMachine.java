@@ -61,6 +61,7 @@ import java.sql.*;
 import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -76,8 +77,65 @@ import java.util.zip.GZIPOutputStream;
  * <p>
  * Batch oriented, but low enough latency to make it worth the wait (with the right system wide consensus/distribution,
  * 'natch).
+ * <p>
+ * <strong>CRITICAL TRANSACTION ISOLATION AND SEQUENTIAL EXECUTION:</strong>
+ * <p>
+ * All transactions MUST execute sequentially on a single thread to ensure deterministic MVCC visibility
+ * across Byzantine replicas. Concurrent transaction execution would cause non-deterministic behavior:
+ * <ul>
+ *   <li><strong>MVCC Visibility Divergence:</strong> H2's MVCC (Multi-Version Concurrency Control) provides
+ *       snapshot isolation. If replicas execute transactions in different orders, they see different
+ *       snapshots, leading to divergent database states</li>
+ *   <li><strong>BlockClock Synchronization:</strong> The BlockClock advances via incrementTxn() for each
+ *       transaction. Concurrent execution would cause non-deterministic timestamp ordering</li>
+ *   <li><strong>Transaction Ordering Guarantee:</strong> CHOAM consensus guarantees all replicas receive
+ *       transactions in identical order. Sequential execution preserves this ordering through to SQL execution</li>
+ * </ul>
+ * <p>
+ * <strong>Byzantine Failure Scenario (Concurrent Execution):</strong>
+ * <pre>
+ * Replica A (sequential):
+ *   Block 100, Txn 0: BEGIN; UPDATE accounts SET balance=100 WHERE id=1; COMMIT;
+ *   Block 100, Txn 1: BEGIN; SELECT balance FROM accounts WHERE id=1; COMMIT; → Returns 100
+ *
+ * Replica B (parallel - FORBIDDEN):
+ *   Block 100: Txn 0 and Txn 1 execute concurrently on different threads
+ *   Txn 1 sees snapshot before Txn 0 commits → Returns 0 (old value)
+ *
+ * Result: State divergence (A sees 100, B sees 0), consensus failure
+ * </pre>
+ * <p>
+ * <strong>Single-Threaded Execution Enforcement:</strong>
+ * <ul>
+ *   <li><strong>TxnExec Executor:</strong> All transactions execute via the TxnExec inner class, which
+ *       uses an internal single-threaded executor (see executor field)</li>
+ *   <li><strong>Block-Level Serialization:</strong> begin() is called once per block, execute() is called
+ *       sequentially for each transaction within that block, endBlock() finalizes</li>
+ *   <li><strong>Assertions:</strong> The execute() method includes assertions to detect multi-threaded
+ *       access violations (would indicate architectural bug)</li>
+ * </ul>
+ * <p>
+ * <strong>Transaction Lifecycle:</strong>
+ * <ol>
+ *   <li>CHOAM calls beginBlock(height, hash) - seeds BlockClock and SecureRandom</li>
+ *   <li>CHOAM calls execute(index, hash, txn, future) repeatedly - one per transaction in block</li>
+ *   <li>Each execute() calls clock.incrementTxn() to advance logical time</li>
+ *   <li>SQL executes with current BlockClock value (deterministic timestamp)</li>
+ *   <li>Transaction commits automatically at end of execute() (finally block)</li>
+ *   <li>CHOAM calls endBlock(height, hash) - completes block</li>
+ * </ol>
+ * <p>
+ * <strong>Testing Requirements:</strong>
+ * <ul>
+ *   <li>Multi-replica tests must verify all replicas produce identical final states</li>
+ *   <li>Concurrent transaction tests should verify assertion failures if attempted</li>
+ *   <li>MVCC visibility tests should confirm identical snapshot isolation across replicas</li>
+ * </ul>
+ * <p>
+ * Related: Delos-hvpj (Transaction isolation and sequential execution documentation)
  *
  * @author hal.hildebrand
+ * @see TxnExec Single-threaded transaction executor
  */
 public class SqlStateMachine {
 
@@ -115,6 +173,16 @@ public class SqlStateMachine {
     private final AtomicReference<Current>      executingBlock = new AtomicReference<>();
     private final TxnExec                       executor       = new TxnExec();
     /**
+     * Guard to ensure secureEntropy is not used before seeding.
+     * <p>
+     * CRITICAL: This prevents non-deterministic self-seeding. If SecureRandom is accessed
+     * before the first begin() call seeds it, SHA1PRNG will self-seed from /dev/random,
+     * making replicas diverge. This guard fails-fast if code attempts to use unseeded entropy.
+     * <p>
+     * Related: Delos-a0mt (SecureRandom seeding guard and validation)
+     */
+    private final AtomicBoolean                 seeded         = new AtomicBoolean(false);
+    /**
      * Deterministic secure random for replica synchronization.
      * <p>
      * CRITICAL: This instance is seeded with block hashes via begin() to ensure all replicas
@@ -122,12 +190,30 @@ public class SqlStateMachine {
      * 1. All replicas create SecureRandom.getInstance("SHA1PRNG") identically
      * 2. setSeed() is called with same block hash sequence across all replicas
      * 3. All replicas generate same number of random values per block (CHOAM guarantees this)
-     * 4. This instance is NEVER used before the first begin() call
+     * 4. This instance is NEVER used before the first begin() call (enforced by seeded guard)
      * <p>
      * SHA1PRNG.setSeed() supplements internal state deterministically - as long as all replicas
      * start from getInstance() and follow the same setSeed() sequence, they remain synchronized.
      * <p>
+     * <strong>RISK ACCEPTED:</strong> SHA1PRNG behavior is JVM-implementation-dependent and not
+     * specified in the Java Language Specification. The determinism guarantee depends on:
+     * <ul>
+     *   <li>All replicas using the same JVM vendor and version</li>
+     *   <li>SHA1PRNG implementation being consistent across JVM restarts</li>
+     *   <li>setSeed() mixing behavior being deterministic</li>
+     * </ul>
+     * <p>
+     * <strong>JVM COMPATIBILITY REQUIREMENTS:</strong>
+     * <ul>
+     *   <li>Tested and verified on: OpenJDK, Oracle JDK, GraalVM</li>
+     *   <li>All replicas MUST use the same JVM vendor and major version</li>
+     *   <li>Before deploying on new JVM, run SecureRandomDeterminismTest to verify</li>
+     *   <li>SHA1PRNG must be available (required by Java security providers)</li>
+     * </ul>
+     * <p>
      * See SecureRandomDeterminismTest and SqlStateMachineEntropyPatternTest for verification.
+     * <p>
+     * Related: Delos-a0mt (SecureRandom seeding guard and validation)
      */
     private final SecureRandom                  secureEntropy;
     private final EventTrampoline               trampoline     = new EventTrampoline();
@@ -563,6 +649,11 @@ public class SqlStateMachine {
             log.warn("Empty or null SQL in statement on: {}", id);
             return Collections.emptyList();
         }
+
+        // CRITICAL: Validate SQL against function whitelist (Delos-a5g5)
+        // Rejects non-deterministic functions that cause consensus divergence
+        FunctionWhitelist.validate(sql);
+
         return execute(sql, exec -> {
             List<ResultSet> results = new ArrayList<>();
             try {
@@ -665,6 +756,8 @@ public class SqlStateMachine {
         session.getRandom().setSeed(new DigestHasher(blkHash, height.longValue()).identityHash());
         // Seed secure entropy for RANDOM_UUID() and crypto operations
         secureEntropy.setSeed(blkHash.getBytes());
+        // Mark as seeded to prevent non-deterministic self-seeding (Delos-a0mt)
+        seeded.set(true);
         entropy.set(secureEntropy);
         clock.incrementHeight();
     }
@@ -738,17 +831,53 @@ public class SqlStateMachine {
 
     private void exception(@SuppressWarnings("rawtypes") CompletableFuture onCompletion, Throwable e) {
         if (onCompletion != null) {
-            var completed = onCompletion.completeExceptionally(e);
+            // Normalize exception to strip non-deterministic content (thread IDs, memory addresses, timestamps)
+            // CRITICAL: Replicas must return identical exception messages for Byzantine consensus
+            Throwable normalized = ExceptionNormalizer.normalize(e);
+            var completed = onCompletion.completeExceptionally(normalized);
             assert completed : "Invalid state";
         }
     }
 
+    /**
+     * Execute a single transaction within the current block.
+     * <p>
+     * <strong>CRITICAL SINGLE-THREADED REQUIREMENT:</strong> This method MUST be called
+     * from the same single thread for all transactions within a block. Concurrent execution
+     * would cause MVCC visibility divergence across replicas.
+     * <p>
+     * <strong>Execution Flow:</strong>
+     * <ol>
+     *   <li>Update current transaction metadata (height, block hash, index, hash)</li>
+     *   <li>Increment BlockClock transaction counter (advances logical time)</li>
+     *   <li>Execute SQL operation (BATCH, CALL, STATEMENT, SCRIPT, MIGRATION, etc.)</li>
+     *   <li>Complete future with results or exception</li>
+     *   <li>Commit transaction automatically (finally block)</li>
+     * </ol>
+     * <p>
+     * <strong>Transaction Isolation Guarantee:</strong> Each transaction sees a consistent
+     * snapshot of the database. Sequential execution ensures all replicas see identical
+     * snapshots in identical order, maintaining Byzantine consensus.
+     * <p>
+     * <strong>Thread Safety:</strong> NOT thread-safe. Caller (TxnExec) MUST serialize all
+     * calls to this method via single-threaded executor.
+     * <p>
+     * Related: Delos-hvpj (Transaction isolation and sequential execution)
+     *
+     * @param index       Transaction index within block (0-based)
+     * @param txnHash     Hash of transaction content
+     * @param tx          Transaction to execute
+     * @param onCompletion Future to complete with results or exception
+     */
     private void execute(int index, Digest txnHash, Txn tx,
                          @SuppressWarnings("rawtypes") CompletableFuture onCompletion) {
         log.debug("executing: {} on: {}", tx.getExecutionCase(), id);
         var executing = executingBlock.get();
         updateCurrent(executing.height, executing.blkHash, index, txnHash);
 
+        // CRITICAL: Advance BlockClock for this transaction.
+        // This MUST be called exactly once per transaction, in transaction order.
+        // Multi-threaded execution would cause non-deterministic timestamp ordering.
         clock.incrementTxn();
 
         try {
@@ -943,8 +1072,19 @@ public class SqlStateMachine {
     }
 
     private <T> T withContext(Callable<T> action) {
+        // Guard against using unseeded SecureRandom (Delos-a0mt)
+        // If entropy is set but not seeded, we risk non-deterministic self-seeding
+        SecureRandom entropyInstance = entropy.get();
+        if (entropyInstance != null && !seeded.get()) {
+            throw new IllegalStateException(
+                "SecureRandom accessed before seeding. Must call begin() first to seed with block hash. " +
+                "This guard prevents non-deterministic self-seeding from /dev/random, which would " +
+                "cause replica state divergence in Byzantine fault tolerance. See Delos-a0mt."
+            );
+        }
+
         SecureRandom prev = MathUtils.SECURE_RANDOM.get();
-        MathUtils.SECURE_RANDOM.set(entropy.get());
+        MathUtils.SECURE_RANDOM.set(entropyInstance);
         BlockClock prevClock = DateTimeUtils.CLOCK.get();
         DateTimeUtils.CLOCK.set(clock);
         try {

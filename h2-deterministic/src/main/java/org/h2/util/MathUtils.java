@@ -11,7 +11,6 @@ import java.io.IOException;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
-import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * This is a utility class with mathematical helper functions.
@@ -59,8 +58,16 @@ public class MathUtils {
     /**
      * Generate a seed value, using as much unpredictable data as possible.
      *
+     * @deprecated This method generates non-deterministic seeds using timestamps, memory state,
+     * and system properties, which violates the determinism requirement for Byzantine fault tolerance.
+     * MUST NOT be used in replicated state machines. Use explicitly seeded SECURE_RANDOM ThreadLocal
+     * via SqlStateMachine.withContext() instead.
+     *
+     * Related: Delos-qkh6 (MathUtils determinism fix), Delos-3nsd (proof that java.util.Random is non-deterministic)
+     *
      * @return the seed
      */
+    @Deprecated
     public static byte[] generateAlternativeSeed() {
         try {
             ByteArrayOutputStream bout = new ByteArrayOutputStream();
@@ -207,11 +214,12 @@ public class MathUtils {
 
     /**
      * Get a number of pseudo random bytes.
+     * Uses deterministic SECURE_RANDOM ThreadLocal seeded by SqlStateMachine.withContext().
      *
      * @param bytes the target array
      */
     public static void randomBytes(byte[] bytes) {
-        ThreadLocalRandom.current().nextBytes(bytes);
+        getSecureRandom().nextBytes(bytes);
     }
 
     /**
@@ -231,13 +239,13 @@ public class MathUtils {
 
     /**
      * Get a pseudo random int value between 0 (including and the given value
-     * (excluding). The value is not cryptographically secure.
+     * (excluding). Uses deterministic SECURE_RANDOM ThreadLocal seeded by SqlStateMachine.withContext().
      *
      * @param lowerThan the value returned will be lower than this value
      * @return the random long value
      */
     public static int randomInt(int lowerThan) {
-        return ThreadLocalRandom.current().nextInt(lowerThan);
+        return getSecureRandom().nextInt(lowerThan);
     }
 
     /**

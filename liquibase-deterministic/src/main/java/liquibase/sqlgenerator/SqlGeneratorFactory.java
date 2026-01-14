@@ -17,12 +17,64 @@ import java.lang.reflect.TypeVariable;
 import java.util.*;
 
 /**
- * SqlGeneratorFactory is a singleton registry of SqlGenerators.
+ * SqlGeneratorFactory is a thread-local singleton registry of SqlGenerators.
  * Use the register(SqlGenerator) method to add custom SqlGenerators,
  * and the getBestGenerator() method to retrieve the SqlGenerator that should be used for a given SqlStatement.
+ * <p>
+ * <strong>ThreadLocal Singleton Pattern:</strong> This class uses ThreadLocal for per-thread isolation,
+ * allowing each thread to have its own independent factory instance. This is necessary for Liquibase's
+ * internal architecture but has implications for deterministic execution.
+ * <p>
+ * <strong>CRITICAL DETERMINISM REQUIREMENT:</strong> Schema migrations MUST execute on a single thread
+ * to ensure deterministic behavior across Byzantine replicas:
+ * <ul>
+ *   <li><strong>Single-Threaded Execution:</strong> All Liquibase operations MUST occur on the same thread
+ *       within a transaction to ensure this factory returns the same instance</li>
+ *   <li><strong>No Concurrent Migrations:</strong> Multiple threads executing migrations concurrently would
+ *       get different factory instances, potentially leading to different SQL generation orders</li>
+ *   <li><strong>Generator Registration Order:</strong> Generators are registered in insertion order (ArrayList).
+ *       Concurrent registration from multiple threads could produce non-deterministic order</li>
+ * </ul>
+ * <p>
+ * <strong>Byzantine Fault Tolerance Considerations:</strong>
+ * <ul>
+ *   <li><strong>Single-Threaded Guarantee:</strong> SqlStateMachine executes migrations via single-threaded
+ *       executor (see SqlStateMachine.acceptMigration()). This ensures all replicas use the same thread
+ *       and thus the same factory instance</li>
+ *   <li><strong>Generator Selection Determinism:</strong> Generator selection uses TreeSet with SqlGeneratorComparator
+ *       for deterministic ordering (line 112, 118). This ensures all replicas select generators in identical order</li>
+ *   <li><strong>Cache Consistency:</strong> The generatorsByKey cache (line 36) is thread-local, preventing
+ *       cross-thread cache contamination that could cause divergence</li>
+ * </ul>
+ * <p>
+ * <strong>Thread-Safety Assumptions:</strong>
+ * <ul>
+ *   <li>Factory instance is NOT thread-safe (no synchronization on mutations)</li>
+ *   <li>Multiple threads CAN safely call getInstance() (each gets own instance via ThreadLocal)</li>
+ *   <li>Generator registration (register/unregister) is NOT thread-safe within same factory instance</li>
+ *   <li>SQL generation (generateSql) is read-only and thread-safe once generators registered</li>
+ * </ul>
+ * <p>
+ * <strong>Testing:</strong> Multi-replica tests must verify:
+ * <ul>
+ *   <li>All replicas execute migrations on same logical thread (per-replica)</li>
+ *   <li>Generator selection order is identical across replicas</li>
+ *   <li>Generated SQL is byte-for-byte identical for same input</li>
+ * </ul>
+ * <p>
+ * Related: Delos-c3b9 (Liquibase ThreadLocal factory usage), Delos-nric (Generator iteration order)
+ *
+ * @see ChangeLogHistoryServiceFactory Similar ThreadLocal pattern for history services
+ * @see SqlStateMachine#acceptMigration Single-threaded migration execution
  */
 public class SqlGeneratorFactory {
 
+    /**
+     * Thread-local singleton instance.
+     * <p>
+     * CRITICAL: Each thread gets its own factory instance. Schema migrations MUST execute
+     * on a single thread to ensure deterministic behavior (same factory instance used throughout).
+     */
     private static ThreadLocal<SqlGeneratorFactory> instance = new ThreadLocal<>() {
         @Override
         protected SqlGeneratorFactory initialValue() {
@@ -271,7 +323,7 @@ public class SqlGeneratorFactory {
     }
 
     public Set<DatabaseObject> getAffectedDatabaseObjects(SqlStatement statement, Database database) {
-        Set<DatabaseObject> affectedObjects = new HashSet<>();
+        Set<DatabaseObject> affectedObjects = new LinkedHashSet<>();
 
         SqlGeneratorChain sqlGeneratorChain = createGeneratorChain(statement, database);
         if (sqlGeneratorChain != null) {
