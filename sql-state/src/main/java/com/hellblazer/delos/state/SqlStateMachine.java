@@ -831,7 +831,10 @@ public class SqlStateMachine {
 
     private void exception(@SuppressWarnings("rawtypes") CompletableFuture onCompletion, Throwable e) {
         if (onCompletion != null) {
-            var completed = onCompletion.completeExceptionally(e);
+            // Normalize exception to strip non-deterministic content (thread IDs, memory addresses, timestamps)
+            // CRITICAL: Replicas must return identical exception messages for Byzantine consensus
+            Throwable normalized = ExceptionNormalizer.normalize(e);
+            var completed = onCompletion.completeExceptionally(normalized);
             assert completed : "Invalid state";
         }
     }
