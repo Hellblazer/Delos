@@ -1,5 +1,7 @@
 package com.hellblazer.delos.h2;
 
+import java.util.Objects;
+
 /**
  * Service registry for custom operations callable from SQL stored procedures and triggers.
  * <p>
@@ -94,13 +96,23 @@ package com.hellblazer.delos.h2;
  * @see FunctionWhitelist Function enforcement for SQL-level determinism
  */
 public interface SessionServices {
+    /**
+     * No-op implementation that rejects all service calls.
+     * <p>
+     * Use this when no custom services are registered. All calls will throw
+     * ServiceNotFoundException with defensive null validation.
+     */
     SessionServices NO_SERVICES = new SessionServices() {
         public <T> T call(String serviceName, Object... parameters) throws ServiceNotFoundException {
+            Objects.requireNonNull(serviceName, "serviceName cannot be null");
+            Objects.requireNonNull(parameters, "parameters cannot be null");
             throw new ServiceNotFoundException(serviceName);
         }
 
         @Override
         public void run(String serviceName, Object... parameters) throws ServiceNotFoundException {
+            Objects.requireNonNull(serviceName, "serviceName cannot be null");
+            Objects.requireNonNull(parameters, "parameters cannot be null");
             throw new ServiceNotFoundException(serviceName);
         }
     };
