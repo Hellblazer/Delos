@@ -77,8 +77,65 @@ import java.util.zip.GZIPOutputStream;
  * <p>
  * Batch oriented, but low enough latency to make it worth the wait (with the right system wide consensus/distribution,
  * 'natch).
+ * <p>
+ * <strong>CRITICAL TRANSACTION ISOLATION AND SEQUENTIAL EXECUTION:</strong>
+ * <p>
+ * All transactions MUST execute sequentially on a single thread to ensure deterministic MVCC visibility
+ * across Byzantine replicas. Concurrent transaction execution would cause non-deterministic behavior:
+ * <ul>
+ *   <li><strong>MVCC Visibility Divergence:</strong> H2's MVCC (Multi-Version Concurrency Control) provides
+ *       snapshot isolation. If replicas execute transactions in different orders, they see different
+ *       snapshots, leading to divergent database states</li>
+ *   <li><strong>BlockClock Synchronization:</strong> The BlockClock advances via incrementTxn() for each
+ *       transaction. Concurrent execution would cause non-deterministic timestamp ordering</li>
+ *   <li><strong>Transaction Ordering Guarantee:</strong> CHOAM consensus guarantees all replicas receive
+ *       transactions in identical order. Sequential execution preserves this ordering through to SQL execution</li>
+ * </ul>
+ * <p>
+ * <strong>Byzantine Failure Scenario (Concurrent Execution):</strong>
+ * <pre>
+ * Replica A (sequential):
+ *   Block 100, Txn 0: BEGIN; UPDATE accounts SET balance=100 WHERE id=1; COMMIT;
+ *   Block 100, Txn 1: BEGIN; SELECT balance FROM accounts WHERE id=1; COMMIT; → Returns 100
+ *
+ * Replica B (parallel - FORBIDDEN):
+ *   Block 100: Txn 0 and Txn 1 execute concurrently on different threads
+ *   Txn 1 sees snapshot before Txn 0 commits → Returns 0 (old value)
+ *
+ * Result: State divergence (A sees 100, B sees 0), consensus failure
+ * </pre>
+ * <p>
+ * <strong>Single-Threaded Execution Enforcement:</strong>
+ * <ul>
+ *   <li><strong>TxnExec Executor:</strong> All transactions execute via the TxnExec inner class, which
+ *       uses an internal single-threaded executor (see executor field)</li>
+ *   <li><strong>Block-Level Serialization:</strong> begin() is called once per block, execute() is called
+ *       sequentially for each transaction within that block, endBlock() finalizes</li>
+ *   <li><strong>Assertions:</strong> The execute() method includes assertions to detect multi-threaded
+ *       access violations (would indicate architectural bug)</li>
+ * </ul>
+ * <p>
+ * <strong>Transaction Lifecycle:</strong>
+ * <ol>
+ *   <li>CHOAM calls beginBlock(height, hash) - seeds BlockClock and SecureRandom</li>
+ *   <li>CHOAM calls execute(index, hash, txn, future) repeatedly - one per transaction in block</li>
+ *   <li>Each execute() calls clock.incrementTxn() to advance logical time</li>
+ *   <li>SQL executes with current BlockClock value (deterministic timestamp)</li>
+ *   <li>Transaction commits automatically at end of execute() (finally block)</li>
+ *   <li>CHOAM calls endBlock(height, hash) - completes block</li>
+ * </ol>
+ * <p>
+ * <strong>Testing Requirements:</strong>
+ * <ul>
+ *   <li>Multi-replica tests must verify all replicas produce identical final states</li>
+ *   <li>Concurrent transaction tests should verify assertion failures if attempted</li>
+ *   <li>MVCC visibility tests should confirm identical snapshot isolation across replicas</li>
+ * </ul>
+ * <p>
+ * Related: Delos-hvpj (Transaction isolation and sequential execution documentation)
  *
  * @author hal.hildebrand
+ * @see TxnExec Single-threaded transaction executor
  */
 public class SqlStateMachine {
 
@@ -779,12 +836,45 @@ public class SqlStateMachine {
         }
     }
 
+    /**
+     * Execute a single transaction within the current block.
+     * <p>
+     * <strong>CRITICAL SINGLE-THREADED REQUIREMENT:</strong> This method MUST be called
+     * from the same single thread for all transactions within a block. Concurrent execution
+     * would cause MVCC visibility divergence across replicas.
+     * <p>
+     * <strong>Execution Flow:</strong>
+     * <ol>
+     *   <li>Update current transaction metadata (height, block hash, index, hash)</li>
+     *   <li>Increment BlockClock transaction counter (advances logical time)</li>
+     *   <li>Execute SQL operation (BATCH, CALL, STATEMENT, SCRIPT, MIGRATION, etc.)</li>
+     *   <li>Complete future with results or exception</li>
+     *   <li>Commit transaction automatically (finally block)</li>
+     * </ol>
+     * <p>
+     * <strong>Transaction Isolation Guarantee:</strong> Each transaction sees a consistent
+     * snapshot of the database. Sequential execution ensures all replicas see identical
+     * snapshots in identical order, maintaining Byzantine consensus.
+     * <p>
+     * <strong>Thread Safety:</strong> NOT thread-safe. Caller (TxnExec) MUST serialize all
+     * calls to this method via single-threaded executor.
+     * <p>
+     * Related: Delos-hvpj (Transaction isolation and sequential execution)
+     *
+     * @param index       Transaction index within block (0-based)
+     * @param txnHash     Hash of transaction content
+     * @param tx          Transaction to execute
+     * @param onCompletion Future to complete with results or exception
+     */
     private void execute(int index, Digest txnHash, Txn tx,
                          @SuppressWarnings("rawtypes") CompletableFuture onCompletion) {
         log.debug("executing: {} on: {}", tx.getExecutionCase(), id);
         var executing = executingBlock.get();
         updateCurrent(executing.height, executing.blkHash, index, txnHash);
 
+        // CRITICAL: Advance BlockClock for this transaction.
+        // This MUST be called exactly once per transaction, in transaction order.
+        // Multi-threaded execution would cause non-deterministic timestamp ordering.
         clock.incrementTxn();
 
         try {
