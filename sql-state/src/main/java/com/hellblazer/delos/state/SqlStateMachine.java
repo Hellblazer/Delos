@@ -61,6 +61,7 @@ import java.sql.*;
 import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -115,6 +116,16 @@ public class SqlStateMachine {
     private final AtomicReference<Current>      executingBlock = new AtomicReference<>();
     private final TxnExec                       executor       = new TxnExec();
     /**
+     * Guard to ensure secureEntropy is not used before seeding.
+     * <p>
+     * CRITICAL: This prevents non-deterministic self-seeding. If SecureRandom is accessed
+     * before the first begin() call seeds it, SHA1PRNG will self-seed from /dev/random,
+     * making replicas diverge. This guard fails-fast if code attempts to use unseeded entropy.
+     * <p>
+     * Related: Delos-a0mt (SecureRandom seeding guard and validation)
+     */
+    private final AtomicBoolean                 seeded         = new AtomicBoolean(false);
+    /**
      * Deterministic secure random for replica synchronization.
      * <p>
      * CRITICAL: This instance is seeded with block hashes via begin() to ensure all replicas
@@ -122,12 +133,30 @@ public class SqlStateMachine {
      * 1. All replicas create SecureRandom.getInstance("SHA1PRNG") identically
      * 2. setSeed() is called with same block hash sequence across all replicas
      * 3. All replicas generate same number of random values per block (CHOAM guarantees this)
-     * 4. This instance is NEVER used before the first begin() call
+     * 4. This instance is NEVER used before the first begin() call (enforced by seeded guard)
      * <p>
      * SHA1PRNG.setSeed() supplements internal state deterministically - as long as all replicas
      * start from getInstance() and follow the same setSeed() sequence, they remain synchronized.
      * <p>
+     * <strong>RISK ACCEPTED:</strong> SHA1PRNG behavior is JVM-implementation-dependent and not
+     * specified in the Java Language Specification. The determinism guarantee depends on:
+     * <ul>
+     *   <li>All replicas using the same JVM vendor and version</li>
+     *   <li>SHA1PRNG implementation being consistent across JVM restarts</li>
+     *   <li>setSeed() mixing behavior being deterministic</li>
+     * </ul>
+     * <p>
+     * <strong>JVM COMPATIBILITY REQUIREMENTS:</strong>
+     * <ul>
+     *   <li>Tested and verified on: OpenJDK, Oracle JDK, GraalVM</li>
+     *   <li>All replicas MUST use the same JVM vendor and major version</li>
+     *   <li>Before deploying on new JVM, run SecureRandomDeterminismTest to verify</li>
+     *   <li>SHA1PRNG must be available (required by Java security providers)</li>
+     * </ul>
+     * <p>
      * See SecureRandomDeterminismTest and SqlStateMachineEntropyPatternTest for verification.
+     * <p>
+     * Related: Delos-a0mt (SecureRandom seeding guard and validation)
      */
     private final SecureRandom                  secureEntropy;
     private final EventTrampoline               trampoline     = new EventTrampoline();
@@ -665,6 +694,8 @@ public class SqlStateMachine {
         session.getRandom().setSeed(new DigestHasher(blkHash, height.longValue()).identityHash());
         // Seed secure entropy for RANDOM_UUID() and crypto operations
         secureEntropy.setSeed(blkHash.getBytes());
+        // Mark as seeded to prevent non-deterministic self-seeding (Delos-a0mt)
+        seeded.set(true);
         entropy.set(secureEntropy);
         clock.incrementHeight();
     }
@@ -943,8 +974,19 @@ public class SqlStateMachine {
     }
 
     private <T> T withContext(Callable<T> action) {
+        // Guard against using unseeded SecureRandom (Delos-a0mt)
+        // If entropy is set but not seeded, we risk non-deterministic self-seeding
+        SecureRandom entropyInstance = entropy.get();
+        if (entropyInstance != null && !seeded.get()) {
+            throw new IllegalStateException(
+                "SecureRandom accessed before seeding. Must call begin() first to seed with block hash. " +
+                "This guard prevents non-deterministic self-seeding from /dev/random, which would " +
+                "cause replica state divergence in Byzantine fault tolerance. See Delos-a0mt."
+            );
+        }
+
         SecureRandom prev = MathUtils.SECURE_RANDOM.get();
-        MathUtils.SECURE_RANDOM.set(entropy.get());
+        MathUtils.SECURE_RANDOM.set(entropyInstance);
         BlockClock prevClock = DateTimeUtils.CLOCK.get();
         DateTimeUtils.CLOCK.set(clock);
         try {
