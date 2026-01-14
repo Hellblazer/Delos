@@ -745,6 +745,13 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
             temporaryLobs.clear();
         }
         if (temporaryResultLobs != null && !temporaryResultLobs.isEmpty()) {
+            // NON-DETERMINISTIC: System.nanoTime() for LOB cleanup timeout
+            // This is ACCEPTABLE non-determinism for Byzantine fault tolerance because:
+            // 1. LOB cleanup is resource management, not deterministic state
+            // 2. Different cleanup times don't affect SQL execution results
+            // 3. Deterministic SQL time uses BlockClock (see SqlStateMachine.begin())
+            // 4. This only affects WHEN cleanup happens, not WHAT gets computed
+            // Related: Delos-3886 (System.nanoTime timeout non-determinism documentation)
             long keepYoungerThan = System.nanoTime() - database.getSettings().lobTimeout * 1_000_000L;
             while (!temporaryResultLobs.isEmpty()) {
                 TimeoutValue tv = temporaryResultLobs.getFirst();
@@ -1214,11 +1221,22 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
 
     /**
      * Wait for some time if this session is throttled (slowed down).
+     * <p>
+     * <strong>NON-DETERMINISTIC:</strong> Uses System.nanoTime() for rate limiting.
+     * This is ACCEPTABLE non-determinism for Byzantine fault tolerance because:
+     * <ul>
+     *   <li>Throttling is performance control, not deterministic state</li>
+     *   <li>Different throttle timing doesn't affect SQL execution results</li>
+     *   <li>Deterministic SQL time uses BlockClock (see SqlStateMachine.begin())</li>
+     *   <li>This only affects execution speed, not what gets computed</li>
+     * </ul>
+     * Related: Delos-3886 (System.nanoTime timeout non-determinism documentation)
      */
     public void throttle() {
         if (throttleMs == 0) {
             return;
         }
+        // NON-DETERMINISTIC: System.nanoTime() for throttle rate limiting (acceptable)
         long time = System.nanoTime();
         if (lastThrottleNs != 0L && time - lastThrottleNs < Constants.THROTTLE_DELAY * 1_000_000L) {
             return;
@@ -1279,6 +1297,16 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
     /**
      * Check if the current transaction is canceled by calling
      * Statement.cancel() or because a session timeout was set and expired.
+     * <p>
+     * <strong>NON-DETERMINISTIC:</strong> Uses System.nanoTime() for cancellation timeout.
+     * This is ACCEPTABLE non-determinism for Byzantine fault tolerance because:
+     * <ul>
+     *   <li>Statement cancellation is user-initiated control plane operation</li>
+     *   <li>Different cancellation times don't affect successfully completed SQL results</li>
+     *   <li>Deterministic SQL time uses BlockClock (see SqlStateMachine.begin())</li>
+     *   <li>Cancellation prevents work, doesn't change deterministic computation</li>
+     * </ul>
+     * Related: Delos-3886 (System.nanoTime timeout non-determinism documentation)
      *
      * @throws DbException if the transaction is canceled
      */
@@ -1288,6 +1316,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
         if (cancel == 0L) {
             return;
         }
+        // NON-DETERMINISTIC: System.nanoTime() for cancellation timeout check (acceptable)
         if (System.nanoTime() - cancel >= 0L) {
             cancelAtNs = 0L;
             throw DbException.get(ErrorCode.STATEMENT_WAS_CANCELED);
@@ -1837,11 +1866,24 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
 
     /**
      * An LOB object with a timeout.
+     * <p>
+     * <strong>NON-DETERMINISTIC:</strong> Creation timestamp uses System.nanoTime().
+     * This is ACCEPTABLE non-determinism for Byzantine fault tolerance because:
+     * <ul>
+     *   <li>Timestamp is for LOB cleanup timing, not deterministic state</li>
+     *   <li>Different creation times don't affect SQL execution results</li>
+     *   <li>Deterministic SQL time uses BlockClock (see SqlStateMachine.begin())</li>
+     *   <li>This only affects cleanup scheduling, not what gets computed</li>
+     * </ul>
+     * Related: Delos-3886 (System.nanoTime timeout non-determinism documentation)
      */
     public static class TimeoutValue {
 
         /**
          * The time when this object was created.
+         * <p>
+         * NON-DETERMINISTIC: System.nanoTime() for LOB cleanup timeout (acceptable).
+         * See class javadoc for rationale.
          */
         final long created = System.nanoTime();
 
