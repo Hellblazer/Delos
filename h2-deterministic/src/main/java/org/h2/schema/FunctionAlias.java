@@ -52,7 +52,14 @@ public final class FunctionAlias extends UserDefinedFunction {
 
     private String methodName;
     private String source;
-    private JavaMethod[] javaMethods;
+    /**
+     * Cached Java methods for this function alias.
+     * <p>
+     * Marked volatile for safe double-checked locking in load() method.
+     * Without volatile, partial writes could be visible to other threads,
+     * violating happens-before guarantees required for correct DCL.
+     */
+    private volatile JavaMethod[] javaMethods;
     private boolean deterministic;
 
     private FunctionAlias(Schema schema, int id, String name) {
@@ -115,14 +122,39 @@ public final class FunctionAlias extends UserDefinedFunction {
         }
     }
 
-    private synchronized void load() {
+    /**
+     * Load the Java methods for this function alias.
+     * <p>
+     * Uses double-checked locking for optimal performance under concurrent access:
+     * <ol>
+     *   <li>Fast path: check if already loaded (no synchronization)</li>
+     *   <li>Slow path: acquire lock, check again, then load</li>
+     * </ol>
+     * <p>
+     * <strong>Thread Safety:</strong> The javaMethods field is volatile, ensuring
+     * proper happens-before ordering. Without volatile, this pattern would be unsafe
+     * due to potential partial writes being visible to other threads.
+     * <p>
+     * <strong>Performance:</strong> After first load, all subsequent calls use the
+     * fast path (single volatile read), avoiding synchronization overhead.
+     */
+    private void load() {
+        // Fast path: check without locking (common case after first load)
         if (javaMethods != null) {
             return;
         }
-        if (source != null) {
-            loadFromSource();
-        } else {
-            loadClass();
+
+        // Slow path: acquire lock and load
+        synchronized (this) {
+            // Double-check: another thread may have loaded while we waited for lock
+            if (javaMethods != null) {
+                return;
+            }
+            if (source != null) {
+                loadFromSource();
+            } else {
+                loadClass();
+            }
         }
     }
 
