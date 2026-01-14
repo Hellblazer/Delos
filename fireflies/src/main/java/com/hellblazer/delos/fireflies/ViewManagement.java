@@ -166,8 +166,8 @@ public class ViewManagement {
         final var joinView = Digest.from(join.getView());
         if (!joined()) {
             log.trace("Not joined, ignored enjoin of view: {} from: {} on: {}", joinView, from, node.getId());
-            throw new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription(
-            "Not joined, ignored join of view: %s from: %s on: %s".formatted(joinView, from, node.getId())));
+            throw new StatusRuntimeException(Status.OUT_OF_RANGE.withDescription(
+            "Not joined, reseed to get joined observers: %s from: %s on: %s".formatted(joinView, from, node.getId())));
         }
         if (!view.validate(note.getIdentifier())) {
             log.debug("Ignored enjoin of view: {} from: {} invalid identifier on: {}", joinView, from, node.getId());
@@ -403,8 +403,8 @@ public class ViewManagement {
         final var joinView = Digest.from(join.getView());
         if (!joined()) {
             log.trace("Not joined, ignored join of view: {} from: {} on: {}", joinView, from, node.getId());
-            responseObserver.onError(new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription(
-            "Not joined, ignored join of view: %s from: %s on: %s".formatted(joinView, from, node.getId()))));
+            responseObserver.onError(new StatusRuntimeException(Status.OUT_OF_RANGE.withDescription(
+            "Not joined, reseed to get joined observers: %s from: %s on: %s".formatted(joinView, from, node.getId()))));
             return;
         }
         var note = new NoteWrapper(join.getNote(), digestAlgo);
