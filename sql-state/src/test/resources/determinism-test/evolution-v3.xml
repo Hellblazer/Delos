@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <!-- Evolution V3: Drop column, drop index, create new table -->
+    <changeSet id="evolution-v3-1" author="test">
+        <dropColumn schemaName="PUBLIC" tableName="PRODUCTS" columnName="DESCRIPTION"/>
+    </changeSet>
+
+    <changeSet id="evolution-v3-2" author="test">
+        <dropIndex schemaName="PUBLIC" tableName="ORDERS" indexName="IDX_ORDERS_PRODUCT_ID"/>
+    </changeSet>
+
+    <changeSet id="evolution-v3-3" author="test">
+        <createTable schemaName="PUBLIC" tableName="INVENTORY">
+            <column name="ID" type="INT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="PRODUCT_ID" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="WAREHOUSE" type="VARCHAR(50)"/>
+            <column name="STOCK_COUNT" type="INT"/>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="evolution-v3-4" author="test">
+        <createIndex schemaName="PUBLIC" tableName="INVENTORY" indexName="IDX_INVENTORY_PRODUCT_ID">
+            <column name="PRODUCT_ID"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

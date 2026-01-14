@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <!-- Evolution V1: Initial schema -->
+    <changeSet id="evolution-v1-1" author="test">
+        <createTable schemaName="PUBLIC" tableName="PRODUCTS">
+            <column name="ID" type="INT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="NAME" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="PRICE" type="DECIMAL(10,2)"/>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="evolution-v1-2" author="test">
+        <createTable schemaName="PUBLIC" tableName="ORDERS">
+            <column name="ID" type="INT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="PRODUCT_ID" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="QUANTITY" type="INT"/>
+            <column name="ORDER_DATE" type="TIMESTAMP"/>
+        </createTable>
+    </changeSet>
+
+</databaseChangeLog>

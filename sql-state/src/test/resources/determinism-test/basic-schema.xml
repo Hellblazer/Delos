@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
+
+    <!-- Test 1: createTable - multiple tables in specific order -->
+    <changeSet id="determinism-1" author="test">
+        <createTable schemaName="PUBLIC" tableName="USERS">
+            <column name="ID" type="INT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="USERNAME" type="VARCHAR(50)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="EMAIL" type="VARCHAR(100)"/>
+            <column name="CREATED_AT" type="TIMESTAMP"/>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="determinism-2" author="test">
+        <createTable schemaName="PUBLIC" tableName="POSTS">
+            <column name="ID" type="INT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="USER_ID" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="TITLE" type="VARCHAR(200)"/>
+            <column name="CONTENT" type="CLOB"/>
+            <column name="CREATED_AT" type="TIMESTAMP"/>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="determinism-3" author="test">
+        <createTable schemaName="PUBLIC" tableName="COMMENTS">
+            <column name="ID" type="INT">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="POST_ID" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="USER_ID" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="TEXT" type="VARCHAR(500)"/>
+            <column name="CREATED_AT" type="TIMESTAMP"/>
+        </createTable>
+    </changeSet>
+
+    <!-- Test 2: createIndex - multiple indexes -->
+    <changeSet id="determinism-4" author="test">
+        <createIndex schemaName="PUBLIC" tableName="POSTS" indexName="IDX_POSTS_USER_ID">
+            <column name="USER_ID"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="determinism-5" author="test">
+        <createIndex schemaName="PUBLIC" tableName="COMMENTS" indexName="IDX_COMMENTS_POST_ID">
+            <column name="POST_ID"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="determinism-6" author="test">
+        <createIndex schemaName="PUBLIC" tableName="COMMENTS" indexName="IDX_COMMENTS_USER_ID">
+            <column name="USER_ID"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- Test 3: addColumn -->
+    <changeSet id="determinism-7" author="test">
+        <addColumn schemaName="PUBLIC" tableName="USERS">
+            <column name="LAST_LOGIN" type="TIMESTAMP"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="determinism-8" author="test">
+        <addColumn schemaName="PUBLIC" tableName="POSTS">
+            <column name="UPDATED_AT" type="TIMESTAMP"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>
