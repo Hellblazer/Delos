@@ -367,7 +367,6 @@ class Binding {
             }
             var complete = new CompletableFuture<Boolean>();
             final var abandon = new AtomicInteger();
-            reseedTriggered.set(false); // Reset for this join attempt
             complete.whenComplete((success, error) -> {
                 if (error != null) {
                     log.info("Failed Join on: {}", node.getId(), error);
@@ -389,7 +388,7 @@ class Binding {
                                                                                                     .toList(),
                          node.getId());
                 // Check if we need to reseed due to stale observers (OUT_OF_RANGE)
-                if (abandon.get() >= majority && reseedTriggered.compareAndSet(false, true)) {
+                if (abandon.get() >= majority) {
                     final int depth = reseedDepth.incrementAndGet();
                     if (depth > params.maxReseedDepth()) {
                         log.warn(
@@ -441,7 +440,7 @@ class Binding {
                                     if (!view.started.get() || gateway.isDone() || complete.isDone()) {
                                         return;
                                     }
-                                    if (abandon.get() >= majority && reseedTriggered.compareAndSet(false, true)) {
+                                    if (abandon.get() >= majority) {
                                         final int depth = reseedDepth.incrementAndGet();
                                         if (depth > params.maxReseedDepth()) {
                                             log.warn(

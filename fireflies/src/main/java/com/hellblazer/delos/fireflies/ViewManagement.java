@@ -490,10 +490,10 @@ public class ViewManagement {
             log.debug("Member pending join: {} view: {} context: {} on: {}", from, currentView(), context.getId(),
                       node.getId());
 
-            // Phase 3: Trigger view change if not already in progress
+            // Schedule view change with stabilization window to allow enjoin() propagation
             if (!view.hasOngoingViewChange()) {
-                log.debug("Triggering view change for pending join: {} on: {}", from, node.getId());
-                view.scheduleViewChange(0); // Immediate scheduling
+                log.debug("Scheduling view change with stabilization window for pending join: {} on: {}", from, node.getId());
+                view.scheduleViewChange(15); // Allow enjoin() to propagate (~75-300ms depending on gossip period)
             }
 
             var enjoining = new SliceIterator<>("Enjoining[%s:%s]".formatted(currentView(), from), node,

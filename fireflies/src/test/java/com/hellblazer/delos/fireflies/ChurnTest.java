@@ -30,6 +30,8 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -172,7 +174,18 @@ public class ChurnTest {
             then = System.currentTimeMillis();
             countdown.set(new CountDownLatch(toStart.size()));
 
-            toStart.forEach(view -> view.start(() -> countdown.get().countDown(), gossipDuration, seeds));
+            // Parallelize batch member starts with random jitter to prevent cascading join failures
+            var scheduler = Executors.newScheduledThreadPool(toStart.size(), Thread.ofVirtual().factory());
+            var random = new SecureRandom();
+            for (int idx = 0; idx < toStart.size(); idx++) {
+                final var view = toStart.get(idx);
+                final long jitter = idx > 0 && IS_CI ? (50 + random.nextInt(100)) : 0;
+                scheduler.schedule(
+                    () -> view.start(() -> countdown.get().countDown(), gossipDuration, seeds),
+                    jitter, TimeUnit.MILLISECONDS
+                );
+            }
+            scheduler.shutdown();
 
             // Batch join timeout: streaming join (60s) + view change (15-20s CI) + batch overhead
             success = countdown.get().await(IS_CI ? 180 : 90, TimeUnit.SECONDS);
