@@ -26,6 +26,13 @@ import java.util.concurrent.Executor;
  */
 public class DomainSocketsLinux implements DomainSockets {
 
+    @Override
+    public io.netty.channel.ChannelFactory<? extends Channel> getChannelFactory() {
+        // Return a ChannelFactory that directly instantiates EpollDomainSocketChannel
+        // without using reflection.
+        return () -> new EpollDomainSocketChannel();
+    }
+
     public Class<? extends Channel> getChannelType() {
         return EpollDomainSocketChannel.class;
     }

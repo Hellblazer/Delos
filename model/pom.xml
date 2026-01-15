@@ -28,6 +28,11 @@
         </dependency>
         <dependency>
             <groupId>com.hellblazer.delos</groupId>
+            <artifactId>domain-nio</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.hellblazer.delos</groupId>
             <artifactId>domain-kqueue</artifactId>
             <scope>provided</scope>
         </dependency>

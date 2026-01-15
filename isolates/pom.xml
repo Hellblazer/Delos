@@ -14,13 +14,22 @@
         <imageName>libdemesne</imageName>
     </properties>
     <dependencies>
+        <!-- NIO domain sockets for isolates (no native libraries) -->
+        <dependency>
+            <groupId>com.hellblazer.delos</groupId>
+            <artifactId>domain-nio</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- Native implementations kept as provided scope for compilation only -->
         <dependency>
             <groupId>com.hellblazer.delos</groupId>
             <artifactId>domain-kqueue</artifactId>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>com.hellblazer.delos</groupId>
             <artifactId>domain-epoll</artifactId>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>com.hellblazer.delos</groupId>
@@ -139,9 +148,9 @@
                                 <buildArg>--enable-monitoring=jfr</buildArg>
                                 <buildArg>-Ob</buildArg>
                                 <buildArg>-march=native</buildArg>
-                                <buildArg>--initialize-at-build-time=com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor</buildArg>
+                                <!-- ServiceLoader-based class requires build-time initialization for native-image -->
                                 <buildArg>--initialize-at-build-time=javax.sql.rowset.RowSetProvider</buildArg>
-                                <buildArg>--initialize-at-build-time=com.hellblazer.delos.comm.grpc.DomainSocketsOSX</buildArg>
+                                <!-- H2 file paths must be initialized at runtime to respect runtime filesystem state -->
                                 <buildArg>--initialize-at-run-time=org.h2.store.fs.FilePath</buildArg>
 
                                 <buildArg>--exact-reachability-metadata</buildArg>
@@ -202,9 +211,9 @@
                                 <buildArg>--enable-monitoring=jfr</buildArg>
                                 <buildArg>-Ob</buildArg>
                                 <buildArg>-march=native</buildArg>
-                                <buildArg>--initialize-at-build-time=com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor</buildArg>
+                                <!-- ServiceLoader-based class requires build-time initialization for native-image -->
                                 <buildArg>--initialize-at-build-time=javax.sql.rowset.RowSetProvider</buildArg>
-                                <buildArg>--initialize-at-build-time=com.hellblazer.delos.comm.grpc.DomainSocketsLinux</buildArg>
+                                <!-- H2 file paths must be initialized at runtime to respect runtime filesystem state -->
                                 <buildArg>--initialize-at-run-time=org.h2.store.fs.FilePath</buildArg>
 
                                 <buildArg>--exact-reachability-metadata</buildArg>

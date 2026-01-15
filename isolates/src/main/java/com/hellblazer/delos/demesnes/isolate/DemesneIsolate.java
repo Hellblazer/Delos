@@ -47,6 +47,9 @@ public class DemesneIsolate {
     private static final Logger                       log     = LoggerFactory.getLogger(DemesneIsolate.class);
 
     static {
+        // Enable isolate mode to use NIO transport (prevents native library conflicts)
+        System.setProperty("delos.isolate.mode", "true");
+
         System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "debug");
         System.setProperty(".level", "FINEST");
         System.setProperty("logback.configurationFile",

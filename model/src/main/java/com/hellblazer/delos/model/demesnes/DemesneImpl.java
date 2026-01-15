@@ -58,6 +58,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
+import com.hellblazer.delos.comm.grpc.DomainSockets;
+import com.hellblazer.delos.comm.grpc.DomainSocketsNIO;
+
 import static com.hellblazer.delos.archipelago.RouterImpl.clientInterceptor;
 import static com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor.IMPL;
 
@@ -67,10 +70,31 @@ import static com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor.IMPL;
  * @author hal.hildebrand
  */
 public class DemesneImpl implements Demesne {
-    private static final Class<? extends Channel> channelType             = IMPL.getChannelType();
-    private static final Duration                 DEFAULT_GOSSIP_INTERVAL = Duration.ofMillis(5);
-    private static final EventLoopGroup           eventLoopGroup          = IMPL.getEventLoopGroup();
-    private static final Logger                   log                     = LoggerFactory.getLogger(DemesneImpl.class);
+    /**
+     * Hybrid Architecture: Use NIO transport in isolates, native transport in main JVM.
+     * This prevents native library double-loading crashes in GraalVM isolates.
+     */
+    private static final DomainSockets                                 domainSockets;
+    private static final io.netty.channel.ChannelFactory<? extends Channel> channelFactory;
+    private static final Duration                                      DEFAULT_GOSSIP_INTERVAL = Duration.ofMillis(5);
+    private static final EventLoopGroup                                eventLoopGroup;
+    private static final Logger                                        log                     = LoggerFactory.getLogger(DemesneImpl.class);
+
+    static {
+        // Detect if running inside a GraalVM isolate
+        boolean inIsolate = Boolean.getBoolean("delos.isolate.mode");
+
+        if (inIsolate) {
+            log.info("Initializing DemesneImpl in isolate mode with NIO transport (reflection-free)");
+            domainSockets = new DomainSocketsNIO();
+        } else {
+            log.debug("Initializing DemesneImpl with platform-native transport");
+            domainSockets = IMPL;
+        }
+
+        channelFactory = domainSockets.getChannelFactory();
+        eventLoopGroup = domainSockets.getEventLoopGroup();
+    }
 
     private final    Executor               executor = Executors.newVirtualThreadPerTaskExecutor();
     private final    KERL.AppendKERL        kerl;
@@ -194,7 +218,7 @@ public class DemesneImpl implements Demesne {
                                              .executor(executor)
                                              .intercept(clientInterceptor(kerlContext))
                                              .eventLoopGroup(eventLoopGroup)
-                                             .channelType(channelType)
+                                             .channelFactory(channelFactory)
                                              .keepAliveTime(1, TimeUnit.SECONDS)
                                              .usePlaintext()
                                              .build();
@@ -216,7 +240,7 @@ public class DemesneImpl implements Demesne {
                                                          .executor(executor)
                                                          .intercept(clientInterceptor(context.getId()))
                                                          .eventLoopGroup(eventLoopGroup)
-                                                         .channelType(channelType)
+                                                         .channelFactory(channelFactory)
                                                          .usePlaintext()
                                                          .build(), null);
     }

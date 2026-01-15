@@ -1,0 +1,19 @@
+{
+  "bundles": [],
+  "resources": {
+    "includes": [
+      {
+        "pattern": "\\QMETA-INF/native/libnetty_transport_native_kqueue_aarch_64.jnilib\\E"
+      },
+      {
+        "pattern": "\\QMETA-INF/native/libnetty_transport_native_kqueue_x86_64.jnilib\\E"
+      },
+      {
+        "pattern": "\\QMETA-INF/native/libnetty_transport_native_epoll_aarch_64.so\\E"
+      },
+      {
+        "pattern": "\\QMETA-INF/native/libnetty_transport_native_epoll_x86_64.so\\E"
+      }
+    ]
+  }
+}

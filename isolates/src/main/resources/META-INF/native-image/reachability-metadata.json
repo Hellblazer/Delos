@@ -1203,6 +1203,24 @@
       ]
     },
     {
+      "type": "io.netty.channel.socket.nio.NioDomainSocketChannel",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "io.netty.channel.socket.nio.NioServerDomainSocketChannel",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
       "type": "io.netty.channel.socket.nio.NioSocketChannel"
     },
     {
@@ -3838,10 +3856,28 @@
       "glob": "META-INF/io.netty.versions.properties"
     },
     {
-      "glob": "META-INF/native/libnetty_transport_native_kqueue_aarch_64.dylib"
+      "glob": "META-INF/native/libnetty_transport_native_kqueue.dylib"
+    },
+    {
+      "glob": "META-INF/native/libnetty_transport_native_kqueue.jnilib"
     },
     {
       "glob": "META-INF/native/libnetty_transport_native_kqueue_aarch_64.jnilib"
+    },
+    {
+      "glob": "META-INF/native/libnetty_transport_native_kqueue_x86_64.jnilib"
+    },
+    {
+      "glob": "META-INF/native/libnetty_transport_native_epoll.so"
+    },
+    {
+      "glob": "META-INF/native/libnetty_transport_native_epoll_x86_64.so"
+    },
+    {
+      "glob": "META-INF/native/libnetty_transport_native_epoll_aarch_64.so"
+    },
+    {
+      "glob": "META-INF/native/libnetty_transport_native_epoll_riscv64.so"
     },
     {
       "glob": "META-INF/services/io.grpc.LoadBalancerProvider"

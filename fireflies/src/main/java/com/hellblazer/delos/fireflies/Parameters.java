@@ -13,7 +13,8 @@ import java.time.Duration;
  */
 public record Parameters(int joinRetries, int minimumBiffCardinality, int rebuttalTimeout, int viewChangeRounds,
                          int finalizeViewRounds, double fpr, int maximumTxfr, Duration retryDelay, int maxPending,
-                         Duration seedingTimeout, int validationRetries, int crowns, Duration populateDuration) {
+                         Duration seedingTimeout, int validationRetries, int crowns, Duration populateDuration,
+                         int maxReseedDepth) {
 
     public static Builder newBuilder() {
         return new Builder();
@@ -53,6 +54,10 @@ public record Parameters(int joinRetries, int minimumBiffCardinality, int rebutt
          */
         private int      rebuttalTimeout        = 2;
         /**
+         * Maximum reseed depth before giving up on join attempts
+         */
+        private int      maxReseedDepth         = 30;
+        /**
          * Max duration to delay retrying join operations
          */
         private Duration retryDelay             = Duration.ofMillis(200);
@@ -73,7 +78,7 @@ public record Parameters(int joinRetries, int minimumBiffCardinality, int rebutt
         public Parameters build() {
             return new Parameters(joinRetries, minimumBiffCardinality, rebuttalTimeout, viewChangeRounds,
                                   finalizeViewRounds, fpr, maximumTxfr, retryDelay, maxPending, seedingTimout,
-                                  validationRetries, crowns, populateDuration);
+                                  validationRetries, crowns, populateDuration, maxReseedDepth);
         }
 
         public int getCrowns() {
@@ -190,6 +195,15 @@ public record Parameters(int joinRetries, int minimumBiffCardinality, int rebutt
 
         public Builder setViewChangeRounds(int viewChangeRounds) {
             this.viewChangeRounds = viewChangeRounds;
+            return this;
+        }
+
+        public int getMaxReseedDepth() {
+            return maxReseedDepth;
+        }
+
+        public Builder setMaxReseedDepth(int maxReseedDepth) {
+            this.maxReseedDepth = maxReseedDepth;
             return this;
         }
     }

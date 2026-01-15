@@ -35,6 +35,13 @@ public class DomainSocketsOSX implements DomainSockets {
     }
 
     @Override
+    public io.netty.channel.ChannelFactory<? extends Channel> getChannelFactory() {
+        // Return a ChannelFactory that directly instantiates KQueueDomainSocketChannel
+        // without using reflection.
+        return () -> new KQueueDomainSocketChannel();
+    }
+
+    @Override
     public Class<? extends Channel> getChannelType() {
         return KQueueDomainSocketChannel.class;
     }

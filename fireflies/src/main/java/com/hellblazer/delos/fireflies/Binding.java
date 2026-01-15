@@ -37,6 +37,7 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
@@ -366,6 +367,7 @@ class Binding {
             }
             var complete = new CompletableFuture<Boolean>();
             final var abandon = new AtomicInteger();
+            reseedTriggered.set(false); // Reset for this join attempt
             complete.whenComplete((success, error) -> {
                 if (error != null) {
                     log.info("Failed Join on: {}", node.getId(), error);
@@ -387,13 +389,12 @@ class Binding {
                                                                                                     .toList(),
                          node.getId());
                 // Check if we need to reseed due to stale observers (OUT_OF_RANGE)
-                if (abandon.get() >= majority) {
+                if (abandon.get() >= majority && reseedTriggered.compareAndSet(false, true)) {
                     final int depth = reseedDepth.incrementAndGet();
-                    final int maxReseedDepth = 12; // Allow more attempts during cascading batch joins
-                    if (depth > maxReseedDepth) {
+                    if (depth > params.maxReseedDepth()) {
                         log.warn(
                         "Abandoning Gateway view: {} abandons: {} reseed depth: {} exceeds max: {} giving up on: {}", v,
-                        abandon.get(), depth, maxReseedDepth, node.getId());
+                        abandon.get(), depth, params.maxReseedDepth(), node.getId());
                         scheduler.shutdown();
                         reseedDepth.set(0); // Reset for next attempt
                         return;
@@ -437,16 +438,15 @@ class Binding {
                                 (futureSailor, _, _, member) -> join(member, gateway, futureSailor, trusts,
                                                                      initialSeedSet, v, majority, complete, remaining, abandon),
                                 () -> {
-                                    if (!view.started.get() || gateway.isDone()) {
+                                    if (!view.started.get() || gateway.isDone() || complete.isDone()) {
                                         return;
                                     }
-                                    if (abandon.get() >= majority) {
+                                    if (abandon.get() >= majority && reseedTriggered.compareAndSet(false, true)) {
                                         final int depth = reseedDepth.incrementAndGet();
-                                        final int maxReseedDepth = 12; // Allow more attempts during cascading batch joins
-                                        if (depth > maxReseedDepth) {
+                                        if (depth > params.maxReseedDepth()) {
                                             log.warn(
                                             "Continuation: Abandoning view: {} abandons: {} reseed depth: {} exceeds max: {} giving up on: {}",
-                                            v, abandon.get(), depth, maxReseedDepth, node.getId());
+                                            v, abandon.get(), depth, params.maxReseedDepth(), node.getId());
                                             scheduler.shutdown();
                                             reseedDepth.set(0);
                                             complete.completeExceptionally(

@@ -1,6 +1,7 @@
 package com.hellblazer.delos.comm.grpc;
 
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelFactory;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.EventLoopTaskQueueFactory;
 import io.netty.channel.SelectStrategyFactory;
@@ -12,6 +13,12 @@ import io.netty.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.Executor;
 
 public interface DomainSockets {
+    /**
+     * @return ChannelFactory that creates channels without using reflection.
+     *         This is required for GraalVM native images where reflection metadata may not be available.
+     */
+    ChannelFactory<? extends Channel> getChannelFactory();
+
     Class<? extends Channel> getChannelType();
 
     EventLoopGroup getEventLoopGroup();
