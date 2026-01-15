@@ -12,35 +12,15 @@ import io.netty.channel.unix.PeerCredentials;
 import static io.grpc.netty.DomainSocketNegotiatorHandler.TRANSPORT_ATTR_PEER_CREDENTIALS;
 
 /**
+ * Server interceptor for Unix domain socket connections.
+ * Extracts peer credentials from the transport and makes them available in the gRPC context.
+ *
  * @author hal.hildebrand
  */
 public class DomainSocketServerInterceptor implements ServerInterceptor {
 
-    public static final  Context.Key<PeerCredentials> PEER_CREDENTIALS_CONTEXT_KEY = Context.key(
+    public static final Context.Key<PeerCredentials> PEER_CREDENTIALS_CONTEXT_KEY = Context.key(
     "com.hellblazer.delos.PEER_CREDENTIALS");
-    private static final String                       OS                           = System.getProperty("os.name")
-                                                                                           .toLowerCase();
-    public static final  DomainSockets                IMPL                         = configure();
-
-    public static boolean isMac() {
-        return OS.indexOf("mac") >= 0;
-    }
-
-    static DomainSockets configure() {
-        if (isMac()) {
-            return configureMac();
-        } else {
-            return configureLunux();
-        }
-    }
-
-    static DomainSockets configureLunux() {
-        return new DomainSocketsLinux();
-    }
-
-    static DomainSockets configureMac() {
-        return new DomainSocketsOSX();
-    }
 
     @Override
     public <ReqT, RespT> ServerCall.Listener<ReqT> interceptCall(ServerCall<ReqT, RespT> call,

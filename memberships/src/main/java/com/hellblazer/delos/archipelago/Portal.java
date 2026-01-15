@@ -17,6 +17,9 @@ import io.grpc.netty.NettyChannelBuilder;
 import io.grpc.netty.NettyServerBuilder;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.nio.NioDomainSocketChannel;
+import io.netty.channel.socket.nio.NioServerDomainSocketChannel;
 import io.netty.channel.unix.DomainSocketAddress;
 
 import java.io.IOException;
@@ -26,8 +29,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
-import static com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor.IMPL;
-
 /**
  * Local "service mesh" for in process Isolate Enclaves. The Portal provides the externally visible GRPC endpoint that
  * all enclaves are multiplexed through. The Portal also serves as the exit point from the process that all Isolate
@@ -36,11 +37,11 @@ import static com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor.IMPL;
  * @author hal.hildebrand
  */
 public class Portal<To extends Member> {
-    private final static Class<? extends io.netty.channel.Channel> channelType = IMPL.getChannelType();
+    private final static Class<? extends io.netty.channel.Channel> channelType = NioDomainSocketChannel.class;
 
     private final ExecutorService executor       = Executors.newVirtualThreadPerTaskExecutor();
     private final String          agent;
-    private final EventLoopGroup  eventLoopGroup = IMPL.getEventLoopGroup();
+    private final EventLoopGroup  eventLoopGroup = new NioEventLoopGroup();
     private final Demultiplexer   inbound;
     private final Duration        keepAlive;
     private final Demultiplexer   outbound;
@@ -50,10 +51,10 @@ public class Portal<To extends Member> {
         this.inbound = new Demultiplexer(inbound, Constants.METADATA_CONTEXT_KEY, d -> handler(router.apply(d)));
         this.outbound = new Demultiplexer(NettyServerBuilder.forAddress(bridge)
                                                             .executor(executor)
-                                                            .protocolNegotiator(new DomainSocketNegotiator(IMPL))
-                                                            .channelType(IMPL.getServerDomainSocketChannelClass())
-                                                            .workerEventLoopGroup(IMPL.getEventLoopGroup())
-                                                            .bossEventLoopGroup(IMPL.getEventLoopGroup())
+                                                            .protocolNegotiator(new DomainSocketNegotiator())
+                                                            .channelType(NioServerDomainSocketChannel.class)
+                                                            .workerEventLoopGroup(eventLoopGroup)
+                                                            .bossEventLoopGroup(eventLoopGroup)
                                                             .intercept(new DomainSocketServerInterceptor()),
                                           Constants.METADATA_TARGET_KEY, outbound);
         this.keepAlive = keepAlive;

@@ -1013,6 +1013,15 @@ public class View {
         context.offline(member);
         shunned.add(member.getId());
         viewManagement.gc(member);
+
+        // Schedule view change with stabilization window to allow offline status propagation
+        // Scale stabilization with cluster size: larger clusters need more time for gossip to propagate
+        if (!hasOngoingViewChange()) {
+            int stabilizationRounds = Math.max(params.viewChangeRounds(), context.cardinality() / 10);
+            log.debug("Scheduling view change with {} round stabilization window for member departure: {} on: {}",
+                     stabilizationRounds, member.getId(), node.getId());
+            scheduleViewChange(stabilizationRounds);
+        }
     }
 
     /**

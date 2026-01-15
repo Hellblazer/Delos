@@ -27,21 +27,6 @@
             <artifactId>thoth</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.hellblazer.delos</groupId>
-            <artifactId>domain-nio</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>com.hellblazer.delos</groupId>
-            <artifactId>domain-kqueue</artifactId>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.hellblazer.delos</groupId>
-            <artifactId>domain-epoll</artifactId>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
             <groupId>org.scijava</groupId>
             <artifactId>native-lib-loader</artifactId>
         </dependency>

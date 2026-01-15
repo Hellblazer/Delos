@@ -30,6 +30,9 @@ import io.grpc.netty.NettyChannelBuilder;
 import io.grpc.netty.NettyServerBuilder;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.nio.NioDomainSocketChannel;
+import io.netty.channel.socket.nio.NioServerDomainSocketChannel;
 import io.netty.channel.unix.DomainSocketAddress;
 import org.joou.ULong;
 import org.slf4j.Logger;
@@ -45,7 +48,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import static com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor.IMPL;
 import static com.hellblazer.delos.cryptography.QualifiedBase64.qb64;
 
 /**
@@ -55,16 +57,16 @@ public class ProcessContainerDomain extends ProcessDomain {
 
     private final static Logger                                                    log                   = LoggerFactory.getLogger(
     ProcessContainerDomain.class);
-    private final static Class<? extends io.netty.channel.Channel>                 channelType           = IMPL.getChannelType();
+    private final static Class<? extends io.netty.channel.Channel>                 channelType           = NioDomainSocketChannel.class;
     protected final      Executor                                                  executor              = Executors.newVirtualThreadPerTaskExecutor();
     private final        DomainSocketAddress                                       bridge;
-    private final        EventLoopGroup                                            clientEventLoopGroup  = IMPL.getEventLoopGroup();
+    private final        EventLoopGroup                                            clientEventLoopGroup  = new NioEventLoopGroup();
     private final        Path                                                      communicationsDirectory;
-    private final        EventLoopGroup                                            contextEventLoopGroup = IMPL.getEventLoopGroup();
+    private final        EventLoopGroup                                            contextEventLoopGroup = new NioEventLoopGroup();
     private final        Map<Digest, Demesne>                                      hostedDomains         = new ConcurrentHashMap<>();
     private final        Portal<Member>                                            portal;
     private final        DomainSocketAddress                                       portalEndpoint;
-    private final        EventLoopGroup                                            portalEventLoopGroup  = IMPL.getEventLoopGroup();
+    private final        EventLoopGroup                                            portalEventLoopGroup  = new NioEventLoopGroup();
     private final        Map<String, DomainSocketAddress>                          routes                = new HashMap<>();
     private final        IdentifierSpecification.Builder<SelfAddressingIdentifier> subDomainSpecification;
 
@@ -81,11 +83,10 @@ public class ProcessContainerDomain extends ProcessDomain {
         communicationsDirectory.resolve(UUID.randomUUID().toString()).toFile());
         portal = new Portal<>(member.getId(), NettyServerBuilder.forAddress(portalEndpoint)
                                                                 .protocolNegotiator(
-                                                                new DomainSocketNegotiatorHandler.DomainSocketNegotiator(
-                                                                IMPL))
+                                                                new DomainSocketNegotiatorHandler.DomainSocketNegotiator())
                                                                 .executor(Executors.newVirtualThreadPerTaskExecutor())
                                                                 .withChildOption(ChannelOption.TCP_NODELAY, true)
-                                                                .channelType(IMPL.getServerDomainSocketChannelClass())
+                                                                .channelType(NioServerDomainSocketChannel.class)
                                                                 .workerEventLoopGroup(portalEventLoopGroup)
                                                                 .bossEventLoopGroup(portalEventLoopGroup)
                                                                 .intercept(new DomainSocketServerInterceptor()),

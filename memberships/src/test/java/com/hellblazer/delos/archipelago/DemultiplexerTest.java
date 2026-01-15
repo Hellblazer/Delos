@@ -27,6 +27,9 @@ import io.grpc.netty.NettyServerBuilder;
 import io.grpc.stub.StreamObserver;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.nio.NioDomainSocketChannel;
+import io.netty.channel.socket.nio.NioServerDomainSocketChannel;
 import io.netty.channel.unix.DomainSocketAddress;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -45,7 +48,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 import static com.hellblazer.delos.archipelago.RouterImpl.clientInterceptor;
-import static com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor.IMPL;
 import static com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor.PEER_CREDENTIALS_CONTEXT_KEY;
 import static com.hellblazer.delos.cryptography.QualifiedBase64.qb64;
 import static org.junit.jupiter.api.Assertions.*;
@@ -55,10 +57,10 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 public class DemultiplexerTest {
 
-    private static final Class<? extends io.netty.channel.Channel> channelType = IMPL.getChannelType();
+    private static final Class<? extends io.netty.channel.Channel> channelType = NioDomainSocketChannel.class;
     private static final Executor                                  executor    = Executors.newVirtualThreadPerTaskExecutor();
 
-    private final EventLoopGroup       eventLoopGroup = IMPL.getEventLoopGroup();
+    private final EventLoopGroup       eventLoopGroup = new NioEventLoopGroup();
     private final List<ManagedChannel> opened         = new ArrayList<>();
     private       Server               serverA;
     private       Server               serverB;
@@ -131,10 +133,10 @@ public class DemultiplexerTest {
 
         final var address = new DomainSocketAddress(socketPathA.toFile());
         serverA = NettyServerBuilder.forAddress(address)
-                                    .protocolNegotiator(new DomainSocketNegotiator(IMPL))
-                                    .channelType(IMPL.getServerDomainSocketChannelClass())
-                                    .workerEventLoopGroup(IMPL.getEventLoopGroup())
-                                    .bossEventLoopGroup(IMPL.getEventLoopGroup())
+                                    .protocolNegotiator(new DomainSocketNegotiator())
+                                    .channelType(NioServerDomainSocketChannel.class)
+                                    .workerEventLoopGroup(eventLoopGroup)
+                                    .bossEventLoopGroup(eventLoopGroup)
                                     .addService(new ServerA())
                                     .intercept(new DomainSocketServerInterceptor())
                                     .build();
@@ -149,10 +151,10 @@ public class DemultiplexerTest {
 
         final var address = new DomainSocketAddress(socketPathA.toFile());
         serverB = NettyServerBuilder.forAddress(address)
-                                    .protocolNegotiator(new DomainSocketNegotiator(IMPL))
-                                    .channelType(IMPL.getServerDomainSocketChannelClass())
-                                    .workerEventLoopGroup(IMPL.getEventLoopGroup())
-                                    .bossEventLoopGroup(IMPL.getEventLoopGroup())
+                                    .protocolNegotiator(new DomainSocketNegotiator())
+                                    .channelType(NioServerDomainSocketChannel.class)
+                                    .workerEventLoopGroup(eventLoopGroup)
+                                    .bossEventLoopGroup(eventLoopGroup)
                                     .addService(new ServerB())
                                     .intercept(new DomainSocketServerInterceptor())
                                     .build();

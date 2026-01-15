@@ -58,11 +58,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
-import com.hellblazer.delos.comm.grpc.DomainSockets;
-import com.hellblazer.delos.comm.grpc.DomainSocketsNIO;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.nio.NioDomainSocketChannel;
+
 
 import static com.hellblazer.delos.archipelago.RouterImpl.clientInterceptor;
-import static com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor.IMPL;
 
 /**
  * Isolate for the Delos SubDomain stack
@@ -71,30 +71,14 @@ import static com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor.IMPL;
  */
 public class DemesneImpl implements Demesne {
     /**
-     * Hybrid Architecture: Use NIO transport in isolates, native transport in main JVM.
-     * This prevents native library double-loading crashes in GraalVM isolates.
+     * Pure Java NIO transport for Unix domain sockets.
+     * Uses Netty's NIO implementation with JEP 380 for peer credentials.
+     * Works in all contexts including GraalVM isolates.
      */
-    private static final DomainSockets                                 domainSockets;
-    private static final io.netty.channel.ChannelFactory<? extends Channel> channelFactory;
+    private static final io.netty.channel.ChannelFactory<NioDomainSocketChannel> channelFactory  = NioDomainSocketChannel::new;
     private static final Duration                                      DEFAULT_GOSSIP_INTERVAL = Duration.ofMillis(5);
-    private static final EventLoopGroup                                eventLoopGroup;
+    private static final EventLoopGroup                                eventLoopGroup          = new NioEventLoopGroup();
     private static final Logger                                        log                     = LoggerFactory.getLogger(DemesneImpl.class);
-
-    static {
-        // Detect if running inside a GraalVM isolate
-        boolean inIsolate = Boolean.getBoolean("delos.isolate.mode");
-
-        if (inIsolate) {
-            log.info("Initializing DemesneImpl in isolate mode with NIO transport (reflection-free)");
-            domainSockets = new DomainSocketsNIO();
-        } else {
-            log.debug("Initializing DemesneImpl with platform-native transport");
-            domainSockets = IMPL;
-        }
-
-        channelFactory = domainSockets.getChannelFactory();
-        eventLoopGroup = domainSockets.getEventLoopGroup();
-    }
 
     private final    Executor               executor = Executors.newVirtualThreadPerTaskExecutor();
     private final    KERL.AppendKERL        kerl;

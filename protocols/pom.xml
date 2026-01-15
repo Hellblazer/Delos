@@ -12,16 +12,6 @@
 
     <dependencies>
         <dependency>
-            <groupId>com.hellblazer.delos</groupId>
-            <artifactId>domain-kqueue</artifactId>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.hellblazer.delos</groupId>
-            <artifactId>domain-epoll</artifactId>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
             <groupId>org.checkerframework</groupId>
             <artifactId>checker-qual</artifactId>
         </dependency>

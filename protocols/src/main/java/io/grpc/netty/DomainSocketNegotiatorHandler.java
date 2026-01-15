@@ -6,7 +6,7 @@
  */
 package io.grpc.netty;
 
-import com.hellblazer.delos.comm.grpc.DomainSockets;
+import com.hellblazer.delos.comm.grpc.DomainSocketUtil;
 import io.grpc.Attributes;
 import io.grpc.ChannelLogger;
 import io.grpc.Grpc;
@@ -29,12 +29,10 @@ public class DomainSocketNegotiatorHandler extends ProtocolNegotiationHandler {
     @TransportAttr
     public static final Attributes.Key<PeerCredentials> TRANSPORT_ATTR_PEER_CREDENTIALS = Attributes.Key.create(
     "com.hellblazer.delos.TRANSPORT_ATTR_PEER_CREDENTIAL");
-    private final       DomainSockets                   domainSockets;
     boolean protocolNegotiationEventReceived;
 
-    DomainSocketNegotiatorHandler(ChannelHandler next, ChannelLogger negotiationLogger, DomainSockets domainSockets) {
+    DomainSocketNegotiatorHandler(ChannelHandler next, ChannelLogger negotiationLogger) {
         super(next, negotiationLogger);
-        this.domainSockets = domainSockets;
     }
 
     @Override
@@ -58,7 +56,7 @@ public class DomainSocketNegotiatorHandler extends ProtocolNegotiationHandler {
 
     private void replaceOnActive(ChannelHandlerContext ctx) {
         ProtocolNegotiationEvent existingPne = getProtocolNegotiationEvent();
-        PeerCredentials credentials = domainSockets.getPeerCredentials(ctx.channel());
+        PeerCredentials credentials = DomainSocketUtil.getPeerCredentials(ctx.channel());
         Attributes attrs = existingPne.getAttributes()
                                       .toBuilder()
                                       .set(GrpcAttributes.ATTR_SECURITY_LEVEL, SecurityLevel.PRIVACY_AND_INTEGRITY)
@@ -71,10 +69,7 @@ public class DomainSocketNegotiatorHandler extends ProtocolNegotiationHandler {
 
     public static final class DomainSocketNegotiator implements ProtocolNegotiator {
 
-        private final DomainSockets domainSockets;
-
-        public DomainSocketNegotiator(DomainSockets domainSockets) {
-            this.domainSockets = domainSockets;
+        public DomainSocketNegotiator() {
         }
 
         @Override
@@ -84,8 +79,7 @@ public class DomainSocketNegotiatorHandler extends ProtocolNegotiationHandler {
         @Override
         public ChannelHandler newHandler(GrpcHttp2ConnectionHandler grpcHandler) {
             ChannelHandler grpcNegotiationHandler = new GrpcNegotiationHandler(grpcHandler);
-            return new DomainSocketNegotiatorHandler(grpcNegotiationHandler, grpcHandler.getNegotiationLogger(),
-                                                     domainSockets);
+            return new DomainSocketNegotiatorHandler(grpcNegotiationHandler, grpcHandler.getNegotiationLogger());
         }
 
         @Override

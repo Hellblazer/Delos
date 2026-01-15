@@ -39,10 +39,6 @@
         <module>cryptography</module>
 
         <!-- Platform support -->
-        <module>domain-epoll</module>
-        <module>domain-kqueue</module>
-        <module>domain-nio</module>
-        <module>domain-sockets</module>
         <module>leyden</module>
         <module>vm-socket</module>
         <module>java-noise</module>
@@ -155,21 +151,6 @@
             <dependency>
                 <groupId>com.hellblazer.delos</groupId>
                 <artifactId>thoth</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.hellblazer.delos</groupId>
-                <artifactId>domain-sockets</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.hellblazer.delos</groupId>
-                <artifactId>domain-epoll</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.hellblazer.delos</groupId>
-                <artifactId>domain-kqueue</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

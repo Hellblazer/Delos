@@ -36,6 +36,9 @@ import io.grpc.netty.DomainSocketNegotiatorHandler.DomainSocketNegotiator;
 import io.grpc.netty.NettyChannelBuilder;
 import io.grpc.netty.NettyServerBuilder;
 import io.netty.channel.EventLoopGroup;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.nio.NioDomainSocketChannel;
+import io.netty.channel.socket.nio.NioServerDomainSocketChannel;
 import io.netty.channel.unix.DomainSocketAddress;
 import io.netty.channel.unix.ServerDomainSocketChannel;
 import org.junit.jupiter.api.Test;
@@ -50,7 +53,6 @@ import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-import static com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor.IMPL;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -58,14 +60,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * @author hal.hildebrand
  */
 public class DemesneIsolateTest {
-    private static final Class<? extends ServerDomainSocketChannel> channelType       = IMPL.getServerDomainSocketChannelClass();
-    private static final Class<? extends ServerDomainSocketChannel> serverChannelType = IMPL.getServerDomainSocketChannelClass();
+    private static final Class<? extends io.netty.channel.ServerChannel> channelType       = NioServerDomainSocketChannel.class;
+    private static final Class<? extends io.netty.channel.ServerChannel> serverChannelType = NioServerDomainSocketChannel.class;
 
     private EventLoopGroup eventLoopGroup;
 
     @Test
     public void smokin() throws Exception {
-        eventLoopGroup = IMPL.getEventLoopGroup();
+        eventLoopGroup = new NioEventLoopGroup();
         Digest context = DigestAlgorithm.DEFAULT.getOrigin();
         var commDirectory = Path.of("target").resolve(UUID.randomUUID().toString());
         Files.createDirectories(commDirectory);
@@ -77,7 +79,7 @@ public class DemesneIsolateTest {
         var parentAddress = UUID.randomUUID().toString();
         final var portalEndpoint = new DomainSocketAddress(commDirectory.resolve(portalAddress).toFile());
         var serverBuilder = NettyServerBuilder.forAddress(portalEndpoint)
-                                              .protocolNegotiator(new DomainSocketNegotiator(IMPL))
+                                              .protocolNegotiator(new DomainSocketNegotiator())
                                               .channelType(serverChannelType)
                                               .workerEventLoopGroup(eventLoopGroup)
                                               .bossEventLoopGroup(eventLoopGroup)
@@ -107,12 +109,12 @@ public class DemesneIsolateTest {
         var kerlServer = new DemesneKERLServer(new ProtoKERLAdapter(kerl), null);
         var outerService = new OuterContextServer(service, null);
         var outerContextService = NettyServerBuilder.forAddress(parentEndpoint)
-                                                    .protocolNegotiator(new DomainSocketNegotiator(IMPL))
-                                                    .channelType(IMPL.getServerDomainSocketChannelClass())
+                                                    .protocolNegotiator(new DomainSocketNegotiator())
+                                                    .channelType(NioServerDomainSocketChannel.class)
                                                     .addService(kerlServer)
                                                     .addService(outerService)
-                                                    .workerEventLoopGroup(IMPL.getEventLoopGroup())
-                                                    .bossEventLoopGroup(IMPL.getEventLoopGroup())
+                                                    .workerEventLoopGroup(new NioEventLoopGroup())
+                                                    .bossEventLoopGroup(new NioEventLoopGroup())
                                                     .intercept(new DomainSocketServerInterceptor())
                                                     .build();
         outerContextService.start();

@@ -491,9 +491,12 @@ public class ViewManagement {
                       node.getId());
 
             // Schedule view change with stabilization window to allow enjoin() propagation
+            // Scale stabilization with cluster size: larger clusters need more time for gossip to propagate
             if (!view.hasOngoingViewChange()) {
-                log.debug("Scheduling view change with stabilization window for pending join: {} on: {}", from, node.getId());
-                view.scheduleViewChange(15); // Allow enjoin() to propagate (~75-300ms depending on gossip period)
+                int stabilizationRounds = Math.max(params.viewChangeRounds(), context.cardinality() / 10);
+                log.debug("Scheduling view change with {} round stabilization window for pending join: {} on: {}",
+                         stabilizationRounds, from, node.getId());
+                view.scheduleViewChange(stabilizationRounds);
             }
 
             var enjoining = new SliceIterator<>("Enjoining[%s:%s]".formatted(currentView(), from), node,

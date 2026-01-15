@@ -11,16 +11,6 @@
     <description>Functional testing for Delos Demesnes Isolates</description>
     <dependencies>
         <dependency>
-            <groupId>com.hellblazer.delos</groupId>
-            <artifactId>domain-kqueue</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.hellblazer.delos</groupId>
-            <artifactId>domain-epoll</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
             <groupId>io.netty</groupId>
             <artifactId>netty-transport-native-unix-common</artifactId>
             <version>${netty.version}</version>
