@@ -490,13 +490,11 @@ public class ViewManagement {
             log.debug("Member pending join: {} view: {} context: {} on: {}", from, currentView(), context.getId(),
                       node.getId());
 
-            // Schedule view change with stabilization window to allow enjoin() propagation
-            // Scale stabilization with cluster size: larger clusters need more time for gossip to propagate
-            if (!view.hasOngoingViewChange()) {
-                int stabilizationRounds = Math.max(params.viewChangeRounds(), context.cardinality() / 10);
-                log.debug("Scheduling view change with {} round stabilization window for pending join: {} on: {}",
-                         stabilizationRounds, from, node.getId());
-                view.scheduleViewChange(stabilizationRounds);
+            // Schedule view change if not already scheduled or ongoing
+            // This ensures joins trigger view changes while avoiding ballot divergence from multiple concurrent schedulings
+            if (!view.isViewChangeScheduledOrOngoing()) {
+                log.debug("Scheduling view change for pending join: {} on: {}", from, node.getId());
+                view.scheduleViewChange();
             }
 
             var enjoining = new SliceIterator<>("Enjoining[%s:%s]".formatted(currentView(), from), node,

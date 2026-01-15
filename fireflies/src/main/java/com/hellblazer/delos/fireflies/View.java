@@ -430,6 +430,15 @@ public class View {
         return !observations.isEmpty();
     }
 
+    /**
+     * Check if a view change is scheduled or ongoing.
+     * Scheduled: timer exists in timers map
+     * Ongoing: ballot observations are being collected
+     */
+    boolean isViewChangeScheduledOrOngoing() {
+        return timers.containsKey(SCHEDULED_VIEW_CHANGE) || hasOngoingViewChange();
+    }
+
     void initiate(SignedViewChange viewChange) {
         observations.put(node.getId(), new SVU(viewChange, digestAlgo));
     }
@@ -1014,14 +1023,8 @@ public class View {
         shunned.add(member.getId());
         viewManagement.gc(member);
 
-        // Schedule view change with stabilization window to allow offline status propagation
-        // Scale stabilization with cluster size: larger clusters need more time for gossip to propagate
-        if (!hasOngoingViewChange()) {
-            int stabilizationRounds = Math.max(params.viewChangeRounds(), context.cardinality() / 10);
-            log.debug("Scheduling view change with {} round stabilization window for member departure: {} on: {}",
-                     stabilizationRounds, member.getId(), node.getId());
-            scheduleViewChange(stabilizationRounds);
-        }
+        // Note: View change scheduling happens in finalizeViewChange() after current view change completes
+        // maybeViewChange() will detect offline members via context.offlineCount() and initiate view change
     }
 
     /**
