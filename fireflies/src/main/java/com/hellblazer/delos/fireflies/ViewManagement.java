@@ -496,6 +496,7 @@ public class ViewManagement {
                     try {
                         joined(context.sample(params.maximumTxfr(), Entropy.bitsStream(), node.getId())
                                       .stream()
+                                      .filter(Objects::nonNull)  // Filter out null participants
                                       .map(p -> p.note.getWrapped())
                                       .toList(), from, responseObserver, timer);
                     } catch (Throwable t) {

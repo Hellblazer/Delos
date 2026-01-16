@@ -402,15 +402,24 @@ class Binding {
                                                    .map(Multiset.Entry::getElement)
                                                    .orElse(null);
                     if (differentViewTrust != null) {
-                        log.info("VIEW CHANGE DETECTED! Expected: {} received: {} (count: {}/{}) - FORCING RESEED for fresh introductions on: {}",
+                        log.info("VIEW CHANGE DETECTED! Expected: {} received: {} (count: {}/{}) - PIVOTING to new view on: {}",
                                  v, differentViewTrust.diadem,
                                  trusts.count(differentViewTrust), majority,
                                  node.getId());
-                        // Force reseed by setting abandon to majority
-                        // This triggers existing reseed logic which will contact seed node for fresh introductions
-                        // Much cleaner than trying to pivot with stale/mixed seeds
-                        abandon.set(majority);
-                        // Fall through to reseed check below instead of returning
+                        scheduler.shutdown();
+                        // Create synthetic redirect for the new view discovered via gateways
+                        var newRedirect = Redirect.newBuilder()
+                                                  .setView(differentViewTrust.diadem.toDigeste())
+                                                  .setCardinality(redirect.getCardinality())
+                                                  .setRings(redirect.getRings())
+                                                  .setBootstrap(redirect.getBootstrap())
+                                                  .addAllIntroductions(sample.stream()
+                                                                             .map(p -> p.getNote().getWrapped())
+                                                                             .toList())
+                                                  .build();
+                        // Immediately join the new view without delay
+                        Thread.ofVirtual().start(Utils.wrapped(() -> join(newRedirect, differentViewTrust.diadem, duration), log));
+                        return;
                     } else {
                         log.info("No different view found in trusts, will retry same view: {} on: {}", v, node.getId());
                     }
