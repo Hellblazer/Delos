@@ -6,7 +6,7 @@
     <parent>
         <groupId>com.hellblazer.delos</groupId>
         <artifactId>examples</artifactId>
-        <version>0.1.2-SNAPSHOT</version>
+        <version>0.1.4-SNAPSHOT</version>
     </parent>
 
     <artifactId>local-demo</artifactId>
