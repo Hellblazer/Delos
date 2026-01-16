@@ -30,12 +30,15 @@ import io.grpc.netty.NettyChannelBuilder;
 import io.grpc.netty.NettyServerBuilder;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
-import io.netty.channel.unix.DomainSocketAddress;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.nio.NioDomainSocketChannel;
+import io.netty.channel.socket.nio.NioServerDomainSocketChannel;
 import org.joou.ULong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.UnixDomainSocketAddress;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.*;
@@ -45,7 +48,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import static com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor.IMPL;
 import static com.hellblazer.delos.cryptography.QualifiedBase64.qb64;
 
 /**
@@ -55,17 +57,17 @@ public class ProcessContainerDomain extends ProcessDomain {
 
     private final static Logger                                                    log                   = LoggerFactory.getLogger(
     ProcessContainerDomain.class);
-    private final static Class<? extends io.netty.channel.Channel>                 channelType           = IMPL.getChannelType();
+    private final static Class<? extends io.netty.channel.Channel>                 channelType           = NioDomainSocketChannel.class;
     protected final      Executor                                                  executor              = Executors.newVirtualThreadPerTaskExecutor();
-    private final        DomainSocketAddress                                       bridge;
-    private final        EventLoopGroup                                            clientEventLoopGroup  = IMPL.getEventLoopGroup();
+    private final        UnixDomainSocketAddress                                   bridge;
+    private final        EventLoopGroup                                            clientEventLoopGroup  = new NioEventLoopGroup();
     private final        Path                                                      communicationsDirectory;
-    private final        EventLoopGroup                                            contextEventLoopGroup = IMPL.getEventLoopGroup();
+    private final        EventLoopGroup                                            contextEventLoopGroup = new NioEventLoopGroup();
     private final        Map<Digest, Demesne>                                      hostedDomains         = new ConcurrentHashMap<>();
     private final        Portal<Member>                                            portal;
-    private final        DomainSocketAddress                                       portalEndpoint;
-    private final        EventLoopGroup                                            portalEventLoopGroup  = IMPL.getEventLoopGroup();
-    private final        Map<String, DomainSocketAddress>                          routes                = new HashMap<>();
+    private final        UnixDomainSocketAddress                                   portalEndpoint;
+    private final        EventLoopGroup                                            portalEventLoopGroup  = new NioEventLoopGroup();
+    private final        Map<String, UnixDomainSocketAddress>                      routes                = new HashMap<>();
     private final        IdentifierSpecification.Builder<SelfAddressingIdentifier> subDomainSpecification;
 
     public ProcessContainerDomain(Digest group, ControlledIdentifierMember member, ProcessDomainParameters parameters,
@@ -76,16 +78,14 @@ public class ProcessContainerDomain extends ProcessDomain {
                                   StereotomyMetrics stereotomyMetrics) {
         super(group, member, parameters, builder, runtime, endpoint, ff, stereotomyMetrics);
         communicationsDirectory = commDirectory;
-        bridge = new DomainSocketAddress(communicationsDirectory.resolve(UUID.randomUUID().toString()).toFile());
-        portalEndpoint = new DomainSocketAddress(
-        communicationsDirectory.resolve(UUID.randomUUID().toString()).toFile());
+        bridge = UnixDomainSocketAddress.of(communicationsDirectory.resolve(UUID.randomUUID().toString()));
+        portalEndpoint = UnixDomainSocketAddress.of(communicationsDirectory.resolve(UUID.randomUUID().toString()));
         portal = new Portal<>(member.getId(), NettyServerBuilder.forAddress(portalEndpoint)
                                                                 .protocolNegotiator(
-                                                                new DomainSocketNegotiatorHandler.DomainSocketNegotiator(
-                                                                IMPL))
+                                                                new DomainSocketNegotiatorHandler.DomainSocketNegotiator())
                                                                 .executor(Executors.newVirtualThreadPerTaskExecutor())
                                                                 .withChildOption(ChannelOption.TCP_NODELAY, true)
-                                                                .channelType(IMPL.getServerDomainSocketChannelClass())
+                                                                .channelType(NioServerDomainSocketChannel.class)
                                                                 .workerEventLoopGroup(portalEventLoopGroup)
                                                                 .bossEventLoopGroup(portalEventLoopGroup)
                                                                 .intercept(new DomainSocketServerInterceptor()),
@@ -97,7 +97,7 @@ public class ProcessContainerDomain extends ProcessDomain {
         final var witness = member.getIdentifier().newEphemeral().get();
         final var cloned = prototype.clone();
         var parameters = cloned.setCommDirectory(communicationsDirectory.toString())
-                               .setPortal(portalEndpoint.path())
+                               .setPortal(portalEndpoint.getPath().toString())
                                .build();
         var ctxId = Digest.from(parameters.getContext());
         final AtomicBoolean added = new AtomicBoolean();
@@ -138,7 +138,7 @@ public class ProcessContainerDomain extends ProcessDomain {
             portal.start();
         } catch (IOException e) {
             throw new IllegalStateException(
-            "Unable to start portal, local address: " + bridge.path() + " on: " + params.member().getId());
+            "Unable to start portal, local address: " + bridge.getPath() + " on: " + params.member().getId());
         }
     }
 
@@ -175,7 +175,7 @@ public class ProcessContainerDomain extends ProcessDomain {
         }
     }
 
-    private ManagedChannel handler(DomainSocketAddress address) {
+    private ManagedChannel handler(UnixDomainSocketAddress address) {
         return NettyChannelBuilder.forAddress(address)
                                   .withOption(ChannelOption.TCP_NODELAY, true)
                                   .executor(executor)

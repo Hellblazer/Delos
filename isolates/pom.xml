@@ -16,14 +16,6 @@
     <dependencies>
         <dependency>
             <groupId>com.hellblazer.delos</groupId>
-            <artifactId>domain-kqueue</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.hellblazer.delos</groupId>
-            <artifactId>domain-epoll</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.hellblazer.delos</groupId>
             <artifactId>model</artifactId>
         </dependency>
         <dependency>
@@ -139,9 +131,72 @@
                                 <buildArg>--enable-monitoring=jfr</buildArg>
                                 <buildArg>-Ob</buildArg>
                                 <buildArg>-march=native</buildArg>
-                                <buildArg>--initialize-at-build-time=com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor</buildArg>
+                                <!-- ServiceLoader-based class requires build-time initialization for native-image -->
                                 <buildArg>--initialize-at-build-time=javax.sql.rowset.RowSetProvider</buildArg>
-                                <buildArg>--initialize-at-build-time=com.hellblazer.delos.comm.grpc.DomainSocketsOSX</buildArg>
+                                <!-- H2 file paths must be initialized at runtime to respect runtime filesystem state -->
+                                <buildArg>--initialize-at-run-time=org.h2.store.fs.FilePath</buildArg>
+
+                                <buildArg>--exact-reachability-metadata</buildArg>
+                            </buildArgs>
+                            <verbose>true</verbose>
+                            <metadataRepository>
+                                <enabled>true</enabled>
+                            </metadataRepository>
+                        </configuration>
+                        <dependencies>
+                            <dependency>
+                                <groupId>org.graalvm.buildtools</groupId>
+                                <artifactId>graalvm-reachability-metadata</artifactId>
+                                <version>${native.maven.plugin.version}</version>
+                            </dependency>
+                        </dependencies>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>linux</id>
+            <activation>
+                <os>
+                    <name>linux</name>
+                </os>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.graalvm.buildtools</groupId>
+                        <artifactId>native-maven-plugin</artifactId>
+                        <extensions>true</extensions>
+                        <executions>
+                            <execution>
+                                <id>build-native</id>
+                                <goals>
+                                    <goal>compile-no-fork</goal>
+                                </goals>
+                                <phase>package</phase>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <imageName>${imageName}</imageName>
+                            <outputDirectory>
+                                ${project.build.outputDirectory}/natives/linux_${os.detected.arch}
+                            </outputDirectory>
+                            <sharedLibrary>true</sharedLibrary>
+                            <buildArgs>
+                                <buildArg>-Djava.awt.headless=true</buildArg>
+                                <buildArg>-H:+UnlockExperimentalVMOptions</buildArg>
+                                <buildArg>-H:+ReportExceptionStackTraces</buildArg>
+                                <buildArg>--emit build-report</buildArg>
+                                <buildArg>--enable-http</buildArg>
+                                <buildArg>--no-fallback</buildArg>
+                                <buildArg>--add-modules java.sql.rowset</buildArg>
+                                <buildArg>--enable-sbom</buildArg>
+                                <buildArg>--enable-monitoring=jfr</buildArg>
+                                <buildArg>-Ob</buildArg>
+                                <buildArg>-march=native</buildArg>
+                                <!-- ServiceLoader-based class requires build-time initialization for native-image -->
+                                <buildArg>--initialize-at-build-time=javax.sql.rowset.RowSetProvider</buildArg>
+                                <!-- H2 file paths must be initialized at runtime to respect runtime filesystem state -->
                                 <buildArg>--initialize-at-run-time=org.h2.store.fs.FilePath</buildArg>
 
                                 <buildArg>--exact-reachability-metadata</buildArg>

@@ -37,6 +37,7 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
@@ -162,16 +163,14 @@ class Binding {
             if (cause instanceof StatusRuntimeException sre) {
                 log.warn("Error retrieving Gateway: {} from: {} on: {}", sre.getMessage(), member.getId(),
                          node.getId());
-                // Check for OUT_OF_RANGE - stale observer information requiring reseed
+                // Check for OUT_OF_RANGE - stale observer information
                 if (sre.getStatus().getCode() == io.grpc.Status.Code.OUT_OF_RANGE) {
-                    log.info("OUT_OF_RANGE detected in complete(), setting abandon=MAX_VALUE for view: {} from: {} on: {}",
+                    log.info("OUT_OF_RANGE detected in complete(), incrementing abandon counter for view: {} from: {} on: {}",
                              v, member.getId(), node.getId());
-                    // Set abandon to trigger reseed in continuation callback or whenComplete handler
-                    abandon.set(Integer.MAX_VALUE);
-                    // Force completion with false to trigger reseed check immediately
-                    if (!complete.isDone()) {
-                        complete.complete(false);
-                    }
+                    // Increment abandon counter - reseed will trigger if >= majority of observers are stale
+                    // This allows joins to succeed even when minority of observers have stale view info
+                    abandon.incrementAndGet();
+                    dec(complete, remaining);
                     return;
                 }
             } else {
@@ -199,6 +198,7 @@ class Binding {
             dec(complete, remaining);
             return;
         }
+
         trusts.add(new Bootstrapping(g.getTrust()));
         var initialSeedSet = new HashSet<>(iss);
         initialSeedSet.addAll(g.getInitialSeedSetList());
@@ -236,19 +236,12 @@ class Binding {
                             CompletableFuture<Boolean> complete) {
         switch (sre.getStatus().getCode()) {
         case OUT_OF_RANGE -> {
-            log.info("Gateway view: {} OUT_OF_RANGE (stale observers) from: {} msg: {} on: {}", v,
+            log.info("Gateway view: {} OUT_OF_RANGE (stale observer) from: {} msg: {} on: {}", v,
                      link.getMember().getId(), sre.getMessage(), node.getId());
-            // OUT_OF_RANGE means stale observer info - trigger immediate reseed
-            // This prevents infinite loops when all contacted observers have lost observer status
-            abandon.set(Integer.MAX_VALUE);
-            log.info("Set abandon=MAX_VALUE to trigger reseed check, completing iteration for view: {} on: {}", v,
-                     node.getId());
-            // Force iteration to stop and trigger abandon threshold check
-            if (!complete.isDone()) {
-                complete.complete(false);
-            } else {
-                log.warn("Complete already done when handling OUT_OF_RANGE for view: {} on: {}", v, node.getId());
-            }
+            // OUT_OF_RANGE means stale observer info - increment abandon counter
+            // Reseed will trigger if >= majority of observers are stale
+            // This allows joins to tolerate minority of stale observers (BFT property)
+            abandon.incrementAndGet();
         }
         case FAILED_PRECONDITION -> {
             log.trace("Gateway view: {} unavailable: {} from: {} on: {}", v, sre.getMessage(), link.getMember().getId(),
@@ -297,7 +290,10 @@ class Binding {
     }
 
     private Join join(Digest v) {
-        return Join.newBuilder().setView(v.toDigeste()).setNote(node.getNote().getWrapped()).build();
+        return Join.newBuilder()
+                   .setView(v.toDigeste())
+                   .setNote(node.getNote().getWrapped())
+                   .build();
     }
 
     private BiConsumer<? super Redirect, ? super Throwable> join(Duration duration, Timer.Context timer) {
@@ -336,8 +332,9 @@ class Binding {
                              .collect(Collectors.toList());
         // Randomize observer contact order to spread load and increase likelihood of fresh view
         Entropy.secureShuffle(sample);
-        log.info("Redirecting to: {} context: {} sample: {} on: {}", v, this.context.getId(), sample.size(),
-                 node.getId());
+
+        log.info("Redirecting to: {} context: {} sample: {} on: {}", v, this.context.getId(),
+                 sample.size(), node.getId());
         var gateway = new CompletableFuture<Bound>();
         var timer = metrics == null ? null : metrics.joinDuration().time();
         gateway.whenComplete(view.join(duration, timer));
@@ -377,23 +374,73 @@ class Binding {
                     reseedDepth.set(0); // Reset on successful join
                     return;
                 }
-                log.info("Join unsuccessful, abandoned: {} trusts: {} on: {}", abandon.get(), trusts.entrySet()
-                                                                                                    .stream()
-                                                                                                    .sorted()
-                                                                                                    .map(
-                                                                                                    e -> "%s x %s".formatted(
-                                                                                                    e.getElement().diadem,
-                                                                                                    e.getCount()))
-                                                                                                    .toList(),
-                         node.getId());
+                var trustsSummary = trusts.entrySet()
+                                          .stream()
+                                          .sorted()
+                                          .map(e -> "%s x %s".formatted(e.getElement().diadem, e.getCount()))
+                                          .toList();
+                log.info("Join unsuccessful - expected view: {} abandoned: {} majority: {} trusts.size: {} trusts: {} on: {}",
+                         v, abandon.get(), majority, trusts.size(), trustsSummary, node.getId());
+
+                // CRITICAL: Detect view change during join - pivot to new view instead of retrying stale view
+                // If gateways returned a different view than expected, immediately join that view
+                // This prevents wasting time retrying a stale view when cluster has moved forward
+                log.info("View change detection: trusts.isEmpty={} abandon={} majority={} checking for different view on: {}",
+                         trusts.isEmpty(), abandon.get(), majority, node.getId());
+
+                if (!trusts.isEmpty() && abandon.get() < majority) {
+                    log.info("Scanning {} trust entries for view change (expected: {}) on: {}", trusts.size(), v, node.getId());
+                    var differentViewTrust = trusts.entrySet()
+                                                   .stream()
+                                                   .filter(e -> {
+                                                       var matches = e.getElement().diadem.equals(v);
+                                                       log.info("  Trust entry: view={} count={} matches_expected={} on: {}",
+                                                                e.getElement().diadem, e.getCount(), matches, node.getId());
+                                                       return !matches;
+                                                   })
+                                                   .max(Comparator.comparingInt(Multiset.Entry::getCount))
+                                                   .map(Multiset.Entry::getElement)
+                                                   .orElse(null);
+                    if (differentViewTrust != null) {
+                        log.info("VIEW CHANGE DETECTED! Expected: {} received: {} (count: {}/{}) - PIVOTING to new view on: {}",
+                                 v, differentViewTrust.diadem,
+                                 trusts.count(differentViewTrust), majority,
+                                 node.getId());
+                        scheduler.shutdown();
+                        // Create synthetic redirect for the new view discovered via gateways
+                        var newRedirect = Redirect.newBuilder()
+                                                  .setView(differentViewTrust.diadem.toDigeste())
+                                                  .setCardinality(redirect.getCardinality())
+                                                  .setRings(redirect.getRings())
+                                                  .setBootstrap(redirect.getBootstrap())
+                                                  .addAllIntroductions(sample.stream()
+                                                                             .map(p -> p.getNote().getWrapped())
+                                                                             .toList())
+                                                  .build();
+                        // Immediately join the new view without delay
+                        Thread.ofVirtual().start(Utils.wrapped(() -> join(newRedirect, differentViewTrust.diadem, duration), log));
+                        return;
+                    } else {
+                        log.info("No different view found in trusts, will retry same view: {} on: {}", v, node.getId());
+                    }
+                } else {
+                    log.info("Skipping view change detection: trusts.isEmpty={} abandon={} >= majority={} on: {}",
+                             trusts.isEmpty(), abandon.get(), majority, node.getId());
+                }
+
+                // Check if we're stuck with stale observers (no progress)
+                if (trusts.isEmpty() && abandon.get() > 0) {
+                    log.info("No progress (trusts empty, abandons: {}), forcing reseed for view: {} on: {}", abandon.get(), v, node.getId());
+                    // Force reseed when making no progress with current introductions
+                    abandon.set(majority);
+                }
                 // Check if we need to reseed due to stale observers (OUT_OF_RANGE)
                 if (abandon.get() >= majority) {
                     final int depth = reseedDepth.incrementAndGet();
-                    final int maxReseedDepth = 12; // Allow more attempts during cascading batch joins
-                    if (depth > maxReseedDepth) {
+                    if (depth > params.maxReseedDepth()) {
                         log.warn(
                         "Abandoning Gateway view: {} abandons: {} reseed depth: {} exceeds max: {} giving up on: {}", v,
-                        abandon.get(), depth, maxReseedDepth, node.getId());
+                        abandon.get(), depth, params.maxReseedDepth(), node.getId());
                         scheduler.shutdown();
                         reseedDepth.set(0); // Reset for next attempt
                         return;
@@ -401,8 +448,9 @@ class Binding {
                     // Reseed with backoff to allow gossip propagation
                     // Use higher base delay than retry (2x) since view changes need time to propagate
                     // Gossip propagation typically takes 500-1000ms for 100-node networks
+                    // Increased exponential cap from 3 to 5 to give more time at higher reseed depths
                     final long reseedBaseDelay = params.retryDelay().toNanos() * 2;
-                    final long reseedExponentialDelay = reseedBaseDelay * (1L << Math.min(depth - 1, 3));
+                    final long reseedExponentialDelay = reseedBaseDelay * (1L << Math.min(depth - 1, 5));
                     final long reseedDelayWithJitter = Entropy.nextBitsStreamLong(reseedExponentialDelay);
                     log.info("Abandoning Gateway view: {} abandons: {} >= majority: {} reseeding (depth: {}) after backoff: {}ms on: {}",
                              v, abandon.get(), majority, depth, TimeUnit.NANOSECONDS.toMillis(reseedDelayWithJitter), node.getId());
@@ -437,16 +485,15 @@ class Binding {
                                 (futureSailor, _, _, member) -> join(member, gateway, futureSailor, trusts,
                                                                      initialSeedSet, v, majority, complete, remaining, abandon),
                                 () -> {
-                                    if (!view.started.get() || gateway.isDone()) {
+                                    if (!view.started.get() || gateway.isDone() || complete.isDone()) {
                                         return;
                                     }
                                     if (abandon.get() >= majority) {
                                         final int depth = reseedDepth.incrementAndGet();
-                                        final int maxReseedDepth = 12; // Allow more attempts during cascading batch joins
-                                        if (depth > maxReseedDepth) {
+                                        if (depth > params.maxReseedDepth()) {
                                             log.warn(
                                             "Continuation: Abandoning view: {} abandons: {} reseed depth: {} exceeds max: {} giving up on: {}",
-                                            v, abandon.get(), depth, maxReseedDepth, node.getId());
+                                            v, abandon.get(), depth, params.maxReseedDepth(), node.getId());
                                             scheduler.shutdown();
                                             reseedDepth.set(0);
                                             complete.completeExceptionally(

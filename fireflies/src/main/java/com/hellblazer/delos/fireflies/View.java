@@ -430,6 +430,15 @@ public class View {
         return !observations.isEmpty();
     }
 
+    /**
+     * Check if a view change is scheduled or ongoing.
+     * Scheduled: timer exists in timers map
+     * Ongoing: ballot observations are being collected
+     */
+    boolean isViewChangeScheduledOrOngoing() {
+        return timers.containsKey(SCHEDULED_VIEW_CHANGE) || hasOngoingViewChange();
+    }
+
     void initiate(SignedViewChange viewChange) {
         observations.put(node.getId(), new SVU(viewChange, digestAlgo));
     }
@@ -1013,6 +1022,9 @@ public class View {
         context.offline(member);
         shunned.add(member.getId());
         viewManagement.gc(member);
+
+        // Note: View change scheduling happens in finalizeViewChange() after current view change completes
+        // maybeViewChange() will detect offline members via context.offlineCount() and initiate view change
     }
 
     /**
@@ -1066,8 +1078,12 @@ public class View {
         }
         try {
             var successors = context.successors(getNodeId(), context::isActive, getNode());
-            Collections.shuffle(successors);
-            successors.forEach(i -> {
+            // Filter out successors with null members to prevent gossip topology breaks
+            var validSuccessors = new ArrayList<>(successors.stream()
+                                                            .filter(s -> s.m() != null)
+                                                            .toList());
+            Collections.shuffle(validSuccessors);
+            validSuccessors.forEach(i -> {
                 var link = comm.connect(i.m());
                 if (link != null) {
                     gossip(gossip(link, i.ring()), i.m(), link, i.ring());
@@ -1078,10 +1094,9 @@ public class View {
                     Thread.currentThread().interrupt();
                 }
             });
-            if (context.activeCount() == 1) {
-                tick();
-            }
         } finally {
+            // Tick MUST run on every gossip iteration to advance round timers
+            tick();
             schedule(duration);
         }
     }
@@ -1878,12 +1893,15 @@ public class View {
          */
         @Override
         public void join(Join join, Digest from, StreamObserver<JoinResponse> responseObserver, Timer.Context timer) {
+            log.info("View.Service.join() called from: {} started: {} on: {}", from, started.get(), node.getId());
             if (!started.get()) {
+                log.warn("View.Service.join() rejecting - not started from: {} on: {}", from, node.getId());
                 responseObserver.onError(
                 new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("Not started")));
                 return;
             }
             viewManagement.join(join, from, responseObserver, timer);
+            log.info("View.Service.join() returned from viewManagement.join() from: {} on: {}", from, node.getId());
         }
 
         public void ping(Ping ping, Digest from) {
@@ -1968,10 +1986,15 @@ public class View {
 
         @Override
         public Redirect seed(Registration registration, Digest from) {
+            log.info("View.Service.seed() called from: {} started: {} on: {}", from, started.get(), node.getId());
             if (!started.get()) {
+                log.warn("View.Service.seed() rejecting - not started from: {} on: {}", from, node.getId());
                 throw new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("Not started"));
             }
-            return viewManagement.seed(registration, from);
+            Redirect result = viewManagement.seed(registration, from);
+            log.info("View.Service.seed() returning introductions: {} from: {} on: {}",
+                     result.getIntroductionsCount(), from, node.getId());
+            return result;
         }
 
         /**

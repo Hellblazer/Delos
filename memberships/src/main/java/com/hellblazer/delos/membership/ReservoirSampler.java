@@ -49,7 +49,8 @@ public class ReservoirSampler<T> implements Collector<T, List<T>, List<T>> {
 
     @Override
     public Set<Characteristics> characteristics() {
-        return EnumSet.of(Collector.Characteristics.UNORDERED, Collector.Characteristics.IDENTITY_FINISH);
+        // Removed IDENTITY_FINISH because finisher() needs to trim pre-allocated nulls
+        return EnumSet.of(Collector.Characteristics.UNORDERED);
     }
 
     @Override
@@ -62,7 +63,23 @@ public class ReservoirSampler<T> implements Collector<T, List<T>, List<T>> {
 
     @Override
     public Function<List<T>, List<T>> finisher() {
-        return (i) -> i;
+        return list -> {
+            // Remove trailing nulls when stream has fewer elements than capacity
+            // Find the last non-null element instead of relying on counter (which may not be visible due to lambda capture)
+            int lastNonNull = list.size() - 1;
+            while (lastNonNull >= 0 && list.get(lastNonNull) == null) {
+                lastNonNull--;
+            }
+            int actualSize = lastNonNull + 1;
+            if (actualSize == list.size()) {
+                return list;  // All slots filled, no nulls
+            }
+            if (actualSize == 0) {
+                return new ArrayList<>();  // Empty stream
+            }
+            // Return only the filled portion, excluding pre-allocated nulls
+            return new ArrayList<>(list.subList(0, actualSize));
+        };
     }
 
     @Override
@@ -80,10 +97,10 @@ public class ReservoirSampler<T> implements Collector<T, List<T>, List<T>> {
         }
 
         if (counter < in.size()) {
-            in.add((int) counter, s);
+            in.set((int) counter, s);  // Replace pre-allocated null at index
         } else {
             if (counter == next) {
-                in.add(ThreadLocalRandom.current().nextInt(in.size()), s);
+                in.set(ThreadLocalRandom.current().nextInt(in.size()), s);  // Replace random element
                 skip();
             }
         }

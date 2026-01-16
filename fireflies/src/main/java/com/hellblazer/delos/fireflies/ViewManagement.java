@@ -68,6 +68,23 @@ public class ViewManagement {
     final            Map<Digest, Integer>                          observers    = new ConcurrentSkipListMap<>();
     final            AtomicLong                                    observerVersion = new AtomicLong(0);
     final            AtomicReference<HexBloom>                     cachedDiadem = new AtomicReference<>();
+    /**
+     * Members that joined in the current view (from the most recent ballot).
+     * Deterministically derived from ballot.joining() so all nodes have the same view.
+     * Excluded from introductions to prevent circular dependencies during batch joins.
+     */
+    final            Set<Digest>                                   recentJoins  = ConcurrentHashMap.newKeySet();
+    /**
+     * Members that joined in the previous view (from the second-most-recent ballot).
+     * Deterministically derived from previous ballot to ensure consistency across nodes.
+     * Provides a two-generation grace period before members can serve as observers.
+     */
+    final            Set<Digest>                                   previousRecentJoins  = ConcurrentHashMap.newKeySet();
+    /**
+     * The joining list from the previous ballot, used to populate previousRecentJoins
+     * in the next view change. This ensures all nodes have consistent join generation tracking.
+     */
+    final            List<Digest>                                  previousBallotJoining = new CopyOnWriteArrayList<>();
     final            AtomicLong                                    cachedDiademVersion = new AtomicLong(-1L);
     private final    AtomicInteger                                 attempt      = new AtomicInteger();
     private final    Digest                                        bootstrapView;
@@ -232,12 +249,14 @@ public class ViewManagement {
                 log.trace("Vote already cast for: {} on: {}", currentView(), node.getId());
                 return;
             }
+
             // Use pending rebuttals as a proxy for stability
             if (view.hasPendingRebuttals()) {
                 log.debug("Pending rebuttals in view: {} on: {}", currentView(), node.getId());
                 view.scheduleViewChange(1);
                 return;
             }
+
             view.scheduleFinalizeViewChange();
             if (!isObserver(node.getId())) {
                 log.debug("Initiating (non observer) view change: {} joins: {} leaves: {} on: {}", currentView(),
@@ -275,6 +294,31 @@ public class ViewManagement {
      * @return InstallResult capturing state for post-lock completion
      */
     InstallResult installCore(Ballot ballot) {
+        // Two-generation join tracking: members need TWO view change cycles to fully stabilize
+        // before serving as observers. This prevents circular dependencies during rapid batch joins.
+        //
+        // Deterministic approach: derive join generations from ballot history so ALL nodes
+        // (regardless of when they joined) have the same understanding of member stability.
+
+        log.info("Before generational shift - recentJoins: {} previousRecentJoins: {} previousBallotJoining: {} on: {}",
+                 recentJoins.size(), previousRecentJoins.size(), previousBallotJoining.size(), node.getId());
+
+        // Generation N-2: Clear previousRecentJoins (had 2 cycles, now fully stable)
+        previousRecentJoins.clear();
+        // Generation N-1: Populate from saved previous ballot (had 1 cycle, needs 1 more)
+        previousRecentJoins.addAll(previousBallotJoining);
+
+        // Generation N: Populate recentJoins from current ballot (just joining now)
+        recentJoins.clear();
+        recentJoins.addAll(ballot.joining());
+
+        // Save current ballot for next view change
+        previousBallotJoining.clear();
+        previousBallotJoining.addAll(ballot.joining());
+
+        log.info("After generational shift - recentJoins: {} previousRecentJoins: {} ballot.joining: {} on: {}",
+                 recentJoins.size(), previousRecentJoins.size(), ballot.joining().size(), node.getId());
+
         // The circle of life
         var previousView = currentView.get();
 
@@ -287,7 +331,7 @@ public class ViewManagement {
 
         final var seedSet = context.sample(params.maximumTxfr(), Entropy.bitsStream(), node.getId())
                                    .stream()
-                                   .filter(sn -> sn != null)
+                                   .filter(p -> p != null && p.note != null)
                                    .map(p -> p.note.getWrapped())
                                    .collect(Collectors.toSet());
 
@@ -300,6 +344,7 @@ public class ViewManagement {
                             .peek(nw -> joining.add(nw.getIdentifier()))
                             .peek(view::addToView)
                             .peek(nw -> {
+                                // recentJoins now populated from ballot at method start for determinism
                                 if (metrics != null) {
                                     metrics.joins().mark();
                                 }
@@ -383,7 +428,10 @@ public class ViewManagement {
                 throw new IllegalStateException("Invalid crown");
             }
             setDiadem(calculated);
-            view.notifyListeners(context.allMembers().map(p -> p.note.getIdentifier()).toList(),
+            view.notifyListeners(context.allMembers()
+                                        .filter(java.util.Objects::nonNull)
+                                        .map(p -> p.note.getIdentifier())
+                                        .toList(),
                                  Collections.emptyList());
 
             view.scheduleViewChange();
@@ -401,65 +449,87 @@ public class ViewManagement {
 
     void join(Join join, Digest from, StreamObserver<JoinResponse> responseObserver, Timer.Context timer) {
         final var joinView = Digest.from(join.getView());
+        log.info("ViewManagement.join() called from: {} joinView: {} joined: {} on: {}",
+                 from, joinView, joined(), node.getId());
+
         if (!joined()) {
-            log.trace("Not joined, ignored join of view: {} from: {} on: {}", joinView, from, node.getId());
+            log.warn("ViewManagement.join() NOT JOINED - rejecting from: {} on: {}", from, node.getId());
             responseObserver.onError(new StatusRuntimeException(Status.OUT_OF_RANGE.withDescription(
             "Not joined, reseed to get joined observers: %s from: %s on: %s".formatted(joinView, from, node.getId()))));
             return;
         }
+
         var note = new NoteWrapper(join.getNote(), digestAlgo);
         if (!from.equals(note.getId())) {
-            log.debug("Ignored join of view: {} from: {} does not match: {} on: {}", joinView, from, note.getId(),
-                      node.getId());
+            log.warn("ViewManagement.join() NOTE ID MISMATCH - from: {} claiming: {} on: {}", from, note.getId(), node.getId());
             responseObserver.onError(
             new StatusRuntimeException(Status.INVALID_ARGUMENT.withDescription("Member does not match note")));
             return;
         }
+
         if (!view.validate(note.getIdentifier())) {
+            log.warn("ViewManagement.join() INVALID IDENTIFIER - from: {} identifier: {} on: {}", from, note.getIdentifier(), node.getId());
             responseObserver.onError(
             new StatusRuntimeException(Status.INVALID_ARGUMENT.withDescription("Invalid identifier")));
-            log.debug("Ignored join of view: {} from: {} invalid identifier on: {}", joinView, from, node.getId());
             return;
         }
+
         // Early non-observer rejection (lock-free fast-path)
         // Pattern: Optimistic check BEFORE lock, authoritative re-check INSIDE lock (line 379)
         // Safety: Stale "not observer" → harmless redirect; Stale "is observer" → caught by re-check
         if (!observers.containsKey(node.getId())) {
-            log.trace("Not observer (early check), redirecting Join from: {} to reseed on: {}", from, node.getId());
+            log.warn("ViewManagement.join() NOT OBSERVER (early check) - redirecting from: {} on: {}", from, node.getId());
             responseObserver.onError(new StatusRuntimeException(
                 Status.OUT_OF_RANGE.withDescription("Not observer, reseed to get current observers")));
             return;
         }
-        view.stable(() -> {
-            var thisView = currentView();
-            log.debug("Join requested from: {} view: {} context: {} cardinality: {} on: {}", from, thisView,
-                      context.getId(), cardinality(), node.getId());
-            if (contains(from)) {
-                log.debug("Already a member: {} view: {}  context: {} cardinality: {} on: {}", from, thisView,
-                          context.getId(), cardinality(), node.getId());
-                joined(context.sample(params.maximumTxfr(), Entropy.bitsStream(), node.getId())
-                              .stream()
-                              .map(p -> p.note.getWrapped())
-                              .toList(), from, responseObserver, timer);
-                return;
-            }
-            if (!observers.containsKey(node.getId())) {
-                log.trace("Not observer (re-check), ignoring Join from: {} on: {}", from, node.getId());
-                responseObserver.onError(new StatusRuntimeException(
-                    Status.OUT_OF_RANGE.withDescription("Not observer, reseed to get current observers")));
-                return;
-            }
-            if (!thisView.equals(joinView)) {
-                responseObserver.onError(new StatusRuntimeException(
-                Status.OUT_OF_RANGE.withDescription("View: " + joinView + " does not match: " + thisView)));
-                return;
-            }
+
+        log.info("ViewManagement.join() passed pre-checks, entering stable() from: {} on: {}", from, node.getId());
+        try {
+            view.stable(() -> {
+                var thisView = currentView();
+                log.info("ViewManagement.join() inside stable() from: {} thisView: {} joinView: {} contains: {} isObserver: {} on: {}",
+                         from, thisView, joinView, contains(from), observers.containsKey(node.getId()), node.getId());
+
+                if (contains(from)) {
+                    log.info("ViewManagement.join() ALREADY MEMBER - returning current view from: {} on: {}", from, node.getId());
+                    try {
+                        joined(context.sample(params.maximumTxfr(), Entropy.bitsStream(), node.getId())
+                                      .stream()
+                                      .filter(Objects::nonNull)  // Filter out null participants
+                                      .map(p -> p.note.getWrapped())
+                                      .toList(), from, responseObserver, timer);
+                    } catch (Throwable t) {
+                        // Race condition: member joined during view change, then retried join() before getting confirmation
+                        // By the time retry enters stable(), member is already in new view
+                        // responseObserver may already be closed/completed/timed out - log and investigate
+                        log.warn("CRITICAL: Could not send already-member Gateway to: {} on: {} - exception:", from, node.getId(), t);
+                    }
+                    return;
+                }
+
+                if (!observers.containsKey(node.getId())) {
+                    log.warn("ViewManagement.join() NOT OBSERVER (re-check) - rejecting from: {} on: {}", from, node.getId());
+                    responseObserver.onError(new StatusRuntimeException(
+                        Status.OUT_OF_RANGE.withDescription("Not observer, reseed to get current observers")));
+                    return;
+                }
+
+                if (!thisView.equals(joinView)) {
+                    log.warn("ViewManagement.join() VIEW MISMATCH - expected: {} got: {} from: {} on: {}",
+                             thisView, joinView, from, node.getId());
+                    responseObserver.onError(new StatusRuntimeException(
+                    Status.OUT_OF_RANGE.withDescription("View: " + joinView + " does not match: " + thisView)));
+                    return;
+                }
             if (!View.isValidMask(note.getMask(), context)) {
                 log.warn(
                 "Invalid join mask: {} majority: {} from member: {} view: {}  context: {} cardinality: {} on: {}",
                 note.getMask(), context.majority(), from, thisView, context.getId(), cardinality(), node.getId());
             }
             if (pendingJoins.size() >= params.maxPending()) {
+                log.warn("ViewManagement.join() QUEUE FULL - pendingJoins: {} max: {} from: {} on: {}",
+                         pendingJoins.size(), params.maxPending(), from, node.getId());
                 responseObserver.onError(
                 new StatusRuntimeException(Status.RESOURCE_EXHAUSTED.withDescription("No room at the inn")));
                 return;
@@ -472,36 +542,39 @@ public class ViewManagement {
                                         .setJoinSequenceNumber(pendingJoins.size())
                                         .build();
             try {
+                log.info("ViewManagement.join() sending acknowledgment to: {} on: {}", from, node.getId());
                 responseObserver.onNext(JoinResponse.newBuilder().setAck(ack).build());
-                log.debug("Join acknowledged for: {} view: {} estimated wait: {}ms queue position: {} on: {}", from,
-                          thisView, ack.getEstimatedWaitTimeMs(), ack.getJoinSequenceNumber(), node.getId());
+                log.info("ViewManagement.join() acknowledgment sent to: {} queue position: {} on: {}",
+                         from, ack.getJoinSequenceNumber(), node.getId());
             } catch (Throwable t) {
                 // Log but don't abort - acknowledgment is optional, Gateway delivery is critical
-                log.debug("Could not send join acknowledgment to: {} on: {} (continuing with join)", from, node.getId(), t);
+                log.warn("ViewManagement.join() could not send acknowledgment to: {} on: {} (continuing)", from, node.getId(), t);
             }
 
             // Phase 2: Register Gateway callback
+            log.info("ViewManagement.join() registering Gateway callback for: {} on: {}", from, node.getId());
             pendingJoins.computeIfAbsent(from, d -> seeds -> {
                 log.info("Gateway established for: {} view: {}  context: {} cardinality: {} on: {}", from,
                          currentView(), context.getId(), cardinality(), node.getId());
                 joined(seeds, from, responseObserver, timer);
             });
             joins.put(note.getId(), note);
-            log.debug("Member pending join: {} view: {} context: {} on: {}", from, currentView(), context.getId(),
-                      node.getId());
+            log.info("ViewManagement.join() member pending, broadcasting enjoin from: {} on: {}", from, node.getId());
 
-            // Phase 3: Trigger view change if not already in progress
-            if (!view.hasOngoingViewChange()) {
-                log.debug("Triggering view change for pending join: {} on: {}", from, node.getId());
-                view.scheduleViewChange(0); // Immediate scheduling
-            }
-
+            // Original Foundation protocol: NO event-driven scheduling from join()
+            // Joins are naturally batched by periodic maybeViewChange() scheduled from finalizeViewChange()
+            // This allows enjoin() messages to propagate before ballot creation, preventing divergence
             var enjoining = new SliceIterator<>("Enjoining[%s:%s]".formatted(currentView(), from), node,
                                                 observers.keySet().stream().map(context::getActiveMember).toList(),
                                                 view.comm, scheduler);
             enjoining.iterate(t -> t.enjoin(join), (_, _, _, _) -> true, () -> {
             }, Duration.ofMillis(1));
+            log.info("ViewManagement.join() completed successfully from: {} on: {}", from, node.getId());
         });
+        } catch (Throwable t) {
+            log.error("ViewManagement.join() EXCEPTION in stable() from: {} on: {}", from, node.getId(), t);
+            throw t;
+        }
     }
 
     BiConsumer<? super Bound, ? super Throwable> join(Duration duration, Timer.Context timer) {
@@ -650,33 +723,140 @@ public class ViewManagement {
 
     Redirect seed(Registration registration, Digest from) {
         final var requestView = Digest.from(registration.getView());
+        log.info("ViewManagement.seed() called from: {} requestView: {} joined: {} on: {}",
+                 from, requestView, joined(), node.getId());
 
         if (!joined()) {
-            log.trace("Not joined, ignored seed view: {} from: {} on: {}", requestView, from, node.getId());
+            log.warn("ViewManagement.seed() NOT JOINED - returning empty from: {} on: {}", from, node.getId());
             return Redirect.getDefaultInstance();
         }
         if (!bootstrapView.equals(requestView)) {
-            log.trace("Invalid bootstrap view: {} expected: {} from: {} on: {}", bootstrapView, requestView, from,
-                      node.getId());
+            log.warn("ViewManagement.seed() INVALID BOOTSTRAP VIEW - expected: {} got: {} from: {} on: {}",
+                     bootstrapView, requestView, from, node.getId());
             return Redirect.getDefaultInstance();
         }
         var note = new NoteWrapper(registration.getNote(), digestAlgo);
         if (!from.equals(note.getId())) {
-            log.trace("Invalid bootstrap note: {} from: {} claiming: {} on: {}", requestView, from, note.getId(),
-                      node.getId());
+            log.warn("ViewManagement.seed() INVALID NOTE ID - from: {} claiming: {} on: {}",
+                     from, note.getId(), node.getId());
             return Redirect.getDefaultInstance();
         }
         if (!view.validate(note.getIdentifier())) {
-            log.trace("Invalid identifier: {} from: {}  on: {}", note.getIdentifier(), from, node.getId());
+            log.warn("ViewManagement.seed() INVALID IDENTIFIER - from: {} identifier: {} on: {}",
+                     from, note.getIdentifier(), node.getId());
             return Redirect.getDefaultInstance();
         }
+        log.info("ViewManagement.seed() passed all checks, entering stable() from: {} on: {}", from, node.getId());
         return view.stable(() -> {
             var newMember = view.new Participant(note.getId());
 
-            final var introductions = observers.keySet().stream().map(context::getMember).toList();
+            // Multi-tier stability filtering for introductions:
+            // Tier 1 (most stable): Exclude both current AND previous generation joins
+            // Tier 2 (moderately stable): Exclude only current generation joins
+            // Tier 3 (conditional fallback): Use batch members ONLY if safe (bootstrap or small batch)
+            // Reject with RESOURCE_EXHAUSTED if large batch with no stable observers (prevents circular dependency).
 
-            log.info("Member seeding: {} view: {} context: {} introductions: {} on: {}", newMember.getId(),
-                     currentView(), context.getId(), introductions.stream().map(p -> p.getId()).toList(), node.getId());
+            var candidateObservers = observers.keySet()
+                                              .stream()
+                                              .filter(id -> !id.equals(newMember.getId()))
+                                              .filter(id -> context.getMember(id) != null)  // Filter out null members
+                                              .toList();
+
+            // Tier 1: Most stable - exclude both generations
+            var tier1 = candidateObservers.stream()
+                                          .filter(id -> !recentJoins.contains(id) && !previousRecentJoins.contains(id))
+                                          .toList();
+
+            // Tier 2: Moderately stable - exclude only current generation
+            var tier2 = candidateObservers.stream()
+                                          .filter(id -> !recentJoins.contains(id))
+                                          .toList();
+
+            // Three-tier observer selection with conditional batch fallback
+            // Use batch members only if batch is small or mixed with stable observers
+            // Reject large batches with no stable observers to prevent circular dependency deadlock
+            final int TARGET_INTRODUCTIONS = 3;
+            List<Digest> selectedObservers = new ArrayList<>();
+            String tierUsed;
+
+            // Tier 1: Fully stable (excludes both generations)
+            selectedObservers.addAll(tier1);
+
+            // Tier 2: Moderately stable (excludes current generation, includes previous)
+            if (selectedObservers.size() < TARGET_INTRODUCTIONS && !tier2.isEmpty()) {
+                tier2.stream()
+                     .filter(id -> !selectedObservers.contains(id))
+                     .limit(TARGET_INTRODUCTIONS - selectedObservers.size())
+                     .forEach(selectedObservers::add);
+            }
+
+            // Tier 2.5: Carefully add from recentJoins if we don't have enough introductions
+            // This is safe because:
+            // 1. We're only adding 1-2 batch members to mix with stable observers
+            // 2. Joining node will contact multiple observers, not rely solely on batch members
+            // 3. Prevents single point of failure when tier1+tier2 has < TARGET_INTRODUCTIONS
+            if (selectedObservers.size() < TARGET_INTRODUCTIONS) {
+                int needed = TARGET_INTRODUCTIONS - selectedObservers.size();
+                candidateObservers.stream()
+                                 .filter(id -> recentJoins.contains(id))  // Only from recentJoins
+                                 .filter(id -> !selectedObservers.contains(id))  // Not already selected
+                                 .limit(needed)
+                                 .forEach(selectedObservers::add);
+                log.debug("ViewManagement.seed() tier 2.5: added {} from recentJoins to reach target from: {} on: {}",
+                          Math.min(needed, recentJoins.size()), from, node.getId());
+            }
+
+            // Tier 3: Batch members (recentJoins) - conditional fallback
+            // Only use batch members if either:
+            // 1. Batch is small (bootstrap scenario - early batch members safe to use)
+            // 2. At least SOME stable observers exist (mixed with batch is OK)
+            //
+            // Reject if ALL of these are true (deadlock risk):
+            // - No stable observers (tier1 + tier2 empty)
+            // - Batch is large (> 50% of total observers)
+            // - Multiple observers exist (not bootstrap)
+            if (selectedObservers.isEmpty()) {
+                int totalObservers = candidateObservers.size();
+                int batchSize = recentJoins.size();
+                boolean isBootstrap = totalObservers <= 3;
+                boolean batchIsMajority = batchSize > totalObservers / 2;
+
+                if (!isBootstrap && batchIsMajority) {
+                    // Dangerous: Large batch with no stable observers = circular dependency deadlock
+                    log.warn("ViewManagement.seed() CIRCULAR DEADLOCK RISK - rejecting from: {} tier1: {} tier2: {} batch: {}/{} observers on: {}",
+                             from, tier1.size(), tier2.size(), batchSize, totalObservers, node.getId());
+                    throw new StatusRuntimeException(Status.RESOURCE_EXHAUSTED.withDescription(
+                        "Batch too large without stable observers, circular dependency risk, retry after view stabilizes"));
+                }
+
+                // Safe: Bootstrap or small batch - use batch members as fallback
+                candidateObservers.stream()
+                                 .limit(Math.min(TARGET_INTRODUCTIONS, candidateObservers.size()))
+                                 .forEach(selectedObservers::add);
+                log.info("ViewManagement.seed() using batch fallback (bootstrap or small batch) from: {} batch: {}/{} on: {}",
+                         from, batchSize, totalObservers, node.getId());
+            }
+
+            // Format tier description
+            if (selectedObservers.isEmpty()) {
+                tierUsed = "empty (rejected)";
+            } else if (tier1.size() == selectedObservers.size()) {
+                tierUsed = "tier1 (%d fully stable)".formatted(tier1.size());
+            } else if (selectedObservers.stream().noneMatch(recentJoins::contains)) {
+                tierUsed = "tier1+tier2 (%d stable + %d previous-gen)".formatted(
+                    tier1.size(), selectedObservers.size() - tier1.size());
+            } else {
+                long batchCount = selectedObservers.stream().filter(recentJoins::contains).count();
+                tierUsed = "mixed (%d stable + %d batch)".formatted(
+                    selectedObservers.size() - batchCount, batchCount);
+            }
+
+            final var introductions = selectedObservers.stream()
+                                                       .map(context::getMember)
+                                                       .toList();
+
+            log.info("Member seeding: {} view: {} context: {} introductions: [{}] tier: {} on: {}", newMember.getId(),
+                     currentView(), context.getId(), introductions.stream().map(p -> p.getId()).toList(), tierUsed, node.getId());
             return Redirect.newBuilder()
                            .setView(currentView().toDigeste())
                            .addAllIntroductions(introductions.stream()
@@ -720,13 +900,16 @@ public class ViewManagement {
         initialSeeds.add(node.getSignedNote());
         final var successors = new HashSet<SignedNote>();
 
-        context.successors(from, context::isActive).forEach(p -> {
-            var sn = p.getNote().getWrapped();
-            if (unique.add(sn)) {
-                initialSeeds.add(sn);
-            }
-            successors.add(sn);
-        });
+        context.successors(from, context::isActive)
+               .stream()
+               .filter(java.util.Objects::nonNull)
+               .forEach(p -> {
+                   var sn = p.getNote().getWrapped();
+                   if (unique.add(sn)) {
+                       initialSeeds.add(sn);
+                   }
+                   successors.add(sn);
+               });
         var gateway = Gateway.newBuilder()
                              .addAllInitialSeedSet(initialSeeds)
                              .setTrust(BootstrapTrust.newBuilder()

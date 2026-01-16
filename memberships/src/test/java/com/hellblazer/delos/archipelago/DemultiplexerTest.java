@@ -6,19 +6,15 @@
  */
 package com.hellblazer.delos.archipelago;
 
-import com.google.common.primitives.Ints;
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.test.proto.ByteMessage;
-import com.hellblazer.delos.test.proto.PeerCreds;
 import com.hellblazer.delos.test.proto.TestItGrpc;
 import com.hellblazer.delos.test.proto.TestItGrpc.TestItImplBase;
 import io.grpc.ManagedChannel;
 import io.grpc.Server;
-import io.grpc.Status;
-import io.grpc.StatusRuntimeException;
 import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
 import io.grpc.netty.DomainSocketNegotiatorHandler.DomainSocketNegotiator;
@@ -27,7 +23,10 @@ import io.grpc.netty.NettyServerBuilder;
 import io.grpc.stub.StreamObserver;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
-import io.netty.channel.unix.DomainSocketAddress;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.nio.NioDomainSocketChannel;
+import io.netty.channel.socket.nio.NioServerDomainSocketChannel;
+import java.net.UnixDomainSocketAddress;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -45,8 +44,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 import static com.hellblazer.delos.archipelago.RouterImpl.clientInterceptor;
-import static com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor.IMPL;
-import static com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor.PEER_CREDENTIALS_CONTEXT_KEY;
 import static com.hellblazer.delos.cryptography.QualifiedBase64.qb64;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -55,10 +52,10 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 public class DemultiplexerTest {
 
-    private static final Class<? extends io.netty.channel.Channel> channelType = IMPL.getChannelType();
+    private static final Class<? extends io.netty.channel.Channel> channelType = NioDomainSocketChannel.class;
     private static final Executor                                  executor    = Executors.newVirtualThreadPerTaskExecutor();
 
-    private final EventLoopGroup       eventLoopGroup = IMPL.getEventLoopGroup();
+    private final EventLoopGroup       eventLoopGroup = new NioEventLoopGroup();
     private final List<ManagedChannel> opened         = new ArrayList<>();
     private       Server               serverA;
     private       Server               serverB;
@@ -84,7 +81,7 @@ public class DemultiplexerTest {
     @Test
     public void smokin() throws Exception {
         final var name = UUID.randomUUID().toString();
-        var routes = new HashMap<String, DomainSocketAddress>();
+        var routes = new HashMap<String, UnixDomainSocketAddress>();
         Function<String, ManagedChannel> dmux = d -> handler(routes.get(d));
 
         terminus = new Demultiplexer(InProcessServerBuilder.forName(name), Constants.METADATA_CONTEXT_KEY, dmux);
@@ -101,19 +98,19 @@ public class DemultiplexerTest {
         var clientA = TestItGrpc.newBlockingStub(channel);
         var resultA = clientA.ping(Any.getDefaultInstance());
         assertNotNull(resultA);
-        var creds = resultA.unpack(PeerCreds.class);
-        assertNotNull(creds);
+        var msgA = resultA.unpack(ByteMessage.class);
+        assertEquals("Hello from Server A", msgA.getContents().toStringUtf8());
 
         channel = InProcessChannelBuilder.forName(name).intercept(clientInterceptor(ctxB)).build();
         opened.add(channel);
         var clientB = TestItGrpc.newBlockingStub(channel);
         var resultB = clientB.ping(Any.getDefaultInstance());
         assertNotNull(resultB);
-        var msg = resultB.unpack(ByteMessage.class);
-        assertEquals("Hello Server", msg.getContents().toStringUtf8());
+        var msgB = resultB.unpack(ByteMessage.class);
+        assertEquals("Hello Server", msgB.getContents().toStringUtf8());
     }
 
-    private ManagedChannel handler(DomainSocketAddress address) {
+    private ManagedChannel handler(UnixDomainSocketAddress address) {
         return NettyChannelBuilder.forAddress(address)
                                   .withOption(ChannelOption.TCP_NODELAY, true)
                                   .executor(executor)
@@ -124,17 +121,17 @@ public class DemultiplexerTest {
                                   .build();
     }
 
-    private DomainSocketAddress serverA() throws IOException {
+    private UnixDomainSocketAddress serverA() throws IOException {
         Path socketPathA = Path.of("target").resolve(UUID.randomUUID().toString());
         Files.deleteIfExists(socketPathA);
         assertFalse(Files.exists(socketPathA));
 
-        final var address = new DomainSocketAddress(socketPathA.toFile());
+        final var address = UnixDomainSocketAddress.of(socketPathA);
         serverA = NettyServerBuilder.forAddress(address)
-                                    .protocolNegotiator(new DomainSocketNegotiator(IMPL))
-                                    .channelType(IMPL.getServerDomainSocketChannelClass())
-                                    .workerEventLoopGroup(IMPL.getEventLoopGroup())
-                                    .bossEventLoopGroup(IMPL.getEventLoopGroup())
+                                    .protocolNegotiator(new DomainSocketNegotiator())
+                                    .channelType(NioServerDomainSocketChannel.class)
+                                    .workerEventLoopGroup(eventLoopGroup)
+                                    .bossEventLoopGroup(eventLoopGroup)
                                     .addService(new ServerA())
                                     .intercept(new DomainSocketServerInterceptor())
                                     .build();
@@ -142,17 +139,17 @@ public class DemultiplexerTest {
         return address;
     }
 
-    private DomainSocketAddress serverB() throws IOException {
+    private UnixDomainSocketAddress serverB() throws IOException {
         Path socketPathA = Path.of("target").resolve(UUID.randomUUID().toString());
         Files.deleteIfExists(socketPathA);
         assertFalse(Files.exists(socketPathA));
 
-        final var address = new DomainSocketAddress(socketPathA.toFile());
+        final var address = UnixDomainSocketAddress.of(socketPathA);
         serverB = NettyServerBuilder.forAddress(address)
-                                    .protocolNegotiator(new DomainSocketNegotiator(IMPL))
-                                    .channelType(IMPL.getServerDomainSocketChannelClass())
-                                    .workerEventLoopGroup(IMPL.getEventLoopGroup())
-                                    .bossEventLoopGroup(IMPL.getEventLoopGroup())
+                                    .protocolNegotiator(new DomainSocketNegotiator())
+                                    .channelType(NioServerDomainSocketChannel.class)
+                                    .workerEventLoopGroup(eventLoopGroup)
+                                    .bossEventLoopGroup(eventLoopGroup)
                                     .addService(new ServerB())
                                     .intercept(new DomainSocketServerInterceptor())
                                     .build();
@@ -163,17 +160,10 @@ public class DemultiplexerTest {
     public static class ServerA extends TestItImplBase {
         @Override
         public void ping(Any request, StreamObserver<Any> responseObserver) {
-            final var credentials = PEER_CREDENTIALS_CONTEXT_KEY.get();
-            if (credentials == null) {
-                responseObserver.onError(
-                new StatusRuntimeException(Status.INVALID_ARGUMENT.withDescription("No credentials available")));
-                return;
-            }
-            responseObserver.onNext(Any.pack(PeerCreds.newBuilder()
-                                                      .setPid(credentials.pid())
-                                                      .setUid(credentials.uid())
-                                                      .addAllGids(Ints.asList(credentials.gids()))
-                                                      .build()));
+            responseObserver.onNext(Any.pack(
+                ByteMessage.newBuilder()
+                    .setContents(ByteString.copyFromUtf8("Hello from Server A"))
+                    .build()));
             responseObserver.onCompleted();
         }
     }
@@ -181,14 +171,10 @@ public class DemultiplexerTest {
     public static class ServerB extends TestItImplBase {
         @Override
         public void ping(Any request, StreamObserver<Any> responseObserver) {
-            final var credentials = PEER_CREDENTIALS_CONTEXT_KEY.get();
-            if (credentials == null) {
-                responseObserver.onError(
-                new StatusRuntimeException(Status.INVALID_ARGUMENT.withDescription("No credentials available")));
-                return;
-            }
-            responseObserver.onNext(
-            Any.pack(ByteMessage.newBuilder().setContents(ByteString.copyFromUtf8("Hello Server")).build()));
+            responseObserver.onNext(Any.pack(
+                ByteMessage.newBuilder()
+                    .setContents(ByteString.copyFromUtf8("Hello Server"))
+                    .build()));
             responseObserver.onCompleted();
         }
     }

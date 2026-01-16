@@ -60,7 +60,16 @@ interface JNIEnvironmentPointer extends PointerBase {
 final class JNIHeaderDirectives implements CContext.Directives {
     private static final String PLATFORM;
     static {
-        PLATFORM = "darwin"; // TODO determine platform
+        String os = System.getProperty("os.name").toLowerCase();
+        if (os.contains("mac") || os.contains("darwin")) {
+            PLATFORM = "darwin";
+        } else if (os.contains("linux")) {
+            PLATFORM = "linux";
+        } else if (os.contains("win")) {
+            PLATFORM = "win32";
+        } else {
+            throw new UnsupportedOperationException("Unsupported platform: " + os);
+        }
     }
 
     private static File[] findJNIHeaders() throws IllegalStateException {

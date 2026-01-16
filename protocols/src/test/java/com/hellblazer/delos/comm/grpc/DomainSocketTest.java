@@ -6,28 +6,27 @@
  */
 package com.hellblazer.delos.comm.grpc;
 
-import com.google.common.primitives.Ints;
 import com.google.protobuf.Any;
-import com.hellblazer.delos.test.proto.PeerCreds;
+import com.google.protobuf.ByteString;
+import com.hellblazer.delos.test.proto.ByteMessage;
 import com.hellblazer.delos.test.proto.TestItGrpc;
 import com.hellblazer.delos.test.proto.TestItGrpc.TestItImplBase;
 import io.grpc.ManagedChannel;
-import io.grpc.Status;
-import io.grpc.StatusRuntimeException;
 import io.grpc.netty.DomainSocketNegotiatorHandler.DomainSocketNegotiator;
 import io.grpc.netty.NettyChannelBuilder;
 import io.grpc.netty.NettyServerBuilder;
 import io.grpc.stub.StreamObserver;
 import io.netty.channel.Channel;
-import io.netty.channel.unix.DomainSocketAddress;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.nio.NioDomainSocketChannel;
+import io.netty.channel.socket.nio.NioServerDomainSocketChannel;
 import org.junit.jupiter.api.Test;
 
+import java.net.UnixDomainSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 
-import static com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor.IMPL;
-import static com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor.PEER_CREDENTIALS_CONTEXT_KEY;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -35,7 +34,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 public class DomainSocketTest {
 
-    private static final Class<? extends Channel> channelType = IMPL.getChannelType();
+    private static final Class<? extends Channel> channelType = NioDomainSocketChannel.class;
 
     @Test
     public void smokin() throws Exception {
@@ -43,10 +42,10 @@ public class DomainSocketTest {
         Files.deleteIfExists(socketPath);
         assertFalse(Files.exists(socketPath));
 
-        final var eventLoopGroup = IMPL.getEventLoopGroup();
-        var server = NettyServerBuilder.forAddress(new DomainSocketAddress(socketPath.toFile()))
-                                       .protocolNegotiator(new DomainSocketNegotiator(IMPL))
-                                       .channelType(IMPL.getServerDomainSocketChannelClass())
+        final var eventLoopGroup = new NioEventLoopGroup();
+        var server = NettyServerBuilder.forAddress(UnixDomainSocketAddress.of(socketPath))
+                                       .protocolNegotiator(new DomainSocketNegotiator())
+                                       .channelType(NioServerDomainSocketChannel.class)
                                        .workerEventLoopGroup(eventLoopGroup)
                                        .bossEventLoopGroup(eventLoopGroup)
                                        .addService(new TestServer())
@@ -55,7 +54,7 @@ public class DomainSocketTest {
         server.start();
         assertTrue(Files.exists(socketPath));
 
-        ManagedChannel channel = NettyChannelBuilder.forAddress(new DomainSocketAddress(socketPath.toFile()))
+        ManagedChannel channel = NettyChannelBuilder.forAddress(UnixDomainSocketAddress.of(socketPath))
                                                     .eventLoopGroup(eventLoopGroup)
                                                     .channelType(channelType)
                                                     .keepAliveTime(1, TimeUnit.MILLISECONDS)
@@ -66,10 +65,8 @@ public class DomainSocketTest {
 
             var result = stub.ping(Any.getDefaultInstance());
             assertNotNull(result);
-            var creds = result.unpack(PeerCreds.class);
-            assertNotNull(creds);
-
-            System.out.println("Success:\n" + creds);
+            var msg = result.unpack(ByteMessage.class);
+            assertEquals("NIO domain socket works!", msg.getContents().toStringUtf8());
         } finally {
             channel.shutdown();
         }
@@ -79,17 +76,10 @@ public class DomainSocketTest {
 
         @Override
         public void ping(Any request, StreamObserver<Any> responseObserver) {
-            final var credentials = PEER_CREDENTIALS_CONTEXT_KEY.get();
-            if (credentials == null) {
-                responseObserver.onError(
-                new StatusRuntimeException(Status.INVALID_ARGUMENT.withDescription("No credentials available")));
-                return;
-            }
-            responseObserver.onNext(Any.pack(PeerCreds.newBuilder()
-                                                      .setPid(credentials.pid())
-                                                      .setUid(credentials.uid())
-                                                      .addAllGids(Ints.asList(credentials.gids()))
-                                                      .build()));
+            responseObserver.onNext(Any.pack(
+                ByteMessage.newBuilder()
+                    .setContents(ByteString.copyFromUtf8("NIO domain socket works!"))
+                    .build()));
             responseObserver.onCompleted();
         }
 

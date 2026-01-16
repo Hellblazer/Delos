@@ -25,7 +25,10 @@ import io.grpc.netty.NettyServerBuilder;
 import io.grpc.stub.StreamObserver;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
-import io.netty.channel.unix.DomainSocketAddress;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.nio.NioDomainSocketChannel;
+import io.netty.channel.socket.nio.NioServerDomainSocketChannel;
+import java.net.UnixDomainSocketAddress;
 import org.joou.ULong;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,7 +44,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
-import static com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor.IMPL;
 import static com.hellblazer.delos.cryptography.QualifiedBase64.qb64;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -50,7 +52,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  * @author hal.hildebrand
  */
 public class EnclaveTest {
-    private final static Class<? extends io.netty.channel.Channel> channelType = IMPL.getChannelType();
+    private final static Class<? extends io.netty.channel.Channel> channelType = NioDomainSocketChannel.class;
     private static final Executor                                  executor    = Executors.newVirtualThreadPerTaskExecutor();
 
     private final TestItService  local = new TestItService() {
@@ -82,7 +84,7 @@ public class EnclaveTest {
 
     @BeforeEach
     public void before() {
-        eventLoopGroup = IMPL.getEventLoopGroup();
+        eventLoopGroup = new NioEventLoopGroup();
     }
 
     @Test
@@ -91,23 +93,22 @@ public class EnclaveTest {
         final var ctxB = DigestAlgorithm.DEFAULT.getLast().prefix(0x666);
         var serverMember1 = new SigningMemberImpl(Utils.getMember(0), ULong.MIN);
         var serverMember2 = new SigningMemberImpl(Utils.getMember(1), ULong.MIN);
-        final var bridge = new DomainSocketAddress(Path.of("target").resolve(UUID.randomUUID().toString()).toFile());
+        final var bridge = UnixDomainSocketAddress.of(Path.of("target").resolve(UUID.randomUUID().toString()));
 
-        final var routes = new HashMap<String, DomainSocketAddress>();
-        final Function<String, DomainSocketAddress> router = s -> routes.get(s);
+        final var routes = new HashMap<String, UnixDomainSocketAddress>();
+        final Function<String, UnixDomainSocketAddress> router = s -> routes.get(s);
 
-        final var portalEndpoint = new DomainSocketAddress(
-        Path.of("target").resolve(UUID.randomUUID().toString()).toFile());
+        final var portalEndpoint = UnixDomainSocketAddress.of(Path.of("target").resolve(UUID.randomUUID().toString()));
         final var agent = DigestAlgorithm.DEFAULT.getLast();
         final var portal = new Portal<>(agent, NettyServerBuilder.forAddress(portalEndpoint)
-                                                                 .protocolNegotiator(new DomainSocketNegotiator(IMPL))
-                                                                 .channelType(IMPL.getServerDomainSocketChannelClass())
-                                                                 .workerEventLoopGroup(IMPL.getEventLoopGroup())
-                                                                 .bossEventLoopGroup(IMPL.getEventLoopGroup())
+                                                                 .protocolNegotiator(new DomainSocketNegotiator())
+                                                                 .channelType(NioServerDomainSocketChannel.class)
+                                                                 .workerEventLoopGroup(eventLoopGroup)
+                                                                 .bossEventLoopGroup(eventLoopGroup)
                                                                  .intercept(new DomainSocketServerInterceptor()),
                                         s -> handler(portalEndpoint), bridge, Duration.ofMillis(1), router);
 
-        final var endpoint1 = new DomainSocketAddress(Path.of("target").resolve(UUID.randomUUID().toString()).toFile());
+        final var endpoint1 = UnixDomainSocketAddress.of(Path.of("target").resolve(UUID.randomUUID().toString()));
         var enclave1 = new Enclave(serverMember1, endpoint1, bridge, d -> {
             routes.put(qb64(d), endpoint1);
         });
@@ -116,7 +117,7 @@ public class EnclaveTest {
                                                                             r -> new Server(r),
                                                                             c -> new TestItClient(c), local);
 
-        final var endpoint2 = new DomainSocketAddress(Path.of("target").resolve(UUID.randomUUID().toString()).toFile());
+        final var endpoint2 = UnixDomainSocketAddress.of(Path.of("target").resolve(UUID.randomUUID().toString()));
         var enclave2 = new Enclave(serverMember2, endpoint2, bridge, d -> {
             routes.put(qb64(d), endpoint2);
         });
@@ -147,7 +148,7 @@ public class EnclaveTest {
         router2.close(Duration.ofSeconds(0));
     }
 
-    private ManagedChannel handler(DomainSocketAddress address) {
+    private ManagedChannel handler(UnixDomainSocketAddress address) {
         return NettyChannelBuilder.forAddress(address)
                                   .withOption(ChannelOption.TCP_NODELAY, true)
                                   .executor(executor)

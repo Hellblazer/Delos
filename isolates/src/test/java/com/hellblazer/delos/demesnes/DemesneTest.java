@@ -48,7 +48,10 @@ import io.grpc.netty.NettyServerBuilder;
 import io.grpc.stub.StreamObserver;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
-import io.netty.channel.unix.DomainSocketAddress;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.nio.NioDomainSocketChannel;
+import io.netty.channel.socket.nio.NioServerDomainSocketChannel;
+import java.net.UnixDomainSocketAddress;
 import io.netty.channel.unix.ServerDomainSocketChannel;
 import org.joou.ULong;
 import org.junit.jupiter.api.AfterEach;
@@ -68,7 +71,6 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-import static com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor.IMPL;
 import static com.hellblazer.delos.cryptography.QualifiedBase64.qb64;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -76,8 +78,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * @author hal.hildebrand
  */
 public class DemesneTest {
-    private final static Class<? extends io.netty.channel.Channel>  clientChannelType = IMPL.getChannelType();
-    private static final Class<? extends ServerDomainSocketChannel> serverChannelType = IMPL.getServerDomainSocketChannelClass();
+    private final static Class<? extends io.netty.channel.Channel>  clientChannelType = NioDomainSocketChannel.class;
+    private static final Class<? extends io.netty.channel.ServerChannel> serverChannelType = NioServerDomainSocketChannel.class;
     private final static Executor                                   executor          = Executors.newVirtualThreadPerTaskExecutor();
 
     private final TestItService  local = new TestItService() {
@@ -126,7 +128,7 @@ public class DemesneTest {
 
     @BeforeEach
     public void before() {
-        eventLoopGroup = IMPL.getEventLoopGroup();
+        eventLoopGroup = new NioEventLoopGroup();
     }
 
     @Test
@@ -136,34 +138,34 @@ public class DemesneTest {
         var serverMember1 = new SigningMemberImpl(Utils.getMember(0), ULong.MIN);
         var serverMember2 = new SigningMemberImpl(Utils.getMember(1), ULong.MIN);
 
-        final var bridge = new DomainSocketAddress(Path.of("target").resolve(UUID.randomUUID().toString()).toFile());
+        final var bridge = UnixDomainSocketAddress.of(Path.of("target").resolve(UUID.randomUUID().toString()));
 
-        final var portalEndpoint = new DomainSocketAddress(
-        Path.of("target").resolve(UUID.randomUUID().toString()).toFile());
-        final var routes = new HashMap<String, DomainSocketAddress>();
+        final var portalEndpoint = UnixDomainSocketAddress.of(
+        Path.of("target").resolve(UUID.randomUUID().toString()));
+        final var routes = new HashMap<String, UnixDomainSocketAddress>();
         final var portal = new Portal<>(serverMember1.getId(), NettyServerBuilder.forAddress(portalEndpoint)
                                                                                  .protocolNegotiator(
-                                                                                 new DomainSocketNegotiator(IMPL))
+                                                                                 new DomainSocketNegotiator())
                                                                                  .channelType(
-                                                                                 IMPL.getServerDomainSocketChannelClass())
+                                                                                 NioServerDomainSocketChannel.class)
                                                                                  .workerEventLoopGroup(
-                                                                                 IMPL.getEventLoopGroup())
+                                                                                 new NioEventLoopGroup())
                                                                                  .bossEventLoopGroup(
-                                                                                 IMPL.getEventLoopGroup())
+                                                                                 new NioEventLoopGroup())
                                                                                  .intercept(
                                                                                  new DomainSocketServerInterceptor())
                                                                                  .withChildOption(
                                                                                  ChannelOption.TCP_NODELAY, true),
                                         s -> handler(portalEndpoint), bridge, Duration.ofMillis(1), s -> routes.get(s));
 
-        final var endpoint1 = new DomainSocketAddress(Path.of("target").resolve(UUID.randomUUID().toString()).toFile());
+        final var endpoint1 = UnixDomainSocketAddress.of(Path.of("target").resolve(UUID.randomUUID().toString()));
         var enclave1 = new Enclave(serverMember1, endpoint1, bridge, d -> routes.put(qb64(d), endpoint1));
         var router1 = enclave1.router();
         CommonCommunications<TestItService, TestIt> commsA = router1.create(serverMember1, ctxA, new ServerA(), "A",
                                                                             r -> new Server(r),
                                                                             c -> new TestItClient(c), local);
 
-        final var endpoint2 = new DomainSocketAddress(Path.of("target").resolve(UUID.randomUUID().toString()).toFile());
+        final var endpoint2 = UnixDomainSocketAddress.of(Path.of("target").resolve(UUID.randomUUID().toString()));
         var enclave2 = new Enclave(serverMember2, endpoint2, bridge, d -> routes.put(qb64(d), endpoint2));
         var router2 = enclave2.router();
         CommonCommunications<TestItService, TestIt> commsB = router2.create(serverMember2, ctxB, new ServerB(), "B",
@@ -202,10 +204,10 @@ public class DemesneTest {
         ControlledIdentifier<SelfAddressingIdentifier> identifier = controller.newIdentifier();
         Member serverMember = new ControlledIdentifierMember(identifier);
         final var portalAddress = UUID.randomUUID().toString();
-        final var portalEndpoint = new DomainSocketAddress(commDirectory.resolve(portalAddress).toFile());
+        final var portalEndpoint = UnixDomainSocketAddress.of(commDirectory.resolve(portalAddress));
         final var router = new RouterImpl(serverMember, NettyServerBuilder.forAddress(portalEndpoint)
                                                                           .protocolNegotiator(
-                                                                          new DomainSocketNegotiator(IMPL))
+                                                                          new DomainSocketNegotiator())
                                                                           .channelType(serverChannelType)
                                                                           .workerEventLoopGroup(eventLoopGroup)
                                                                           .bossEventLoopGroup(eventLoopGroup)
@@ -231,16 +233,16 @@ public class DemesneTest {
         };
 
         final var parentAddress = UUID.randomUUID().toString();
-        final var parentEndpoint = new DomainSocketAddress(commDirectory.resolve(parentAddress).toFile());
+        final var parentEndpoint = UnixDomainSocketAddress.of(commDirectory.resolve(parentAddress));
         final var kerlServer = new DemesneKERLServer(new ProtoKERLAdapter(kerl), null);
         final var outerService = new OuterContextServer(service, null);
         final var outerContextService = NettyServerBuilder.forAddress(parentEndpoint)
-                                                          .protocolNegotiator(new DomainSocketNegotiator(IMPL))
-                                                          .channelType(IMPL.getServerDomainSocketChannelClass())
+                                                          .protocolNegotiator(new DomainSocketNegotiator())
+                                                          .channelType(NioServerDomainSocketChannel.class)
                                                           .addService(kerlServer)
                                                           .addService(outerService)
-                                                          .workerEventLoopGroup(IMPL.getEventLoopGroup())
-                                                          .bossEventLoopGroup(IMPL.getEventLoopGroup())
+                                                          .workerEventLoopGroup(new NioEventLoopGroup())
+                                                          .bossEventLoopGroup(new NioEventLoopGroup())
                                                           .intercept(new DomainSocketServerInterceptor())
                                                           .build();
         outerContextService.start();
@@ -282,7 +284,7 @@ public class DemesneTest {
         //        assertEquals(1, attached.endorsements().size());
     }
 
-    private ManagedChannel handler(DomainSocketAddress address) {
+    private ManagedChannel handler(UnixDomainSocketAddress address) {
         return NettyChannelBuilder.forAddress(address)
                                   .withOption(ChannelOption.TCP_NODELAY, true)
                                   .executor(executor)

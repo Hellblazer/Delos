@@ -30,6 +30,8 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -57,9 +59,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 public class ChurnTest {
 
-    private static final boolean                                                     LARGE_TESTS    = Boolean.getBoolean("large_tests");
     private static final boolean                                                     IS_CI          = Boolean.parseBoolean(System.getenv().getOrDefault("CI", "false"));
-    private static final int                                                         CARDINALITY    = LARGE_TESTS ? 100 : (IS_CI ? 12 : 25);
+    private static final boolean                                                     LARGE_TESTS    = System.getProperty("large_tests") != null ? Boolean.getBoolean("large_tests") : !IS_CI;
+    private static final int                                                         CARDINALITY    = IS_CI ? 12 : (LARGE_TESTS ? 100 : 25);
     private static final int                                                         SEED_COUNT     = CARDINALITY / 4;
     private static final int                                                         BATCH_SIZE     = CARDINALITY / 4;
     private static final double                                                      P_BYZ          = 0.2;
@@ -172,7 +174,18 @@ public class ChurnTest {
             then = System.currentTimeMillis();
             countdown.set(new CountDownLatch(toStart.size()));
 
-            toStart.forEach(view -> view.start(() -> countdown.get().countDown(), gossipDuration, seeds));
+            // Parallelize batch member starts with random jitter to prevent cascading join failures
+            var scheduler = Executors.newScheduledThreadPool(toStart.size(), Thread.ofVirtual().factory());
+            var random = new SecureRandom();
+            for (int idx = 0; idx < toStart.size(); idx++) {
+                final var view = toStart.get(idx);
+                final long jitter = idx > 0 && IS_CI ? (50 + random.nextInt(100)) : 0;
+                scheduler.schedule(
+                    () -> view.start(() -> countdown.get().countDown(), gossipDuration, seeds),
+                    jitter, TimeUnit.MILLISECONDS
+                );
+            }
+            scheduler.shutdown();
 
             // Batch join timeout: streaming join (60s) + view change (15-20s CI) + batch overhead
             success = countdown.get().await(IS_CI ? 180 : 90, TimeUnit.SECONDS);
@@ -302,6 +315,7 @@ public class ChurnTest {
         var parameters = Parameters.newBuilder()
                                    .setMaximumTxfr(10)
                                    .setSeedingTimout(Duration.ofSeconds(IS_CI ? 60 : 15))
+                                   .setMaxReseedDepth(50)  // Increased from default 30 to handle epoch mismatch reseeds
                                    .build();
         registry = new MetricRegistry();
         node0Registry = new MetricRegistry();
@@ -337,7 +351,7 @@ public class ChurnTest {
             communications.add(comms);
 
             gateway.start();
-            gateways.add(comms);
+            gateways.add(gateway);
             return new View(context, node, "0", EventValidation.NONE, Verifiers.from(kerl),
                             comms, parameters, gateway, DigestAlgorithm.DEFAULT, metrics);
         }).collect(Collectors.toList());

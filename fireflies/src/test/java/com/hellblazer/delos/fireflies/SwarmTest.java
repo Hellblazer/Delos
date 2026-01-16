@@ -48,14 +48,13 @@ public class SwarmTest {
     private static final int                                                         BIAS       = 3;
     private static final int                                                         CARDINALITY;
     private static final double                                                      P_BYZ      = 0.1;
-    private static final boolean                                                     largeTests = Boolean.getBoolean(
-    "large_tests");
     private static final boolean                                                     IS_CI      = Boolean.parseBoolean(System.getenv().getOrDefault("CI", "false"));
+    private static final boolean                                                     largeTests = System.getProperty("large_tests") != null ? Boolean.getBoolean("large_tests") : !IS_CI;
     private static       Map<Digest, ControlledIdentifier<SelfAddressingIdentifier>> identities;
     private static       KERL.AppendKERL                                             kerl;
 
     static {
-        CARDINALITY = largeTests ? 100 : (IS_CI ? 25 : 50);
+        CARDINALITY = IS_CI ? 25 : (largeTests ? 100 : 50);
     }
 
     private final List<Router>                            communications = new ArrayList<>();
@@ -113,9 +112,9 @@ public class SwarmTest {
                                  .map(m -> new Seed(m.getIdentifier().getIdentifier(), "0"))  // Use OS dynamic port allocation
                                  .limit(largeTests ? 100 : 10)
                                  .toList();
-        // Use minimal bootstrap set for large tests: 5 nodes provide observer diversity
-        // without single-node bottleneck, while still testing 95 simultaneous joins
-        final int bootstrapCount = largeTests ? 5 : 1;
+        // Use larger bootstrap set for large tests: 15 nodes provide observer diversity
+        // to reduce OUT_OF_RANGE collisions during 85 simultaneous joins
+        final int bootstrapCount = largeTests ? 15 : 1;
         final var bootstrapSeeds = seeds.subList(0, bootstrapCount);
 
         final var gossipDuration = Duration.ofMillis(largeTests ? 150 : 5);

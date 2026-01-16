@@ -40,11 +40,11 @@ import io.grpc.netty.NettyChannelBuilder;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
-import io.netty.channel.unix.DomainSocketAddress;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.net.UnixDomainSocketAddress;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
@@ -58,8 +58,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.nio.NioDomainSocketChannel;
+
+
 import static com.hellblazer.delos.archipelago.RouterImpl.clientInterceptor;
-import static com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor.IMPL;
 
 /**
  * Isolate for the Delos SubDomain stack
@@ -67,10 +70,15 @@ import static com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor.IMPL;
  * @author hal.hildebrand
  */
 public class DemesneImpl implements Demesne {
-    private static final Class<? extends Channel> channelType             = IMPL.getChannelType();
-    private static final Duration                 DEFAULT_GOSSIP_INTERVAL = Duration.ofMillis(5);
-    private static final EventLoopGroup           eventLoopGroup          = IMPL.getEventLoopGroup();
-    private static final Logger                   log                     = LoggerFactory.getLogger(DemesneImpl.class);
+    /**
+     * Pure Java NIO transport for Unix domain sockets.
+     * Uses Netty's NIO implementation with JEP 380 for peer credentials.
+     * Works in all contexts including GraalVM isolates.
+     */
+    private static final io.netty.channel.ChannelFactory<NioDomainSocketChannel> channelFactory  = NioDomainSocketChannel::new;
+    private static final Duration                                      DEFAULT_GOSSIP_INTERVAL = Duration.ofMillis(5);
+    private static final EventLoopGroup                                eventLoopGroup          = new NioEventLoopGroup();
+    private static final Logger                                        log                     = LoggerFactory.getLogger(DemesneImpl.class);
 
     private final    Executor               executor = Executors.newVirtualThreadPerTaskExecutor();
     private final    KERL.AppendKERL        kerl;
@@ -122,8 +130,8 @@ public class DemesneImpl implements Demesne {
         log.info("Creating Demesne: {} bridge: {} on: {}", context.getId(), outerContextAddress,
                  thoth.member().getId());
 
-        enclave = new Enclave(thoth.member(), new DomainSocketAddress(outerContextAddress),
-                              new DomainSocketAddress(commDirectory.resolve(parameters.getPortal()).toFile()),
+        enclave = new Enclave(thoth.member(), UnixDomainSocketAddress.of(outerContextAddress.toPath()),
+                              UnixDomainSocketAddress.of(commDirectory.resolve(parameters.getPortal())),
                               this::registerContext);
         domain = subdomainFrom(parameters, thoth.member(), context);
     }
@@ -184,7 +192,7 @@ public class DemesneImpl implements Demesne {
 
     private CachingKERL kerlFrom(File address) {
         Digest kerlContext = context.getId();
-        final var serverAddress = new DomainSocketAddress(address);
+        final var serverAddress = UnixDomainSocketAddress.of(address.toPath());
         log.info("Kerl context: {} address: {}", kerlContext, serverAddress);
         return new CachingKERL(f -> {
             ManagedChannel channel = null;
@@ -194,7 +202,7 @@ public class DemesneImpl implements Demesne {
                                              .executor(executor)
                                              .intercept(clientInterceptor(kerlContext))
                                              .eventLoopGroup(eventLoopGroup)
-                                             .channelType(channelType)
+                                             .channelFactory(channelFactory)
                                              .keepAliveTime(1, TimeUnit.SECONDS)
                                              .usePlaintext()
                                              .build();
@@ -211,12 +219,12 @@ public class DemesneImpl implements Demesne {
     }
 
     private OuterContextClient outerFrom(File address) {
-        return new OuterContextClient(NettyChannelBuilder.forAddress(new DomainSocketAddress(address))
+        return new OuterContextClient(NettyChannelBuilder.forAddress(UnixDomainSocketAddress.of(address.toPath()))
                                                          .withOption(ChannelOption.TCP_NODELAY, true)
                                                          .executor(executor)
                                                          .intercept(clientInterceptor(context.getId()))
                                                          .eventLoopGroup(eventLoopGroup)
-                                                         .channelType(channelType)
+                                                         .channelFactory(channelFactory)
                                                          .usePlaintext()
                                                          .build(), null);
     }
