@@ -772,6 +772,7 @@ public class ViewManagement {
             var candidateObservers = observers.keySet()
                                               .stream()
                                               .filter(id -> !id.equals(newMember.getId()))
+                                              .filter(id -> context.getMember(id) != null)  // Filter out null members
                                               .toList();
 
             // Tier 1: Most stable - exclude both generations

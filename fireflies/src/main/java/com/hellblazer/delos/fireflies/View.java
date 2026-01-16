@@ -1078,8 +1078,12 @@ public class View {
         }
         try {
             var successors = context.successors(getNodeId(), context::isActive, getNode());
-            Collections.shuffle(successors);
-            successors.forEach(i -> {
+            // Filter out successors with null members to prevent gossip topology breaks
+            var validSuccessors = new ArrayList<>(successors.stream()
+                                                            .filter(s -> s.m() != null)
+                                                            .toList());
+            Collections.shuffle(validSuccessors);
+            validSuccessors.forEach(i -> {
                 var link = comm.connect(i.m());
                 if (link != null) {
                     gossip(gossip(link, i.ring()), i.m(), link, i.ring());
