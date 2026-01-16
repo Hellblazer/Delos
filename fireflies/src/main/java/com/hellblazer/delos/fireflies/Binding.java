@@ -383,6 +383,39 @@ class Binding {
                                                                                                     e.getCount()))
                                                                                                     .toList(),
                          node.getId());
+
+                // CRITICAL: Detect view change during join - pivot to new view instead of retrying stale view
+                // If gateways returned a different view than expected, immediately join that view
+                // This prevents wasting time retrying a stale view when cluster has moved forward
+                if (!trusts.isEmpty() && abandon.get() < majority) {
+                    var differentViewTrust = trusts.entrySet()
+                                                   .stream()
+                                                   .filter(e -> !e.getElement().diadem.equals(v))
+                                                   .max(Comparator.comparingInt(Multiset.Entry::getCount))
+                                                   .map(Multiset.Entry::getElement)
+                                                   .orElse(null);
+                    if (differentViewTrust != null) {
+                        log.info("View change detected during join: expected: {} received: {} (count: {}) - pivoting to new view on: {}",
+                                 v, differentViewTrust.diadem,
+                                 trusts.count(differentViewTrust),
+                                 node.getId());
+                        scheduler.shutdown();
+                        // Create synthetic redirect for the new view discovered via gateways
+                        var newRedirect = Redirect.newBuilder()
+                                                  .setView(differentViewTrust.diadem.toDigeste())
+                                                  .setCardinality(redirect.getCardinality())
+                                                  .setRings(redirect.getRings())
+                                                  .setBootstrap(redirect.getBootstrap())
+                                                  .addAllIntroductions(sample.stream()
+                                                                             .map(p -> p.getNote().getWrapped())
+                                                                             .toList())
+                                                  .build();
+                        // Immediately join the new view without delay
+                        Thread.ofVirtual().start(Utils.wrapped(() -> join(newRedirect, differentViewTrust.diadem, duration), log));
+                        return;
+                    }
+                }
+
                 // Check if we're stuck with stale observers (no progress)
                 if (trusts.isEmpty() && abandon.get() > 0) {
                     log.info("No progress (trusts empty, abandons: {}), forcing reseed for view: {} on: {}", abandon.get(), v, node.getId());
