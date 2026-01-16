@@ -19,9 +19,9 @@ import io.grpc.netty.NettyChannelBuilder;
 import io.grpc.netty.NettyServerBuilder;
 import io.grpc.stub.StreamObserver;
 import io.netty.channel.Channel;
-import io.netty.channel.epoll.EpollEventLoopGroup;
-import io.netty.channel.epoll.EpollDomainSocketChannel;
-import io.netty.channel.epoll.EpollServerDomainSocketChannel;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.nio.NioDomainSocketChannel;
+import io.netty.channel.socket.nio.NioServerDomainSocketChannel;
 import io.netty.channel.unix.DomainSocketAddress;
 import org.junit.jupiter.api.Test;
 
@@ -37,7 +37,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 public class DomainSocketTest {
 
-    private static final Class<? extends Channel> channelType = EpollDomainSocketChannel.class;
+    private static final Class<? extends Channel> channelType = NioDomainSocketChannel.class;
 
     @Test
     public void smokin() throws Exception {
@@ -45,10 +45,10 @@ public class DomainSocketTest {
         Files.deleteIfExists(socketPath);
         assertFalse(Files.exists(socketPath));
 
-        final var eventLoopGroup = new EpollEventLoopGroup();
+        final var eventLoopGroup = new NioEventLoopGroup();
         var server = NettyServerBuilder.forAddress(new DomainSocketAddress(socketPath.toFile()))
                                        .protocolNegotiator(new DomainSocketNegotiator())
-                                       .channelType(EpollServerDomainSocketChannel.class)
+                                       .channelType(NioServerDomainSocketChannel.class)
                                        .workerEventLoopGroup(eventLoopGroup)
                                        .bossEventLoopGroup(eventLoopGroup)
                                        .addService(new TestServer())

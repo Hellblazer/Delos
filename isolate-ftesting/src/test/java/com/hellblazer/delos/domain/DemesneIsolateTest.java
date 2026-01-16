@@ -6,7 +6,6 @@
  */
 package com.hellblazer.delos.domain;
 
-
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.RouterImpl;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
@@ -37,11 +36,9 @@ import io.grpc.netty.DomainSocketNegotiatorHandler.DomainSocketNegotiator;
 import io.grpc.netty.NettyChannelBuilder;
 import io.grpc.netty.NettyServerBuilder;
 import io.netty.channel.EventLoopGroup;
-import io.netty.channel.epoll.EpollEventLoopGroup;
-import io.netty.channel.unix.DomainSocketAddress;
-import io.netty.channel.epoll.EpollDomainSocketChannel;
-import io.netty.channel.unix.DomainSocketAddress;
-import io.netty.channel.epoll.EpollServerDomainSocketChannel;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.nio.NioDomainSocketChannel;
+import io.netty.channel.socket.nio.NioServerDomainSocketChannel;
 import io.netty.channel.unix.DomainSocketAddress;
 import io.netty.channel.unix.ServerDomainSocketChannel;
 import org.junit.jupiter.api.Test;
@@ -63,14 +60,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * @author hal.hildebrand
  */
 public class DemesneIsolateTest {
-    private static final Class<? extends io.netty.channel.ServerChannel> channelType       = EpollServerDomainSocketChannel.class;
-    private static final Class<? extends io.netty.channel.ServerChannel> serverChannelType = EpollServerDomainSocketChannel.class;
+    private static final Class<? extends io.netty.channel.ServerChannel> channelType       = NioServerDomainSocketChannel.class;
+    private static final Class<? extends io.netty.channel.ServerChannel> serverChannelType = NioServerDomainSocketChannel.class;
 
     private EventLoopGroup eventLoopGroup;
 
     @Test
     public void smokin() throws Exception {
-        eventLoopGroup = new EpollEventLoopGroup();
+        eventLoopGroup = new NioEventLoopGroup();
         Digest context = DigestAlgorithm.DEFAULT.getOrigin();
         var commDirectory = Path.of("target").resolve(UUID.randomUUID().toString());
         Files.createDirectories(commDirectory);
@@ -113,11 +110,11 @@ public class DemesneIsolateTest {
         var outerService = new OuterContextServer(service, null);
         var outerContextService = NettyServerBuilder.forAddress(parentEndpoint)
                                                     .protocolNegotiator(new DomainSocketNegotiator())
-                                                    .channelType(EpollServerDomainSocketChannel.class)
+                                                    .channelType(NioServerDomainSocketChannel.class)
                                                     .addService(kerlServer)
                                                     .addService(outerService)
-                                                    .workerEventLoopGroup(new EpollEventLoopGroup())
-                                                    .bossEventLoopGroup(new EpollEventLoopGroup())
+                                                    .workerEventLoopGroup(new NioEventLoopGroup())
+                                                    .bossEventLoopGroup(new NioEventLoopGroup())
                                                     .intercept(new DomainSocketServerInterceptor())
                                                     .build();
         outerContextService.start();

@@ -1,6 +1,5 @@
 package com.hellblazer.delos.model;
 
-
 import com.hellblazer.delos.archipelago.Portal;
 import com.hellblazer.delos.choam.Parameters;
 import com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor;
@@ -31,9 +30,9 @@ import io.grpc.netty.NettyChannelBuilder;
 import io.grpc.netty.NettyServerBuilder;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
-import io.netty.channel.epoll.EpollDomainSocketChannel;
-import io.netty.channel.epoll.EpollEventLoopGroup;
-import io.netty.channel.epoll.EpollServerDomainSocketChannel;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.nio.NioDomainSocketChannel;
+import io.netty.channel.socket.nio.NioServerDomainSocketChannel;
 import io.netty.channel.unix.DomainSocketAddress;
 import org.joou.ULong;
 import org.slf4j.Logger;
@@ -58,17 +57,17 @@ public class ProcessContainerDomain extends ProcessDomain {
 
     private final static Logger                                                    log                   = LoggerFactory.getLogger(
     ProcessContainerDomain.class);
-    private final static Class<? extends io.netty.channel.Channel>                 channelType           = EpollDomainSocketChannel.class;
+    private final static Class<? extends io.netty.channel.Channel>                 channelType           = NioDomainSocketChannel.class;
     protected final      Executor                                                  executor              = Executors.newVirtualThreadPerTaskExecutor();
-    private final        DomainSocketAddress                                             bridge;
-    private final        EventLoopGroup                                            clientEventLoopGroup  = new EpollEventLoopGroup();
+    private final        DomainSocketAddress                                       bridge;
+    private final        EventLoopGroup                                            clientEventLoopGroup  = new NioEventLoopGroup();
     private final        Path                                                      communicationsDirectory;
-    private final        EventLoopGroup                                            contextEventLoopGroup = new EpollEventLoopGroup();
+    private final        EventLoopGroup                                            contextEventLoopGroup = new NioEventLoopGroup();
     private final        Map<Digest, Demesne>                                      hostedDomains         = new ConcurrentHashMap<>();
     private final        Portal<Member>                                            portal;
-    private final        DomainSocketAddress                                             portalEndpoint;
-    private final        EventLoopGroup                                            portalEventLoopGroup  = new EpollEventLoopGroup();
-    private final        Map<String, DomainSocketAddress>                                routes                = new HashMap<>();
+    private final        DomainSocketAddress                                       portalEndpoint;
+    private final        EventLoopGroup                                            portalEventLoopGroup  = new NioEventLoopGroup();
+    private final        Map<String, DomainSocketAddress>                          routes                = new HashMap<>();
     private final        IdentifierSpecification.Builder<SelfAddressingIdentifier> subDomainSpecification;
 
     public ProcessContainerDomain(Digest group, ControlledIdentifierMember member, ProcessDomainParameters parameters,
@@ -87,7 +86,7 @@ public class ProcessContainerDomain extends ProcessDomain {
                                                                 new DomainSocketNegotiatorHandler.DomainSocketNegotiator())
                                                                 .executor(Executors.newVirtualThreadPerTaskExecutor())
                                                                 .withChildOption(ChannelOption.TCP_NODELAY, true)
-                                                                .channelType(EpollServerDomainSocketChannel.class)
+                                                                .channelType(NioServerDomainSocketChannel.class)
                                                                 .workerEventLoopGroup(portalEventLoopGroup)
                                                                 .bossEventLoopGroup(portalEventLoopGroup)
                                                                 .intercept(new DomainSocketServerInterceptor()),

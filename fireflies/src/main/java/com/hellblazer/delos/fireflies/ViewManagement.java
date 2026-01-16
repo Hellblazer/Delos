@@ -490,8 +490,13 @@ public class ViewManagement {
             log.debug("Member pending join: {} view: {} context: {} on: {}", from, currentView(), context.getId(),
                       node.getId());
 
-            // Original protocol: NO event-driven scheduling from join()
-            // View changes are detected by periodic maybeViewChange() scheduled from finalizeViewChange()
+            // Schedule view change if not already scheduled or ongoing
+            // This ensures joins trigger view changes while avoiding ballot divergence from multiple concurrent schedulings
+            if (!view.isViewChangeScheduledOrOngoing()) {
+                log.debug("Scheduling view change for pending join: {} on: {}", from, node.getId());
+                view.scheduleViewChange();
+            }
+
             var enjoining = new SliceIterator<>("Enjoining[%s:%s]".formatted(currentView(), from), node,
                                                 observers.keySet().stream().map(context::getActiveMember).toList(),
                                                 view.comm, scheduler);

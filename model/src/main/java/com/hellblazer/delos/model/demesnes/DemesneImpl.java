@@ -6,7 +6,6 @@
  */
 package com.hellblazer.delos.model.demesnes;
 
-
 import com.hellblazer.delos.archipelago.Enclave;
 import com.hellblazer.delos.choam.Parameters;
 import com.hellblazer.delos.choam.Parameters.RuntimeParameters;
@@ -41,6 +40,7 @@ import io.grpc.netty.NettyChannelBuilder;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
+import io.netty.channel.unix.DomainSocketAddress;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -58,10 +58,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
-import io.netty.channel.epoll.EpollEventLoopGroup;
-import io.netty.channel.unix.DomainSocketAddress;
-import io.netty.channel.epoll.EpollDomainSocketChannel;
-import io.netty.channel.unix.DomainSocketAddress;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.nio.NioDomainSocketChannel;
 
 
 import static com.hellblazer.delos.archipelago.RouterImpl.clientInterceptor;
@@ -77,9 +75,9 @@ public class DemesneImpl implements Demesne {
      * Uses Netty's NIO implementation with JEP 380 for peer credentials.
      * Works in all contexts including GraalVM isolates.
      */
-    private static final io.netty.channel.ChannelFactory<EpollDomainSocketChannel> channelFactory  = EpollDomainSocketChannel::new;
+    private static final io.netty.channel.ChannelFactory<NioDomainSocketChannel> channelFactory  = NioDomainSocketChannel::new;
     private static final Duration                                      DEFAULT_GOSSIP_INTERVAL = Duration.ofMillis(5);
-    private static final EventLoopGroup                                eventLoopGroup          = new EpollEventLoopGroup();
+    private static final EventLoopGroup                                eventLoopGroup          = new NioEventLoopGroup();
     private static final Logger                                        log                     = LoggerFactory.getLogger(DemesneImpl.class);
 
     private final    Executor               executor = Executors.newVirtualThreadPerTaskExecutor();

@@ -6,7 +6,6 @@
  */
 package com.hellblazer.delos.archipelago;
 
-
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import com.hellblazer.delos.archipelago.RouterImpl.CommonCommunications;
@@ -26,11 +25,9 @@ import io.grpc.netty.NettyServerBuilder;
 import io.grpc.stub.StreamObserver;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
-import io.netty.channel.epoll.EpollEventLoopGroup;
-import io.netty.channel.unix.DomainSocketAddress;
-import io.netty.channel.epoll.EpollDomainSocketChannel;
-import io.netty.channel.unix.DomainSocketAddress;
-import io.netty.channel.epoll.EpollServerDomainSocketChannel;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.nio.NioDomainSocketChannel;
+import io.netty.channel.socket.nio.NioServerDomainSocketChannel;
 import io.netty.channel.unix.DomainSocketAddress;
 import org.joou.ULong;
 import org.junit.jupiter.api.AfterEach;
@@ -55,7 +52,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  * @author hal.hildebrand
  */
 public class EnclaveTest {
-    private final static Class<? extends io.netty.channel.Channel> channelType = EpollDomainSocketChannel.class;
+    private final static Class<? extends io.netty.channel.Channel> channelType = NioDomainSocketChannel.class;
     private static final Executor                                  executor    = Executors.newVirtualThreadPerTaskExecutor();
 
     private final TestItService  local = new TestItService() {
@@ -87,7 +84,7 @@ public class EnclaveTest {
 
     @BeforeEach
     public void before() {
-        eventLoopGroup = new EpollEventLoopGroup();
+        eventLoopGroup = new NioEventLoopGroup();
     }
 
     @Test
@@ -106,7 +103,7 @@ public class EnclaveTest {
         final var agent = DigestAlgorithm.DEFAULT.getLast();
         final var portal = new Portal<>(agent, NettyServerBuilder.forAddress(portalEndpoint)
                                                                  .protocolNegotiator(new DomainSocketNegotiator())
-                                                                 .channelType(EpollServerDomainSocketChannel.class)
+                                                                 .channelType(NioServerDomainSocketChannel.class)
                                                                  .workerEventLoopGroup(eventLoopGroup)
                                                                  .bossEventLoopGroup(eventLoopGroup)
                                                                  .intercept(new DomainSocketServerInterceptor()),

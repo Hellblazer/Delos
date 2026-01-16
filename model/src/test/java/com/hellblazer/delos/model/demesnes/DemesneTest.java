@@ -6,7 +6,6 @@
  */
 package com.hellblazer.delos.model.demesnes;
 
-
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import com.hellblazer.delos.archipelago.*;
@@ -48,11 +47,9 @@ import io.grpc.netty.NettyServerBuilder;
 import io.grpc.stub.StreamObserver;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
-import io.netty.channel.epoll.EpollEventLoopGroup;
-import io.netty.channel.unix.DomainSocketAddress;
-import io.netty.channel.epoll.EpollDomainSocketChannel;
-import io.netty.channel.unix.DomainSocketAddress;
-import io.netty.channel.epoll.EpollServerDomainSocketChannel;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.nio.NioDomainSocketChannel;
+import io.netty.channel.socket.nio.NioServerDomainSocketChannel;
 import io.netty.channel.unix.DomainSocketAddress;
 import io.netty.channel.unix.ServerDomainSocketChannel;
 import org.joou.ULong;
@@ -80,8 +77,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * @author hal.hildebrand
  */
 public class DemesneTest {
-    private final static Class<? extends io.netty.channel.Channel>       clientChannelType = EpollDomainSocketChannel.class;
-    private static final Class<? extends io.netty.channel.ServerChannel> serverChannelType = EpollServerDomainSocketChannel.class;
+    private final static Class<? extends io.netty.channel.Channel>       clientChannelType = NioDomainSocketChannel.class;
+    private static final Class<? extends io.netty.channel.ServerChannel> serverChannelType = NioServerDomainSocketChannel.class;
     private final static Executor                                        executor          = Executors.newVirtualThreadPerTaskExecutor();
 
     private final TestItService  local = new TestItService() {
@@ -130,7 +127,7 @@ public class DemesneTest {
 
     @BeforeEach
     public void before() {
-        eventLoopGroup = new EpollEventLoopGroup();
+        eventLoopGroup = new NioEventLoopGroup();
     }
 
     @Test
@@ -149,11 +146,11 @@ public class DemesneTest {
                                                                                  .protocolNegotiator(
                                                                                  new DomainSocketNegotiator())
                                                                                  .channelType(
-                                                                                 EpollServerDomainSocketChannel.class)
+                                                                                 NioServerDomainSocketChannel.class)
                                                                                  .workerEventLoopGroup(
-                                                                                 new EpollEventLoopGroup())
+                                                                                 new NioEventLoopGroup())
                                                                                  .bossEventLoopGroup(
-                                                                                 new EpollEventLoopGroup())
+                                                                                 new NioEventLoopGroup())
                                                                                  .intercept(
                                                                                  new DomainSocketServerInterceptor())
                                                                                  .withChildOption(
@@ -240,11 +237,11 @@ public class DemesneTest {
         final var outerService = new OuterContextServer(service, null);
         final var outerContextService = NettyServerBuilder.forAddress(parentEndpoint)
                                                           .protocolNegotiator(new DomainSocketNegotiator())
-                                                          .channelType(EpollServerDomainSocketChannel.class)
+                                                          .channelType(NioServerDomainSocketChannel.class)
                                                           .addService(kerlServer)
                                                           .addService(outerService)
-                                                          .workerEventLoopGroup(new EpollEventLoopGroup())
-                                                          .bossEventLoopGroup(new EpollEventLoopGroup())
+                                                          .workerEventLoopGroup(new NioEventLoopGroup())
+                                                          .bossEventLoopGroup(new NioEventLoopGroup())
                                                           .intercept(new DomainSocketServerInterceptor())
                                                           .build();
         outerContextService.start();

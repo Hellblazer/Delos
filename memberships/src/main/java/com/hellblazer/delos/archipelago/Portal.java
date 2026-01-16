@@ -17,9 +17,9 @@ import io.grpc.netty.NettyChannelBuilder;
 import io.grpc.netty.NettyServerBuilder;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
-import io.netty.channel.epoll.EpollDomainSocketChannel;
-import io.netty.channel.epoll.EpollEventLoopGroup;
-import io.netty.channel.epoll.EpollServerDomainSocketChannel;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.nio.NioDomainSocketChannel;
+import io.netty.channel.socket.nio.NioServerDomainSocketChannel;
 import io.netty.channel.unix.DomainSocketAddress;
 
 import java.io.IOException;
@@ -37,11 +37,11 @@ import java.util.function.Function;
  * @author hal.hildebrand
  */
 public class Portal<To extends Member> {
-    private final static Class<? extends io.netty.channel.Channel> channelType = EpollDomainSocketChannel.class;
+    private final static Class<? extends io.netty.channel.Channel> channelType = NioDomainSocketChannel.class;
 
     private final ExecutorService executor       = Executors.newVirtualThreadPerTaskExecutor();
     private final String          agent;
-    private final EventLoopGroup  eventLoopGroup = new EpollEventLoopGroup();
+    private final EventLoopGroup  eventLoopGroup = new NioEventLoopGroup();
     private final Demultiplexer   inbound;
     private final Duration        keepAlive;
     private final Demultiplexer   outbound;
@@ -52,7 +52,7 @@ public class Portal<To extends Member> {
         this.outbound = new Demultiplexer(NettyServerBuilder.forAddress(bridge)
                                                             .executor(executor)
                                                             .protocolNegotiator(new DomainSocketNegotiator())
-                                                            .channelType(EpollServerDomainSocketChannel.class)
+                                                            .channelType(NioServerDomainSocketChannel.class)
                                                             .workerEventLoopGroup(eventLoopGroup)
                                                             .bossEventLoopGroup(eventLoopGroup)
                                                             .intercept(new DomainSocketServerInterceptor()),

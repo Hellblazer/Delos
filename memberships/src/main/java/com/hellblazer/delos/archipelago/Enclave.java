@@ -22,9 +22,9 @@ import io.grpc.netty.NettyChannelBuilder;
 import io.grpc.netty.NettyServerBuilder;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
-import io.netty.channel.epoll.EpollDomainSocketChannel;
-import io.netty.channel.epoll.EpollEventLoopGroup;
-import io.netty.channel.epoll.EpollServerDomainSocketChannel;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.nio.NioDomainSocketChannel;
+import io.netty.channel.socket.nio.NioServerDomainSocketChannel;
 import io.netty.channel.unix.DomainSocketAddress;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,13 +45,13 @@ import static com.hellblazer.delos.cryptography.QualifiedBase64.qb64;
  * @author hal.hildebrand
  */
 public class Enclave implements RouterSupplier {
-    private final static Class<? extends io.netty.channel.Channel> channelType = EpollDomainSocketChannel.class;
+    private final static Class<? extends io.netty.channel.Channel> channelType = NioDomainSocketChannel.class;
     private static final Logger                                    log         = LoggerFactory.getLogger(Enclave.class);
 
     private final DomainSocketAddress bridge;
     private final Consumer<Digest>    contextRegistration;
     private final DomainSocketAddress endpoint;
-    private final EventLoopGroup      eventLoopGroup = new EpollEventLoopGroup();
+    private final EventLoopGroup      eventLoopGroup = new NioEventLoopGroup();
     private final Member              from;
     private final String              fromString;
 
@@ -85,7 +85,7 @@ public class Enclave implements RouterSupplier {
         ServerBuilder<?> serverBuilder = NettyServerBuilder.forAddress(endpoint)
                                                            .executor(executor)
                                                            .protocolNegotiator(new DomainSocketNegotiator())
-                                                           .channelType(EpollServerDomainSocketChannel.class)
+                                                           .channelType(NioServerDomainSocketChannel.class)
                                                            .withChildOption(ChannelOption.TCP_NODELAY, true)
                                                            .workerEventLoopGroup(eventLoopGroup)
                                                            .bossEventLoopGroup(eventLoopGroup)

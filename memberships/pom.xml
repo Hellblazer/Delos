@@ -47,11 +47,6 @@
             <scope>provided</scope>
         </dependency>
         <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-transport-classes-epoll</artifactId>
-            <version>${netty.version}</version>
-        </dependency>
-        <dependency>
             <groupId>com.macasaet.fernet</groupId>
             <artifactId>fernet-java8</artifactId>
         </dependency>
