@@ -426,7 +426,10 @@ public class ViewManagement {
                 throw new IllegalStateException("Invalid crown");
             }
             setDiadem(calculated);
-            view.notifyListeners(context.allMembers().map(p -> p.note.getIdentifier()).toList(),
+            view.notifyListeners(context.allMembers()
+                                        .filter(java.util.Objects::nonNull)
+                                        .map(p -> p.note.getIdentifier())
+                                        .toList(),
                                  Collections.emptyList());
 
             view.scheduleViewChange();
@@ -852,13 +855,16 @@ public class ViewManagement {
         initialSeeds.add(node.getSignedNote());
         final var successors = new HashSet<SignedNote>();
 
-        context.successors(from, context::isActive).forEach(p -> {
-            var sn = p.getNote().getWrapped();
-            if (unique.add(sn)) {
-                initialSeeds.add(sn);
-            }
-            successors.add(sn);
-        });
+        context.successors(from, context::isActive)
+               .stream()
+               .filter(java.util.Objects::nonNull)
+               .forEach(p -> {
+                   var sn = p.getNote().getWrapped();
+                   if (unique.add(sn)) {
+                       initialSeeds.add(sn);
+                   }
+                   successors.add(sn);
+               });
         var gateway = Gateway.newBuilder()
                              .addAllInitialSeedSet(initialSeeds)
                              .setTrust(BootstrapTrust.newBuilder()
