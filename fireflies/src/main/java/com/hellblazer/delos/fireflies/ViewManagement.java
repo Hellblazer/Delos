@@ -789,6 +789,22 @@ public class ViewManagement {
                      .forEach(selectedObservers::add);
             }
 
+            // Tier 2.5: Carefully add from recentJoins if we don't have enough introductions
+            // This is safe because:
+            // 1. We're only adding 1-2 batch members to mix with stable observers
+            // 2. Joining node will contact multiple observers, not rely solely on batch members
+            // 3. Prevents single point of failure when tier1+tier2 has < TARGET_INTRODUCTIONS
+            if (selectedObservers.size() < TARGET_INTRODUCTIONS) {
+                int needed = TARGET_INTRODUCTIONS - selectedObservers.size();
+                candidateObservers.stream()
+                                 .filter(id -> recentJoins.contains(id))  // Only from recentJoins
+                                 .filter(id -> !selectedObservers.contains(id))  // Not already selected
+                                 .limit(needed)
+                                 .forEach(selectedObservers::add);
+                log.debug("ViewManagement.seed() tier 2.5: added {} from recentJoins to reach target from: {} on: {}",
+                          Math.min(needed, recentJoins.size()), from, node.getId());
+            }
+
             // Tier 3: Batch members (recentJoins) - conditional fallback
             // Only use batch members if either:
             // 1. Batch is small (bootstrap scenario - early batch members safe to use)
