@@ -7,34 +7,22 @@
 package com.hellblazer.delos.comm.grpc;
 
 import io.grpc.*;
-import io.netty.channel.unix.PeerCredentials;
-
-import static io.grpc.netty.DomainSocketNegotiatorHandler.TRANSPORT_ATTR_PEER_CREDENTIALS;
 
 /**
  * Server interceptor for Unix domain socket connections.
- * Extracts peer credentials from the transport and makes them available in the gRPC context.
+ * Previously extracted peer credentials, but NIO domain sockets don't support this.
+ * Now a simple pass-through interceptor for compatibility.
  *
  * @author hal.hildebrand
  */
 public class DomainSocketServerInterceptor implements ServerInterceptor {
 
-    public static final Context.Key<PeerCredentials> PEER_CREDENTIALS_CONTEXT_KEY = Context.key(
-    "com.hellblazer.delos.PEER_CREDENTIALS");
-
     @Override
     public <ReqT, RespT> ServerCall.Listener<ReqT> interceptCall(ServerCall<ReqT, RespT> call,
                                                                  final Metadata requestHeaders,
                                                                  ServerCallHandler<ReqT, RespT> next) {
-        var principal = call.getAttributes().get(TRANSPORT_ATTR_PEER_CREDENTIALS);
-        if (principal == null) {
-            call.close(Status.INTERNAL.withCause(new NullPointerException("Principal is missing"))
-                                      .withDescription("Principal is missing"), null);
-            return new ServerCall.Listener<ReqT>() {
-            };
-        }
-        Context ctx = Context.current().withValue(PEER_CREDENTIALS_CONTEXT_KEY, principal);
-        return Contexts.interceptCall(ctx, call, requestHeaders, next);
+        // Pass through - NIO domain sockets don't provide peer credentials
+        return next.startCall(call, requestHeaders);
     }
 
 }

@@ -6,14 +6,12 @@
  */
 package com.hellblazer.delos.comm.grpc;
 
-import com.google.common.primitives.Ints;
 import com.google.protobuf.Any;
-import com.hellblazer.delos.test.proto.PeerCreds;
+import com.google.protobuf.ByteString;
+import com.hellblazer.delos.test.proto.ByteMessage;
 import com.hellblazer.delos.test.proto.TestItGrpc;
 import com.hellblazer.delos.test.proto.TestItGrpc.TestItImplBase;
 import io.grpc.ManagedChannel;
-import io.grpc.Status;
-import io.grpc.StatusRuntimeException;
 import io.grpc.netty.DomainSocketNegotiatorHandler.DomainSocketNegotiator;
 import io.grpc.netty.NettyChannelBuilder;
 import io.grpc.netty.NettyServerBuilder;
@@ -29,7 +27,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 
-import static com.hellblazer.delos.comm.grpc.DomainSocketServerInterceptor.PEER_CREDENTIALS_CONTEXT_KEY;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -68,10 +65,8 @@ public class DomainSocketTest {
 
             var result = stub.ping(Any.getDefaultInstance());
             assertNotNull(result);
-            var creds = result.unpack(PeerCreds.class);
-            assertNotNull(creds);
-
-            System.out.println("Success:\n" + creds);
+            var msg = result.unpack(ByteMessage.class);
+            assertEquals("NIO domain socket works!", msg.getContents().toStringUtf8());
         } finally {
             channel.shutdown();
         }
@@ -81,17 +76,10 @@ public class DomainSocketTest {
 
         @Override
         public void ping(Any request, StreamObserver<Any> responseObserver) {
-            final var credentials = PEER_CREDENTIALS_CONTEXT_KEY.get();
-            if (credentials == null) {
-                responseObserver.onError(
-                new StatusRuntimeException(Status.INVALID_ARGUMENT.withDescription("No credentials available")));
-                return;
-            }
-            responseObserver.onNext(Any.pack(PeerCreds.newBuilder()
-                                                      .setPid(credentials.pid())
-                                                      .setUid(credentials.uid())
-                                                      .addAllGids(Ints.asList(credentials.gids()))
-                                                      .build()));
+            responseObserver.onNext(Any.pack(
+                ByteMessage.newBuilder()
+                    .setContents(ByteString.copyFromUtf8("NIO domain socket works!"))
+                    .build()));
             responseObserver.onCompleted();
         }
 
