@@ -315,6 +315,7 @@ public class ChurnTest {
         var parameters = Parameters.newBuilder()
                                    .setMaximumTxfr(10)
                                    .setSeedingTimout(Duration.ofSeconds(IS_CI ? 60 : 15))
+                                   .setMaxReseedDepth(50)  // Increased from default 30 to handle epoch mismatch reseeds
                                    .build();
         registry = new MetricRegistry();
         node0Registry = new MetricRegistry();
@@ -350,7 +351,7 @@ public class ChurnTest {
             communications.add(comms);
 
             gateway.start();
-            gateways.add(comms);
+            gateways.add(gateway);
             return new View(context, node, "0", EventValidation.NONE, Verifiers.from(kerl),
                             comms, parameters, gateway, DigestAlgorithm.DEFAULT, metrics);
         }).collect(Collectors.toList());

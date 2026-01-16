@@ -67,6 +67,7 @@ public class ViewManagement {
     final            AtomicReference<HexBloom>                     diadem       = new AtomicReference<>();
     final            Map<Digest, Integer>                          observers    = new ConcurrentSkipListMap<>();
     final            AtomicLong                                    observerVersion = new AtomicLong(0);
+    final            AtomicLong                                    viewEpoch = new AtomicLong(0);
     final            AtomicReference<HexBloom>                     cachedDiadem = new AtomicReference<>();
     /**
      * Members that joined in the current view (from the most recent ballot).
@@ -376,13 +377,16 @@ public class ViewManagement {
             }
         });
 
+        // Increment view epoch on each view change
+        final long newEpoch = viewEpoch.incrementAndGet();
+
         if (metrics != null) {
             metrics.viewChanges().mark();
         }
 
         log.info(
-        "Installed view: {} -> {} crown: {} for context: {} cardinality: {} count: {} pending: {} leaving: {} joining: {} on: {}",
-        result.previousView(), result.currentView(), result.diadem().compactWrapped(), context.getId(), cardinality(),
+        "Installed view: {} -> {} crown: {} epoch: {} for context: {} cardinality: {} count: {} pending: {} leaving: {} joining: {} on: {}",
+        result.previousView(), result.currentView(), result.diadem().compactWrapped(), newEpoch, context.getId(), cardinality(),
         context.allMembers().count(), result.pendingCallbacks().size(), result.leaving().size(), result.joining().size(), node.getId());
 
         view.notifyListeners(result.joining(), result.leaving());
@@ -447,7 +451,19 @@ public class ViewManagement {
 
     void join(Join join, Digest from, StreamObserver<JoinResponse> responseObserver, Timer.Context timer) {
         final var joinView = Digest.from(join.getView());
-        log.info("ViewManagement.join() called from: {} joinView: {} joined: {} on: {}", from, joinView, joined(), node.getId());
+        final long joinEpoch = join.getViewEpoch();
+        final long currentEpoch = viewEpoch.get();
+        log.info("ViewManagement.join() called from: {} joinView: {} joinEpoch: {} currentEpoch: {} joined: {} on: {}",
+                 from, joinView, joinEpoch, currentEpoch, joined(), node.getId());
+
+        // Epoch validation: reject if joiner has stale or future epoch
+        if (joinEpoch != currentEpoch) {
+            log.warn("ViewManagement.join() EPOCH MISMATCH - from: {} joinEpoch: {} currentEpoch: {} on: {}",
+                     from, joinEpoch, currentEpoch, node.getId());
+            responseObserver.onError(new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription(
+                "View epoch mismatch: expected %d, got %d - reseed to get current epoch".formatted(currentEpoch, joinEpoch))));
+            return;
+        }
 
         if (!joined()) {
             log.warn("ViewManagement.join() NOT JOINED - rejecting from: {} on: {}", from, node.getId());
@@ -750,8 +766,8 @@ public class ViewManagement {
             // Multi-tier stability filtering for introductions:
             // Tier 1 (most stable): Exclude both current AND previous generation joins
             // Tier 2 (moderately stable): Exclude only current generation joins
-            // Tier 3 (fallback): Include all observers
-            // Use highest tier that provides sufficient observers.
+            // Tier 3 (conditional fallback): Use batch members ONLY if safe (bootstrap or small batch)
+            // Reject with RESOURCE_EXHAUSTED if large batch with no stable observers (prevents circular dependency).
 
             var candidateObservers = observers.keySet()
                                               .stream()
@@ -768,8 +784,9 @@ public class ViewManagement {
                                           .filter(id -> !recentJoins.contains(id))
                                           .toList();
 
-            // Multi-tier observer selection with circular dependency mitigation
-            // Prefer stable observers, but accept batch members as last resort to avoid crashes
+            // Three-tier observer selection with conditional batch fallback
+            // Use batch members only if batch is small or mixed with stable observers
+            // Reject large batches with no stable observers to prevent circular dependency deadlock
             final int TARGET_INTRODUCTIONS = 3;
             List<Digest> selectedObservers = new ArrayList<>();
             String tierUsed;
@@ -785,24 +802,48 @@ public class ViewManagement {
                      .forEach(selectedObservers::add);
             }
 
-            // Tier 3: Batch members (recentJoins) - only if absolutely necessary
-            // This prevents client crash from empty introductions, but may cause circular joins
-            // The join retry logic with exponential backoff will eventually resolve this
-            if (selectedObservers.isEmpty() && !candidateObservers.isEmpty()) {
+            // Tier 3: Batch members (recentJoins) - conditional fallback
+            // Only use batch members if either:
+            // 1. Batch is small (bootstrap scenario - early batch members safe to use)
+            // 2. At least SOME stable observers exist (mixed with batch is OK)
+            //
+            // Reject if ALL of these are true (deadlock risk):
+            // - No stable observers (tier1 + tier2 empty)
+            // - Batch is large (> 50% of total observers)
+            // - Multiple observers exist (not bootstrap)
+            if (selectedObservers.isEmpty()) {
+                int totalObservers = candidateObservers.size();
+                int batchSize = recentJoins.size();
+                boolean isBootstrap = totalObservers <= 3;
+                boolean batchIsMajority = batchSize > totalObservers / 2;
+
+                if (!isBootstrap && batchIsMajority) {
+                    // Dangerous: Large batch with no stable observers = circular dependency deadlock
+                    log.warn("ViewManagement.seed() CIRCULAR DEADLOCK RISK - rejecting from: {} tier1: {} tier2: {} batch: {}/{} observers on: {}",
+                             from, tier1.size(), tier2.size(), batchSize, totalObservers, node.getId());
+                    throw new StatusRuntimeException(Status.RESOURCE_EXHAUSTED.withDescription(
+                        "Batch too large without stable observers, circular dependency risk, retry after view stabilizes"));
+                }
+
+                // Safe: Bootstrap or small batch - use batch members as fallback
                 candidateObservers.stream()
                                  .limit(Math.min(TARGET_INTRODUCTIONS, candidateObservers.size()))
                                  .forEach(selectedObservers::add);
+                log.info("ViewManagement.seed() using batch fallback (bootstrap or small batch) from: {} batch: {}/{} on: {}",
+                         from, batchSize, totalObservers, node.getId());
             }
 
             // Format tier description
-            if (tier1.size() == selectedObservers.size()) {
+            if (selectedObservers.isEmpty()) {
+                tierUsed = "empty (rejected)";
+            } else if (tier1.size() == selectedObservers.size()) {
                 tierUsed = "tier1 (%d fully stable)".formatted(tier1.size());
             } else if (selectedObservers.stream().noneMatch(recentJoins::contains)) {
                 tierUsed = "tier1+tier2 (%d stable + %d previous-gen)".formatted(
                     tier1.size(), selectedObservers.size() - tier1.size());
             } else {
                 long batchCount = selectedObservers.stream().filter(recentJoins::contains).count();
-                tierUsed = "mixed (%d stable + %d batch - CIRCULAR RISK)".formatted(
+                tierUsed = "mixed (%d stable + %d batch)".formatted(
                     selectedObservers.size() - batchCount, batchCount);
             }
 
@@ -810,10 +851,12 @@ public class ViewManagement {
                                                        .map(context::getMember)
                                                        .toList();
 
-            log.info("Member seeding: {} view: {} context: {} introductions: {} tier: {} on: {}", newMember.getId(),
-                     currentView(), context.getId(), introductions.stream().map(p -> p.getId()).toList(), tierUsed, node.getId());
+            final long currentEpoch = viewEpoch.get();
+            log.info("Member seeding: {} view: {} epoch: {} context: {} introductions: {} tier: {} on: {}", newMember.getId(),
+                     currentView(), currentEpoch, context.getId(), introductions.stream().map(p -> p.getId()).toList(), tierUsed, node.getId());
             return Redirect.newBuilder()
                            .setView(currentView().toDigeste())
+                           .setViewEpoch(currentEpoch)
                            .addAllIntroductions(introductions.stream()
                                                              .filter(java.util.Objects::nonNull)
                                                              .map(Participant::getSignedNote)
@@ -865,14 +908,16 @@ public class ViewManagement {
                    }
                    successors.add(sn);
                });
+        final long gatewayEpoch = viewEpoch.get();
         var gateway = Gateway.newBuilder()
                              .addAllInitialSeedSet(initialSeeds)
+                             .setViewEpoch(gatewayEpoch)
                              .setTrust(BootstrapTrust.newBuilder()
                                                      .addAllSuccessors(successors)
                                                      .setDiadem(diadem.get().toHexBloome()))
                              .build();
-        log.info("Gateway initial seeding: {} successors: {} for: {} on: {}", gateway.getInitialSeedSetCount(),
-                 successors.size(), from, node.getId());
+        log.info("Gateway initial seeding: {} successors: {} epoch: {} for: {} on: {}", gateway.getInitialSeedSetCount(),
+                 successors.size(), gatewayEpoch, from, node.getId());
         try {
             responseObserver.onNext(JoinResponse.newBuilder().setGateway(gateway).build());
             responseObserver.onCompleted();
