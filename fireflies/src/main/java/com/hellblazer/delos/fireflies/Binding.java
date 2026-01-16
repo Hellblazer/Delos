@@ -163,16 +163,14 @@ class Binding {
             if (cause instanceof StatusRuntimeException sre) {
                 log.warn("Error retrieving Gateway: {} from: {} on: {}", sre.getMessage(), member.getId(),
                          node.getId());
-                // Check for OUT_OF_RANGE - stale observer information requiring reseed
+                // Check for OUT_OF_RANGE - stale observer information
                 if (sre.getStatus().getCode() == io.grpc.Status.Code.OUT_OF_RANGE) {
-                    log.info("OUT_OF_RANGE detected in complete(), setting abandon=MAX_VALUE for view: {} from: {} on: {}",
+                    log.info("OUT_OF_RANGE detected in complete(), incrementing abandon counter for view: {} from: {} on: {}",
                              v, member.getId(), node.getId());
-                    // Set abandon to trigger reseed in continuation callback or whenComplete handler
-                    abandon.set(Integer.MAX_VALUE);
-                    // Force completion with false to trigger reseed check immediately
-                    if (!complete.isDone()) {
-                        complete.complete(false);
-                    }
+                    // Increment abandon counter - reseed will trigger if >= majority of observers are stale
+                    // This allows joins to succeed even when minority of observers have stale view info
+                    abandon.incrementAndGet();
+                    dec(complete, remaining);
                     return;
                 }
             } else {
@@ -238,19 +236,12 @@ class Binding {
                             CompletableFuture<Boolean> complete) {
         switch (sre.getStatus().getCode()) {
         case OUT_OF_RANGE -> {
-            log.info("Gateway view: {} OUT_OF_RANGE (stale observers) from: {} msg: {} on: {}", v,
+            log.info("Gateway view: {} OUT_OF_RANGE (stale observer) from: {} msg: {} on: {}", v,
                      link.getMember().getId(), sre.getMessage(), node.getId());
-            // OUT_OF_RANGE means stale observer info - trigger immediate reseed
-            // This prevents infinite loops when all contacted observers have lost observer status
-            abandon.set(Integer.MAX_VALUE);
-            log.info("Set abandon=MAX_VALUE to trigger reseed check, completing iteration for view: {} on: {}", v,
-                     node.getId());
-            // Force iteration to stop and trigger abandon threshold check
-            if (!complete.isDone()) {
-                complete.complete(false);
-            } else {
-                log.warn("Complete already done when handling OUT_OF_RANGE for view: {} on: {}", v, node.getId());
-            }
+            // OUT_OF_RANGE means stale observer info - increment abandon counter
+            // Reseed will trigger if >= majority of observers are stale
+            // This allows joins to tolerate minority of stale observers (BFT property)
+            abandon.incrementAndGet();
         }
         case FAILED_PRECONDITION -> {
             log.trace("Gateway view: {} unavailable: {} from: {} on: {}", v, sre.getMessage(), link.getMember().getId(),
@@ -392,6 +383,12 @@ class Binding {
                                                                                                     e.getCount()))
                                                                                                     .toList(),
                          node.getId());
+                // Check if we're stuck with stale observers (no progress)
+                if (trusts.isEmpty() && abandon.get() > 0) {
+                    log.info("No progress (trusts empty, abandons: {}), forcing reseed for view: {} on: {}", abandon.get(), v, node.getId());
+                    // Force reseed when making no progress with current introductions
+                    abandon.set(majority);
+                }
                 // Check if we need to reseed due to stale observers (OUT_OF_RANGE)
                 if (abandon.get() >= majority) {
                     final int depth = reseedDepth.incrementAndGet();
