@@ -28,7 +28,7 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDomainSocketChannel;
 import io.netty.channel.socket.nio.NioServerDomainSocketChannel;
-import io.netty.channel.unix.DomainSocketAddress;
+import java.net.UnixDomainSocketAddress;
 import org.joou.ULong;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -93,13 +93,12 @@ public class EnclaveTest {
         final var ctxB = DigestAlgorithm.DEFAULT.getLast().prefix(0x666);
         var serverMember1 = new SigningMemberImpl(Utils.getMember(0), ULong.MIN);
         var serverMember2 = new SigningMemberImpl(Utils.getMember(1), ULong.MIN);
-        final var bridge = new DomainSocketAddress(Path.of("target").resolve(UUID.randomUUID().toString()).toFile());
+        final var bridge = UnixDomainSocketAddress.of(Path.of("target").resolve(UUID.randomUUID().toString()));
 
-        final var routes = new HashMap<String, DomainSocketAddress>();
-        final Function<String, DomainSocketAddress> router = s -> routes.get(s);
+        final var routes = new HashMap<String, UnixDomainSocketAddress>();
+        final Function<String, UnixDomainSocketAddress> router = s -> routes.get(s);
 
-        final var portalEndpoint = new DomainSocketAddress(
-        Path.of("target").resolve(UUID.randomUUID().toString()).toFile());
+        final var portalEndpoint = UnixDomainSocketAddress.of(Path.of("target").resolve(UUID.randomUUID().toString()));
         final var agent = DigestAlgorithm.DEFAULT.getLast();
         final var portal = new Portal<>(agent, NettyServerBuilder.forAddress(portalEndpoint)
                                                                  .protocolNegotiator(new DomainSocketNegotiator())
@@ -109,7 +108,7 @@ public class EnclaveTest {
                                                                  .intercept(new DomainSocketServerInterceptor()),
                                         s -> handler(portalEndpoint), bridge, Duration.ofMillis(1), router);
 
-        final var endpoint1 = new DomainSocketAddress(Path.of("target").resolve(UUID.randomUUID().toString()).toFile());
+        final var endpoint1 = UnixDomainSocketAddress.of(Path.of("target").resolve(UUID.randomUUID().toString()));
         var enclave1 = new Enclave(serverMember1, endpoint1, bridge, d -> {
             routes.put(qb64(d), endpoint1);
         });
@@ -118,7 +117,7 @@ public class EnclaveTest {
                                                                             r -> new Server(r),
                                                                             c -> new TestItClient(c), local);
 
-        final var endpoint2 = new DomainSocketAddress(Path.of("target").resolve(UUID.randomUUID().toString()).toFile());
+        final var endpoint2 = UnixDomainSocketAddress.of(Path.of("target").resolve(UUID.randomUUID().toString()));
         var enclave2 = new Enclave(serverMember2, endpoint2, bridge, d -> {
             routes.put(qb64(d), endpoint2);
         });
@@ -149,7 +148,7 @@ public class EnclaveTest {
         router2.close(Duration.ofSeconds(0));
     }
 
-    private ManagedChannel handler(DomainSocketAddress address) {
+    private ManagedChannel handler(UnixDomainSocketAddress address) {
         return NettyChannelBuilder.forAddress(address)
                                   .withOption(ChannelOption.TCP_NODELAY, true)
                                   .executor(executor)

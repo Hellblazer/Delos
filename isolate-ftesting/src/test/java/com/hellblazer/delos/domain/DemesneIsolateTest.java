@@ -39,7 +39,7 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDomainSocketChannel;
 import io.netty.channel.socket.nio.NioServerDomainSocketChannel;
-import io.netty.channel.unix.DomainSocketAddress;
+import java.net.UnixDomainSocketAddress;
 import io.netty.channel.unix.ServerDomainSocketChannel;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
@@ -77,7 +77,7 @@ public class DemesneIsolateTest {
         Member serverMember = new ControlledIdentifierMember(identifier);
         var portalAddress = UUID.randomUUID().toString();
         var parentAddress = UUID.randomUUID().toString();
-        final var portalEndpoint = new DomainSocketAddress(commDirectory.resolve(portalAddress).toFile());
+        final var portalEndpoint = UnixDomainSocketAddress.of(commDirectory.resolve(portalAddress));
         var serverBuilder = NettyServerBuilder.forAddress(portalEndpoint)
                                               .protocolNegotiator(new DomainSocketNegotiator())
                                               .channelType(serverChannelType)
@@ -105,7 +105,7 @@ public class DemesneIsolateTest {
             }
         };
 
-        final var parentEndpoint = new DomainSocketAddress(commDirectory.resolve(parentAddress).toFile());
+        final var parentEndpoint = UnixDomainSocketAddress.of(commDirectory.resolve(parentAddress));
         var kerlServer = new DemesneKERLServer(new ProtoKERLAdapter(kerl), null);
         var outerService = new OuterContextServer(service, null);
         var outerContextService = NettyServerBuilder.forAddress(parentEndpoint)
@@ -151,7 +151,7 @@ public class DemesneIsolateTest {
         assertEquals(0, deregistered.size());
     }
 
-    private ManagedChannel handler(DomainSocketAddress address) {
+    private ManagedChannel handler(UnixDomainSocketAddress address) {
         return NettyChannelBuilder.forAddress(address)
                                   .eventLoopGroup(eventLoopGroup)
                                   .channelType(channelType)

@@ -40,11 +40,11 @@ import io.grpc.netty.NettyChannelBuilder;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
-import io.netty.channel.unix.DomainSocketAddress;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.net.UnixDomainSocketAddress;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
@@ -130,8 +130,8 @@ public class DemesneImpl implements Demesne {
         log.info("Creating Demesne: {} bridge: {} on: {}", context.getId(), outerContextAddress,
                  thoth.member().getId());
 
-        enclave = new Enclave(thoth.member(), new DomainSocketAddress(outerContextAddress),
-                              new DomainSocketAddress(commDirectory.resolve(parameters.getPortal()).toFile()),
+        enclave = new Enclave(thoth.member(), UnixDomainSocketAddress.of(outerContextAddress.toPath()),
+                              UnixDomainSocketAddress.of(commDirectory.resolve(parameters.getPortal())),
                               this::registerContext);
         domain = subdomainFrom(parameters, thoth.member(), context);
     }
@@ -192,7 +192,7 @@ public class DemesneImpl implements Demesne {
 
     private CachingKERL kerlFrom(File address) {
         Digest kerlContext = context.getId();
-        final var serverAddress = new DomainSocketAddress(address);
+        final var serverAddress = UnixDomainSocketAddress.of(address.toPath());
         log.info("Kerl context: {} address: {}", kerlContext, serverAddress);
         return new CachingKERL(f -> {
             ManagedChannel channel = null;
@@ -219,7 +219,7 @@ public class DemesneImpl implements Demesne {
     }
 
     private OuterContextClient outerFrom(File address) {
-        return new OuterContextClient(NettyChannelBuilder.forAddress(new DomainSocketAddress(address))
+        return new OuterContextClient(NettyChannelBuilder.forAddress(UnixDomainSocketAddress.of(address.toPath()))
                                                          .withOption(ChannelOption.TCP_NODELAY, true)
                                                          .executor(executor)
                                                          .intercept(clientInterceptor(context.getId()))

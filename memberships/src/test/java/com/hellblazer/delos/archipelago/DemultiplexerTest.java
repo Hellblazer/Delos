@@ -30,7 +30,7 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDomainSocketChannel;
 import io.netty.channel.socket.nio.NioServerDomainSocketChannel;
-import io.netty.channel.unix.DomainSocketAddress;
+import java.net.UnixDomainSocketAddress;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -86,7 +86,7 @@ public class DemultiplexerTest {
     @Test
     public void smokin() throws Exception {
         final var name = UUID.randomUUID().toString();
-        var routes = new HashMap<String, DomainSocketAddress>();
+        var routes = new HashMap<String, UnixDomainSocketAddress>();
         Function<String, ManagedChannel> dmux = d -> handler(routes.get(d));
 
         terminus = new Demultiplexer(InProcessServerBuilder.forName(name), Constants.METADATA_CONTEXT_KEY, dmux);
@@ -115,7 +115,7 @@ public class DemultiplexerTest {
         assertEquals("Hello Server", msg.getContents().toStringUtf8());
     }
 
-    private ManagedChannel handler(DomainSocketAddress address) {
+    private ManagedChannel handler(UnixDomainSocketAddress address) {
         return NettyChannelBuilder.forAddress(address)
                                   .withOption(ChannelOption.TCP_NODELAY, true)
                                   .executor(executor)
@@ -126,12 +126,12 @@ public class DemultiplexerTest {
                                   .build();
     }
 
-    private DomainSocketAddress serverA() throws IOException {
+    private UnixDomainSocketAddress serverA() throws IOException {
         Path socketPathA = Path.of("target").resolve(UUID.randomUUID().toString());
         Files.deleteIfExists(socketPathA);
         assertFalse(Files.exists(socketPathA));
 
-        final var address = new DomainSocketAddress(socketPathA.toFile());
+        final var address = UnixDomainSocketAddress.of(socketPathA);
         serverA = NettyServerBuilder.forAddress(address)
                                     .protocolNegotiator(new DomainSocketNegotiator())
                                     .channelType(NioServerDomainSocketChannel.class)
@@ -144,12 +144,12 @@ public class DemultiplexerTest {
         return address;
     }
 
-    private DomainSocketAddress serverB() throws IOException {
+    private UnixDomainSocketAddress serverB() throws IOException {
         Path socketPathA = Path.of("target").resolve(UUID.randomUUID().toString());
         Files.deleteIfExists(socketPathA);
         assertFalse(Files.exists(socketPathA));
 
-        final var address = new DomainSocketAddress(socketPathA.toFile());
+        final var address = UnixDomainSocketAddress.of(socketPathA);
         serverB = NettyServerBuilder.forAddress(address)
                                     .protocolNegotiator(new DomainSocketNegotiator())
                                     .channelType(NioServerDomainSocketChannel.class)

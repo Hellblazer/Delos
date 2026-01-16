@@ -22,9 +22,9 @@ import io.netty.channel.Channel;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDomainSocketChannel;
 import io.netty.channel.socket.nio.NioServerDomainSocketChannel;
-import io.netty.channel.unix.DomainSocketAddress;
 import org.junit.jupiter.api.Test;
 
+import java.net.UnixDomainSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
@@ -46,7 +46,7 @@ public class DomainSocketTest {
         assertFalse(Files.exists(socketPath));
 
         final var eventLoopGroup = new NioEventLoopGroup();
-        var server = NettyServerBuilder.forAddress(new DomainSocketAddress(socketPath.toFile()))
+        var server = NettyServerBuilder.forAddress(UnixDomainSocketAddress.of(socketPath))
                                        .protocolNegotiator(new DomainSocketNegotiator())
                                        .channelType(NioServerDomainSocketChannel.class)
                                        .workerEventLoopGroup(eventLoopGroup)
@@ -57,7 +57,7 @@ public class DomainSocketTest {
         server.start();
         assertTrue(Files.exists(socketPath));
 
-        ManagedChannel channel = NettyChannelBuilder.forAddress(new DomainSocketAddress(socketPath.toFile()))
+        ManagedChannel channel = NettyChannelBuilder.forAddress(UnixDomainSocketAddress.of(socketPath))
                                                     .eventLoopGroup(eventLoopGroup)
                                                     .channelType(channelType)
                                                     .keepAliveTime(1, TimeUnit.MILLISECONDS)

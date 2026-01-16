@@ -20,9 +20,8 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDomainSocketChannel;
 import io.netty.channel.socket.nio.NioServerDomainSocketChannel;
-import io.netty.channel.unix.DomainSocketAddress;
-
 import java.io.IOException;
+import java.net.UnixDomainSocketAddress;
 import java.time.Duration;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -47,7 +46,7 @@ public class Portal<To extends Member> {
     private final Demultiplexer   outbound;
 
     public Portal(Digest agent, ServerBuilder<?> inbound, Function<String, ManagedChannel> outbound,
-                  DomainSocketAddress bridge, Duration keepAlive, Function<String, DomainSocketAddress> router) {
+                  UnixDomainSocketAddress bridge, Duration keepAlive, Function<String, UnixDomainSocketAddress> router) {
         this.inbound = new Demultiplexer(inbound, Constants.METADATA_CONTEXT_KEY, d -> handler(router.apply(d)));
         this.outbound = new Demultiplexer(NettyServerBuilder.forAddress(bridge)
                                                             .executor(executor)
@@ -72,7 +71,7 @@ public class Portal<To extends Member> {
         inbound.start();
     }
 
-    private ManagedChannel handler(DomainSocketAddress address) {
+    private ManagedChannel handler(UnixDomainSocketAddress address) {
         var clientInterceptor = new ClientInterceptor() {
             @Override
             public <ReqT, RespT> ClientCall<ReqT, RespT> interceptCall(MethodDescriptor<ReqT, RespT> method,

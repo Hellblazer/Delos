@@ -25,10 +25,10 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDomainSocketChannel;
 import io.netty.channel.socket.nio.NioServerDomainSocketChannel;
-import io.netty.channel.unix.DomainSocketAddress;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.UnixDomainSocketAddress;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -48,14 +48,14 @@ public class Enclave implements RouterSupplier {
     private final static Class<? extends io.netty.channel.Channel> channelType = NioDomainSocketChannel.class;
     private static final Logger                                    log         = LoggerFactory.getLogger(Enclave.class);
 
-    private final DomainSocketAddress bridge;
-    private final Consumer<Digest>    contextRegistration;
-    private final DomainSocketAddress endpoint;
-    private final EventLoopGroup      eventLoopGroup = new NioEventLoopGroup();
-    private final Member              from;
-    private final String              fromString;
+    private final UnixDomainSocketAddress bridge;
+    private final Consumer<Digest>        contextRegistration;
+    private final UnixDomainSocketAddress endpoint;
+    private final EventLoopGroup          eventLoopGroup = new NioEventLoopGroup();
+    private final Member                  from;
+    private final String                  fromString;
 
-    public Enclave(Member from, DomainSocketAddress endpoint, DomainSocketAddress bridge,
+    public Enclave(Member from, UnixDomainSocketAddress endpoint, UnixDomainSocketAddress bridge,
                    Consumer<Digest> contextRegistration) {
         this.bridge = bridge;
         this.endpoint = endpoint;
@@ -65,9 +65,9 @@ public class Enclave implements RouterSupplier {
     }
 
     /**
-     * @return the DomainSocketAddress for this Enclave
+     * @return the UnixDomainSocketAddress for this Enclave
      */
-    public DomainSocketAddress getEndpoint() {
+    public UnixDomainSocketAddress getEndpoint() {
         return endpoint;
     }
 
