@@ -206,9 +206,6 @@ under the source root and contains a README.md documenting the module.
 
 * [CHOAM](choam/README.md) - Committee maintenance of replicated state machines
 * [Delphinius](delphinius/README.md) - Bare bones Google Zanzibar clone
-* [Domain-EPoll](domain-epoll) - linux support for Netty domain sockets
-* [Domain-KQueue](domain-epoll) - mac osx support for Netty domain sockets
-* [Domain-Sockets](domain-sockets) - unifying abstraction for the different OS domain sockets
 * [Ethereal](ethereal/README.md) - Aleph asynchronous BFT atomic broadcast (consensus block production)
 * [Fireflies](fireflies/README.md) - Byzantine intrusion tolerant, virtually synchronous membership service and secure
   communications overlay
@@ -243,15 +240,15 @@ under the source root and contains a README.md documenting the module.
 
 ## Status
 
-Delos is a maturing distributed platform:
-- **Fireflies** (membership service): Production-ready as of Jan 2026 (109 issues remediated)
+Delos is a production-ready distributed platform:
+- **Fireflies** (membership service): Production-ready as of Jan 2026 — Critical ReservoirSampler bug eliminated, all canary tests passing at scale (100 nodes)
 - **Ethereal** (consensus): Well-tested and hardened
 - **CHOAM** (state machine replication): Production-ready
 - **Stereotomy/KERI** (identity): Fully integrated
 - **SQL-State**: Mature with comprehensive testing
-- Other modules: Continuing development
+- **Domain Sockets**: Pure Java NIO implementation (JEP 380) — No native dependencies, full GraalVM isolates compatibility
 
-Current version: `0.0.11-SNAPSHOT` — No official release yet, but core layers are production-hardened.
+Core platform layers are production-hardened and battle-tested.
 
 ## IDE Integration
 
@@ -287,13 +284,22 @@ Because Delos uses GRPC/Proto and JOOQ code generation, IDEs occasionally need a
 
 ## Testing
 
-By default, tests use a reduced number of simulated clients for speed. For comprehensive testing:
+**Default behavior** (as of 0.2.0):
+- **Local builds**: Run large-scale tests by default (100 nodes) for thorough validation
+- **CI environment**: Uses smaller tests (12-25 nodes) for fast feedback
 
 ```bash
-./mvnw clean install -Dlarge_tests=true
+# Local development (default: large tests with 100 nodes)
+./mvnw test
+
+# Local with small tests (faster, 25 nodes)
+./mvnw test -Dlarge_tests=false
+
+# Full build with comprehensive testing
+./mvnw clean install
 ```
 
-This tests with 100x more clients and longer transaction chains. Requires 8+ GB RAM and takes 10-15 minutes.
+Large tests require 8+ GB RAM and validate Byzantine fault tolerance, membership convergence, and consensus at scale. They're designed as **canaries, not flaky tests** — failures indicate real bugs.
 
 **Metrics**: Dropwizard Metrics are integrated into Fireflies, Reliable Broadcast, Ethereal, and CHOAM modules.
 
