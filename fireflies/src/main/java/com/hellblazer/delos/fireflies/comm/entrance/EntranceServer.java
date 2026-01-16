@@ -18,11 +18,14 @@ import com.hellblazer.delos.fireflies.proto.Redirect;
 import com.hellblazer.delos.fireflies.proto.Registration;
 import com.hellblazer.delos.protocols.ClientIdentity;
 import io.grpc.stub.StreamObserver;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * @author hal.hildebrand
  */
 public class EntranceServer extends EntranceImplBase {
+    private static final Logger log = LoggerFactory.getLogger(EntranceServer.class);
 
     private final FireflyMetrics           metrics;
     private final RoutableService<Service> router;
@@ -43,14 +46,20 @@ public class EntranceServer extends EntranceImplBase {
             metrics.inboundJoin().update(serializedSize);
         }
         Digest from = identity.getFrom();
+        log.info("EntranceServer.join() called from: {} (identity)", from);
         if (from == null) {
+            log.warn("EntranceServer.join() rejecting - from is null (member removed)");
             responseObserver.onError(new IllegalStateException("Member has been removed"));
             return;
         }
+        log.info("EntranceServer.join() calling router.evaluate() from: {}", from);
         router.evaluate(responseObserver, s -> {
+            log.info("EntranceServer.join() inside router.evaluate() callback from: {}", from);
             try {
                 s.join(request, from, responseObserver, timer);
+                log.info("EntranceServer.join() Service.join() completed from: {}", from);
             } catch (Throwable t) {
+                log.error("EntranceServer.join() Service.join() threw exception from: {}", from, t);
                 try {
                     responseObserver.onError(t);
                 } catch (Throwable throwable) {
@@ -69,20 +78,28 @@ public class EntranceServer extends EntranceImplBase {
             metrics.inboundSeed().update(serializedSize);
         }
         Digest from = identity.getFrom();
+        log.info("EntranceServer.seed() called from: {} (identity)", from);
         if (from == null) {
+            log.warn("EntranceServer.seed() rejecting - from is null (member removed)");
             responseObserver.onError(new IllegalStateException("Member has been removed"));
             return;
         }
+        log.info("EntranceServer.seed() calling router.evaluate() from: {}", from);
         router.evaluate(responseObserver, s -> {
+            log.info("EntranceServer.seed() inside router.evaluate() callback from: {}", from);
             Redirect r;
             try {
                 r = s.seed(request, from);
+                log.info("EntranceServer.seed() Service.seed() returned introductions: {} from: {}",
+                         r.getIntroductionsCount(), from);
             } catch (Throwable t) {
+                log.error("EntranceServer.seed() Service.seed() threw exception from: {}", from, t);
                 responseObserver.onError(t);
                 return;
             }
             responseObserver.onNext(r);
             responseObserver.onCompleted();
+            log.info("EntranceServer.seed() completed successfully from: {}", from);
             if (timer != null) {
                 var serializedSize = r.getSerializedSize();
                 metrics.outboundBandwidth().mark(serializedSize);

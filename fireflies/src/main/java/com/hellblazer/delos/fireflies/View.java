@@ -1890,12 +1890,15 @@ public class View {
          */
         @Override
         public void join(Join join, Digest from, StreamObserver<JoinResponse> responseObserver, Timer.Context timer) {
+            log.info("View.Service.join() called from: {} started: {} on: {}", from, started.get(), node.getId());
             if (!started.get()) {
+                log.warn("View.Service.join() rejecting - not started from: {} on: {}", from, node.getId());
                 responseObserver.onError(
                 new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("Not started")));
                 return;
             }
             viewManagement.join(join, from, responseObserver, timer);
+            log.info("View.Service.join() returned from viewManagement.join() from: {} on: {}", from, node.getId());
         }
 
         public void ping(Ping ping, Digest from) {
@@ -1980,10 +1983,15 @@ public class View {
 
         @Override
         public Redirect seed(Registration registration, Digest from) {
+            log.info("View.Service.seed() called from: {} started: {} on: {}", from, started.get(), node.getId());
             if (!started.get()) {
+                log.warn("View.Service.seed() rejecting - not started from: {} on: {}", from, node.getId());
                 throw new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("Not started"));
             }
-            return viewManagement.seed(registration, from);
+            Redirect result = viewManagement.seed(registration, from);
+            log.info("View.Service.seed() returning introductions: {} from: {} on: {}",
+                     result.getIntroductionsCount(), from, node.getId());
+            return result;
         }
 
         /**
