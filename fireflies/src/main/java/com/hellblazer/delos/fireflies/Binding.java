@@ -374,30 +374,37 @@ class Binding {
                     reseedDepth.set(0); // Reset on successful join
                     return;
                 }
-                log.info("Join unsuccessful, abandoned: {} trusts: {} on: {}", abandon.get(), trusts.entrySet()
-                                                                                                    .stream()
-                                                                                                    .sorted()
-                                                                                                    .map(
-                                                                                                    e -> "%s x %s".formatted(
-                                                                                                    e.getElement().diadem,
-                                                                                                    e.getCount()))
-                                                                                                    .toList(),
-                         node.getId());
+                var trustsSummary = trusts.entrySet()
+                                          .stream()
+                                          .sorted()
+                                          .map(e -> "%s x %s".formatted(e.getElement().diadem, e.getCount()))
+                                          .toList();
+                log.info("Join unsuccessful - expected view: {} abandoned: {} majority: {} trusts.size: {} trusts: {} on: {}",
+                         v, abandon.get(), majority, trusts.size(), trustsSummary, node.getId());
 
                 // CRITICAL: Detect view change during join - pivot to new view instead of retrying stale view
                 // If gateways returned a different view than expected, immediately join that view
                 // This prevents wasting time retrying a stale view when cluster has moved forward
+                log.info("View change detection: trusts.isEmpty={} abandon={} majority={} checking for different view on: {}",
+                         trusts.isEmpty(), abandon.get(), majority, node.getId());
+
                 if (!trusts.isEmpty() && abandon.get() < majority) {
+                    log.info("Scanning {} trust entries for view change (expected: {}) on: {}", trusts.size(), v, node.getId());
                     var differentViewTrust = trusts.entrySet()
                                                    .stream()
-                                                   .filter(e -> !e.getElement().diadem.equals(v))
+                                                   .filter(e -> {
+                                                       var matches = e.getElement().diadem.equals(v);
+                                                       log.info("  Trust entry: view={} count={} matches_expected={} on: {}",
+                                                                e.getElement().diadem, e.getCount(), matches, node.getId());
+                                                       return !matches;
+                                                   })
                                                    .max(Comparator.comparingInt(Multiset.Entry::getCount))
                                                    .map(Multiset.Entry::getElement)
                                                    .orElse(null);
                     if (differentViewTrust != null) {
-                        log.info("View change detected during join: expected: {} received: {} (count: {}) - pivoting to new view on: {}",
+                        log.info("VIEW CHANGE DETECTED! Expected: {} received: {} (count: {}/{}) - PIVOTING to new view on: {}",
                                  v, differentViewTrust.diadem,
-                                 trusts.count(differentViewTrust),
+                                 trusts.count(differentViewTrust), majority,
                                  node.getId());
                         scheduler.shutdown();
                         // Create synthetic redirect for the new view discovered via gateways
@@ -413,7 +420,12 @@ class Binding {
                         // Immediately join the new view without delay
                         Thread.ofVirtual().start(Utils.wrapped(() -> join(newRedirect, differentViewTrust.diadem, duration), log));
                         return;
+                    } else {
+                        log.info("No different view found in trusts, will retry same view: {} on: {}", v, node.getId());
                     }
+                } else {
+                    log.info("Skipping view change detection: trusts.isEmpty={} abandon={} >= majority={} on: {}",
+                             trusts.isEmpty(), abandon.get(), majority, node.getId());
                 }
 
                 // Check if we're stuck with stale observers (no progress)
