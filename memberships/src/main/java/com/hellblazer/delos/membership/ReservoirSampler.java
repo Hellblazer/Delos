@@ -62,7 +62,16 @@ public class ReservoirSampler<T> implements Collector<T, List<T>, List<T>> {
 
     @Override
     public Function<List<T>, List<T>> finisher() {
-        return (i) -> i;
+        return list -> {
+            // Remove trailing nulls when stream has fewer elements than capacity
+            // Also handle case where counter never reached capacity (some slots never filled)
+            int actualSize = (int) Math.min(counter, list.size());
+            if (actualSize == list.size()) {
+                return list;  // All slots filled, no nulls
+            }
+            // Return only the filled portion, excluding pre-allocated nulls
+            return new ArrayList<>(list.subList(0, actualSize));
+        };
     }
 
     @Override
@@ -80,10 +89,10 @@ public class ReservoirSampler<T> implements Collector<T, List<T>, List<T>> {
         }
 
         if (counter < in.size()) {
-            in.add((int) counter, s);
+            in.set((int) counter, s);  // Replace pre-allocated null at index
         } else {
             if (counter == next) {
-                in.add(ThreadLocalRandom.current().nextInt(in.size()), s);
+                in.set(ThreadLocalRandom.current().nextInt(in.size()), s);  // Replace random element
                 skip();
             }
         }

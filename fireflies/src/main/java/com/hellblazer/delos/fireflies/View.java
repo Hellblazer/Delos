@@ -1094,10 +1094,9 @@ public class View {
                     Thread.currentThread().interrupt();
                 }
             });
-            if (context.activeCount() == 1) {
-                tick();
-            }
         } finally {
+            // Tick MUST run on every gossip iteration to advance round timers
+            tick();
             schedule(duration);
         }
     }

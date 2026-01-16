@@ -67,7 +67,6 @@ public class ViewManagement {
     final            AtomicReference<HexBloom>                     diadem       = new AtomicReference<>();
     final            Map<Digest, Integer>                          observers    = new ConcurrentSkipListMap<>();
     final            AtomicLong                                    observerVersion = new AtomicLong(0);
-    final            AtomicLong                                    viewEpoch = new AtomicLong(0);
     final            AtomicReference<HexBloom>                     cachedDiadem = new AtomicReference<>();
     /**
      * Members that joined in the current view (from the most recent ballot).
@@ -250,12 +249,14 @@ public class ViewManagement {
                 log.trace("Vote already cast for: {} on: {}", currentView(), node.getId());
                 return;
             }
+
             // Use pending rebuttals as a proxy for stability
             if (view.hasPendingRebuttals()) {
                 log.debug("Pending rebuttals in view: {} on: {}", currentView(), node.getId());
                 view.scheduleViewChange(1);
                 return;
             }
+
             view.scheduleFinalizeViewChange();
             if (!isObserver(node.getId())) {
                 log.debug("Initiating (non observer) view change: {} joins: {} leaves: {} on: {}", currentView(),
@@ -330,7 +331,7 @@ public class ViewManagement {
 
         final var seedSet = context.sample(params.maximumTxfr(), Entropy.bitsStream(), node.getId())
                                    .stream()
-                                   .filter(sn -> sn != null)
+                                   .filter(p -> p != null && p.note != null)
                                    .map(p -> p.note.getWrapped())
                                    .collect(Collectors.toSet());
 
@@ -377,16 +378,13 @@ public class ViewManagement {
             }
         });
 
-        // Increment view epoch on each view change
-        final long newEpoch = viewEpoch.incrementAndGet();
-
         if (metrics != null) {
             metrics.viewChanges().mark();
         }
 
         log.info(
-        "Installed view: {} -> {} crown: {} epoch: {} for context: {} cardinality: {} count: {} pending: {} leaving: {} joining: {} on: {}",
-        result.previousView(), result.currentView(), result.diadem().compactWrapped(), newEpoch, context.getId(), cardinality(),
+        "Installed view: {} -> {} crown: {} for context: {} cardinality: {} count: {} pending: {} leaving: {} joining: {} on: {}",
+        result.previousView(), result.currentView(), result.diadem().compactWrapped(), context.getId(), cardinality(),
         context.allMembers().count(), result.pendingCallbacks().size(), result.leaving().size(), result.joining().size(), node.getId());
 
         view.notifyListeners(result.joining(), result.leaving());
@@ -451,19 +449,8 @@ public class ViewManagement {
 
     void join(Join join, Digest from, StreamObserver<JoinResponse> responseObserver, Timer.Context timer) {
         final var joinView = Digest.from(join.getView());
-        final long joinEpoch = join.getViewEpoch();
-        final long currentEpoch = viewEpoch.get();
-        log.info("ViewManagement.join() called from: {} joinView: {} joinEpoch: {} currentEpoch: {} joined: {} on: {}",
-                 from, joinView, joinEpoch, currentEpoch, joined(), node.getId());
-
-        // Epoch validation: reject if joiner has stale or future epoch
-        if (joinEpoch != currentEpoch) {
-            log.warn("ViewManagement.join() EPOCH MISMATCH - from: {} joinEpoch: {} currentEpoch: {} on: {}",
-                     from, joinEpoch, currentEpoch, node.getId());
-            responseObserver.onError(new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription(
-                "View epoch mismatch: expected %d, got %d - reseed to get current epoch".formatted(currentEpoch, joinEpoch))));
-            return;
-        }
+        log.info("ViewManagement.join() called from: {} joinView: {} joined: {} on: {}",
+                 from, joinView, joined(), node.getId());
 
         if (!joined()) {
             log.warn("ViewManagement.join() NOT JOINED - rejecting from: {} on: {}", from, node.getId());
@@ -509,7 +496,6 @@ public class ViewManagement {
                     try {
                         joined(context.sample(params.maximumTxfr(), Entropy.bitsStream(), node.getId())
                                       .stream()
-                                      .filter(java.util.Objects::nonNull)  // Filter out null participants
                                       .map(p -> p.note.getWrapped())
                                       .toList(), from, responseObserver, timer);
                     } catch (Throwable t) {
@@ -852,12 +838,10 @@ public class ViewManagement {
                                                        .map(context::getMember)
                                                        .toList();
 
-            final long currentEpoch = viewEpoch.get();
-            log.info("Member seeding: {} view: {} epoch: {} context: {} introductions: {} tier: {} on: {}", newMember.getId(),
-                     currentView(), currentEpoch, context.getId(), introductions.stream().map(p -> p.getId()).toList(), tierUsed, node.getId());
+            log.info("Member seeding: {} view: {} context: {} introductions: [{}] tier: {} on: {}", newMember.getId(),
+                     currentView(), context.getId(), introductions.stream().map(p -> p.getId()).toList(), tierUsed, node.getId());
             return Redirect.newBuilder()
                            .setView(currentView().toDigeste())
-                           .setViewEpoch(currentEpoch)
                            .addAllIntroductions(introductions.stream()
                                                              .filter(java.util.Objects::nonNull)
                                                              .map(Participant::getSignedNote)
@@ -909,16 +893,14 @@ public class ViewManagement {
                    }
                    successors.add(sn);
                });
-        final long gatewayEpoch = viewEpoch.get();
         var gateway = Gateway.newBuilder()
                              .addAllInitialSeedSet(initialSeeds)
-                             .setViewEpoch(gatewayEpoch)
                              .setTrust(BootstrapTrust.newBuilder()
                                                      .addAllSuccessors(successors)
                                                      .setDiadem(diadem.get().toHexBloome()))
                              .build();
-        log.info("Gateway initial seeding: {} successors: {} epoch: {} for: {} on: {}", gateway.getInitialSeedSetCount(),
-                 successors.size(), gatewayEpoch, from, node.getId());
+        log.info("Gateway initial seeding: {} successors: {} for: {} on: {}", gateway.getInitialSeedSetCount(),
+                 successors.size(), from, node.getId());
         try {
             responseObserver.onNext(JoinResponse.newBuilder().setGateway(gateway).build());
             responseObserver.onCompleted();

@@ -149,8 +149,7 @@ class Binding {
 
     private void complete(Member member, CompletableFuture<Bound> gateway, HashMultiset<Bootstrapping> trusts,
                           Set<SignedNote> iss, Digest v, int majority, CompletableFuture<Boolean> complete,
-                          AtomicInteger remaining, ListenableFuture<Gateway> futureSailor, AtomicInteger abandon,
-                          long expectedEpoch) {
+                          AtomicInteger remaining, ListenableFuture<Gateway> futureSailor, AtomicInteger abandon) {
         if (complete.isDone()) {
             return;
         }
@@ -171,17 +170,6 @@ class Binding {
                     // Set abandon to trigger reseed in continuation callback or whenComplete handler
                     abandon.set(Integer.MAX_VALUE);
                     // Force completion with false to trigger reseed check immediately
-                    if (!complete.isDone()) {
-                        complete.complete(false);
-                    }
-                    return;
-                }
-                // Check for FAILED_PRECONDITION - likely epoch mismatch
-                if (sre.getStatus().getCode() == io.grpc.Status.Code.FAILED_PRECONDITION) {
-                    log.info("FAILED_PRECONDITION (epoch mismatch) detected in complete(), setting abandon=MAX_VALUE for view: {} from: {} on: {}",
-                             v, member.getId(), node.getId());
-                    // Treat epoch mismatch like OUT_OF_RANGE - trigger reseed
-                    abandon.set(Integer.MAX_VALUE);
                     if (!complete.isDone()) {
                         complete.complete(false);
                     }
@@ -210,19 +198,6 @@ class Binding {
                                                                          .equals(HexBloome.getDefaultInstance())) {
             log.trace("Empty bootstrap trust in join returned from: {} on: {}", member.getId(), node.getId());
             dec(complete, remaining);
-            return;
-        }
-
-        // Validate Gateway epoch matches expected epoch from Redirect
-        final long gatewayEpoch = g.getViewEpoch();
-        if (gatewayEpoch != expectedEpoch) {
-            log.warn("Gateway epoch mismatch: expected: {} got: {} from: {} on: {} - triggering reseed",
-                     expectedEpoch, gatewayEpoch, member.getId(), node.getId());
-            // Epoch mismatch means view changed during join - treat like OUT_OF_RANGE (stale observers)
-            abandon.set(Integer.MAX_VALUE);
-            if (!complete.isDone()) {
-                complete.complete(false);
-            }
             return;
         }
 
@@ -299,8 +274,7 @@ class Binding {
 
     private boolean join(Member member, CompletableFuture<Bound> gateway, Optional<ListenableFuture<Gateway>> fs,
                          HashMultiset<Bootstrapping> trusts, Set<SignedNote> initialSeedSet, Digest v, int majority,
-                         CompletableFuture<Boolean> complete, AtomicInteger remaining, AtomicInteger abandon,
-                         long expectedEpoch) {
+                         CompletableFuture<Boolean> complete, AtomicInteger remaining, AtomicInteger abandon) {
         if (complete.isDone()) {
             log.trace("join round already completed for: {} on: {}", member.getId(), node.getId());
             return false;
@@ -318,17 +292,16 @@ class Binding {
         }
         var futureSailor = fs.get();
         futureSailor.addListener(
-        () -> complete(member, gateway, trusts, initialSeedSet, v, majority, complete, remaining, futureSailor, abandon, expectedEpoch),
+        () -> complete(member, gateway, trusts, initialSeedSet, v, majority, complete, remaining, futureSailor, abandon),
         r -> Thread.ofVirtual().start(r));
 
         return true;
     }
 
-    private Join join(Digest v, long viewEpoch) {
+    private Join join(Digest v) {
         return Join.newBuilder()
                    .setView(v.toDigeste())
                    .setNote(node.getNote().getWrapped())
-                   .setViewEpoch(viewEpoch)
                    .build();
     }
 
@@ -369,10 +342,7 @@ class Binding {
         // Randomize observer contact order to spread load and increase likelihood of fresh view
         Entropy.secureShuffle(sample);
 
-        // Extract view epoch from Redirect for join protocol validation
-        final long redirectEpoch = redirect.getViewEpoch();
-
-        log.info("Redirecting to: {} epoch: {} context: {} sample: {} on: {}", v, redirectEpoch, this.context.getId(),
+        log.info("Redirecting to: {} context: {} sample: {} on: {}", v, this.context.getId(),
                  sample.size(), node.getId());
         var gateway = new CompletableFuture<Bound>();
         var timer = metrics == null ? null : metrics.joinDuration().time();
@@ -393,7 +363,7 @@ class Binding {
 
         final var redirecting = new SliceIterator<>("Gateways", node, sample, approaches, scheduler);
         var majority = redirect.getBootstrap() ? 1 : Context.minimalQuorum(redirect.getRings(), this.context.getBias());
-        final var join = join(v, redirectEpoch);
+        final var join = join(v);
         var scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
         regate.set(() -> {
             log.info("Round: {} formally joining view: {} on: {}", retries.get(), v, node.getId());
@@ -471,7 +441,7 @@ class Binding {
             var remaining = new AtomicInteger(sample.size());
             redirecting.iterate((link) -> join(v, link, gateway, join, abandon, complete),
                                 (futureSailor, _, _, member) -> join(member, gateway, futureSailor, trusts,
-                                                                     initialSeedSet, v, majority, complete, remaining, abandon, redirectEpoch),
+                                                                     initialSeedSet, v, majority, complete, remaining, abandon),
                                 () -> {
                                     if (!view.started.get() || gateway.isDone() || complete.isDone()) {
                                         return;

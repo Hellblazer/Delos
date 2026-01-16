@@ -139,19 +139,16 @@ message Redirect {
   int32 rings = 3;
   bool bootstrap = 4;
   repeated SignedNote introductions = 6;
-  int64 view_epoch = 7;  // View epoch number - increments on each view change
 }
 
 message Join {
   crypto.Digeste view = 1;
   SignedNote note = 2;
-  int64 view_epoch = 3;  // View epoch expected by joiner - must match observer's epoch
 }
 
 message Gateway {
   BootstrapTrust trust = 1;
   repeated SignedNote initialSeedSet = 2;
-  int64 view_epoch = 3;  // View epoch of this Gateway response
 }
 
 message BootstrapTrust {
