@@ -59,9 +59,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 public class ChurnTest {
 
-    private static final boolean                                                     LARGE_TESTS    = Boolean.getBoolean("large_tests");
     private static final boolean                                                     IS_CI          = Boolean.parseBoolean(System.getenv().getOrDefault("CI", "false"));
-    private static final int                                                         CARDINALITY    = LARGE_TESTS ? 100 : (IS_CI ? 12 : 25);
+    private static final boolean                                                     LARGE_TESTS    = System.getProperty("large_tests") != null ? Boolean.getBoolean("large_tests") : !IS_CI;
+    private static final int                                                         CARDINALITY    = IS_CI ? 12 : (LARGE_TESTS ? 100 : 25);
     private static final int                                                         SEED_COUNT     = CARDINALITY / 4;
     private static final int                                                         BATCH_SIZE     = CARDINALITY / 4;
     private static final double                                                      P_BYZ          = 0.2;
