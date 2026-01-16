@@ -30,6 +30,11 @@
             <groupId>org.scijava</groupId>
             <artifactId>native-lib-loader</artifactId>
         </dependency>
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-transport-classes-epoll</artifactId>
+            <version>${netty.version}</version>
+        </dependency>
 
         <!-- Test only deps below this line -->
 
