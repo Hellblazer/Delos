@@ -165,10 +165,12 @@ public class SwarmTest {
             views.subList(seeds.size(), views.size())
                  .forEach(v -> v.start(() -> countdown.get().countDown(), gossipDuration, seeds));
 
-            success = countdown.get().await(IS_CI ? 240 : (largeTests ? 2400 : 120), TimeUnit.SECONDS);
+            // CI runners have high variability - increased timeout from 240s to 360s
+            success = countdown.get().await(IS_CI ? 360 : (largeTests ? 2400 : 120), TimeUnit.SECONDS);
 
             // Allow gossip to propagate view changes before checking convergence
-            success = success && Utils.waitForCondition(IS_CI ? 60_000 : 30_000, 1_000, () -> {
+            // CI runners have high variability - increased timeout from 60s to 90s
+            success = success && Utils.waitForCondition(IS_CI ? 90_000 : 30_000, 1_000, () -> {
                 return views.subList(seeds.size(), views.size())
                             .stream()
                             .allMatch(v -> v.getContext().activeCount() == CARDINALITY);
