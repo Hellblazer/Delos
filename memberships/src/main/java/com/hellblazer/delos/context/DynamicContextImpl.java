@@ -1417,44 +1417,48 @@ public class DynamicContextImpl<T extends Member> implements DynamicContext<T> {
         }
 
         private Iterable<T> succs(Digest digest, Predicate<T> predicate) {
-            Iterator<T> tail = ring.tailMap(digest, false).values().iterator();
-            Iterator<T> head = ring.headMap(digest, false).values().iterator();
-
-            Iterator<T> iterator = new Iterator<T>() {
-                private T next = nextMember();
-
-                @Override
-                public boolean hasNext() {
-                    return next != null;
-                }
-
-                @Override
-                public T next() {
-                    if (next == null) {
-                        throw new NoSuchElementException();
-                    }
-                    T current = next;
-                    next = nextMember();
-                    return current;
-                }
-
-                private T nextMember() {
-                    while (tail.hasNext()) {
-                        T next = tail.next();
-                        return predicate.test(next) ? null : next;
-                    }
-                    while (head.hasNext()) {
-                        T next = head.next();
-                        return predicate.test(next) ? null : next;
-                    }
-                    return null;
-                }
-            };
             return new Iterable<T>() {
 
                 @Override
                 public Iterator<T> iterator() {
-                    return iterator;
+                    // Create fresh iterators for each call to prevent state reuse
+                    Iterator<T> tail = ring.tailMap(digest, false).values().iterator();
+                    Iterator<T> head = ring.headMap(digest, false).values().iterator();
+
+                    return new Iterator<T>() {
+                        private T next = nextMember();
+
+                        @Override
+                        public boolean hasNext() {
+                            return next != null;
+                        }
+
+                        @Override
+                        public T next() {
+                            if (next == null) {
+                                throw new NoSuchElementException();
+                            }
+                            T current = next;
+                            next = nextMember();
+                            return current;
+                        }
+
+                        private T nextMember() {
+                            while (tail.hasNext()) {
+                                T next = tail.next();
+                                if (predicate.test(next)) {
+                                    return next;  // Return node when predicate is TRUE
+                                }
+                            }
+                            while (head.hasNext()) {
+                                T next = head.next();
+                                if (predicate.test(next)) {
+                                    return next;  // Return node when predicate is TRUE
+                                }
+                            }
+                            return null;
+                        }
+                    };
                 }
             };
         }
