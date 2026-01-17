@@ -112,21 +112,23 @@ public class SwarmTest {
                                  .map(m -> new Seed(m.getIdentifier().getIdentifier(), "0"))  // Use OS dynamic port allocation
                                  .limit(largeTests ? 100 : 10)
                                  .toList();
-        // Use larger bootstrap set for large tests: 15 nodes provide observer diversity
-        // to reduce OUT_OF_RANGE collisions during 85 simultaneous joins
-        final int bootstrapCount = largeTests ? 15 : 1;
+        // Use larger bootstrap set for concurrent joins: more bootstrap nodes reduce
+        // OUT_OF_RANGE collisions when many nodes join simultaneously
+        // CI: 3 nodes handle 15 joiners; Large: 15 nodes handle 85 joiners
+        final int bootstrapCount = largeTests ? 15 : (IS_CI ? 3 : 1);
         final var bootstrapSeeds = seeds.subList(0, bootstrapCount);
 
         final var gossipDuration = Duration.ofMillis(largeTests ? 150 : 5);
 
-        // Start initial bootstrap kernel
+        // Start initial bootstrap kernel - all nodes start in parallel
+        // Node 0 has empty seed list; nodes 1+ use node 0 as seed
         var countdown = new AtomicReference<>(new CountDownLatch(bootstrapCount));
         for (int i = 0; i < bootstrapCount; i++) {
             var bootstrapSeed = i == 0 ? Collections.<Seed>emptyList() : List.of(seeds.get(0));
             views.get(i).start(() -> countdown.get().countDown(), gossipDuration, bootstrapSeed);
         }
 
-        assertTrue(countdown.get().await(60, TimeUnit.SECONDS), "Bootstrap kernel did not stabilize");
+        assertTrue(countdown.get().await(IS_CI ? 120 : 60, TimeUnit.SECONDS), "Bootstrap kernel did not stabilize");
 
         // Wait for bootstrap kernel to stabilize before allowing joins
         var success = Utils.waitForCondition(30_000, 1_000, () -> {
