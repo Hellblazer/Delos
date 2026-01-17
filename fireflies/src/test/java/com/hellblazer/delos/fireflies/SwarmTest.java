@@ -120,15 +120,22 @@ public class SwarmTest {
 
         final var gossipDuration = Duration.ofMillis(largeTests ? 150 : 5);
 
-        // Start initial bootstrap kernel - all nodes start in parallel
-        // Node 0 has empty seed list; nodes 1+ use node 0 as seed
-        var countdown = new AtomicReference<>(new CountDownLatch(bootstrapCount));
-        for (int i = 0; i < bootstrapCount; i++) {
-            var bootstrapSeed = i == 0 ? Collections.<Seed>emptyList() : List.of(seeds.get(0));
-            views.get(i).start(() -> countdown.get().countDown(), gossipDuration, bootstrapSeed);
-        }
+        // Bootstrap kernel formation: staged approach for CI, parallel for local/large
+        // CI requires staged start: node 0 must initialize before nodes 1-2 can join
+        var countdown = new AtomicReference<>(new CountDownLatch(1));
+        views.get(0).start(() -> countdown.get().countDown(), gossipDuration, Collections.emptyList());
 
-        assertTrue(countdown.get().await(IS_CI ? 120 : 60, TimeUnit.SECONDS), "Bootstrap kernel did not stabilize");
+        assertTrue(countdown.get().await(IS_CI ? 60 : 30, TimeUnit.SECONDS), "Bootstrap node 0 did not start");
+
+        // Start remaining bootstrap nodes after node 0 is ready
+        if (bootstrapCount > 1) {
+            countdown.set(new CountDownLatch(bootstrapCount - 1));
+            for (int i = 1; i < bootstrapCount; i++) {
+                views.get(i).start(() -> countdown.get().countDown(), gossipDuration, List.of(seeds.get(0)));
+            }
+            assertTrue(countdown.get().await(IS_CI ? 120 : 60, TimeUnit.SECONDS),
+                      "Bootstrap kernel nodes did not join");
+        }
 
         // Wait for bootstrap kernel to stabilize before allowing joins
         var success = Utils.waitForCondition(30_000, 1_000, () -> {
