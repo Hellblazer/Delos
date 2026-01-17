@@ -493,17 +493,37 @@ public class ViewManagement {
 
                 if (contains(from)) {
                     log.info("ViewManagement.join() ALREADY MEMBER - returning current view from: {} on: {}", from, node.getId());
-                    try {
-                        joined(context.sample(params.maximumTxfr(), Entropy.bitsStream(), node.getId())
-                                      .stream()
-                                      .filter(Objects::nonNull)  // Filter out null participants
-                                      .map(p -> p.note.getWrapped())
-                                      .toList(), from, responseObserver, timer);
-                    } catch (Throwable t) {
-                        // Race condition: member joined during view change, then retried join() before getting confirmation
-                        // By the time retry enters stable(), member is already in new view
-                        // responseObserver may already be closed/completed/timed out - log and investigate
-                        log.warn("CRITICAL: Could not send already-member Gateway to: {} on: {} - exception:", from, node.getId(), t);
+
+                    // Check for orphaned callback in pendingJoins
+                    // Race: Node was added to view via ballot BEFORE its join() arrived
+                    // Observer registered callback, view changed, node added, then join() arrived late
+                    // Without this check, the callback would never fire, blocking tests waiting for join confirmation
+                    var callback = pendingJoins.remove(from);
+                    if (callback != null) {
+                        log.info("ViewManagement.join() invoking orphaned callback for already-member: {} on: {}", from, node.getId());
+                        try {
+                            callback.accept(context.sample(params.maximumTxfr(), Entropy.bitsStream(), node.getId())
+                                                  .stream()
+                                                  .filter(Objects::nonNull)
+                                                  .map(p -> p.note.getWrapped())
+                                                  .toList());
+                        } catch (Throwable t) {
+                            log.error("Failed to invoke orphaned callback for: {} on: {}", from, node.getId(), t);
+                        }
+                    } else {
+                        // No orphaned callback - send Gateway directly (normal already-member path)
+                        try {
+                            joined(context.sample(params.maximumTxfr(), Entropy.bitsStream(), node.getId())
+                                          .stream()
+                                          .filter(Objects::nonNull)  // Filter out null participants
+                                          .map(p -> p.note.getWrapped())
+                                          .toList(), from, responseObserver, timer);
+                        } catch (Throwable t) {
+                            // Race condition: member joined during view change, then retried join() before getting confirmation
+                            // By the time retry enters stable(), member is already in new view
+                            // responseObserver may already be closed/completed/timed out - log and investigate
+                            log.warn("CRITICAL: Could not send already-member Gateway to: {} on: {} - exception:", from, node.getId(), t);
+                        }
                     }
                     return;
                 }
