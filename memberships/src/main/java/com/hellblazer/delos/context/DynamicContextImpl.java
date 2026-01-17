@@ -1447,14 +1447,16 @@ public class DynamicContextImpl<T extends Member> implements DynamicContext<T> {
                             while (tail.hasNext()) {
                                 T next = tail.next();
                                 if (predicate.test(next)) {
-                                    return next;  // Return node when predicate is TRUE
+                                    return null;  // Stopping condition: predicate is TRUE
                                 }
+                                return next;  // Valid item: predicate is FALSE
                             }
                             while (head.hasNext()) {
                                 T next = head.next();
                                 if (predicate.test(next)) {
-                                    return next;  // Return node when predicate is TRUE
+                                    return null;  // Stopping condition: predicate is TRUE
                                 }
+                                return next;  // Valid item: predicate is FALSE
                             }
                             return null;
                         }
