@@ -373,10 +373,10 @@ public class Ethereal {
             return e;
         }
         if (e == null && epoch == currentId + 1) {
-            final var newEpoch = createEpoch(epoch);
-            epochs.put(epoch, newEpoch);
-            log.trace("new epoch created: {} on: {}", epoch, config.logLabel());
-            return newEpoch;
+            // CRITICAL: Delegate to newEpoch() to ensure currentEpoch is updated
+            // and newEpochAction callback is invoked. This fixes the bug where
+            // epochs advanced via gossip bypassed the callback, preventing termination.
+            return newEpoch(epoch);
         }
         return null;
     }

@@ -269,6 +269,20 @@ public class Creator {
                 log.trace("Finished, last epoch timing unit: {} level: {} on: {}", timingUnit, level, conf.logLabel());
                 return epochProof.get().buildShare(timingUnit);
             }
+
+            // CRITICAL: Preserve timing units from the final configured epoch even if we've advanced.
+            // Race condition: epoch N produces timing unit → epoch N+1 starts → timing unit arrives
+            // Without this check, the final epoch's timing unit gets discarded as "stale",
+            // preventing termination condition (timingUnit.epoch() == numberOfEpochs - 1) from ever
+            // evaluating true. This causes consensus to run indefinitely (seen in CI: epochs 0-46
+            // instead of stopping at epoch 1).
+            if (timingUnit.epoch() == conf.numberOfEpochs() - 1 && timingUnit.level() == conf.lastLevel()) {
+                epochDone.set(true);
+                log.debug("Preserving final epoch timing unit from epoch: {} (current epoch: {}) on: {}",
+                         timingUnit.epoch(), e, conf.logLabel());
+                return epochProof.get().buildShare(timingUnit);
+            }
+
             log.trace("Ignored timing unit from epoch: {} current: {} on: {}", timingUnit.epoch(), e, conf.logLabel());
             timingUnit = lastTiming.poll();
         }
