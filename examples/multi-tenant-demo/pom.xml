@@ -7,7 +7,7 @@
     <parent>
         <groupId>com.hellblazer.delos</groupId>
         <artifactId>examples</artifactId>
-        <version>0.1.4-SNAPSHOT</version>
+        <version>0.2.1</version>
     </parent>
 
     <artifactId>multi-tenant-demo</artifactId>
