@@ -173,6 +173,7 @@ public class ChurnTest {
             }
             then = System.currentTimeMillis();
             countdown.set(new CountDownLatch(toStart.size()));
+            System.out.println("ChurnTest batch " + i + ": Starting " + toStart.size() + " views, total so far: " + testViews.size());
 
             // Parallelize batch member starts with random jitter to prevent cascading join failures
             var scheduler = Executors.newScheduledThreadPool(toStart.size(), Thread.ofVirtual().factory());
@@ -181,7 +182,10 @@ public class ChurnTest {
                 final var view = toStart.get(idx);
                 final long jitter = idx > 0 && IS_CI ? (50 + random.nextInt(100)) : 0;
                 scheduler.schedule(
-                    () -> view.start(() -> countdown.get().countDown(), gossipDuration, seeds),
+                    () -> view.start(() -> {
+                        System.out.println("ChurnTest join callback: " + view.getNode().getId() + " activeCount=" + view.getContext().activeCount());
+                        countdown.get().countDown();
+                    }, gossipDuration, seeds),
                     jitter, TimeUnit.MILLISECONDS
                 );
             }
@@ -190,7 +194,9 @@ public class ChurnTest {
             // Batch join timeout: streaming join (60s) + view change (15-20s CI) + batch overhead
             // Large tests (100 nodes, 25-node batches) need more time for gossip propagation at scale
             // CI runners have high variability - increased timeout from 180s to 300s
+            long startJoin = System.currentTimeMillis();
             success = countdown.get().await(IS_CI ? 300 : (LARGE_TESTS ? 300 : 90), TimeUnit.SECONDS);
+            System.out.println("ChurnTest batch " + i + ": Join callbacks completed in " + (System.currentTimeMillis() - startJoin) + "ms, success=" + success);
             failed = testViews.stream().filter(e -> {
                 if (e.getContext().activeCount() != testViews.size())
                     return true;
@@ -206,12 +212,24 @@ public class ChurnTest {
             // Stabilization after join: gossip propagation across cluster
             // Large tests need extended stabilization time for 100-node gossip convergence
             // CI runners have high variability - increased timeout from 90s to 120s
-            success = Utils.waitForCondition(IS_CI ? 120_000 : (LARGE_TESTS ? 120_000 : 45_000), 1_000, () -> {
+            long startStabilize = System.currentTimeMillis();
+            final long stabilizeTimeout = IS_CI ? 120_000 : (LARGE_TESTS ? 120_000 : 45_000);
+            final int batchNum = i;
+            success = Utils.waitForCondition(stabilizeTimeout, 1_000, () -> {
+                long elapsed = System.currentTimeMillis() - startStabilize;
+                if (elapsed % 10_000 < 1_000) { // Log every 10 seconds
+                    var incomplete = testViews.stream()
+                                             .filter(v -> v.getContext().activeCount() != testViews.size())
+                                             .map(v -> v.getNode().getId() + ":" + v.getContext().activeCount())
+                                             .toList();
+                    System.out.println("ChurnTest batch " + batchNum + " stabilization at " + (elapsed/1000) + "s: " + incomplete.size() + " incomplete out of " + testViews.size());
+                }
                 return testViews.stream()
                                 .map(v -> v.getContext())
                                 .filter(ctx -> ctx.size() != testViews.size() || ctx.activeCount() != testViews.size())
                                 .count() == 0;
             });
+            System.out.println("ChurnTest batch " + i + ": Stabilization completed in " + (System.currentTimeMillis() - startStabilize) + "ms, success=" + success);
             failed = testViews.stream().filter(e -> {
                 if (e.getContext().activeCount() != testViews.size())
                     return true;
