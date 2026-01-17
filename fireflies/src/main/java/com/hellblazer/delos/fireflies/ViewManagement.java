@@ -244,7 +244,7 @@ public class ViewManagement {
      * Initiate the view change
      */
     void initiateViewChange() {
-        view.stable(() -> {
+        view.viewChange(() -> {
             if (vote.get() != null) {
                 log.trace("Vote already cast for: {} on: {}", currentView(), node.getId());
                 return;
