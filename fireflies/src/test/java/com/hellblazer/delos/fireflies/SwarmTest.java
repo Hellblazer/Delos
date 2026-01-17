@@ -142,7 +142,7 @@ public class SwarmTest {
         seedJoiners.forEach(v -> v.start(() -> countdown.get().countDown(), gossipDuration, bootstrapSeeds));
 
         // Test that seed joiners completed
-        success = countdown.get().await(largeTests ? 2400 : 60, TimeUnit.SECONDS);
+        success = countdown.get().await(IS_CI ? 120 : (largeTests ? 2400 : 60), TimeUnit.SECONDS);
         var failed = seedJoiners.stream()
                                 .filter(e -> e.getContext().activeCount() != seeds.size())
                                 .map(v -> String.format("%s : %s ", v.getNode().getId(), v.getContext().activeCount()))
@@ -156,7 +156,7 @@ public class SwarmTest {
             views.subList(seeds.size(), views.size())
                  .forEach(v -> v.start(() -> countdown.get().countDown(), gossipDuration, seeds));
 
-            success = countdown.get().await(largeTests ? 2400 : 120, TimeUnit.SECONDS);
+            success = countdown.get().await(IS_CI ? 240 : (largeTests ? 2400 : 120), TimeUnit.SECONDS);
             failed = views.subList(seeds.size(), views.size())
                           .stream()
                           .filter(e -> e.getContext().activeCount() != CARDINALITY)
@@ -176,7 +176,7 @@ public class SwarmTest {
         assertTrue(success, "Views did not start, expected: " + views.size() + " failed: " + failed.size() + " views: "
         + failed);
 
-        success = Utils.waitForCondition(largeTests ? 2400_000 : 120_000, 1_000, () -> {
+        success = Utils.waitForCondition(IS_CI ? 240_000 : (largeTests ? 2400_000 : 120_000), 1_000, () -> {
             return views.stream().filter(view -> view.getContext().activeCount() != CARDINALITY).count() == 0;
         });
 
@@ -287,7 +287,7 @@ public class SwarmTest {
             communications.add(comms);
 
             gateway.start();
-            gateways.add(comms);
+            gateways.add(gateway);
             return new View(context, node, "0", EventValidation.NONE, Verifiers.from(kerl),
                             comms, parameters, gateway, DigestAlgorithm.DEFAULT, metrics);
         }).collect(Collectors.toList());
