@@ -274,7 +274,11 @@ public class View {
         member.addAccusation(node.accuse(member, ring));
         pendingRebuttals.computeIfAbsent(member.getId(),
                                          d -> roundTimers.schedule(() -> gc(member), params.rebuttalTimeout()));
-        log.info("Accuse: {} on ring: {} view: {} (timer started): {} on: {}", member.getId(), ring, currentView(),
+        var cv = currentView();
+        var ctx = context.getId();
+        log.info("ACCUSATION: accuser: {} accusing: {} ring: {} currentView: {} context: {} error: {} on: {}",
+                 node.getId(), member.getId(), ring, cv, ctx, e.getMessage(), node.getId());
+        log.info("Accuse: {} on ring: {} view: {} (timer started): {} on: {}", member.getId(), ring, cv,
                  e.getMessage(), node.getId());
     }
 
@@ -388,7 +392,9 @@ public class View {
                          viewManagement.cardinality(), currentView(), node.getId());
                 // Capture result from atomic consensus operation, complete outside lock
                 installResult.set(viewManagement.installCore(max.getElement()));
-                scheduleViewChange();
+                if (!isViewChangeScheduledOrOngoing()) {
+                    scheduleViewChange();
+                }
                 scheduleClearObservations();
             } else {
                 @SuppressWarnings("unchecked")
@@ -397,7 +403,9 @@ public class View {
                          max == null ? 0 : max.getCount(), majority, viewManagement.cardinality(),
                          ballots.entrySet().stream().sorted(reversed).toList(), currentView(), node.getId());
                 observations.clear();
-                scheduleViewChange();
+                if (!isViewChangeScheduledOrOngoing()) {
+                    scheduleViewChange();
+                }
             }
         });
 
@@ -665,7 +673,6 @@ public class View {
                                                    .setNote(node.getNote().getWrapped())
                                                    .setRing(ring)
                                                    .setGossip(commonDigests())
-                                                   .setHasPendingRebuttals(!pendingRebuttals.isEmpty())
                                                    .build());
         try {
             return link.gossip(gossip);
@@ -1937,6 +1944,11 @@ public class View {
             }
             return stable(() -> {
                 final var ring = request.getRing();
+                var cv = currentView();
+                var ctx = context.getId();
+                var requestView = Digest.from(request.getView());
+                log.trace("GOSSIP RPC: from: {} ring: {} requestView: {} currentView: {} context: {} on: {}",
+                         from, ring, requestView, cv, ctx, node.getId());
                 if (!context.validRing(ring)) {
                     //                    log.debug("invalid gossip ring: {} from: {} on: {}", ring, from, node.getId());
                     throw new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("invalid ring"));
@@ -1958,9 +1970,6 @@ public class View {
                     log.debug("No active successor on ring: {} from: {} on: {}", ring, from, node.getId());
                     throw new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("No active successor"));
                 }
-
-                // Track observer pending rebuttal state for view change coordination
-                viewManagement.updateObserverPendingRebuttals(from, request.getHasPendingRebuttals());
 
                 Gossip g;
                 var builder = Gossip.newBuilder();

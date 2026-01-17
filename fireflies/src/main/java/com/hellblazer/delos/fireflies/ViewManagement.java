@@ -61,19 +61,13 @@ public class ViewManagement {
         List<SelfAddressingIdentifier> joining,
         List<Digest> leaving,
         Set<SignedNote> seedSet,
-        List<Consumer<Collection<SignedNote>>> pendingCallbacks
+        List<BiConsumer<HexBloom, Collection<SignedNote>>> pendingCallbacks
     ) { }
 
     final            AtomicReference<HexBloom>                     diadem       = new AtomicReference<>();
     final            Map<Digest, Integer>                          observers    = new ConcurrentSkipListMap<>();
     final            AtomicLong                                    observerVersion = new AtomicLong(0);
     final            AtomicReference<HexBloom>                     cachedDiadem = new AtomicReference<>();
-    /**
-     * Tracks which observers currently have pending rebuttals (accusations awaiting timeout).
-     * Updated via gossip to ensure all observers know when others have finished processing accusations.
-     * View changes are blocked until all observers report no pending rebuttals.
-     */
-    private final    Map<Digest, Boolean>                          observerPendingRebuttals = new ConcurrentSkipListMap<>();
     /**
      * Members that joined in the current view (from the most recent ballot).
      * Deterministically derived from ballot.joining() so all nodes have the same view.
@@ -100,7 +94,7 @@ public class ViewManagement {
     private final    FireflyMetrics                                metrics;
     private final    Node                                          node;
     private final    Parameters                                    params;
-    private final    Map<Digest, Consumer<Collection<SignedNote>>> pendingJoins = new ConcurrentSkipListMap<>();
+    private final    Map<Digest, BiConsumer<HexBloom, Collection<SignedNote>>> pendingJoins = new ConcurrentSkipListMap<>();
     private final    View                                          view;
     private final    AtomicReference<ViewChange>                   vote         = new AtomicReference<>();
     private final    Lock                                          joinLock     = new ReentrantLock();
@@ -227,43 +221,14 @@ public class ViewManagement {
                 log.trace("Removed observer: {} view: {} on: {}", member.id, currentView.get(), node.getId());
                 resetObservers();
                 // Schedule view change with stabilization window to allow leave/shun propagation
-                // 15 rounds provides ~75-300ms for offline status to propagate via gossip
+                // 30 rounds provides ~1.5-2 seconds for offline status to propagate via gossip
                 // before ballot creation, preventing ballot divergence on leaves
-                view.scheduleViewChange(15);
+                // Only schedule if not already scheduled/ongoing - allows concurrent leaves to share same window
+                if (!view.isViewChangeScheduledOrOngoing()) {
+                    view.scheduleViewChange(30);
+                }
             }
         });
-    }
-
-    /**
-     * Update the pending rebuttal state for an observer. Called when processing
-     * gossip to track which observers have pending accusations awaiting timeout.
-     * All observers must have no pending rebuttals before view changes can proceed.
-     *
-     * @param observer the observer whose state is being updated
-     * @param hasPending true if observer has pending rebuttals, false otherwise
-     */
-    void updateObserverPendingRebuttals(Digest observer, boolean hasPending) {
-        if (hasPending) {
-            observerPendingRebuttals.put(observer, true);
-        } else {
-            observerPendingRebuttals.remove(observer);
-        }
-    }
-
-    /**
-     * Check if any observers (including this node) have pending rebuttals.
-     * View changes must wait until all observers have cleared their pending rebuttals
-     * to ensure consistent offline state across all observers before ballot creation.
-     *
-     * @return true if any observer has pending rebuttals
-     */
-    private boolean anyObserverHasPendingRebuttals() {
-        // Check this node's pending rebuttals
-        if (view.hasPendingRebuttals()) {
-            return true;
-        }
-        // Check if any other observer has pending rebuttals
-        return !observerPendingRebuttals.isEmpty();
     }
 
     /**
@@ -292,10 +257,9 @@ public class ViewManagement {
                 return;
             }
 
-            // Wait for all observers to have no pending rebuttals before creating ballot
-            // This ensures all observers have consistent offline state across the cluster
-            if (anyObserverHasPendingRebuttals()) {
-                log.debug("Waiting for all observers to clear pending rebuttals in view: {} on: {}", currentView(), node.getId());
+            // Wait for local pending rebuttals to clear before creating ballot
+            if (view.hasPendingRebuttals()) {
+                log.debug("Pending rebuttals in view: {} on: {}", currentView(), node.getId());
                 view.scheduleViewChange(1);
                 return;
             }
@@ -415,7 +379,7 @@ public class ViewManagement {
         // Complete all pending joins
         result.pendingCallbacks().forEach(r -> {
             try {
-                r.accept(result.seedSet());
+                r.accept(result.diadem(), result.seedSet());
             } catch (Throwable t) {
                 log.error("Exception in pending join on: {}", node.getId(), t);
             }
@@ -545,7 +509,7 @@ public class ViewManagement {
                     if (callback != null) {
                         log.info("ViewManagement.join() invoking orphaned callback for already-member: {} on: {}", from, node.getId());
                         try {
-                            callback.accept(context.sample(params.maximumTxfr(), Entropy.bitsStream(), node.getId())
+                            callback.accept(diadem.get(), context.sample(params.maximumTxfr(), Entropy.bitsStream(), node.getId())
                                                   .stream()
                                                   .filter(Objects::nonNull)
                                                   .map(p -> p.note.getWrapped())
@@ -556,7 +520,7 @@ public class ViewManagement {
                     } else {
                         // No orphaned callback - send Gateway directly (normal already-member path)
                         try {
-                            joined(context.sample(params.maximumTxfr(), Entropy.bitsStream(), node.getId())
+                            joined(diadem.get(), context.sample(params.maximumTxfr(), Entropy.bitsStream(), node.getId())
                                           .stream()
                                           .filter(Objects::nonNull)  // Filter out null participants
                                           .map(p -> p.note.getWrapped())
@@ -616,18 +580,21 @@ public class ViewManagement {
 
             // Phase 2: Register Gateway callback
             log.info("ViewManagement.join() registering Gateway callback for: {} on: {}", from, node.getId());
-            pendingJoins.computeIfAbsent(from, d -> seeds -> {
+            pendingJoins.computeIfAbsent(from, d -> (installedDiadem, seeds) -> {
                 log.info("Gateway established for: {} view: {}  context: {} cardinality: {} on: {}", from,
-                         currentView(), context.getId(), cardinality(), node.getId());
-                joined(seeds, from, responseObserver, timer);
+                         installedDiadem.compactWrapped(), context.getId(), cardinality(), node.getId());
+                joined(installedDiadem, seeds, from, responseObserver, timer);
             });
             joins.put(note.getId(), note);
             log.info("ViewManagement.join() member pending, broadcasting enjoin from: {} on: {}", from, node.getId());
 
             // Schedule view change with stabilization window to allow enjoin() propagation
-            // 15 rounds provides ~75-300ms (depending on gossip period) for enjoin messages to
-            // propagate to all observers before ballot creation, preventing ballot divergence
-            view.scheduleViewChange(15);
+            // 30 rounds provides ~1.5-2 seconds for enjoin messages to propagate to all
+            // observers before ballot creation, preventing ballot divergence
+            // Only schedule if not already scheduled/ongoing - allows concurrent joins to share same window
+            if (!view.isViewChangeScheduledOrOngoing()) {
+                view.scheduleViewChange(30);
+            }
 
             var enjoining = new SliceIterator<>("Enjoining[%s:%s]".formatted(currentView(), from), node,
                                                 observers.keySet().stream().map(context::getActiveMember).toList(),
@@ -652,7 +619,10 @@ public class ViewManagement {
             Thread.ofVirtual().start(Utils.wrapped(() -> {
                 view.viewChange(() -> {
                     final var hex = bound.view();
+                    var oldView = currentView.get();
 
+                    log.info("GATEWAY VIEW CHANGE: {} -> {} cardinality: {} (join) context: {} on: {}",
+                             oldView, hex.compactWrapped(), hex.getCardinality(), context.getId(), node.getId());
                     log.debug("Rebalancing to cardinality: {} (join) for: {} context: {} on: {}", hex.getCardinality(),
                               hex.compactWrapped(), context.getId(), node.getId());
                     context.rebalance(hex.getCardinality());
@@ -708,13 +678,17 @@ public class ViewManagement {
         if (bootstrap && context.size() == 1 && joins.size() < context.getRingCount() - 1) {
             log.trace("Cannot form cluster: {} with: {} members, required >= {}} on: {}", currentView(),
                       joins.size() + context.size(), context.getRingCount(), node.getId());
-            view.scheduleViewChange();
+            if (!view.isViewChangeScheduledOrOngoing()) {
+                view.scheduleViewChange();
+            }
             return;
         } else if (!bootstrap) {
             if (context.size() < context.getRingCount()) {
                 log.trace("Cannot initiate view change: {} with: {} members, required >= {}} on: {}", currentView(),
                           joins.size() + context.size(), context.getRingCount(), node.getId());
-                view.scheduleViewChange();
+                if (!view.isViewChangeScheduledOrOngoing()) {
+                    view.scheduleViewChange();
+                }
                 return;
             }
         }
@@ -723,7 +697,9 @@ public class ViewManagement {
         if (change && shouldChange) {
             initiateViewChange();
         } else {
-            view.scheduleViewChange();
+            if (!view.isViewChangeScheduledOrOngoing()) {
+                view.scheduleViewChange();
+            }
         }
     }
 
@@ -958,7 +934,7 @@ public class ViewManagement {
         return observers.containsKey(node.getId());
     }
 
-    private void joined(Collection<SignedNote> seedSet, Digest from, StreamObserver<JoinResponse> responseObserver,
+    private void joined(HexBloom installedDiadem, Collection<SignedNote> seedSet, Digest from, StreamObserver<JoinResponse> responseObserver,
                         Timer.Context timer) {
         var unique = new HashSet<>(seedSet);
         final var initialSeeds = new ArrayList<>(seedSet);
@@ -975,11 +951,13 @@ public class ViewManagement {
                    }
                    successors.add(sn);
                });
+        log.info("CREATING GATEWAY: installedDiadem: {} currentView: {} currentDiadem: {} for: {} on: {}",
+                 installedDiadem.compactWrapped(), currentView(), diadem.get().compactWrapped(), from, node.getId());
         var gateway = Gateway.newBuilder()
                              .addAllInitialSeedSet(initialSeeds)
                              .setTrust(BootstrapTrust.newBuilder()
                                                      .addAllSuccessors(successors)
-                                                     .setDiadem(diadem.get().toHexBloome()))
+                                                     .setDiadem(installedDiadem.toHexBloome()))
                              .build();
         log.info("Gateway initial seeding: {} successors: {} for: {} on: {}", gateway.getInitialSeedSetCount(),
                  successors.size(), from, node.getId());
@@ -1012,9 +990,6 @@ public class ViewManagement {
             log.debug("Incomplete observers: {} cardinality: {} view: {} context: {} on: {}", observers.size(),
                       context.cardinality(), currentView(), context.getId(), node.getId());
         }
-        // Clear pending rebuttal tracking when observer set changes
-        // Only current observers' pending rebuttals are relevant for view changes
-        observerPendingRebuttals.clear();
         // Increment version AFTER observers are stable - enables stale snapshot detection
         // Tracks observer SET membership changes; value updates (highWater) don't increment
         var newVersion = observerVersion.incrementAndGet();
@@ -1026,11 +1001,15 @@ public class ViewManagement {
         assert hex.getCardinality() <= 0
         || context.size() == hex.getCardinality() : "Context: %s does not equal Hex: %s".formatted(context.size(),
                                                                                                    hex.getCardinality());
+        var oldView = currentView.get();
         diadem.set(hex);
         currentView.set(diadem.get().compactWrapped());
         resetObservers();
         // Invalidate cached diadem on membership change
         cachedDiademVersion.set(-1L);
+        log.info("VIEW CHANGE: {} -> {} cardinality: {} diadem: {} context: {} size: {} on: {}",
+                 oldView, diadem.get().compactWrapped(), diadem.get().getCardinality(),
+                 diadem.get().compactWrapped(), context.getId(), context.size(), node.getId());
         log.trace("View: {} set diadem: {} cardinality: {} observers: {} view: {} context: {} size: {} on: {}",
                   context.getId(), diadem.get().compactWrapped(), diadem.get().getCardinality(),
                   observers.keySet().stream().toList(), currentView(), context.getId(), context.size(), node.getId());

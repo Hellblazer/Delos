@@ -28,7 +28,6 @@ message SayWhat {
   SignedNote note = 2;
   int32 ring = 3;
   Digests gossip = 4;
-  bool hasPendingRebuttals = 5;
 }
 
 message State {

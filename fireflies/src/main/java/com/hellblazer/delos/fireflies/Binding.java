@@ -560,6 +560,8 @@ class Binding {
     private record Bootstrapping(Digest diadem, HexBloom crown, Set<SignedNote> successors) {
         public Bootstrapping(BootstrapTrust trust) {
             this(HexBloom.from(trust.getDiadem()), new HashSet<>(trust.getSuccessorsList()));
+            log.info("BOOTSTRAPPING FROM GATEWAY: diadem: {} compactWrapped: {} compact: {} crowns: {}",
+                     diadem, crown.compactWrapped(), crown.compact(), crown.crowns().size());
         }
 
         public Bootstrapping(HexBloom crown, Set<SignedNote> successors) {
