@@ -71,6 +71,10 @@ public record Parameters(int joinRetries, int minimumBiffCardinality, int rebutt
         private int      validationRetries      = 3;
         /**
          * Minimum number of rounds to check for view change
+         * Default 6 rounds provides balance between:
+         * - Bootstrap formation speed (higher values prevent observers from joining fast enough)
+         * - Enjoin message propagation time (6 rounds = 30-900ms depending on gossipDuration)
+         * Foundation protocol's periodic batching naturally prevents ballot divergence
          */
         private int      viewChangeRounds       = 6;
         private Duration populateDuration       = Duration.ofMillis(20);

@@ -166,6 +166,14 @@ public class SwarmTest {
                  .forEach(v -> v.start(() -> countdown.get().countDown(), gossipDuration, seeds));
 
             success = countdown.get().await(IS_CI ? 240 : (largeTests ? 2400 : 120), TimeUnit.SECONDS);
+
+            // Allow gossip to propagate view changes before checking convergence
+            success = success && Utils.waitForCondition(IS_CI ? 60_000 : 30_000, 1_000, () -> {
+                return views.subList(seeds.size(), views.size())
+                            .stream()
+                            .allMatch(v -> v.getContext().activeCount() == CARDINALITY);
+            });
+
             failed = views.subList(seeds.size(), views.size())
                           .stream()
                           .filter(e -> e.getContext().activeCount() != CARDINALITY)
