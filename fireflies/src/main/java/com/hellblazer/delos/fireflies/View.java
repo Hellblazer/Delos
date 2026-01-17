@@ -665,6 +665,7 @@ public class View {
                                                    .setNote(node.getNote().getWrapped())
                                                    .setRing(ring)
                                                    .setGossip(commonDigests())
+                                                   .setHasPendingRebuttals(!pendingRebuttals.isEmpty())
                                                    .build());
         try {
             return link.gossip(gossip);
@@ -1023,8 +1024,8 @@ public class View {
         shunned.add(member.getId());
         viewManagement.gc(member);
 
-        // Note: View change scheduling happens in finalizeViewChange() after current view change completes
-        // maybeViewChange() will detect offline members via context.offlineCount() and initiate view change
+        // Note: View change scheduling happens in viewManagement.gc() with stabilization window
+        // ViewManagement.gc() calls scheduleViewChange(15) for event-driven leave handling
     }
 
     /**
@@ -1957,6 +1958,9 @@ public class View {
                     log.debug("No active successor on ring: {} from: {} on: {}", ring, from, node.getId());
                     throw new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("No active successor"));
                 }
+
+                // Track observer pending rebuttal state for view change coordination
+                viewManagement.updateObserverPendingRebuttals(from, request.getHasPendingRebuttals());
 
                 Gossip g;
                 var builder = Gossip.newBuilder();

@@ -69,6 +69,12 @@ public class ViewManagement {
     final            AtomicLong                                    observerVersion = new AtomicLong(0);
     final            AtomicReference<HexBloom>                     cachedDiadem = new AtomicReference<>();
     /**
+     * Tracks which observers currently have pending rebuttals (accusations awaiting timeout).
+     * Updated via gossip to ensure all observers know when others have finished processing accusations.
+     * View changes are blocked until all observers report no pending rebuttals.
+     */
+    private final    Map<Digest, Boolean>                          observerPendingRebuttals = new ConcurrentSkipListMap<>();
+    /**
      * Members that joined in the current view (from the most recent ballot).
      * Deterministically derived from ballot.joining() so all nodes have the same view.
      * Excluded from introductions to prevent circular dependencies during batch joins.
@@ -220,8 +226,44 @@ public class ViewManagement {
             if (observers.remove(member.id) != null) {
                 log.trace("Removed observer: {} view: {} on: {}", member.id, currentView.get(), node.getId());
                 resetObservers();
+                // Schedule view change with stabilization window to allow leave/shun propagation
+                // 15 rounds provides ~75-300ms for offline status to propagate via gossip
+                // before ballot creation, preventing ballot divergence on leaves
+                view.scheduleViewChange(15);
             }
         });
+    }
+
+    /**
+     * Update the pending rebuttal state for an observer. Called when processing
+     * gossip to track which observers have pending accusations awaiting timeout.
+     * All observers must have no pending rebuttals before view changes can proceed.
+     *
+     * @param observer the observer whose state is being updated
+     * @param hasPending true if observer has pending rebuttals, false otherwise
+     */
+    void updateObserverPendingRebuttals(Digest observer, boolean hasPending) {
+        if (hasPending) {
+            observerPendingRebuttals.put(observer, true);
+        } else {
+            observerPendingRebuttals.remove(observer);
+        }
+    }
+
+    /**
+     * Check if any observers (including this node) have pending rebuttals.
+     * View changes must wait until all observers have cleared their pending rebuttals
+     * to ensure consistent offline state across all observers before ballot creation.
+     *
+     * @return true if any observer has pending rebuttals
+     */
+    private boolean anyObserverHasPendingRebuttals() {
+        // Check this node's pending rebuttals
+        if (view.hasPendingRebuttals()) {
+            return true;
+        }
+        // Check if any other observer has pending rebuttals
+        return !observerPendingRebuttals.isEmpty();
     }
 
     /**
@@ -250,9 +292,10 @@ public class ViewManagement {
                 return;
             }
 
-            // Use pending rebuttals as a proxy for stability
-            if (view.hasPendingRebuttals()) {
-                log.debug("Pending rebuttals in view: {} on: {}", currentView(), node.getId());
+            // Wait for all observers to have no pending rebuttals before creating ballot
+            // This ensures all observers have consistent offline state across the cluster
+            if (anyObserverHasPendingRebuttals()) {
+                log.debug("Waiting for all observers to clear pending rebuttals in view: {} on: {}", currentView(), node.getId());
                 view.scheduleViewChange(1);
                 return;
             }
@@ -969,6 +1012,9 @@ public class ViewManagement {
             log.debug("Incomplete observers: {} cardinality: {} view: {} context: {} on: {}", observers.size(),
                       context.cardinality(), currentView(), context.getId(), node.getId());
         }
+        // Clear pending rebuttal tracking when observer set changes
+        // Only current observers' pending rebuttals are relevant for view changes
+        observerPendingRebuttals.clear();
         // Increment version AFTER observers are stable - enables stale snapshot detection
         // Tracks observer SET membership changes; value updates (highWater) don't increment
         var newVersion = observerVersion.incrementAndGet();
