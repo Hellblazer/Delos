@@ -162,37 +162,20 @@ public class SwarmTest {
         // Start remaining non-seed views
         if (views.size() > seeds.size()) {
             countdown.set(new CountDownLatch(views.size() - seeds.size()));
-            System.out.println("Starting " + (views.size() - seeds.size()) + " non-seed views");
             views.subList(seeds.size(), views.size())
-                 .forEach(v -> v.start(() -> {
-                     System.out.println("Join callback: " + v.getNode().getId() + " activeCount=" + v.getContext().activeCount());
-                     countdown.get().countDown();
-                 }, gossipDuration, seeds));
+                 .forEach(v -> v.start(() -> countdown.get().countDown(), gossipDuration, seeds));
 
             // CI runners have high variability - increased timeout from 240s to 360s
-            long startJoin = System.currentTimeMillis();
             success = countdown.get().await(IS_CI ? 360 : (largeTests ? 2400 : 120), TimeUnit.SECONDS);
-            System.out.println("Join callbacks completed in " + (System.currentTimeMillis() - startJoin) + "ms, success=" + success);
 
             // Allow gossip to propagate view changes before checking convergence
             // CI runners have high variability - increased timeout from 60s to 90s
-            long startStabilize = System.currentTimeMillis();
             final int stabilizeTimeout = IS_CI ? 90_000 : 30_000;
             success = success && Utils.waitForCondition(stabilizeTimeout, 1_000, () -> {
-                long elapsed = System.currentTimeMillis() - startStabilize;
-                if (elapsed % 10_000 < 1_000) { // Log every 10 seconds
-                    var incomplete = views.subList(seeds.size(), views.size())
-                                          .stream()
-                                          .filter(v -> v.getContext().activeCount() != CARDINALITY)
-                                          .map(v -> v.getNode().getId() + ":" + v.getContext().activeCount())
-                                          .toList();
-                    System.out.println("Stabilization progress at " + (elapsed/1000L) + "s: " + incomplete.size() + " incomplete: " + incomplete);
-                }
                 return views.subList(seeds.size(), views.size())
                             .stream()
                             .allMatch(v -> v.getContext().activeCount() == CARDINALITY);
             });
-            System.out.println("Stabilization completed in " + (System.currentTimeMillis() - startStabilize) + "ms, success=" + success);
 
             failed = views.subList(seeds.size(), views.size())
                           .stream()
