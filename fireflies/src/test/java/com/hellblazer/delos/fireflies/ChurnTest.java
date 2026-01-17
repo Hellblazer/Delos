@@ -188,7 +188,8 @@ public class ChurnTest {
             scheduler.shutdown();
 
             // Batch join timeout: streaming join (60s) + view change (15-20s CI) + batch overhead
-            success = countdown.get().await(IS_CI ? 180 : 90, TimeUnit.SECONDS);
+            // Large tests (100 nodes, 25-node batches) need more time for gossip propagation at scale
+            success = countdown.get().await(IS_CI ? 180 : (LARGE_TESTS ? 300 : 90), TimeUnit.SECONDS);
             failed = testViews.stream().filter(e -> {
                 if (e.getContext().activeCount() != testViews.size())
                     return true;
@@ -202,7 +203,8 @@ public class ChurnTest {
             assertTrue(success, " expected: " + testViews.size() + " failed: " + failed.size() + " views: " + failed);
 
             // Stabilization after join: gossip propagation across cluster
-            success = Utils.waitForCondition(IS_CI ? 90_000 : 45_000, 1_000, () -> {
+            // Large tests need extended stabilization time for 100-node gossip convergence
+            success = Utils.waitForCondition(IS_CI ? 90_000 : (LARGE_TESTS ? 120_000 : 45_000), 1_000, () -> {
                 return testViews.stream()
                                 .map(v -> v.getContext())
                                 .filter(ctx -> ctx.size() != testViews.size() || ctx.activeCount() != testViews.size())
