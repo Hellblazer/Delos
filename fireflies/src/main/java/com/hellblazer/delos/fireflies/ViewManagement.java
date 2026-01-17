@@ -244,7 +244,7 @@ public class ViewManagement {
      * Initiate the view change
      */
     void initiateViewChange() {
-        view.viewChange(() -> {
+        view.stable(() -> {
             if (vote.get() != null) {
                 log.trace("Vote already cast for: {} on: {}", currentView(), node.getId());
                 return;
@@ -581,9 +581,11 @@ public class ViewManagement {
             joins.put(note.getId(), note);
             log.info("ViewManagement.join() member pending, broadcasting enjoin from: {} on: {}", from, node.getId());
 
-            // Original Foundation protocol: NO event-driven scheduling from join()
-            // Joins are naturally batched by periodic maybeViewChange() scheduled from finalizeViewChange()
-            // This allows enjoin() messages to propagate before ballot creation, preventing divergence
+            // Schedule view change with stabilization window to allow enjoin() propagation
+            // 15 rounds provides ~75-300ms (depending on gossip period) for enjoin messages to
+            // propagate to all observers before ballot creation, preventing ballot divergence
+            view.scheduleViewChange(15);
+
             var enjoining = new SliceIterator<>("Enjoining[%s:%s]".formatted(currentView(), from), node,
                                                 observers.keySet().stream().map(context::getActiveMember).toList(),
                                                 view.comm, scheduler);
