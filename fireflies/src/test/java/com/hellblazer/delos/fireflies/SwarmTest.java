@@ -177,7 +177,7 @@ public class SwarmTest {
             // Allow gossip to propagate view changes before checking convergence
             // CI runners have high variability - increased timeout from 60s to 90s
             long startStabilize = System.currentTimeMillis();
-            final long stabilizeTimeout = IS_CI ? 90_000 : 30_000;
+            final int stabilizeTimeout = IS_CI ? 90_000 : 30_000;
             success = success && Utils.waitForCondition(stabilizeTimeout, 1_000, () -> {
                 long elapsed = System.currentTimeMillis() - startStabilize;
                 if (elapsed % 10_000 < 1_000) { // Log every 10 seconds
@@ -186,7 +186,7 @@ public class SwarmTest {
                                           .filter(v -> v.getContext().activeCount() != CARDINALITY)
                                           .map(v -> v.getNode().getId() + ":" + v.getContext().activeCount())
                                           .toList();
-                    System.out.println("Stabilization progress at " + (elapsed/1000) + "s: " + incomplete.size() + " incomplete: " + incomplete);
+                    System.out.println("Stabilization progress at " + (elapsed/1000L) + "s: " + incomplete.size() + " incomplete: " + incomplete);
                 }
                 return views.subList(seeds.size(), views.size())
                             .stream()

@@ -213,7 +213,7 @@ public class ChurnTest {
             // Large tests need extended stabilization time for 100-node gossip convergence
             // CI runners have high variability - increased timeout from 90s to 120s
             long startStabilize = System.currentTimeMillis();
-            final long stabilizeTimeout = IS_CI ? 120_000 : (LARGE_TESTS ? 120_000 : 45_000);
+            final int stabilizeTimeout = IS_CI ? 120_000 : (LARGE_TESTS ? 120_000 : 45_000);
             final int batchNum = i;
             success = Utils.waitForCondition(stabilizeTimeout, 1_000, () -> {
                 long elapsed = System.currentTimeMillis() - startStabilize;
