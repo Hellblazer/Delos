@@ -490,8 +490,8 @@ public class ByzantineAttackTest {
             comms.forEach(Router::start);
             gossipers.forEach(e -> e.start(gossipPeriod));
 
-            // CI needs longer timeout due to resource contention (2-3x slower than local)
-            var timeout = LARGE_TESTS ? 60 : (IS_CI ? 90 : 30);
+            // CI needs longer timeout due to resource contention (4-6x slower than local)
+            var timeout = LARGE_TESTS ? 60 : (IS_CI ? 180 : 30);
             var completed = finished.await(timeout, TimeUnit.SECONDS);
 
             if (!completed) {
