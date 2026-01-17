@@ -114,8 +114,8 @@ public class SwarmTest {
                                  .toList();
         // Use larger bootstrap set for concurrent joins: more bootstrap nodes reduce
         // OUT_OF_RANGE collisions when many nodes join simultaneously
-        // CI: 3 nodes handle 15 joiners; Large: 15 nodes handle 85 joiners
-        final int bootstrapCount = largeTests ? 15 : (IS_CI ? 3 : 1);
+        // CI: 1 node bootstrap (resource-constrained); Large: 15 nodes handle 85 joiners
+        final int bootstrapCount = largeTests ? 15 : 1;
         final var bootstrapSeeds = seeds.subList(0, bootstrapCount);
 
         final var gossipDuration = Duration.ofMillis(largeTests ? 150 : 5);
