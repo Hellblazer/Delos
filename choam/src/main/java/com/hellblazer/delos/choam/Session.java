@@ -12,6 +12,7 @@ import com.netflix.concurrency.limits.Limiter;
 import com.netflix.concurrency.limits.internal.EmptyMetricRegistry;
 import com.hellblazer.delos.choam.proto.SubmitResult;
 import com.hellblazer.delos.choam.proto.Transaction;
+import com.hellblazer.delos.choam.support.ExponentialBackoffPolicy;
 import com.hellblazer.delos.choam.support.HashedCertifiedBlock;
 import com.hellblazer.delos.choam.support.InvalidTransaction;
 import com.hellblazer.delos.choam.support.SubmittedTransaction;
@@ -166,109 +167,121 @@ public class Session {
 
         var backoff = params.submitPolicy().build();
         var target = Instant.now().plus(timeout);
-        int i = 0;
+        final var timeoutValue = timeout;
 
-        while (!result.isDone() && Instant.now().isBefore(target)) {
-            if (i > 0) {
-                if (params.metrics() != null) {
-                    params.metrics().transactionSubmitRetry();
-                }
-            }
-            log.trace("Submitting: {} retry: {} on: {}", stxn.hash(), i, params.member().getId());
-            var submit = submit(stxn);
-            switch (submit.result.getResult()) {
-            case PUBLISHED -> {
-                submit.limiter.get().onSuccess();
-                log.trace("Transaction submitted: {} on: {}", stxn.hash(), params.member().getId());
-                if (params.metrics() != null) {
-                    params.metrics().transactionSubmittedSuccess();
-                }
-                var futureTimeout = scheduler.schedule(() -> Thread.ofVirtual().start(Utils.wrapped(() -> {
-                    if (result.isDone()) {
-                        return;
-                    }
-                    log.debug("Timeout of txn: {} on: {}", hash, params.member().getId());
-                    final var to = new TimeoutException("Transaction timeout");
-                    result.completeExceptionally(to);
-                    if (params.metrics() != null) {
-                        params.metrics().transactionComplete(to);
-                    }
-                }, log)), timeout.toMillis(), TimeUnit.MILLISECONDS);
-                return result.whenComplete((r, t) -> {
-                    futureTimeout.cancel(true);
-                    complete(hash, timer, t);
-                });
-            }
-            case RATE_LIMITED -> {
-                if (params.metrics() != null) {
-                    params.metrics().transactionSubmitRateLimited();
-                }
-            }
-            case BUFFER_FULL -> {
-                if (params.metrics() != null) {
-                    params.metrics().transactionSubmittedBufferFull();
-                }
-                submit.limiter.get().onDropped();
-            }
-            case INACTIVE, NO_COMMITTEE -> {
-                if (params.metrics() != null) {
-                    params.metrics().transactionSubmittedInvalidCommittee();
-                }
-                submit.limiter.get().onDropped();
-            }
-            case UNAVAILABLE -> {
-                if (params.metrics() != null) {
-                    params.metrics().transactionSubmittedUnavailable();
-                }
-                submit.limiter.get().onIgnore();
-            }
-            case INVALID_SUBMIT, ERROR_SUBMITTING -> {
-                if (params.metrics() != null) {
-                    params.metrics().transactionSubmissionError();
-                }
-                result.completeExceptionally(
-                new TransactionFailed("Invalid submission: " + submit.result.getErrorMsg()));
-                submit.limiter.get().onIgnore();
-            }
-            case UNRECOGNIZED, INVALID_RESULT -> {
-                if (params.metrics() != null) {
-                    params.metrics().transactionSubmittedInvalidResult();
-                }
-                var ex = new TransactionFailed("Unrecognized or invalid result: " + submit.result.getErrorMsg());
-                result.completeExceptionally(ex);
-                submit.limiter.get().onIgnore();
-                return result;
-            }
-            default -> {
-                if (params.metrics() != null) {
-                    params.metrics().transactionSubmittedInvalidResult();
-                }
-                var ex = new TransactionFailed("Illegal result: " + submit.result.getErrorMsg());
-                result.completeExceptionally(ex);
-                submit.limiter.get().onIgnore();
-                return result;
-            }
-            }
-            try {
-                final var delay = backoff.nextBackoff();
-                log.debug("Failed submitting: {} result: {} retry: {} delay: {}ms on: {}", stxn.hash(), submit.result,
-                          i, delay.toMillis(), params.member().getId());
-                Thread.sleep(delay.toMillis());
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return null;
-            }
-            i++;
-        }
-        if (result.isDone()) {
-            return result;
-        }
-
-        if (params.metrics() != null) {
-            params.metrics().transactionSubmitRetriesExhausted();
-        }
-        result.completeExceptionally(new TransactionFailed("Submission retries exhausted"));
+        // Use async retry mechanism to avoid blocking virtual threads
+        submitWithRetry(stxn, 0, backoff, target, result, hash, timer, timeoutValue);
         return result;
+    }
+
+    private <T> void submitWithRetry(SubmittedTransaction stxn, int retryCount,
+                                     ExponentialBackoffPolicy backoff,
+                                     Instant target, CompletableFuture<T> result, Digest hash,
+                                     Timer.Context timer, Duration timeout) {
+        if (result.isDone() || Instant.now().isAfter(target)) {
+            if (!result.isDone()) {
+                if (params.metrics() != null) {
+                    params.metrics().transactionSubmitRetriesExhausted();
+                }
+                result.completeExceptionally(new TransactionFailed("Submission retries exhausted"));
+            }
+            return;
+        }
+
+        if (retryCount > 0) {
+            if (params.metrics() != null) {
+                params.metrics().transactionSubmitRetry();
+            }
+        }
+
+        log.trace("Submitting: {} retry: {} on: {}", stxn.hash(), retryCount, params.member().getId());
+        var submit = submit(stxn);
+
+        switch (submit.result.getResult()) {
+        case PUBLISHED -> {
+            submit.limiter.get().onSuccess();
+            log.trace("Transaction submitted: {} on: {}", stxn.hash(), params.member().getId());
+            if (params.metrics() != null) {
+                params.metrics().transactionSubmittedSuccess();
+            }
+            var futureTimeout = scheduler.schedule(() -> Thread.ofVirtual().start(Utils.wrapped(() -> {
+                if (result.isDone()) {
+                    return;
+                }
+                log.debug("Timeout of txn: {} on: {}", hash, params.member().getId());
+                final var to = new TimeoutException("Transaction timeout");
+                result.completeExceptionally(to);
+                if (params.metrics() != null) {
+                    params.metrics().transactionComplete(to);
+                }
+            }, log)), timeout.toMillis(), TimeUnit.MILLISECONDS);
+            result.whenComplete((r, t) -> {
+                futureTimeout.cancel(true);
+                complete(hash, timer, t);
+            });
+        }
+        case RATE_LIMITED -> {
+            if (params.metrics() != null) {
+                params.metrics().transactionSubmitRateLimited();
+            }
+            scheduleRetry(stxn, retryCount + 1, backoff, target, result, hash, timer, timeout);
+        }
+        case BUFFER_FULL -> {
+            if (params.metrics() != null) {
+                params.metrics().transactionSubmittedBufferFull();
+            }
+            submit.limiter.get().onDropped();
+            scheduleRetry(stxn, retryCount + 1, backoff, target, result, hash, timer, timeout);
+        }
+        case INACTIVE, NO_COMMITTEE -> {
+            if (params.metrics() != null) {
+                params.metrics().transactionSubmittedInvalidCommittee();
+            }
+            submit.limiter.get().onDropped();
+            scheduleRetry(stxn, retryCount + 1, backoff, target, result, hash, timer, timeout);
+        }
+        case UNAVAILABLE -> {
+            if (params.metrics() != null) {
+                params.metrics().transactionSubmittedUnavailable();
+            }
+            submit.limiter.get().onIgnore();
+            scheduleRetry(stxn, retryCount + 1, backoff, target, result, hash, timer, timeout);
+        }
+        case INVALID_SUBMIT, ERROR_SUBMITTING -> {
+            if (params.metrics() != null) {
+                params.metrics().transactionSubmissionError();
+            }
+            result.completeExceptionally(new TransactionFailed("Invalid submission: " + submit.result.getErrorMsg()));
+            submit.limiter.get().onIgnore();
+        }
+        case UNRECOGNIZED, INVALID_RESULT -> {
+            if (params.metrics() != null) {
+                params.metrics().transactionSubmittedInvalidResult();
+            }
+            var ex = new TransactionFailed("Unrecognized or invalid result: " + submit.result.getErrorMsg());
+            result.completeExceptionally(ex);
+            submit.limiter.get().onIgnore();
+        }
+        default -> {
+            if (params.metrics() != null) {
+                params.metrics().transactionSubmittedInvalidResult();
+            }
+            var ex = new TransactionFailed("Illegal result: " + submit.result.getErrorMsg());
+            result.completeExceptionally(ex);
+            submit.limiter.get().onIgnore();
+        }
+        }
+    }
+
+    private <T> void scheduleRetry(SubmittedTransaction stxn, int retryCount,
+                                   ExponentialBackoffPolicy backoff,
+                                   Instant target, CompletableFuture<T> result, Digest hash,
+                                   Timer.Context timer, Duration timeout) {
+        final var delay = backoff.nextBackoff();
+        log.debug("Failed submitting: {} retry: {} delay: {}ms on: {}", stxn.hash(),
+                  retryCount, delay.toMillis(), params.member().getId());
+        scheduler.schedule(() -> submitWithRetry(stxn, retryCount, backoff, target, result, hash, timer, timeout),
+                          delay.toMillis(), TimeUnit.MILLISECONDS);
     }
 
     /**
