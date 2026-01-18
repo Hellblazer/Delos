@@ -61,7 +61,7 @@ public class MtlsTest {
     private static final Map<Digest, String>                                         endpoints   = new HashMap<>();
     private static final boolean                                                     LARGE_TESTS = Boolean.getBoolean(
     "large_tests");
-    private static final int                                                         BASE_PORT   = 19000;
+    private static final int                                                         BASE_PORT   = 40000;
     private static       Map<Digest, ControlledIdentifier<SelfAddressingIdentifier>> identities;
 
     static {
