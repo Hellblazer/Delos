@@ -86,6 +86,20 @@ public class ViewManagement {
      */
     final            List<Digest>                                  previousBallotJoining = new CopyOnWriteArrayList<>();
     final            AtomicLong                                    cachedDiademVersion = new AtomicLong(-1L);
+    /**
+     * Tracks the round when the last join was added to the joins map.
+     * Used for join quiescence detection - view change waits until no new joins
+     * have arrived for a minimum number of rounds to prevent ballot divergence.
+     */
+    private final    AtomicLong                                    lastJoinRound = new AtomicLong(0);
+    /**
+     * Tracks the round when the last member was shunned/removed.
+     * Used for shunned quiescence detection - view change waits until no members
+     * have been shunned for a minimum number of rounds to prevent ballot divergence.
+     * Critical for virtual synchrony: accusations propagate via gossip at different
+     * rates, so nodes need time to converge on the same shunned set before ballot creation.
+     */
+    private final    AtomicLong                                    lastShunnedRound = new AtomicLong(0);
     private final    AtomicInteger                                 attempt      = new AtomicInteger();
     private final    Digest                                        bootstrapView;
     private final    DynamicContext<Participant>                   context;
@@ -117,7 +131,11 @@ public class ViewManagement {
     }
 
     boolean addJoin(Digest id, NoteWrapper note) {
-        return joins.put(id, note) == null;
+        var added = joins.put(id, note) == null;
+        if (added) {
+            lastJoinRound.set(view.currentRound());
+        }
+        return added;
     }
 
     void bootstrap(NoteWrapper nw, final Duration dur) {
@@ -208,7 +226,10 @@ public class ViewManagement {
                 throw new StatusRuntimeException(
                 Status.OUT_OF_RANGE.withDescription("View: " + joinView + " does not match: " + thisView));
             }
-            joins.putIfAbsent(note.getId(), note);
+            var previousNote = joins.putIfAbsent(note.getId(), note);
+            if (previousNote == null) {
+                lastJoinRound.set(view.currentRound());
+            }
             log.debug("Member pending enjoin: {} via: {} view: {} context: {} on: {}", from, observer, currentView(),
                       context.getId(), node.getId());
         });
@@ -217,6 +238,10 @@ public class ViewManagement {
     void gc(Participant member) {
         assert member != null;
         view.stable(() -> {
+            // Track when ANY member is shunned for quiescence detection
+            // This must happen unconditionally, not just for observers
+            lastShunnedRound.set(view.currentRound());
+
             if (observers.remove(member.id) != null) {
                 log.trace("Removed observer: {} view: {} on: {}", member.id, currentView.get(), node.getId());
                 resetObservers();
@@ -251,7 +276,7 @@ public class ViewManagement {
      * Initiate the view change
      */
     void initiateViewChange() {
-        view.stable(() -> {
+        view.viewChange(() -> {
             if (vote.get() != null) {
                 log.trace("Vote already cast for: {} on: {}", currentView(), node.getId());
                 return;
@@ -261,6 +286,40 @@ public class ViewManagement {
             if (view.hasPendingRebuttals()) {
                 log.debug("Pending rebuttals in view: {} on: {}", currentView(), node.getId());
                 view.scheduleViewChange(1);
+                return;
+            }
+
+            // Join quiescence check: wait until no new joins have arrived recently
+            // This prevents ballot divergence by ensuring all concurrent joins have time to:
+            // 1. Propagate via enjoin broadcasts to all observers (~50ms for 50 observers)
+            // 2. Synchronize via gossip bloom filter exchange (~250ms for 50 gossip rounds)
+            // 3. All batch members to complete their enjoin broadcasts
+            // 100 rounds at ~5ms/round gossip provides ~500ms quiescence window
+            final long JOIN_QUIESCENCE_ROUNDS = 100;
+            long roundsSinceLastJoin = view.currentRound() - lastJoinRound.get();
+            if (!joins.isEmpty() && roundsSinceLastJoin < JOIN_QUIESCENCE_ROUNDS) {
+                long roundsToWait = JOIN_QUIESCENCE_ROUNDS - roundsSinceLastJoin;
+                log.debug("Joins not quiescent: {} joins, {} rounds since last join, waiting {} more rounds on: {}",
+                          joins.size(), roundsSinceLastJoin, roundsToWait, node.getId());
+                view.scheduleViewChange((int) Math.max(1, roundsToWait));
+                return;
+            }
+
+            // Shunned quiescence check: wait until no members have been shunned recently
+            // This prevents ballot divergence by ensuring all nodes have consistent shunned sets:
+            // 1. Accusations propagate via gossip at different rates across nodes
+            // 2. Nodes gc() members at different times based on when they receive accusations
+            // 3. Without quiescence, node A may create ballot with {X,Y} shunned while node B has {X,Y,Z}
+            // 200 rounds at ~5ms/round gossip provides ~1s for accusation convergence
+            // This handles burst of accusations when many nodes fail simultaneously
+            final long SHUN_QUIESCENCE_ROUNDS = 200;
+            long shunnedCount = view.streamShunned().count();
+            long roundsSinceLastShun = view.currentRound() - lastShunnedRound.get();
+            if (shunnedCount > 0 && roundsSinceLastShun < SHUN_QUIESCENCE_ROUNDS) {
+                long roundsToWait = SHUN_QUIESCENCE_ROUNDS - roundsSinceLastShun;
+                log.debug("Shunned not quiescent: {} shunned, {} rounds since last shun, waiting {} more rounds on: {}",
+                          shunnedCount, roundsSinceLastShun, roundsToWait, node.getId());
+                view.scheduleViewChange((int) Math.max(1, roundsToWait));
                 return;
             }
 
@@ -585,23 +644,60 @@ public class ViewManagement {
                          installedDiadem.compactWrapped(), context.getId(), cardinality(), node.getId());
                 joined(installedDiadem, seeds, from, responseObserver, timer);
             });
-            joins.put(note.getId(), note);
+            var existingNote = joins.put(note.getId(), note);
+            if (existingNote == null) {
+                lastJoinRound.set(view.currentRound());
+            }
             log.info("ViewManagement.join() member pending, broadcasting enjoin from: {} on: {}", from, node.getId());
 
-            // Schedule view change with stabilization window to allow enjoin() propagation
-            // 30 rounds provides ~1.5-2 seconds for enjoin messages to propagate to all
-            // observers before ballot creation, preventing ballot divergence
-            // Only schedule if not already scheduled/ongoing - allows concurrent joins to share same window
-            if (!view.isViewChangeScheduledOrOngoing()) {
-                view.scheduleViewChange(30);
-            }
+            // Broadcast enjoin to all observers with majority acknowledgment
+            // The view change is scheduled AFTER majority acknowledgment to ensure
+            // join propagation before ballot creation, preventing ballot divergence
+            var observerMembers = observers.keySet().stream()
+                                           .map(context::getActiveMember)
+                                           .filter(Objects::nonNull)
+                                           .toList();
+            int majority = (observerMembers.size() / 2) + 1;
+            log.info("ViewManagement.join() broadcasting enjoin from: {} to {} observers (majority: {}) on: {}",
+                     from, observerMembers.size(), majority, node.getId());
+
+            // Stabilization window for join synchronization:
+            // - Need enough time for gossip to propagate ALL concurrent joins across observers
+            // - 100 rounds at 5ms gossipDuration = 500ms minimum for join propagation
+            // - Multiple gossip exchanges ensure Bloom filter reconciliation of joins map
+            // - Must match JOIN_QUIESCENCE_ROUNDS in initiateViewChange()
+            final int JOIN_STABILIZATION_ROUNDS = 100;
 
             var enjoining = new SliceIterator<>("Enjoining[%s:%s]".formatted(currentView(), from), node,
-                                                observers.keySet().stream().map(context::getActiveMember).toList(),
-                                                view.comm, scheduler);
-            enjoining.iterate(t -> t.enjoin(join), (_, _, _, _) -> true, () -> {
-            }, Duration.ofMillis(1));
-            log.info("ViewManagement.join() completed successfully from: {} on: {}", from, node.getId());
+                                                observerMembers, view.comm, scheduler, majority);
+            enjoining.iterate(
+                // onMajority: Schedule view change only AFTER majority of observers have acknowledged the join
+                // Use stabilization window to allow gossip to synchronize ALL pending joins before ballot creation
+                () -> {
+                    log.info("ViewManagement.join() majority acknowledgment received for: {} on: {}", from, node.getId());
+                    if (!view.isViewChangeScheduledOrOngoing()) {
+                        view.scheduleViewChange(JOIN_STABILIZATION_ROUNDS);
+                    }
+                },
+                t -> t.enjoin(join),
+                (result, tally, _, _) -> {
+                    // Count successful enjoin calls (no exception = success)
+                    if (result.isPresent()) {
+                        tally.incrementAndGet();
+                    }
+                    return true; // Continue iteration
+                },
+                () -> log.trace("ViewManagement.join() enjoin broadcast completed for: {} on: {}", from, node.getId()),
+                Duration.ofMillis(1),
+                () -> {
+                    // failedMajority: Still schedule view change with same stabilization window
+                    log.warn("ViewManagement.join() failed to get majority acknowledgment for: {} on: {}", from, node.getId());
+                    if (!view.isViewChangeScheduledOrOngoing()) {
+                        view.scheduleViewChange(JOIN_STABILIZATION_ROUNDS);
+                    }
+                }
+            );
+            log.info("ViewManagement.join() enjoin broadcast started for: {} on: {}", from, node.getId());
         });
         } catch (Throwable t) {
             log.error("ViewManagement.join() EXCEPTION in stable() from: {} on: {}", from, node.getId(), t);
@@ -622,9 +718,9 @@ public class ViewManagement {
                     var oldView = currentView.get();
 
                     log.info("GATEWAY VIEW CHANGE: {} -> {} cardinality: {} (join) context: {} on: {}",
-                             oldView, hex.compactWrapped(), hex.getCardinality(), context.getId(), node.getId());
+                             oldView, hex.compact(), hex.getCardinality(), context.getId(), node.getId());
                     log.debug("Rebalancing to cardinality: {} (join) for: {} context: {} on: {}", hex.getCardinality(),
-                              hex.compactWrapped(), context.getId(), node.getId());
+                              hex.compact(), context.getId(), node.getId());
                     context.rebalance(hex.getCardinality());
                     context.activate(node);
                     diadem.set(hex);
@@ -672,6 +768,12 @@ public class ViewManagement {
      * start a view change if there are any offline members or joining members
      */
     void maybeViewChange() {
+        // Remove the timer that triggered this call from View's timers map
+        // This allows isViewChangeScheduledOrOngoing() to correctly return false
+        // when checking if we should schedule another view change
+        view.removeTimer("Scheduled View Change");
+        log.trace("maybeViewChange() called: joined={} bootstrap={} contextSize={} joinsSize={} offlineCount={} isObserver={} on: {}",
+                  joined(), bootstrap, context.size(), joins.size(), context.offlineCount(), isObserver(), node.getId());
         if (!joined()) {
             return;
         }
@@ -693,7 +795,14 @@ public class ViewManagement {
             }
         }
         var change = context.offlineCount() > 0 || !joins.isEmpty();
-        var shouldChange = isObserver() || view.hasMajorityObservations(bootstrap);
+        // Non-observers with pending changes should also initiate view change
+        // They schedule finalizeViewChange() and wait for observations from observers
+        // hasAnyObservations = non-observer has received at least one observation
+        var hasAnyObservations = !view.isObservationsEmpty();
+        var shouldChange = isObserver() || view.hasMajorityObservations(bootstrap) ||
+                           (change && hasAnyObservations);
+        log.trace("maybeViewChange decision: change={} shouldChange={} hasMajorityObs={} hasAnyObs={} isObs={} view={} on: {}",
+                  change, shouldChange, view.hasMajorityObservations(bootstrap), hasAnyObservations, isObserver(), currentView(), node.getId());
         if (change && shouldChange) {
             initiateViewChange();
         } else {

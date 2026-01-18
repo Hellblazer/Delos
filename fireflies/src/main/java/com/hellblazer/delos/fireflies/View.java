@@ -392,10 +392,13 @@ public class View {
                          viewManagement.cardinality(), currentView(), node.getId());
                 // Capture result from atomic consensus operation, complete outside lock
                 installResult.set(viewManagement.installCore(max.getElement()));
-                if (!isViewChangeScheduledOrOngoing()) {
-                    scheduleViewChange();
-                }
-                scheduleClearObservations();
+                // Clear observations from this consensus before scheduling next view change
+                // Otherwise isViewChangeScheduledOrOngoing() thinks we're still in a view change
+                observations.clear();
+                // Always schedule next view change after successful consensus
+                // The old timer in the map is stale (it may have already fired)
+                // so we must replace it to ensure maybeViewChange is called for the new view
+                scheduleViewChange();
             } else {
                 @SuppressWarnings("unchecked")
                 final var reversed = Comparator.comparing(e -> ((Entry<Ballot>) e).getCount()).reversed();
@@ -436,6 +439,10 @@ public class View {
 
     boolean hasOngoingViewChange() {
         return !observations.isEmpty();
+    }
+
+    boolean isObservationsEmpty() {
+        return observations.isEmpty();
     }
 
     /**
@@ -579,8 +586,8 @@ public class View {
     }
 
     void scheduleViewChange(final int viewChangeRounds) {
-        //        log.trace("Schedule view change: {} rounds for: {}   on: {}", viewChangeRounds, currentView(),
-        //                  node.getId());
+        log.trace("scheduleViewChange({}) for view: {} hasScheduled: {} on: {}",
+                  viewChangeRounds, currentView(), timers.containsKey(SCHEDULED_VIEW_CHANGE), node.getId());
         if (!started.get()) {
             return;
         }
@@ -632,6 +639,13 @@ public class View {
 
     void tick() {
         roundTimers.tick();
+    }
+
+    /**
+     * @return the current round number from the round scheduler
+     */
+    int currentRound() {
+        return roundTimers.get();
     }
 
     boolean validate(SelfAddressingIdentifier identifier) {
@@ -695,10 +709,25 @@ public class View {
                 log.trace("Communication cancelled for gossip view: {} from: {} on: {}", currentView(), p.getId(),
                           node.getId());
                 break;
-            case UNAVAILABLE:
-                log.trace("Communication unavailable for gossip view: {} from: {} on: {}", currentView(), p.getId(),
+            case NOT_FOUND:
+                // NOT_FOUND is a temporary condition - service not bound yet during startup/view change
+                // Do NOT accuse - the node may be in the middle of (re)binding its services
+                log.trace("Service not found for gossip view: {} from: {} on: {}", currentView(), p.getId(),
                           node.getId());
-                accuse(p, ring, sre);
+                break;
+            case UNAVAILABLE:
+                var gossipDesc = sre.getStatus().getDescription();
+                // "Could not find server" and "Channel shutdown" are temporary conditions from InProcess channels
+                // when the target server hasn't started yet or is being shut down
+                if (gossipDesc != null && (gossipDesc.contains("Could not find server") || gossipDesc.contains(
+                "Channel shutdown"))) {
+                    log.trace("Server unavailable (temporary) for gossip view: {} from: {} on: {}", currentView(),
+                              p.getId(), node.getId());
+                } else {
+                    log.trace("Communication unavailable for gossip view: {} from: {} on: {}", currentView(), p.getId(),
+                              node.getId());
+                    accuse(p, ring, sre);
+                }
                 break;
             default:
                 log.debug("Error gossiping: {} view: {} from: {} on: {}", sre.getStatus(), currentView(), p.getId(),
@@ -1165,6 +1194,25 @@ public class View {
             break;
         case CANCELLED:
             log.trace("Cancelled: {} view: {} from: {} on: {}", type, currentView(), member.getId(), node.getId());
+            break;
+        case NOT_FOUND:
+            // NOT_FOUND is a temporary condition - service not bound yet during startup/view change
+            // Do NOT accuse - the node may be in the middle of (re)binding its services
+            log.trace("Service not found: {} view: {} from: {} on: {}", type, currentView(), member.getId(),
+                      node.getId());
+            break;
+        case UNAVAILABLE:
+            var sreDesc = sre.getStatus().getDescription();
+            // "Could not find server" and "Channel shutdown" are temporary conditions from InProcess channels
+            // when the target server hasn't started yet or is being shut down
+            if (sreDesc != null && (sreDesc.contains("Could not find server") || sreDesc.contains("Channel shutdown"))) {
+                log.trace("Server unavailable (temporary): {} view: {} from: {} on: {}", type, currentView(),
+                          member.getId(), node.getId());
+            } else {
+                log.trace("Unavailable: {} view: {} from: {} on: {}", type, currentView(), member.getId(),
+                          node.getId());
+                accuse(member, ring, sre);
+            }
             break;
         default:
             log.debug("Error {}: {} from: {} on: {}", type, sre.getStatus(), member.getId(), node.getId());
