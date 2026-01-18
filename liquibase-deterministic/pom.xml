@@ -3,7 +3,7 @@
   <parent>
     <groupId>com.hellblazer.delos</groupId>
     <artifactId>delos.app</artifactId>
-    <version>0.1.4-SNAPSHOT</version>
+    <version>0.2.2-SNAPSHOT</version>
   </parent>
   <artifactId>liquibase-deterministic</artifactId>
   <name>Deterministic Liquibase</name>
