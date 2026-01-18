@@ -103,9 +103,6 @@ These modules are critical infrastructure components with minimal or no document
 | **vm-socket** | 20 lines | STUB | Platform-specific |
 | **h2-deterministic** | ? | ? | Not to be imported to IDEs |
 | **liquibase-deterministic** | ? | ? | SQL versioning |
-| **domain-sockets** | ? | ? | Unix domain socket support |
-| **domain-epoll** | ? | ? | Linux-specific |
-| **domain-kqueue** | ? | ? | BSD-specific |
 
 ---
 

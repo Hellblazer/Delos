@@ -262,24 +262,6 @@ These documents establish the core concepts, security model, and deployment proc
 
 ### Platform Support Layer
 
-#### Domain Sockets
-
-**[domain-sockets/README.md](../domain-sockets/README.md)**
-- Unix domain socket support
-- **Status**: Minimal
-
-#### Domain EPoll (Linux-specific)
-
-**[domain-epoll/README.md](../domain-epoll/README.md)**
-- Linux EPoll for efficient I/O
-- **Status**: Minimal
-
-#### Domain Kqueue (BSD-specific)
-
-**[domain-kqueue/README.md](../domain-kqueue/README.md)**
-- BSD kqueue for efficient I/O
-- **Status**: Minimal
-
 #### Leyden (Platform Features)
 
 **[leyden/README.md](../leyden/README.md)**

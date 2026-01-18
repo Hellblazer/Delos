@@ -68,7 +68,7 @@ Delos is a multi-tenant distributed system platform with Byzantine fault toleran
 - **tron** - Finite State Machine framework using Java Enums
 
 ### Platform Support
-- **domain-sockets** / **domain-epoll** / **domain-kqueue** - Unix domain socket support
+- **protocols** - gRPC MTLS service fundamentals with Unix domain socket support (via Netty NIO JEP 380)
 - **leyden** - Additional platform features
 - **isolates** - GraalVM isolate-based multi-tenant enclaves (requires `-Pisolates`)
 
