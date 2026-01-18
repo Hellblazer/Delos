@@ -118,7 +118,7 @@ public class SwarmTest {
         final int bootstrapCount = largeTests ? 15 : 1;
         final var bootstrapSeeds = seeds.subList(0, bootstrapCount);
 
-        final var gossipDuration = Duration.ofMillis(largeTests ? 150 : 5);
+        final var gossipDuration = Duration.ofMillis(5);
 
         // Bootstrap kernel formation: staged approach for CI, parallel for local/large
         // CI requires staged start: node 0 must initialize before nodes 1-2 can join
@@ -165,10 +165,13 @@ public class SwarmTest {
             views.subList(seeds.size(), views.size())
                  .forEach(v -> v.start(() -> countdown.get().countDown(), gossipDuration, seeds));
 
-            success = countdown.get().await(IS_CI ? 240 : (largeTests ? 2400 : 120), TimeUnit.SECONDS);
+            // CI runners have high variability - increased timeout from 240s to 360s
+            success = countdown.get().await(IS_CI ? 360 : (largeTests ? 2400 : 120), TimeUnit.SECONDS);
 
             // Allow gossip to propagate view changes before checking convergence
-            success = success && Utils.waitForCondition(IS_CI ? 60_000 : 30_000, 1_000, () -> {
+            // CI runners have high variability - increased timeout from 60s to 90s
+            final int stabilizeTimeout = IS_CI ? 90_000 : 30_000;
+            success = success && Utils.waitForCondition(stabilizeTimeout, 1_000, () -> {
                 return views.subList(seeds.size(), views.size())
                             .stream()
                             .allMatch(v -> v.getContext().activeCount() == CARDINALITY);
@@ -261,11 +264,8 @@ public class SwarmTest {
         executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
         executor2 = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
         var parameters = Parameters.newBuilder()
-                                   .setMaxPending(50)
-                                   .setMaximumTxfr(20)
-                                   .setJoinRetries(30)
-                                   .setSeedingTimout(Duration.ofSeconds(IS_CI ? 60 : 10))
-                                   .setRetryDelay(Duration.ofMillis(largeTests ? 1000 : 200))
+                                   .setMaximumTxfr(CARDINALITY)  // Match cluster size for fast gossip propagation
+                                   .setSeedingTimout(Duration.ofSeconds(IS_CI ? 120 : 90))  // Match ChurnTest
                                    .build();
         registry = new MetricRegistry();
         node0Registry = new MetricRegistry();

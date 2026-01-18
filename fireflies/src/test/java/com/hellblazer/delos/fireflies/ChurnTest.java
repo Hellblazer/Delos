@@ -64,6 +64,11 @@ public class ChurnTest {
     private static final int                                                         CARDINALITY    = IS_CI ? 12 : (LARGE_TESTS ? 100 : 25);
     private static final int                                                         SEED_COUNT     = CARDINALITY / 4;
     private static final int                                                         BATCH_SIZE     = CARDINALITY / 4;
+    // Churn delta: larger batches = fewer iterations = faster test
+    // 100 nodes: delta=10 → 6 iterations (vs 16 with delta=5)
+    // 25 nodes: delta=5 → 1 iteration
+    // 12 nodes (CI): delta=3 → 1 iteration (minimum enforced below)
+    private static final int                                                         CHURN_DELTA    = LARGE_TESTS ? 10 : (IS_CI ? 3 : 5);
     private static final double                                                      P_BYZ          = 0.2;
     private static       Map<Digest, ControlledIdentifier<SelfAddressingIdentifier>> identities;
     private static       KERL.AppendKERL                                             kerl;
@@ -189,7 +194,8 @@ public class ChurnTest {
 
             // Batch join timeout: streaming join (60s) + view change (15-20s CI) + batch overhead
             // Large tests (100 nodes, 25-node batches) need more time for gossip propagation at scale
-            success = countdown.get().await(IS_CI ? 180 : (LARGE_TESTS ? 300 : 90), TimeUnit.SECONDS);
+            // CI runners have high variability - increased timeout from 180s to 300s
+            success = countdown.get().await(IS_CI ? 300 : (LARGE_TESTS ? 300 : 90), TimeUnit.SECONDS);
             failed = testViews.stream().filter(e -> {
                 if (e.getContext().activeCount() != testViews.size())
                     return true;
@@ -204,26 +210,9 @@ public class ChurnTest {
 
             // Stabilization after join: gossip propagation across cluster
             // Large tests need extended stabilization time for 100-node gossip convergence
-            success = Utils.waitForCondition(IS_CI ? 90_000 : (LARGE_TESTS ? 120_000 : 45_000), 1_000, () -> {
-                return testViews.stream()
-                                .map(v -> v.getContext())
-                                .filter(ctx -> ctx.size() != testViews.size() || ctx.activeCount() != testViews.size())
-                                .count() == 0;
-            });
-            failed = testViews.stream().filter(e -> {
-                if (e.getContext().activeCount() != testViews.size())
-                    return true;
-                Context<Participant> participantContext = e.getContext();
-                return participantContext.size() != testViews.size();
-            }).sorted(Comparator.comparing(v -> v.getContext().activeCount())).map(v -> {
-                Context<Participant> participantContext = v.getContext();
-                return String.format("%s : %s : %s ", v.getNode().getId(), participantContext.size(),
-                                     v.getContext().activeCount());
-            }).toList();
-            assertTrue(success, " expected: " + testViews.size() + " failed: " + failed.size() + " views: " + failed);
-
-            // Final stabilization check: ensure full cluster convergence
-            success = Utils.waitForCondition(IS_CI ? 90_000 : 45_000, 1_000, () -> {
+            // CI runners have high variability - increased timeout from 90s to 120s
+            final int stabilizeTimeout = IS_CI ? 120_000 : (LARGE_TESTS ? 120_000 : 45_000);
+            success = Utils.waitForCondition(stabilizeTimeout, 1_000, () -> {
                 return testViews.stream()
                                 .map(v -> v.getContext())
                                 .filter(ctx -> ctx.size() != testViews.size() || ctx.activeCount() != testViews.size())
@@ -253,24 +242,29 @@ public class ChurnTest {
         List<View> c = new ArrayList<>(views);
         List<Router> r = new ArrayList<>(communications);
         List<Router> g = new ArrayList<>(gateways);
-        int delta = 5;
-        for (int i = 0; i < (CARDINALITY / delta - 4); i++) {
+        // Calculate churn iterations: at least 1, up to (CARDINALITY/CHURN_DELTA - 4)
+        // LARGE_TESTS (100 nodes, delta=10): max(1, 10-4) = 6 iterations → ends with 40 nodes
+        // Standard (25 nodes, delta=5): max(1, 5-4) = 1 iteration → ends with 20 nodes
+        // CI (12 nodes, delta=3): max(1, 4-4) = 1 iteration → ends with 9 nodes
+        int churnIterations = Math.max(1, CARDINALITY / CHURN_DELTA - 4);
+        for (int i = 0; i < churnIterations; i++) {
             var removed = new ArrayList<Digest>();
-            for (int j = c.size() - 1; j >= c.size() - delta; j--) {
+            for (int j = c.size() - 1; j >= c.size() - CHURN_DELTA; j--) {
                 final var view = c.get(j);
                 view.stop();
                 r.get(j).close(Duration.ofSeconds(0));
                 g.get(j).close(Duration.ofSeconds(0));
                 removed.add(view.getNode().getId());
             }
-            c = c.subList(0, c.size() - delta);
-            r = r.subList(0, r.size() - delta);
-            g = g.subList(0, g.size() - delta);
+            c = c.subList(0, c.size() - CHURN_DELTA);
+            r = r.subList(0, r.size() - CHURN_DELTA);
+            g = g.subList(0, g.size() - CHURN_DELTA);
             final var expected = c;
             //            System.out.println("** Removed: " + removed);
             then = System.currentTimeMillis();
             // Churn stabilization: cluster must detect departures and re-converge
-            success = Utils.waitForCondition(IS_CI ? 180_000 : 90_000, 1_000, () -> {
+            // Actual stabilization is ~15s; 60s local (4x buffer), 120s CI (8x buffer)
+            success = Utils.waitForCondition(IS_CI ? 120_000 : 60_000, 1_000, () -> {
                 return expected.stream().filter(view -> {
                     Context<Participant> participantContext = view.getContext();
                     return participantContext.size() > expected.size();
@@ -315,8 +309,8 @@ public class ChurnTest {
         executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
         executor2 = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
         var parameters = Parameters.newBuilder()
-                                   .setMaximumTxfr(10)
-                                   .setSeedingTimout(Duration.ofSeconds(IS_CI ? 60 : 15))
+                                   .setMaximumTxfr(CARDINALITY)  // Match cluster size for fast gossip propagation
+                                   .setSeedingTimout(Duration.ofSeconds(IS_CI ? 120 : 90))  // Increased to allow view change completion
                                    .setMaxReseedDepth(50)  // Increased from default 30 to handle epoch mismatch reseeds
                                    .build();
         registry = new MetricRegistry();

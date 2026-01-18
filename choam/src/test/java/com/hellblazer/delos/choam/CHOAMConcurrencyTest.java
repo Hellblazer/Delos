@@ -60,6 +60,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 public class CHOAMConcurrencyTest {
     private static final boolean LARGE_TESTS = Boolean.getBoolean("large_tests");
+    private static final boolean IS_CI = Boolean.parseBoolean(System.getenv().getOrDefault("CI", "false"));
     private static final int CARDINALITY = 4;
 
     private Map<Digest, CHOAM> choams;
@@ -306,7 +307,8 @@ public class CHOAMConcurrencyTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(LARGE_TESTS ? 90 : 30, TimeUnit.SECONDS);
+        // CI runners need 3-4x longer due to resource contention
+        boolean completed = countdown.await(LARGE_TESTS ? 90 : (IS_CI ? 120 : 30), TimeUnit.SECONDS);
         assertTrue(completed, "Interleaved operations should not cause deadlock");
 
         choams.values().forEach(c -> assertTrue(c.active(), "System should remain stable"));

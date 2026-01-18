@@ -274,7 +274,11 @@ public class View {
         member.addAccusation(node.accuse(member, ring));
         pendingRebuttals.computeIfAbsent(member.getId(),
                                          d -> roundTimers.schedule(() -> gc(member), params.rebuttalTimeout()));
-        log.info("Accuse: {} on ring: {} view: {} (timer started): {} on: {}", member.getId(), ring, currentView(),
+        var cv = currentView();
+        var ctx = context.getId();
+        log.info("ACCUSATION: accuser: {} accusing: {} ring: {} currentView: {} context: {} error: {} on: {}",
+                 node.getId(), member.getId(), ring, cv, ctx, e.getMessage(), node.getId());
+        log.info("Accuse: {} on ring: {} view: {} (timer started): {} on: {}", member.getId(), ring, cv,
                  e.getMessage(), node.getId());
     }
 
@@ -388,8 +392,13 @@ public class View {
                          viewManagement.cardinality(), currentView(), node.getId());
                 // Capture result from atomic consensus operation, complete outside lock
                 installResult.set(viewManagement.installCore(max.getElement()));
+                // Clear observations from this consensus before scheduling next view change
+                // Otherwise isViewChangeScheduledOrOngoing() thinks we're still in a view change
+                observations.clear();
+                // Always schedule next view change after successful consensus
+                // The old timer in the map is stale (it may have already fired)
+                // so we must replace it to ensure maybeViewChange is called for the new view
                 scheduleViewChange();
-                scheduleClearObservations();
             } else {
                 @SuppressWarnings("unchecked")
                 final var reversed = Comparator.comparing(e -> ((Entry<Ballot>) e).getCount()).reversed();
@@ -397,7 +406,9 @@ public class View {
                          max == null ? 0 : max.getCount(), majority, viewManagement.cardinality(),
                          ballots.entrySet().stream().sorted(reversed).toList(), currentView(), node.getId());
                 observations.clear();
-                scheduleViewChange();
+                if (!isViewChangeScheduledOrOngoing()) {
+                    scheduleViewChange();
+                }
             }
         });
 
@@ -428,6 +439,10 @@ public class View {
 
     boolean hasOngoingViewChange() {
         return !observations.isEmpty();
+    }
+
+    boolean isObservationsEmpty() {
+        return observations.isEmpty();
     }
 
     /**
@@ -571,8 +586,8 @@ public class View {
     }
 
     void scheduleViewChange(final int viewChangeRounds) {
-        //        log.trace("Schedule view change: {} rounds for: {}   on: {}", viewChangeRounds, currentView(),
-        //                  node.getId());
+        log.trace("scheduleViewChange({}) for view: {} hasScheduled: {} on: {}",
+                  viewChangeRounds, currentView(), timers.containsKey(SCHEDULED_VIEW_CHANGE), node.getId());
         if (!started.get()) {
             return;
         }
@@ -624,6 +639,13 @@ public class View {
 
     void tick() {
         roundTimers.tick();
+    }
+
+    /**
+     * @return the current round number from the round scheduler
+     */
+    int currentRound() {
+        return roundTimers.get();
     }
 
     boolean validate(SelfAddressingIdentifier identifier) {
@@ -687,7 +709,16 @@ public class View {
                 log.trace("Communication cancelled for gossip view: {} from: {} on: {}", currentView(), p.getId(),
                           node.getId());
                 break;
+            case NOT_FOUND:
+                // NOT_FOUND is a temporary condition - service not bound yet during startup/view change
+                // Do NOT accuse - the node may be in the middle of (re)binding its services
+                log.trace("Service not found for gossip view: {} from: {} on: {}", currentView(), p.getId(),
+                          node.getId());
+                break;
             case UNAVAILABLE:
+                // All UNAVAILABLE errors indicate the target is unreachable and should be accused
+                // Previously exempted "Could not find server" and "Channel shutdown" as temporary conditions,
+                // but these are also permanent when a server is intentionally shut down
                 log.trace("Communication unavailable for gossip view: {} from: {} on: {}", currentView(), p.getId(),
                           node.getId());
                 accuse(p, ring, sre);
@@ -1023,8 +1054,8 @@ public class View {
         shunned.add(member.getId());
         viewManagement.gc(member);
 
-        // Note: View change scheduling happens in finalizeViewChange() after current view change completes
-        // maybeViewChange() will detect offline members via context.offlineCount() and initiate view change
+        // Note: View change scheduling happens in viewManagement.gc() with stabilization window
+        // ViewManagement.gc() calls scheduleViewChange(15) for event-driven leave handling
     }
 
     /**
@@ -1087,6 +1118,11 @@ public class View {
                 var link = comm.connect(i.m());
                 if (link != null) {
                     gossip(gossip(link, i.ring()), i.m(), link, i.ring());
+                } else {
+                    // Connection failed (router closed, network unavailable, etc.)
+                    // Accuse the member so failure detection proceeds
+                    log.debug("Connection failed to: {} on ring: {} on: {}", i.m().getId(), i.ring(), node.getId());
+                    accuse(i.m(), i.ring(), new IllegalStateException("Connection failed"));
                 }
                 try {
                     Thread.sleep(duration.toMillis());
@@ -1157,6 +1193,20 @@ public class View {
             break;
         case CANCELLED:
             log.trace("Cancelled: {} view: {} from: {} on: {}", type, currentView(), member.getId(), node.getId());
+            break;
+        case NOT_FOUND:
+            // NOT_FOUND is a temporary condition - service not bound yet during startup/view change
+            // Do NOT accuse - the node may be in the middle of (re)binding its services
+            log.trace("Service not found: {} view: {} from: {} on: {}", type, currentView(), member.getId(),
+                      node.getId());
+            break;
+        case UNAVAILABLE:
+            // All UNAVAILABLE errors indicate the target is unreachable and should be accused
+            // Previously exempted "Could not find server" and "Channel shutdown" as temporary conditions,
+            // but these are also permanent when a server is intentionally shut down
+            log.trace("Unavailable: {} view: {} from: {} on: {}", type, currentView(), member.getId(),
+                      node.getId());
+            accuse(member, ring, sre);
             break;
         default:
             log.debug("Error {}: {} from: {} on: {}", type, sre.getStatus(), member.getId(), node.getId());
@@ -1936,6 +1986,11 @@ public class View {
             }
             return stable(() -> {
                 final var ring = request.getRing();
+                var cv = currentView();
+                var ctx = context.getId();
+                var requestView = Digest.from(request.getView());
+                log.trace("GOSSIP RPC: from: {} ring: {} requestView: {} currentView: {} context: {} on: {}",
+                         from, ring, requestView, cv, ctx, node.getId());
                 if (!context.validRing(ring)) {
                     //                    log.debug("invalid gossip ring: {} from: {} on: {}", ring, from, node.getId());
                     throw new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("invalid ring"));
