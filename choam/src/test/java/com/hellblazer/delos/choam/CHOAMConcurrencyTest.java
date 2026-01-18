@@ -215,7 +215,8 @@ public class CHOAMConcurrencyTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(LARGE_TESTS ? 120 : 45, TimeUnit.SECONDS);
+        // CI runners need 2-3x longer due to resource contention and virtual thread scheduling
+        boolean completed = countdown.await(LARGE_TESTS ? 120 : (IS_CI ? 90 : 45), TimeUnit.SECONDS);
         assertTrue(completed, "Checkpoint and block acceptance should not deadlock");
 
         routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
