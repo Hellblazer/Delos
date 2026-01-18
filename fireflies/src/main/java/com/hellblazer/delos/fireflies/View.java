@@ -716,18 +716,12 @@ public class View {
                           node.getId());
                 break;
             case UNAVAILABLE:
-                var gossipDesc = sre.getStatus().getDescription();
-                // "Could not find server" and "Channel shutdown" are temporary conditions from InProcess channels
-                // when the target server hasn't started yet or is being shut down
-                if (gossipDesc != null && (gossipDesc.contains("Could not find server") || gossipDesc.contains(
-                "Channel shutdown"))) {
-                    log.trace("Server unavailable (temporary) for gossip view: {} from: {} on: {}", currentView(),
-                              p.getId(), node.getId());
-                } else {
-                    log.trace("Communication unavailable for gossip view: {} from: {} on: {}", currentView(), p.getId(),
-                              node.getId());
-                    accuse(p, ring, sre);
-                }
+                // All UNAVAILABLE errors indicate the target is unreachable and should be accused
+                // Previously exempted "Could not find server" and "Channel shutdown" as temporary conditions,
+                // but these are also permanent when a server is intentionally shut down
+                log.trace("Communication unavailable for gossip view: {} from: {} on: {}", currentView(), p.getId(),
+                          node.getId());
+                accuse(p, ring, sre);
                 break;
             default:
                 log.debug("Error gossiping: {} view: {} from: {} on: {}", sre.getStatus(), currentView(), p.getId(),
@@ -1124,6 +1118,11 @@ public class View {
                 var link = comm.connect(i.m());
                 if (link != null) {
                     gossip(gossip(link, i.ring()), i.m(), link, i.ring());
+                } else {
+                    // Connection failed (router closed, network unavailable, etc.)
+                    // Accuse the member so failure detection proceeds
+                    log.debug("Connection failed to: {} on ring: {} on: {}", i.m().getId(), i.ring(), node.getId());
+                    accuse(i.m(), i.ring(), new IllegalStateException("Connection failed"));
                 }
                 try {
                     Thread.sleep(duration.toMillis());
@@ -1202,17 +1201,12 @@ public class View {
                       node.getId());
             break;
         case UNAVAILABLE:
-            var sreDesc = sre.getStatus().getDescription();
-            // "Could not find server" and "Channel shutdown" are temporary conditions from InProcess channels
-            // when the target server hasn't started yet or is being shut down
-            if (sreDesc != null && (sreDesc.contains("Could not find server") || sreDesc.contains("Channel shutdown"))) {
-                log.trace("Server unavailable (temporary): {} view: {} from: {} on: {}", type, currentView(),
-                          member.getId(), node.getId());
-            } else {
-                log.trace("Unavailable: {} view: {} from: {} on: {}", type, currentView(), member.getId(),
-                          node.getId());
-                accuse(member, ring, sre);
-            }
+            // All UNAVAILABLE errors indicate the target is unreachable and should be accused
+            // Previously exempted "Could not find server" and "Channel shutdown" as temporary conditions,
+            // but these are also permanent when a server is intentionally shut down
+            log.trace("Unavailable: {} view: {} from: {} on: {}", type, currentView(), member.getId(),
+                      node.getId());
+            accuse(member, ring, sre);
             break;
         default:
             log.debug("Error {}: {} from: {} on: {}", type, sre.getStatus(), member.getId(), node.getId());
