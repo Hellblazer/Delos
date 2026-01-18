@@ -118,7 +118,7 @@ public class SwarmTest {
         final int bootstrapCount = largeTests ? 15 : 1;
         final var bootstrapSeeds = seeds.subList(0, bootstrapCount);
 
-        final var gossipDuration = Duration.ofMillis(largeTests ? 150 : 5);
+        final var gossipDuration = Duration.ofMillis(5);
 
         // Bootstrap kernel formation: staged approach for CI, parallel for local/large
         // CI requires staged start: node 0 must initialize before nodes 1-2 can join
@@ -264,11 +264,8 @@ public class SwarmTest {
         executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
         executor2 = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
         var parameters = Parameters.newBuilder()
-                                   .setMaxPending(50)
-                                   .setMaximumTxfr(20)
-                                   .setJoinRetries(30)
-                                   .setSeedingTimout(Duration.ofSeconds(IS_CI ? 60 : 10))
-                                   .setRetryDelay(Duration.ofMillis(largeTests ? 1000 : 200))
+                                   .setMaximumTxfr(CARDINALITY)  // Match cluster size for fast gossip propagation
+                                   .setSeedingTimout(Duration.ofSeconds(IS_CI ? 120 : 90))  // Match ChurnTest
                                    .build();
         registry = new MetricRegistry();
         node0Registry = new MetricRegistry();
