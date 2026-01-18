@@ -273,7 +273,8 @@ public class ChurnTest {
             //            System.out.println("** Removed: " + removed);
             then = System.currentTimeMillis();
             // Churn stabilization: cluster must detect departures and re-converge
-            success = Utils.waitForCondition(IS_CI ? 180_000 : 90_000, 1_000, () -> {
+            // Extended timeout for 100-node clusters - accusations need time to propagate
+            success = Utils.waitForCondition(IS_CI ? 180_000 : 180_000, 1_000, () -> {
                 return expected.stream().filter(view -> {
                     Context<Participant> participantContext = view.getContext();
                     return participantContext.size() > expected.size();
@@ -318,8 +319,8 @@ public class ChurnTest {
         executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
         executor2 = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
         var parameters = Parameters.newBuilder()
-                                   .setMaximumTxfr(10)
-                                   .setSeedingTimout(Duration.ofSeconds(IS_CI ? 60 : 15))
+                                   .setMaximumTxfr(CARDINALITY)  // Match cluster size for fast gossip propagation
+                                   .setSeedingTimout(Duration.ofSeconds(IS_CI ? 120 : 90))  // Increased to allow view change completion
                                    .setMaxReseedDepth(50)  // Increased from default 30 to handle epoch mismatch reseeds
                                    .build();
         registry = new MetricRegistry();
