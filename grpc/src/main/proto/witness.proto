@@ -13,9 +13,24 @@ import "google/protobuf/empty.proto";
 package witness;
 
 /**
+ * BLS aggregate signature with signer indices.
+ * Phase 1B: Compact representation of committee signatures.
+ */
+message BLSAggregateSignature {
+  // 96-byte BLS12-381 aggregate signature
+  bytes signature = 1;
+
+  // Signer indices (members who contributed to aggregate)
+  // Corresponds to bitmap positions
+  repeated int32 signerIndices = 2;
+}
+
+/**
  * Witness receipt for KERI key events.
  * Includes event coordinates, digest, witness signatures, and Fireflies view reference.
  * Immutable once threshold achieved.
+ *
+ * Phase 1B: Extended with BLS aggregate support using oneof for backward compatibility.
  */
 message WitnessReceipt {
   // Event coordinates identifying which event is receipted
@@ -35,6 +50,14 @@ message WitnessReceipt {
 
   // Timestamp when receipt was created
   google.protobuf.Timestamp timestamp = 6;
+
+  // Phase 1B: BLS aggregate signature (when format is BLS_12_381)
+  // If present, overrides individual signatures for aggregation
+  BLSAggregateSignature blsSig = 11;
+
+  // Signer bitmap for BLS (bit array indicating which committee members signed)
+  // Encoded as raw bytes for compact representation
+  bytes signerBitmap = 12;
 }
 
 /**
