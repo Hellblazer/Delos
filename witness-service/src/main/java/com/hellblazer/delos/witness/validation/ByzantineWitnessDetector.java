@@ -50,6 +50,10 @@ public class ByzantineWitnessDetector {
     private final Counter signatureForgeryDetected;
     private final Counter thresholdBypassDetected;
 
+    private final java.util.concurrent.ConcurrentHashMap<String, WitnessStatus> witnessStatuses = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ConcurrentHashMap<String, java.util.Map<Long, byte[]>> signatureHistory = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Map<String, Integer> metrics;
+
     /**
      * Create Byzantine detector with metrics tracking.
      *
@@ -61,6 +65,19 @@ public class ByzantineWitnessDetector {
         this.equivocationDetected = metricRegistry.counter("witness.byzantine.equivocation");
         this.signatureForgeryDetected = metricRegistry.counter("witness.byzantine.signature_forgery");
         this.thresholdBypassDetected = metricRegistry.counter("witness.byzantine.threshold_bypass");
+        this.metrics = null;
+    }
+
+    /**
+     * Create Byzantine detector with simple metrics map for testing.
+     *
+     * @param metricsMap Metrics map
+     */
+    public ByzantineWitnessDetector(java.util.Map<String, Integer> metricsMap) {
+        this.metrics = metricsMap;
+        this.equivocationDetected = null;
+        this.signatureForgeryDetected = null;
+        this.thresholdBypassDetected = null;
     }
 
     /**
@@ -404,5 +421,117 @@ public class ByzantineWitnessDetector {
         public long totalDetections() {
             return equivocationCount + signatureForgeryCount + thresholdBypassCount;
         }
+    }
+
+    // Additional methods for testing support
+
+    public void recordInvalidSignature(String witnessId) {
+        var status = witnessStatuses.computeIfAbsent(witnessId, k -> new WitnessStatus());
+        status.invalidSignatures++;
+        if (status.invalidSignatures >= 3) {
+            status.suspicious = true;
+        }
+        if (metrics != null) {
+            metrics.merge("invalid_signatures", 1, Integer::sum);
+            if (status.suspicious) {
+                metrics.merge("suspicious_nodes", 1, Integer::sum);
+            }
+        }
+        if (signatureForgeryDetected != null) {
+            signatureForgeryDetected.inc();
+        }
+    }
+
+    public boolean isSuspicious(String witnessId) {
+        return witnessStatuses.getOrDefault(witnessId, new WitnessStatus()).suspicious;
+    }
+
+    public boolean recordSignature(String witnessId, long sequence, byte[] signature) {
+        var history = signatureHistory.computeIfAbsent(witnessId, k -> new java.util.concurrent.ConcurrentHashMap<>());
+        var existing = history.get(sequence);
+        if (existing != null && !java.util.Arrays.equals(existing, signature)) {
+            // Equivocation detected
+            recordInvalidSignature(witnessId);
+            if (equivocationDetected != null) {
+                equivocationDetected.inc();
+            }
+            return true;
+        }
+        history.put(sequence, signature);
+        return false;
+    }
+
+    public void recordParticipationRate(String witnessId, double participationPercent) {
+        var status = witnessStatuses.computeIfAbsent(witnessId, k -> new WitnessStatus());
+        status.participationRate = participationPercent;
+        if (participationPercent < 80) {
+            status.suspicious = true;
+        }
+    }
+
+    public void recordValidSignature(String witnessId) {
+        var status = witnessStatuses.computeIfAbsent(witnessId, k -> new WitnessStatus());
+        status.validSignatures++;
+    }
+
+    public void evaluateRecovery(String witnessId) {
+        var status = witnessStatuses.get(witnessId);
+        if (status != null && status.validSignatures >= 100) {
+            // Sufficient valid signatures to clear suspicion
+            status.suspicious = false;
+            status.markedForExclusion = false;
+        }
+    }
+
+    public void markForExclusion(String witnessId) {
+        var status = witnessStatuses.computeIfAbsent(witnessId, k -> new WitnessStatus());
+        status.markedForExclusion = true;
+        status.suspicious = true;
+    }
+
+    public boolean isMarkedForExclusion(String witnessId) {
+        return witnessStatuses.getOrDefault(witnessId, new WitnessStatus()).markedForExclusion;
+    }
+
+    public String generateForensicReport(String witnessId) {
+        var status = witnessStatuses.get(witnessId);
+        if (status == null) {
+            return "No record for witness: " + witnessId;
+        }
+
+        return String.format("""
+            Byzantine Forensic Report
+            =========================
+            Witness: %s
+            Invalid Signatures: %d
+            Valid Signatures: %d
+            Participation Rate: %.1f%%
+            Suspicious: %s
+            Marked for Exclusion: %s
+
+            This witness has exhibited Byzantine behavior through invalid signature submissions.
+            """,
+            witnessId,
+            status.invalidSignatures,
+            status.validSignatures,
+            status.participationRate,
+            status.suspicious,
+            status.markedForExclusion
+        );
+    }
+
+    public java.util.List<String> getIdentifiedByzantineNodes() {
+        return witnessStatuses.entrySet().stream()
+            .filter(e -> e.getValue().suspicious)
+            .map(java.util.Map.Entry::getKey)
+            .toList();
+    }
+
+    private static class WitnessStatus {
+        int invalidSignatures = 0;
+        int validSignatures = 0;
+        double participationRate = 100.0;
+        boolean suspicious = false;
+        boolean markedForExclusion = false;
     }
 }
