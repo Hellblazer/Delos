@@ -308,6 +308,14 @@ message DrainStatus {
 message PhaseTransitionRequest {
   // Target migration phase (INIT, DUAL, BLS_ONLY)
   string newPhase = 1;
+
+  // Force transition even if readiness checks fail (admin override)
+  // Default: false - respects readiness requirements
+  bool force = 2;
+
+  // Justification for forced transition (required if force=true)
+  // Logged for audit trail
+  string justification = 3;
 }
 
 /**
@@ -326,6 +334,10 @@ message PhaseTransitionResponse {
 
   // Error message (if failed)
   string errorMessage = 4;
+
+  // Epoch when transition was recorded (Fireflies epoch)
+  // 0 if transition failed or not applicable
+  int64 epoch_transitioned = 5;
 }
 
 /**

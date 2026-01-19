@@ -808,8 +808,24 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
     public void manualAdvancePhase(PhaseTransitionRequest request,
                                   StreamObserver<PhaseTransitionResponse> responseObserver) {
         try {
-            String newPhaseStr = request.getNewPhase();
-            log.info("ManualAdvancePhase: requesting phase transition to {}", newPhaseStr);
+            var newPhaseStr = request.getNewPhase();
+            var force = request.getForce();
+            var justification = request.getJustification();
+
+            log.info("ManualAdvancePhase: requesting phase transition to {} (force={}, justification={})",
+                    newPhaseStr, force, justification);
+
+            // Validate force transition requires justification
+            if (force && justification.isBlank()) {
+                log.warn("ManualAdvancePhase: force transition requires justification");
+                var response = PhaseTransitionResponse.newBuilder()
+                    .setSuccess(false)
+                    .setErrorMessage("Justification required for forced transition")
+                    .build();
+                responseObserver.onNext(response);
+                responseObserver.onCompleted();
+                return;
+            }
 
             // Parse phase from string
             MigrationPhase newPhase;
@@ -826,21 +842,32 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
                 return;
             }
 
+            // Log forced transitions for audit trail
+            if (force) {
+                log.warn("FORCED PHASE TRANSITION: {} -> {} | Justification: {}",
+                        currentPhase.get(), newPhase, justification);
+            }
+
+            // Capture old phase and current epoch before transition
+            var oldPhase = currentPhase.get();
+            var currentEpoch = getCurrentEpoch();
+
             // Trigger phase transition
             migrationStateTracker.manualAdvance(newPhase);
 
-            // Build success response
+            // Build success response with epoch
             var response = PhaseTransitionResponse.newBuilder()
                 .setSuccess(true)
-                .setOldPhase(currentPhase.get().name())
+                .setOldPhase(oldPhase.name())
                 .setNewPhase(newPhase.name())
+                .setEpochTransitioned(currentEpoch)
                 .build();
 
             responseObserver.onNext(response);
             responseObserver.onCompleted();
 
-            log.info("ManualAdvancePhase: phase transition complete, old={}, new={}",
-                    currentPhase.get(), newPhase);
+            log.info("ManualAdvancePhase: phase transition complete, old={}, new={}, epoch={}",
+                    oldPhase, newPhase, currentEpoch);
 
         } catch (Exception e) {
             log.error("Error in manualAdvancePhase", e);
@@ -849,6 +876,7 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
             var response = PhaseTransitionResponse.newBuilder()
                 .setSuccess(false)
                 .setErrorMessage(e.getMessage())
+                .setEpochTransitioned(0)
                 .build();
             responseObserver.onNext(response);
             responseObserver.onCompleted();
