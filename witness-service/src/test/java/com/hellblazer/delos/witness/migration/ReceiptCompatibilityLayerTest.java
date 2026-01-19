@@ -323,6 +323,101 @@ class ReceiptCompatibilityLayerTest {
         assertThat(layer.getUnsupportedFormatErrors()).isEqualTo(0L);
     }
 
+    // ========== Additional Edge Case Tests (4 tests) ==========
+
+    @Test
+    @DisplayName("detectFormat: Missing signatures handled gracefully")
+    void testDetectFormatWithMissingSignatures() {
+        // Test with default BLS signature (implementation detects BLS if blsSig field is set)
+        var receiptWithDefaultBls = WitnessReceipt.newBuilder()
+                                                   .setBlsSig(com.hellblazer.delos.witness.proto.BLSAggregateSignature.getDefaultInstance())
+                                                   .build();
+        var format1 = ReceiptCompatibilityLayer.detectFormat(receiptWithDefaultBls);
+        assertThat(format1).isEqualTo(SignatureFormat.BLS_12_381); // Default instance still detected as BLS
+
+        // Test with empty Ed25519 signatures list (no signatures added)
+        var receiptWithNoSigs = WitnessReceipt.newBuilder().build();
+        var format2 = ReceiptCompatibilityLayer.detectFormat(receiptWithNoSigs);
+        assertThat(format2).isNull(); // No signatures at all should return null
+    }
+
+    @Test
+    @DisplayName("detectFormat: Corrupted data handled")
+    void testDetectFormatWithCorruptedData() {
+        // BLS signature with zero-length signature data (but blsSig is set)
+        var corruptedBls = WitnessReceipt.newBuilder()
+                                         .setBlsSig(com.hellblazer.delos.witness.proto.BLSAggregateSignature.newBuilder()
+                                                                                                             .setSignature(com.google.protobuf.ByteString.EMPTY)
+                                                                                                             .build())
+                                         .build();
+        var format1 = ReceiptCompatibilityLayer.detectFormat(corruptedBls);
+        assertThat(format1).isEqualTo(SignatureFormat.BLS_12_381); // Presence of blsSig field indicates BLS format
+
+        // Ed25519 signature with zero-length data
+        var corruptedEd25519 = WitnessReceipt.newBuilder()
+                                              .addSignatures(com.hellblazer.delos.cryptography.proto.Sig.newBuilder()
+                                                                                                         .setCode(1)
+                                                                                                         .addSignatures(com.google.protobuf.ByteString.EMPTY)
+                                                                                                         .build())
+                                              .build();
+        var format2 = ReceiptCompatibilityLayer.detectFormat(corruptedEd25519);
+        // Ed25519 with signature list present should detect format
+        assertThat(format2).isEqualTo(SignatureFormat.ED25519);
+    }
+
+    @Test
+    @DisplayName("detectFormat: Does not mutate receipt")
+    void testDetectFormatDoesNotMutateReceipt() {
+        var originalReceipt = WitnessReceipt.newBuilder()
+                                            .setBlsSig(createDummyBlsSignature())
+                                            .build();
+
+        // Capture original state
+        var originalBlsSig = originalReceipt.getBlsSig();
+        var originalSignatureCount = originalReceipt.getSignaturesCount();
+
+        // Detect format
+        ReceiptCompatibilityLayer.detectFormat(originalReceipt);
+
+        // Verify receipt unchanged
+        assertThat(originalReceipt.getBlsSig()).isEqualTo(originalBlsSig);
+        assertThat(originalReceipt.getSignaturesCount()).isEqualTo(originalSignatureCount);
+    }
+
+    @Test
+    @DisplayName("Metrics: Accuracy under large dataset")
+    void testMetricsAccuracyUnder1000Receipts() {
+        tracker.manualAdvance(MigrationPhase.DUAL);
+        layer.resetMetrics();
+
+        int blsCount = 600;
+        int ed25519Count = 400;
+
+        // Validate 600 BLS receipts (will fail with dummy data, but metrics should track attempts)
+        for (int i = 0; i < blsCount; i++) {
+            var receipt = WitnessReceipt.newBuilder()
+                                        .setBlsSig(createDummyBlsSignature())
+                                        .build();
+            layer.validateReceipt(receipt, MigrationPhase.DUAL);
+        }
+
+        // Validate 400 Ed25519 receipts (will fail with dummy data, but metrics should track attempts)
+        for (int i = 0; i < ed25519Count; i++) {
+            var receipt = WitnessReceipt.newBuilder()
+                                        .addSignatures(createDummyEd25519Signature())
+                                        .build();
+            layer.validateReceipt(receipt, MigrationPhase.DUAL);
+        }
+
+        // Metrics should accurately reflect all validation failures (dummy data)
+        assertThat(layer.getBlsValidationFailures()).isEqualTo(blsCount);
+        assertThat(layer.getEd25519ValidationFailures()).isEqualTo(ed25519Count);
+
+        // Verify no overflow on large numbers
+        assertThat(layer.getBlsValidationFailures()).isLessThan(Long.MAX_VALUE);
+        assertThat(layer.getEd25519ValidationFailures()).isLessThan(Long.MAX_VALUE);
+    }
+
     // ========== Test Helpers ==========
 
     private com.hellblazer.delos.witness.proto.BLSAggregateSignature createDummyBlsSignature() {

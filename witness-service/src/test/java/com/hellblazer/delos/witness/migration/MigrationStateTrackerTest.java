@@ -463,4 +463,113 @@ class MigrationStateTrackerTest {
             executor.shutdownNow();
         }
     }
+
+    // ===== ADDITIONAL EDGE CASE TESTS (3 tests) =====
+
+    @Test
+    void testPhaseTransitionRejectsInvalidTransitions() {
+        var tracker = new MigrationStateTracker(MigrationPhase.INIT, 0L);
+
+        // Valid: INIT -> DUAL
+        tracker.manualAdvance(MigrationPhase.DUAL);
+        assertThat(tracker.getCurrentPhase()).isEqualTo(MigrationPhase.DUAL);
+
+        // Valid: DUAL -> BLS_ONLY
+        tracker.manualAdvance(MigrationPhase.BLS_ONLY);
+        assertThat(tracker.getCurrentPhase()).isEqualTo(MigrationPhase.BLS_ONLY);
+
+        // Invalid regression: BLS_ONLY -> DUAL should throw exception
+        assertThatThrownBy(() -> tracker.manualAdvance(MigrationPhase.DUAL))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Cannot regress");
+        assertThat(tracker.getCurrentPhase()).isEqualTo(MigrationPhase.BLS_ONLY); // Should remain
+
+        // Invalid regression: BLS_ONLY -> INIT should throw exception
+        assertThatThrownBy(() -> tracker.manualAdvance(MigrationPhase.INIT))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Cannot regress");
+        assertThat(tracker.getCurrentPhase()).isEqualTo(MigrationPhase.BLS_ONLY); // Should remain
+    }
+
+    @Test
+    void testPhaseTransitionDoesNotAffectInFlightReceipts() throws Exception {
+        var tracker = new MigrationStateTracker(MigrationPhase.INIT, 0L);
+        int validationThreads = 20;
+        var executor = Executors.newVirtualThreadPerTaskExecutor();
+        var futures = new ArrayList<Future<List<CompatibilityResult>>>();
+        var startLatch = new CountDownLatch(1);
+
+        try {
+            // Start validations in INIT phase
+            for (int i = 0; i < validationThreads; i++) {
+                futures.add(executor.submit(() -> {
+                    var results = new ArrayList<CompatibilityResult>();
+                    startLatch.await(); // Wait for signal to start
+                    for (int j = 0; j < 10; j++) {
+                        results.add(tracker.validateInCurrentPhase(SignatureFormat.ED25519));
+                    }
+                    return results;
+                }));
+            }
+
+            // Let validations start, then transition phase mid-flight
+            startLatch.countDown();
+            Thread.sleep(5); // Small delay to let some validations start
+            tracker.manualAdvance(MigrationPhase.DUAL);
+
+            // Collect all results
+            var allResults = new ArrayList<CompatibilityResult>();
+            for (var future : futures) {
+                allResults.addAll(future.get(10, TimeUnit.SECONDS));
+            }
+
+            // All validations should complete successfully
+            assertThat(allResults).hasSize(validationThreads * 10);
+            // Ed25519 is valid in both INIT and DUAL, so all should be Valid
+            assertThat(allResults).allMatch(r -> r instanceof CompatibilityResult.Valid);
+        } finally {
+            executor.close();
+        }
+    }
+
+    @Test
+    void testPhaseTransitionDoesNotDeadlock() throws Exception {
+        var tracker = new MigrationStateTracker(MigrationPhase.INIT, 0L);
+        int operationCount = 100;
+        var executor = Executors.newVirtualThreadPerTaskExecutor();
+        var futures = new ArrayList<Future<?>>();
+
+        try {
+            // Mix of validation and phase transition operations
+            for (int i = 0; i < operationCount; i++) {
+                final int index = i;
+                if (i % 10 == 0) {
+                    // Occasional phase transition
+                    futures.add(executor.submit(() -> {
+                        if (index == 30) {
+                            tracker.manualAdvance(MigrationPhase.DUAL);
+                        } else if (index == 60) {
+                            tracker.manualAdvance(MigrationPhase.BLS_ONLY);
+                        }
+                    }));
+                } else {
+                    // Regular validations
+                    futures.add(executor.submit(() -> {
+                        tracker.validateInCurrentPhase(SignatureFormat.ED25519);
+                        tracker.validateInCurrentPhase(SignatureFormat.BLS_12_381);
+                    }));
+                }
+            }
+
+            // Wait for all operations to complete (should not deadlock)
+            for (var future : futures) {
+                future.get(10, TimeUnit.SECONDS);
+            }
+
+            // Verify final phase
+            assertThat(tracker.getCurrentPhase()).isEqualTo(MigrationPhase.BLS_ONLY);
+        } finally {
+            executor.close();
+        }
+    }
 }
