@@ -60,6 +60,11 @@
             <artifactId>bls</artifactId>
             <version>24.12.0</version>
         </dependency>
+        <dependency>
+            <groupId>org.apache.tuweni</groupId>
+            <artifactId>bytes</artifactId>
+            <version>1.3.0</version>
+        </dependency>
 
         <!-- Test only deps below this line -->
 

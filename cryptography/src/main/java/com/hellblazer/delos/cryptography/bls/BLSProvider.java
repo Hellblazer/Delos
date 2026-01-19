@@ -48,11 +48,10 @@ public interface BLSProvider {
     /**
      * Get the default BLS provider implementation.
      *
-     * @return Default provider
+     * @return Default provider (TekuBLSProvider)
      */
     static BLSProvider getDefault() {
-        // TODO: Phase 2 - implement actual provider
-        throw new UnsupportedOperationException("Default provider not yet implemented");
+        return new com.hellblazer.delos.cryptography.bls.impl.TekuBLSProvider();
     }
 
     /**
