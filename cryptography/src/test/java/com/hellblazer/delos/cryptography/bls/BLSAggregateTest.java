@@ -165,10 +165,14 @@ class BLSAggregateTest {
         var provider = new com.hellblazer.delos.cryptography.bls.impl.TekuBLSProvider();
         var message = BLSTestFixtures.randomMessage(32);
 
-        // Generate three real signatures
-        var keyPair1 = provider.generateKeyPair(BLSTestFixtures.RANDOM);
-        var keyPair2 = provider.generateKeyPair(BLSTestFixtures.RANDOM);
-        var keyPair3 = provider.generateKeyPair(BLSTestFixtures.RANDOM);
+        // Generate three real signatures with deterministic random
+        var random1 = BLSTestFixtures.deterministicRandom(0x1L);
+        var random2 = BLSTestFixtures.deterministicRandom(0x2L);
+        var random3 = BLSTestFixtures.deterministicRandom(0x3L);
+
+        var keyPair1 = provider.generateKeyPair(random1);
+        var keyPair2 = provider.generateKeyPair(random2);
+        var keyPair3 = provider.generateKeyPair(random3);
 
         var sig1 = new BLSSignature(provider.sign(keyPair1.secretKey(), message));
         var sig2 = new BLSSignature(provider.sign(keyPair2.secretKey(), message));
