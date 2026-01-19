@@ -701,22 +701,23 @@
     <repositories>
         <repository>
             <id>central</id>
-            <url>https://repo.maven.org/maven2/</url>
-            <snapshots>
-                <enabled>false</enabled>
-            </snapshots>
-        </repository>
-        <repository>
-            <id>central-1</id>
             <url>https://repo1.maven.org/maven2/</url>
             <snapshots>
                 <enabled>false</enabled>
             </snapshots>
         </repository>
         <repository>
-            <id>cloudsmith-consensys-teku</id>
-            <name>ConsenSys Teku Maven Repository (Cloudsmith)</name>
-            <url>https://dl.cloudsmith.io/public/consensys/teku/maven/</url>
+            <id>consensys-artifacts-teku</id>
+            <name>ConsenSys Artifacts - Teku</name>
+            <url>https://artifacts.consensys.net/public/teku/maven/</url>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </repository>
+        <repository>
+            <id>consensys-artifacts-maven</id>
+            <name>ConsenSys Artifacts - Maven Public</name>
+            <url>https://artifacts.consensys.net/public/maven/maven/</url>
             <snapshots>
                 <enabled>false</enabled>
             </snapshots>
@@ -725,13 +726,6 @@
     <pluginRepositories>
         <pluginRepository>
             <id>central</id>
-            <url>https://repo.maven.org/maven2/</url>
-            <snapshots>
-                <enabled>false</enabled>
-            </snapshots>
-        </pluginRepository>
-        <pluginRepository>
-            <id>central-1</id>
             <url>https://repo1.maven.org/maven2/</url>
             <snapshots>
                 <enabled>false</enabled>
