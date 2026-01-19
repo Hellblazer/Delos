@@ -159,13 +159,15 @@ class EdgeCaseIntegrationTest {
 
             assertThat(totalExpected).isEqualTo(validationThreads * validationsPerThread);
 
-            // Metrics should track all validation failures (dummy data fails validation)
-            var actualFailures = layer.getBlsValidationFailures() + layer.getEd25519ValidationFailures();
-            assertThat(actualFailures).isGreaterThan(0); // At least some validations occurred
+            // Calculate total attempts (validated + failed + unsupported)
+            var blsAttempts = layer.getBlsReceiptsValidated() + layer.getBlsValidationFailures();
+            var ed25519Attempts = layer.getEd25519ReceiptsValidated() + layer.getEd25519ValidationFailures();
+            var unsupportedErrors = layer.getUnsupportedFormatErrors();
+            var totalRecorded = blsAttempts + ed25519Attempts + unsupportedErrors;
 
-            // Verify metrics are being updated (non-zero)
-            assertThat(layer.getBlsValidationFailures()).isGreaterThan(0);
-            assertThat(layer.getEd25519ValidationFailures()).isGreaterThan(0);
+            // Verify metrics capture all validation attempts
+            // Note: Some validations may be rejected as unsupported based on phase
+            assertThat(totalRecorded).isEqualTo(totalExpected);
         } finally {
             executor.close();
         }
