@@ -9,15 +9,30 @@
 
 ---
 
+## 🚫 CRITICAL PRIORITY DIRECTIVE
+
+**GPU BATCH VERIFICATION IS P4 (LOWEST PRIORITY / DEFERRED)**
+
+This plan documents FK-First execution ONLY. GPU Batch Verification is NOT being pursued as a primary strategic opportunity. Any GPU-related work is marked P4 and deferred indefinitely unless explicitly prioritized in future strategic reviews.
+
+- ✅ FK-FIRST: P0/P1 - EXECUTE IMMEDIATELY
+- ❌ GPU BATCH: P4 - DEFERRED (do NOT pursue)
+- ⏸️  ZANZIBAR QUERY: P1 - PARALLEL (independent of FK/GPU)
+- ⏸️  DYNAMIC DIAMETER: P1 - BLOCKED (after FK Phase 1 complete)
+
+---
+
+---
+
 ## Executive Summary
 
-This document provides a detailed operational guide for Phase 1 execution of the 4 Delos strategic opportunities with **Fireflies-KERI Integration as the PRIMARY CRITICAL PATH**.
+This document provides a detailed operational guide for Phase 1 execution with **Fireflies-KERI Integration as the PRIMARY CRITICAL PATH**.
 
-**Strategic Opportunities (Audit-Approved)**:
-1. **Fireflies-KERI Integration** (10-14 weeks) - PRIMARY CRITICAL PATH
-2. **GPU Batch Verification** (9-14 weeks) - SECONDARY (validated in parallel, Week 1)
-3. **Zanzibar Query Rewriting** (6-8 weeks) - PARALLEL (independent)
-4. **Dynamic Diameter Adaptation** (5-8 weeks) - BLOCKED by FK Phase 1
+**Strategic Priorities (Phase 1 Execution)**:
+1. **Fireflies-KERI Integration** (10-14 weeks) - ✅ P0/P1 PRIMARY CRITICAL PATH (EXECUTE)
+2. **Zanzibar Query Rewriting** (6-8 weeks) - ⏸️  P1 PARALLEL (independent, can proceed in parallel)
+3. **Dynamic Diameter Adaptation** (5-8 weeks) - ⏸️  P1 BLOCKED (wait for FK Phase 1 completion)
+4. **GPU Batch Verification** - ❌ P4 DEFERRED (NOT PURSUING, deprioritized indefinitely)
 
 **Current State**:
 - 20 unblocked beads ready for execution
@@ -34,113 +49,63 @@ This document provides a detailed operational guide for Phase 1 execution of the
 ### Sequential Execution Order
 
 ```
-Day 1-2: Delos-3901 (GPU Infrastructure)
+⏭️  SKIP: Delos-3901 (GPU Infrastructure) - P4 DEFERRED
     ↓
-Day 2-3: Delos-3902 (Resource Validation) [can partially overlap]
+Day 1-2: Delos-3902 (Resource Validation - FK-FIRST focus)
     ↓
-Day 3-4: Delos-3903 (Prerequisites Documentation)
+Day 2-4: Delos-3903 (Prerequisites Documentation)
     ↓
 Day 5:   Delos-3904 (Final GO/NO-GO Checklist)
 ```
 
 ---
 
-### Task 1: Delos-3901 - GPU Cloud Instance Provisioning
+### Task 1: Delos-3901 - ❌ GPU Cloud Instance Provisioning [P4 DEFERRED]
 
-**Owner**: GPU Team Lead (TBD in Delos-3902)
-**Duration**: 2 days
-**Priority**: P0 CRITICAL
-**Status**: IN PROGRESS
+**⚠️  THIS TASK IS NOT BEING EXECUTED**
 
-#### Deliverables
+This task is marked P4 and **DEFERRED indefinitely**. Do NOT pursue GPU infrastructure provisioning as part of Phase 1. Skip to Delos-3902 (Resource Validation).
 
-| # | Deliverable | Acceptance Criteria |
-|---|-------------|---------------------|
-| 1 | GPU hardware provisioned | Cloud instance running OR on-prem validated |
-| 2 | Drivers installed | CUDA/ROCm/OpenCL verified with nvidia-smi or equivalent |
-| 3 | GPU library identified | libsodium GPU, rustacrypto, or CUDA Ed25519 library selected |
-| 4 | Test batch verified | 100-1000 signature batch runs successfully |
-| 5 | Resource constraints documented | Memory, power, cost per hour documented |
-| 6 | CPU fallback strategy | SIMD vectorization path documented |
+If GPU work is re-prioritized in a future strategic review, this task can be revisited.
 
-#### Specific Actions
+**Original Owner**: GPU Team Lead (NOT ASSIGNED - deferred)
+**Original Duration**: 2 days
+**Priority**: ❌ P4 DEFERRED
+**Status**: SKIPPED
 
-**Day 1 Morning (4 hours)**:
-1. Review available GPU options:
-   - AWS: p4d.24xlarge (A100), g5.xlarge (A10G)
-   - GCP: a2-highgpu-1g (A100), n1-standard-4 + T4
-   - Azure: NC series (T4, A100)
-   - On-prem: Check existing GPU servers
-2. Provision preferred option (cloud: spin up instance; on-prem: validate availability)
-3. Document cost per hour and availability model
+**ARCHIVED - P4 DEFERRED**
 
-**Day 1 Afternoon (4 hours)**:
-1. Install CUDA toolkit 12.x (or ROCm 5.x for AMD)
-2. Validate with nvidia-smi / rocm-smi
-3. Install Ed25519 GPU library dependencies:
-   - Option A: Check libsodium GPU backend (sodium_init() with GPU acceleration)
-   - Option B: Evaluate rustacrypto GPU via JNI
-   - Option C: Evaluate ed25519-gpu-batch CUDA library
-4. Document library selection rationale
+This task has been deprioritized to P4 and is not being executed in Phase 1. Detailed deliverables and actions removed.
 
-**Day 2 Morning (4 hours)**:
-1. Write GPU batch verification test:
-   - Generate 1000 random Ed25519 key pairs
-   - Sign 1000 messages
-   - Batch verify all 1000 signatures on GPU
-   - Measure throughput (sigs/sec)
-2. Run test and capture:
-   - Total time for 1000-sig batch
-   - GPU memory usage (nvidia-smi)
-   - Any errors or warnings
-
-**Day 2 Afternoon (4 hours)**:
-1. Document GPU resource constraints:
-   - Available GPU memory (typically 16-80GB)
-   - Thermal/power limits
-   - Network bandwidth for data transfer
-2. Design CPU batch fallback:
-   - Identify SIMD-capable Ed25519 library (e.g., ed25519-donna)
-   - Document vectorization approach
-   - Estimate CPU batch throughput (2-5x single-sig)
-3. Create GPU_INFRASTRUCTURE_REPORT.md
-
-#### Exit Criteria
-
-- [ ] GPU accessible and drivers working
-- [ ] Ed25519 batch verification test runs successfully
-- [ ] GPU library documentation reviewed
-- [ ] CPU fallback path documented
-- [ ] Delos-3894 Gate 0 is UNBLOCKED
+**If re-prioritized**: Refer to archived execution plan in git history for detailed GPU infrastructure tasks.
 
 ---
 
 ### Task 2: Delos-3902 - Resource Availability & Skills Validation
 
 **Owner**: Project Manager / Architecture Lead
-**Duration**: 2 days (overlaps with Delos-3901 Day 2)
+**Duration**: 1-2 days
 **Priority**: P0 CRITICAL
 **Status**: PENDING
+**Note**: GPU team is NOT required since GPU work is P4 deferred
 
 #### Deliverables
 
 | # | Deliverable | Acceptance Criteria |
 |---|-------------|---------------------|
-| 1 | GPU team roster | 2-3 engineers named, hours/week confirmed |
-| 2 | FK team roster | 2-3 engineers named, KERI knowledge validated |
-| 3 | ZQ team roster | 1-2 engineers named, Oracle expertise confirmed |
-| 4 | DA team roster | 1-2 engineers named (deferred start Week 4) |
-| 5 | Skills assessment | GPU/KERI/RBAC/BFT expertise documented |
-| 6 | Team leads confirmed | 4 team leads named and accepted |
+| 1 | FK team roster | 2-3 engineers named, KERI knowledge validated |
+| 2 | ZQ team roster | 1-2 engineers named, Oracle expertise confirmed |
+| 3 | DA team roster | 1-2 engineers named (deferred start Week 4) |
+| 4 | Skills assessment | KERI/RBAC/BFT expertise documented (GPU NOT REQUIRED) |
+| 5 | Team leads confirmed | 3 team leads named and accepted (FK, ZQ, DA) |
 
 #### Specific Actions
 
-**Day 1: Team Availability Check**
+**Day 1: Team Availability Check (FK-FIRST focus)**
 
 | Team | Required | Skill Check |
 |------|----------|-------------|
-| GPU | 2-3 engineers, 40h/week each | CUDA/OpenCL experience, Java JNI |
-| FK | 2-3 engineers, 40h/week each | Stereotomy/KERI, Fireflies gossip |
+| FK | 2-3 engineers, 40h/week each | Stereotomy/KERI, Fireflies gossip, Java expertise |
 | ZQ | 1-2 engineers, 40h/week each | Delphinius Oracle, RBAC, SQL optimization |
 | DA | 1-2 engineers, 20h/week (deferred) | BFT consensus, ring topology |
 
@@ -150,14 +115,12 @@ Day 5:   Delos-3904 (Final GO/NO-GO Checklist)
 2. Identify any training needed (e.g., KERI bootcamp for FK team)
 3. Document hiring needs if critical skills missing
 4. Confirm team leads accepted responsibility
+5. **GPU team: NOT REQUIRED** - mark as deferred in resource tracking
 
 #### Resource Allocation Table
 
 | Role | Name | Availability | Start Week |
 |------|------|--------------|------------|
-| GPU Team Lead | [TBD] | Full-time | Week 0 |
-| GPU Engineer 1 | [TBD] | Full-time | Week 1 |
-| GPU Engineer 2 | [TBD] | Full-time | Week 1 |
 | FK Team Lead | [TBD] | Full-time | Week 0 |
 | FK Engineer 1 | [TBD] | Full-time | Week 1 |
 | FK Engineer 2 | [TBD] | Full-time | Week 1 |
@@ -165,13 +128,17 @@ Day 5:   Delos-3904 (Final GO/NO-GO Checklist)
 | ZQ Engineer 1 | [TBD] | Part-time | Week 1 |
 | DA Team Lead | [TBD] | Part-time prep | Week 0 (full Week 4) |
 | Architecture Lead | [TBD] | 10h/week | Week 0+ |
+| ~~GPU Team Lead~~ | ~~DEFERRED~~ | ~~Not assigned~~ | ~~P4 deferred~~ |
+| ~~GPU Engineer 1~~ | ~~DEFERRED~~ | ~~Not assigned~~ | ~~P4 deferred~~ |
+| ~~GPU Engineer 2~~ | ~~DEFERRED~~ | ~~Not assigned~~ | ~~P4 deferred~~ |
 
 #### Exit Criteria
 
-- [ ] All 4 team leads confirmed and named
-- [ ] All team members listed with availability
+- [ ] 3 team leads confirmed and named (FK, ZQ, DA)
+- [ ] All active team members listed with availability
 - [ ] Critical skills gaps identified with mitigation
 - [ ] No blocking resource constraints
+- [ ] GPU team marked as P4 DEFERRED in tracking
 
 ---
 
@@ -181,24 +148,21 @@ Day 5:   Delos-3904 (Final GO/NO-GO Checklist)
 **Duration**: 2 days
 **Priority**: P0 CRITICAL
 **Status**: PENDING
+**Note**: GPU prerequisites SKIPPED (P4 deferred)
 
 #### Deliverables
 
 | # | Deliverable | Location |
 |---|-------------|----------|
-| 1 | GPU_PREREQUISITES.md | .pm/ or Memory Bank |
-| 2 | FK_PREREQUISITES.md | .pm/ or Memory Bank |
-| 3 | ZQ_PREREQUISITES.md | .pm/ or Memory Bank |
-| 4 | DA_PREREQUISITES.md | .pm/ or Memory Bank |
-| 5 | CROSS_PLAN_COORDINATION.md | .pm/ or Memory Bank |
+| 1 | FK_PREREQUISITES.md | .pm/ or Memory Bank |
+| 2 | ZQ_PREREQUISITES.md | .pm/ or Memory Bank |
+| 3 | DA_PREREQUISITES.md | .pm/ or Memory Bank |
+| 4 | CROSS_PLAN_COORDINATION.md | .pm/ or Memory Bank |
+| 5 | ~~GPU_PREREQUISITES.md~~ | ~~SKIPPED - P4 deferred~~ |
 
 #### Specific Content per Plan
 
-**GPU Prerequisites**:
-- Gate 0 criteria (Delos-3894): ≥10x CPU, ≥1000 sigs/sec, <8GB memory
-- Infrastructure: GPU hardware, drivers, library
-- Team: 2-3 engineers with CUDA/JNI skills
-- Fallback: CPU batch optimization path documented
+~~**GPU Prerequisites**: SKIPPED (P4 deferred)~~
 
 **FK Prerequisites**:
 - Data survey (Delos-3910): Determine if migration needed
@@ -221,16 +185,16 @@ Day 5:   Delos-3904 (Final GO/NO-GO Checklist)
 #### Cross-Plan Coordination Content
 
 ```markdown
-## Fireflies Module Shared Ownership
+## Fireflies Module Integration
 
-Both GPU and FK plans integrate with Fireflies/Ethereal:
-- GPU Phase 2: Ethereal.Adder signature verification hook
-- FK Phase 1: Fireflies gossip layer for KERI events
+FK Phase 1 integrates with Fireflies/Ethereal for KERI ordering.
 
-CONFLICT RESOLUTION:
-1. FK Phase 1 has priority (ordering must be proven first)
-2. GPU Phase 2 waits for FK Phase 1 to complete, OR
-3. If overlap required: Daily sync between teams, architecture lead arbitrates
+Since GPU is P4 deferred, GPU Phase 2 (signature verification hook) is not being pursued in Phase 1.
+
+COORDINATION:
+1. FK Phase 1 focuses on proving Fireflies ordering for KERI events
+2. ZQ Phase 1 profiling runs independent of FK/GPU work
+3. DA waits until FK Phase 1 complete (no resource conflict)
 
 ## Escalation Process
 
@@ -249,10 +213,11 @@ CONFLICT RESOLUTION:
 
 #### Exit Criteria
 
-- [ ] All 5 prerequisite documents created
-- [ ] Cross-plan coordination documented
+- [ ] 4 prerequisite documents created (FK, ZQ, DA, CROSS_PLAN)
+- [ ] GPU prerequisites SKIPPED (P4 deferred)
+- [ ] Cross-plan coordination documented (GPU deprioritized)
 - [ ] Escalation process agreed upon
-- [ ] All teams reviewed and acknowledged
+- [ ] FK, ZQ, DA teams reviewed and acknowledged
 
 ---
 
@@ -265,59 +230,50 @@ CONFLICT RESOLUTION:
 
 #### GO/NO-GO Checklist
 
-**Section A: GPU Infrastructure (Delos-3901)**
+~~**Section A: GPU Infrastructure (Delos-3901)** - SKIPPED (P4 deferred)~~
+
+**Section A: Resource Availability (Delos-3902)**
 
 | # | Criterion | Status |
 |---|-----------|--------|
-| A1 | GPU hardware provisioned | [ ] GO / [ ] NO-GO |
-| A2 | Drivers installed and tested | [ ] GO / [ ] NO-GO |
-| A3 | GPU library available and documented | [ ] GO / [ ] NO-GO |
-| A4 | Test batch (1000 sigs) verified | [ ] GO / [ ] NO-GO |
-| A5 | CPU fallback strategy documented | [ ] GO / [ ] NO-GO |
+| A1 | FK team available (2-3 engineers) | [ ] GO / [ ] NO-GO |
+| A2 | ZQ team available (1-2 engineers) | [ ] GO / [ ] NO-GO |
+| A3 | DA team available (1-2 engineers deferred) | [ ] GO / [ ] NO-GO |
+| A4 | All critical skills assessed (FK/ZQ/DA) | [ ] GO / [ ] NO-GO |
+| A5 | Team leads confirmed (3 required) | [ ] GO / [ ] NO-GO |
 | **A-TOTAL** | **All A criteria met** | [ ] **GO** / [ ] **NO-GO** |
 
-**Section B: Resource Availability (Delos-3902)**
+**Section B: Prerequisites Documentation (Delos-3903)**
 
 | # | Criterion | Status |
 |---|-----------|--------|
-| B1 | GPU team available (2-3 engineers) | [ ] GO / [ ] NO-GO |
-| B2 | FK team available (2-3 engineers) | [ ] GO / [ ] NO-GO |
-| B3 | ZQ team available (1-2 engineers) | [ ] GO / [ ] NO-GO |
-| B4 | All critical skills assessed | [ ] GO / [ ] NO-GO |
-| B5 | Team leads confirmed | [ ] GO / [ ] NO-GO |
+| B1 | FK prerequisites documented | [ ] GO / [ ] NO-GO |
+| B2 | ZQ prerequisites documented | [ ] GO / [ ] NO-GO |
+| B3 | DA prerequisites documented (deferred) | [ ] GO / [ ] NO-GO |
+| B4 | Cross-plan coordination documented | [ ] GO / [ ] NO-GO |
 | **B-TOTAL** | **All B criteria met** | [ ] **GO** / [ ] **NO-GO** |
 
-**Section C: Prerequisites Documentation (Delos-3903)**
+**Section C: Week 1 Execution Readiness**
 
 | # | Criterion | Status |
 |---|-----------|--------|
-| C1 | GPU prerequisites documented | [ ] GO / [ ] NO-GO |
-| C2 | FK prerequisites documented | [ ] GO / [ ] NO-GO |
-| C3 | ZQ prerequisites documented | [ ] GO / [ ] NO-GO |
-| C4 | DA prerequisites documented (deferred) | [ ] GO / [ ] NO-GO |
-| C5 | Cross-plan coordination documented | [ ] GO / [ ] NO-GO |
+| C1 | Daily standups scheduled | [ ] GO / [ ] NO-GO |
+| C2 | Communication channels created | [ ] GO / [ ] NO-GO |
+| C3 | Git workflow documented | [ ] GO / [ ] NO-GO |
+| C4 | Week 1 kickoff scheduled (Delos-3909) | [ ] GO / [ ] NO-GO |
+| C5 | Build is GREEN, all tests PASS | [ ] GO / [ ] NO-GO |
 | **C-TOTAL** | **All C criteria met** | [ ] **GO** / [ ] **NO-GO** |
-
-**Section D: Week 1 Execution Readiness**
-
-| # | Criterion | Status |
-|---|-----------|--------|
-| D1 | Daily standups scheduled | [ ] GO / [ ] NO-GO |
-| D2 | Communication channels created | [ ] GO / [ ] NO-GO |
-| D3 | Git workflow documented | [ ] GO / [ ] NO-GO |
-| D4 | Week 1 kickoff scheduled (Delos-3909) | [ ] GO / [ ] NO-GO |
-| D5 | Build is GREEN, all tests PASS | [ ] GO / [ ] NO-GO |
-| **D-TOTAL** | **All D criteria met** | [ ] **GO** / [ ] **NO-GO** |
 
 **FINAL DECISION**:
 
 | Section | Status |
 |---------|--------|
-| A: GPU Infrastructure | [ ] GO / [ ] NO-GO |
-| B: Resource Availability | [ ] GO / [ ] NO-GO |
-| C: Prerequisites | [ ] GO / [ ] NO-GO |
-| D: Execution Readiness | [ ] GO / [ ] NO-GO |
+| A: Resource Availability (FK/ZQ/DA teams) | [ ] GO / [ ] NO-GO |
+| B: Prerequisites Documentation | [ ] GO / [ ] NO-GO |
+| C: Execution Readiness | [ ] GO / [ ] NO-GO |
 | **FINAL** | **[ ] PROCEED** / **[ ] DELAY 1 WEEK** |
+
+**NOTE**: GPU infrastructure (Delos-3901) is P4 DEFERRED and not part of Week 1 go/no-go decision.
 
 **Sign-off**:
 - Architecture Lead: _____________ Date: _______
@@ -340,119 +296,30 @@ CONFLICT RESOLUTION:
 ### Parallel Execution Structure
 
 ```
-WEEK 1 PARALLEL TRACKS:
+WEEK 1 PARALLEL TRACKS (GPU P4 DEFERRED):
 
-Track 1: GPU Gate 0 (Delos-3894) ─────────────────────────────→ GO/NO-GO Friday
-         │
-         └─> If GO: Prepare Phase 0 infrastructure (Delos-3895)
-
-Track 2: FK Phase 1A Start (Delos-3896) ──────────────────────→ 50% complete
+Track 1: FK Phase 1A Start (Delos-3896) ──────────────────────→ 50% complete
          │
          └─> Data survey (Delos-3910) ────────────────────────→ Migration YES/NO
 
-Track 3: ZQ Phase 1A Profiling (Delos-3898) ──────────────────→ Baseline established
+Track 2: ZQ Phase 1A Profiling (Delos-3898) ──────────────────→ Baseline established
+
+[GPU Gate 0 (Delos-3894) - DEFERRED P4 - NOT EXECUTED IN WEEK 1]
 ```
 
 ---
 
-### Track 1: GPU Gate 0 Validation (Delos-3894)
+### ~~Track 1: GPU Gate 0 Validation (Delos-3894)~~ [P4 DEFERRED]
 
-**Owner**: GPU Team Lead
-**Duration**: Full Week 1
-**Priority**: P1 CRITICAL GATE
+**ARCHIVED - P4 DEFERRED**
 
-#### Gate 0 Decision Criteria
+This track is not being executed. GPU Batch Verification is marked P4 and indefinitely deferred.
 
-**GO Criteria (ALL must be met)**:
-
-| Criterion | Threshold | Measurement Method |
-|-----------|-----------|-------------------|
-| GPU vs CPU performance | ≥10x CPU single-sig | Benchmark: GPU batch 100 sigs vs CPU single |
-| Absolute throughput | ≥1000 signatures/sec | Time 1000-sig batch, calculate sigs/sec |
-| Memory constraint | <8GB for 1000-sig batch | Monitor with nvidia-smi during test |
-| Library stability | Production-ready | Review docs, test error handling |
-| Fallback viable | CPU batch documented | CPU batch estimate available |
-
-**UNCERTAIN Criteria (Architecture Lead decides)**:
-
-| Criterion | Threshold | Action |
-|-----------|-----------|--------|
-| GPU vs CPU | 7-9x CPU | Document tradeoff, leader decides |
-| Absolute throughput | 700-1000 sigs/sec | Evaluate if acceptable for consensus |
-| Memory | 8-12GB for 1000 sigs | May need smaller batches |
-
-**NO-GO Criteria (ANY triggers NO-GO)**:
-
-| Criterion | Threshold | Result |
-|-----------|-----------|--------|
-| GPU vs CPU | <7x CPU | Insufficient improvement |
-| Absolute throughput | <700 sigs/sec | Below consensus impact threshold |
-| Memory | >12GB for 1000 sigs | Impractical memory requirement |
-| Library | Unstable/undocumented | Risk too high |
-| Hardware | Unavailable | Cannot validate |
-
-#### Day-by-Day Execution
-
-**Monday (Gate 0 Setup)**:
-- Review GPU infrastructure from Week 0 (Delos-3901)
-- Verify GPU library is installed and accessible
-- Create benchmark test harness:
-  - CPU single-sig baseline
-  - GPU batch test (100, 500, 1000 signatures)
-- Run initial tests, document preliminary results
-
-**Tuesday-Wednesday (Gate 0 Testing)**:
-- Execute comprehensive benchmark suite:
-  - Warm-up runs (discard first 5 iterations)
-  - 10 runs each batch size, average results
-  - Record: throughput, latency p50/p99, memory
-- Test error handling:
-  - What happens if GPU memory exhausted?
-  - What happens if GPU fails mid-batch?
-  - What happens with invalid signatures?
-- Document library stability assessment
-
-**Thursday (Gate 0 Analysis)**:
-- Compile all benchmark results
-- Calculate: GPU speedup vs CPU baseline
-- Evaluate against GO/UNCERTAIN/NO-GO thresholds
-- Prepare Gate 0 decision document:
-  - GPU_GATE_0_RESULTS.md
-  - Include all raw data and analysis
-  - Recommendation: GO / UNCERTAIN / NO-GO
-
-**Friday (Gate 0 Decision)**:
-- Present Gate 0 results to Architecture Lead
-- Make GO/NO-GO decision:
-  - **If GO**: Proceed to GPU Phase 0 (Delos-3895) in Week 2
-  - **If UNCERTAIN**: Architecture Lead makes final call
-  - **If NO-GO**: Pivot to CPU batch optimization, archive GPU plan
-- Broadcast decision to all teams
-- Update bead status:
-  - GO: `bd update Delos-3894 --status closed` + `bd update Delos-3890.1 --status in_progress`
-  - NO-GO: `bd update Delos-3894 --status closed` + `bd update Delos-3890 --status blocked`
-
-#### Contingency: If NO-GO
-
-1. **Immediate Actions**:
-   - Document failure reason in GPU_GATE_0_NO_GO.md
-   - Archive GPU plan (Delos-3890 epic)
-   - Reallocate GPU team resources
-
-2. **Pivot Options**:
-   - **Option A**: CPU Batch Optimization (2-3 weeks)
-     - SIMD vectorization for Ed25519
-     - Estimated 2-5x improvement over single-sig
-     - Lower effort, lower reward
-   - **Option B**: Abandon signature acceleration
-     - Focus on other strategic opportunities
-     - GPU team joins FK or ZQ teams
-
-3. **Decision Authority**: Architecture Lead + Engineering Manager
+**If re-prioritized in future strategic review**: See git history for complete GPU Gate 0 validation procedures.
 
 ---
 
-### Track 2: FK Phase 1A Start (Delos-3896)
+### Track 1: FK Phase 1A - Fireflies-KERI Integration Start (Delos-3896)
 
 **Owner**: FK Team Lead
 **Duration**: Week 1-2 (50% complete by end of Week 1)
@@ -550,27 +417,25 @@ Track 3: ZQ Phase 1A Profiling (Delos-3898) ────────────
 ### Parallel Execution Structure
 
 ```
-WEEKS 2-3 PARALLEL TRACKS:
+WEEKS 2-3 PARALLEL TRACKS (GPU P4 DEFERRED):
 
-Track 1: GPU Phase 0 Infrastructure (if Gate 0 GO)
-         ├─ Delos-3895: GPU infrastructure setup (1 week)
-         └─ Delos-3890.1: GPU Phase 1 research (starts Week 2-3)
-
-Track 2: FK Phase 1 Completion
+Track 1: FK Phase 1 Completion (PRIMARY)
          ├─ Delos-3896: KERI requirements (complete by Week 2)
          └─ Delos-3897: Migration strategy (1 week, CRITICAL)
 
-Track 3: ZQ Phase 1 Continuation
+Track 2: ZQ Phase 1 Continuation
          ├─ Delos-3898: Complete baseline (by Week 2 mid)
          └─ Delos-3899: Cache invalidation design (by Week 3)
 
-Track 4: DA Pre-Work (BLOCKED)
+Track 3: DA Pre-Work (BLOCKED)
          └─ Pre-study only, no active development
+
+[GPU Phase 0/1 (Delos-3895, Delos-3890.1) - DEFERRED P4 - NOT EXECUTED]
 ```
 
 ---
 
-### Track 2: FK Phase 1 Completion (Weeks 2-3) - PRIMARY
+### Track 1: FK Phase 1 Completion (Weeks 2-3) - PRIMARY
 
 #### Week 2: FK Phase 1A Completion (Delos-3896)
 
@@ -669,11 +534,11 @@ Phase D: Thoth Decommission (Week N+3)
 
 | Metric | Target | Validation |
 |--------|--------|------------|
-| GPU Phase 0/1 progress | If GO: 70% Phase 1 complete | Deliverables reviewed |
 | FK Phase 1 complete | Exit gate passed | Delos-3906 signed |
 | FK migration strategy | Documented and reviewed | MIGRATION_STRATEGY.md approved |
 | ZQ Phase 1B complete | Cache design reviewed | Security audit passed |
 | DA unblocked | FK exit gate passed | Ready for Week 4 start |
+| ~~GPU Phase 0/1~~ | ~~DEFERRED P4~~ | ~~Not executed~~ |
 
 ### Overall Phase 1 Success
 
@@ -692,10 +557,10 @@ Phase D: Thoth Decommission (Week N+3)
 
 | Risk | Trigger | Impact | Mitigation | Owner |
 |------|---------|--------|------------|-------|
-| GPU library unavailable | Gate 0 NO-GO | GPU plan stops | CPU batch fallback | GPU Lead |
-| GPU hardware unavailable | Week 0 provisioning fails | Gate 0 cannot proceed | Backup cloud provider | GPU Lead |
 | FK ordering unproven | Week 1 validation fails | FK plan at risk | Alternative KERL backend | FK Lead |
 | Resource conflict | Teams not available | All plans delayed | Early confirmation | PM |
+| ~~GPU library unavailable~~ | ~~DEFERRED P4~~ | ~~Not applicable~~ | ~~Not applicable~~ | ~~N/A~~ |
+| ~~GPU hardware unavailable~~ | ~~DEFERRED P4~~ | ~~Not applicable~~ | ~~Not applicable~~ | ~~N/A~~ |
 
 ### Tier 2: High Risks (Weeks 2-3)
 
@@ -703,7 +568,6 @@ Phase D: Thoth Decommission (Week N+3)
 |------|---------|--------|------------|-------|
 | FK migration complexity | Thoth data volume 10x expected | Phase 1D extends 2+ weeks | Phased migration, scope negotiation | FK Lead |
 | ZQ cache correctness | Security review fails | Design rework needed | Conservative invalidation strategy | ZQ Lead |
-| Fireflies module conflict | GPU + FK both need Ethereal | Integration delays | FK priority, daily sync | Arch Lead |
 
 ### Tier 3: Medium Risks (Ongoing)
 
@@ -721,24 +585,24 @@ Phase D: Thoth Decommission (Week N+3)
 
 | Team | Size | Start | Duration | Key Skills |
 |------|------|-------|----------|------------|
-| GPU | 2-3 | Week 0 | 14 weeks | CUDA, JNI, Ed25519 |
 | FK | 2-3 | Week 0 | 14 weeks | KERI, Fireflies, BFT |
 | ZQ | 1-2 | Week 0 | 8 weeks | Delphinius, RBAC, SQL |
 | DA | 1-2 | Week 4 | 8 weeks | BFT, ring topology |
+| ~~GPU~~ | ~~2-3~~ | ~~DEFERRED P4~~ | ~~14 weeks~~ | ~~CUDA, JNI, Ed25519~~ |
 
 ### Weekly Allocation (Hours)
 
 | Role | Week 0 | Week 1 | Week 2 | Week 3 |
 |------|--------|--------|--------|--------|
-| GPU Lead | 40 | 40 | 40 | 40 |
-| GPU Eng (2) | 0 | 80 | 80 | 80 |
 | FK Lead | 40 | 40 | 40 | 40 |
 | FK Eng (2) | 0 | 80 | 80 | 80 |
 | ZQ Lead | 40 | 40 | 40 | 40 |
 | ZQ Eng (1) | 0 | 40 | 40 | 40 |
 | DA Lead | 20 | 20 | 20 | 20 |
 | Arch Lead | 20 | 20 | 20 | 20 |
-| **Total** | **160** | **360** | **360** | **360** |
+| **Total** | **120** | **240** | **240** | **240** |
+| ~~GPU Lead~~ | ~~40~~ | ~~40~~ | ~~40~~ | ~~40~~ |
+| ~~GPU Eng (2)~~ | ~~0~~ | ~~80~~ | ~~80~~ | ~~80~~ |
 
 ---
 
@@ -748,18 +612,21 @@ Phase D: Thoth Decommission (Week N+3)
 
 | Bead ID | Title | Owner | Week | Status |
 |---------|-------|-------|------|--------|
-| Delos-3901 | GPU Infrastructure | GPU Lead | 0 | IN PROGRESS |
-| Delos-3902 | Resource Validation | PM | 0 | PENDING |
+| **ACTIVE PHASE 1 BEADS** | | | | |
+| Delos-3902 | Resource Validation (FK/ZQ/DA) | PM | 0 | PENDING |
 | Delos-3903 | Prerequisites Docs | Arch Lead | 0 | PENDING |
 | Delos-3904 | Pre-Week-1 Checklist | Arch Lead | 0 | PENDING |
-| Delos-3894 | GPU Gate 0 | GPU Lead | 1 | PENDING |
 | Delos-3910 | FK Data Survey | FK Lead | 1 | PENDING |
 | Delos-3896 | FK Phase 1A | FK Lead | 1-2 | PENDING |
 | Delos-3898 | ZQ Phase 1A | ZQ Lead | 1 | PENDING |
-| Delos-3895 | GPU Phase 0 | GPU Lead | 2 | PENDING |
 | Delos-3897 | FK Phase 1D | FK Lead | 2-3 | PENDING |
 | Delos-3899 | ZQ Cache Design | ZQ Lead | 2-3 | PENDING |
-| Delos-3890.1 | GPU Phase 1 | GPU Lead | 2-3 | PENDING |
+| | | | | |
+| **P4 DEFERRED BEADS** | | | | |
+| ~~Delos-3901~~ | ~~GPU Infrastructure~~ | ~~GPU Lead~~ | ~~0~~ | **❌ P4 DEFERRED** |
+| ~~Delos-3894~~ | ~~GPU Gate 0~~ | ~~GPU Lead~~ | ~~1~~ | **❌ P4 DEFERRED** |
+| ~~Delos-3895~~ | ~~GPU Phase 0~~ | ~~GPU Lead~~ | ~~2~~ | **❌ P4 DEFERRED** |
+| ~~Delos-3890.1~~ | ~~GPU Phase 1~~ | ~~GPU Lead~~ | ~~2-3~~ | **❌ P4 DEFERRED** |
 
 ---
 
