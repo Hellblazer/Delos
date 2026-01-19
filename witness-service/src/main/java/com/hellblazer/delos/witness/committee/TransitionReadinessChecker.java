@@ -128,4 +128,16 @@ public final class TransitionReadinessChecker {
         var f = getFaultToleranceThreshold();
         return 2 * f + 1;
     }
+
+    /**
+     * Get the set of registered member identifiers.
+     * <p>
+     * Returns all committee members that have registered BLS keys.
+     * Used for recording transition metadata to CHOAM.
+     *
+     * @return Set of member identifiers with registered keys (may be empty, never null)
+     */
+    public java.util.Set<com.hellblazer.delos.stereotomy.identifier.Identifier> getRegisteredMembers() {
+        return keyStore.registeredMembers();
+    }
 }

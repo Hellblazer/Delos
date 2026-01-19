@@ -116,9 +116,10 @@ public final class GenesisTransitionCoordinator {
     private final WitnessParameters parameters;
     private final AtomicReference<TransitionState> state;
     private final ScheduledExecutorService scheduler;
+    private final CHOAMTransitionRecorder recorder;  // Optional - null if not recording
 
     /**
-     * Create genesis transition coordinator.
+     * Create genesis transition coordinator without CHOAM recording.
      *
      * @param checker Readiness checker for BFT quorum validation
      * @param tracker Migration state tracker for phase transitions
@@ -130,15 +131,35 @@ public final class GenesisTransitionCoordinator {
         MigrationStateTracker tracker,
         WitnessParameters parameters
     ) {
+        this(checker, tracker, parameters, null);
+    }
+
+    /**
+     * Create genesis transition coordinator with optional CHOAM recording.
+     *
+     * @param checker Readiness checker for BFT quorum validation
+     * @param tracker Migration state tracker for phase transitions
+     * @param parameters Witness network parameters (provides drain period)
+     * @param recorder Optional CHOAM transition recorder (null to disable recording)
+     * @throws NullPointerException if checker, tracker, or parameters is null
+     */
+    public GenesisTransitionCoordinator(
+        TransitionReadinessChecker checker,
+        MigrationStateTracker tracker,
+        WitnessParameters parameters,
+        CHOAMTransitionRecorder recorder
+    ) {
         this.checker = Objects.requireNonNull(checker, "checker cannot be null");
         this.tracker = Objects.requireNonNull(tracker, "tracker cannot be null");
         this.parameters = Objects.requireNonNull(parameters, "parameters cannot be null");
+        this.recorder = recorder;  // Can be null
         this.state = new AtomicReference<>(TransitionState.NOT_STARTED);
         this.scheduler = Executors.newSingleThreadScheduledExecutor(
             Thread.ofVirtual().name("genesis-transition-", 0).factory()
         );
 
-        log.debug("Created GenesisTransitionCoordinator with drain period: {}", parameters.drainPeriod());
+        log.debug("Created GenesisTransitionCoordinator with drain period: {} (recording: {})",
+            parameters.drainPeriod(), recorder != null);
     }
 
     /**
@@ -241,6 +262,26 @@ public final class GenesisTransitionCoordinator {
             state.set(TransitionState.complete());
 
             log.info("Genesis transition complete: now in BLS_ONLY phase");
+
+            // Record transition to CHOAM if recorder is configured
+            if (recorder != null) {
+                var transition = new GenesisTransition(
+                    MigrationPhase.DUAL,
+                    MigrationPhase.BLS_ONLY,
+                    java.time.Instant.now(),
+                    checker.getRegisteredMemberCount(),
+                    checker.isReadyForTransition(),
+                    java.util.List.copyOf(checker.getRegisteredMembers())
+                );
+
+                recorder.recordTransition(transition).whenComplete((digest, throwable) -> {
+                    if (throwable == null) {
+                        log.info("Transition recorded to CHOAM: block {}", digest);
+                    } else {
+                        log.warn("Failed to record transition to CHOAM (non-fatal)", throwable);
+                    }
+                });
+            }
         } catch (Exception e) {
             log.error("Failed to complete genesis transition", e);
             state.set(TransitionState.failed());
@@ -331,6 +372,31 @@ public final class GenesisTransitionCoordinator {
 
         log.info("Soft rollback initiated - transition cancelled");
         return true;
+    }
+
+    /**
+     * Get current transition status (alias for getStatus()).
+     * <p>
+     * This method is an alias to support legacy code that expects getTransitionStatus().
+     * </p>
+     *
+     * @return Current status (never null)
+     */
+    public TransitionStatus getTransitionStatus() {
+        return getStatus();
+    }
+
+    /**
+     * Check if transition is currently in progress.
+     * <p>
+     * Returns true if status is WAITING_FOR_READINESS or DRAINING.
+     * </p>
+     *
+     * @return true if transition is in progress
+     */
+    public boolean isTransitionInProgress() {
+        var status = getStatus();
+        return status == TransitionStatus.WAITING_FOR_READINESS || status == TransitionStatus.DRAINING;
     }
 
     /**
