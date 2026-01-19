@@ -110,17 +110,17 @@ class WitnessByzantineTest {
         var sig1 = byzantineSigner.sign(event1.toByteString().toByteArray());
         var sig2 = byzantineSigner.sign(event2.toByteString().toByteArray());
 
-        // Detector should identify equivocation
+        // Detector should identify equivocation using full signature bytes
         byzantineDetector.recordSignature(
             byzantineSigner.getIdentifier(),
             1L, // sequence number
-            sig1.getBytes()[0][0]
+            sig1.getBytes()[0]  // Full signature bytes
         );
 
         var isEquivocation = byzantineDetector.recordSignature(
             byzantineSigner.getIdentifier(),
             1L, // same sequence
-            sig2.getBytes()[0][0]
+            sig2.getBytes()[0]  // Full signature bytes
         );
 
         assertTrue(isEquivocation, "Should detect equivocation with different signatures at same sequence");
@@ -195,17 +195,17 @@ class WitnessByzantineTest {
         // When signatures are compared, equivocation is detected
         assertNotEquals(sig1, sig2, "Signatures for different events should differ");
 
-        // Record both signatures at same height/sequence
+        // Record both signatures at same height/sequence using full signature bytes
         byzantineDetector.recordSignature(
             byzantineSigner.getIdentifier(),
             100L,
-            sig1.getBytes()[0][0]
+            sig1.getBytes()[0]  // Full signature bytes
         );
 
         var equivocation = byzantineDetector.recordSignature(
             byzantineSigner.getIdentifier(),
             100L, // same sequence
-            sig2.getBytes()[0][0]
+            sig2.getBytes()[0]  // Full signature bytes
         );
 
         assertTrue(equivocation, "Should detect equivocation across different recipients");

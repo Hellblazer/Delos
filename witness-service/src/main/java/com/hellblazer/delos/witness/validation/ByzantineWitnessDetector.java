@@ -447,18 +447,21 @@ public class ByzantineWitnessDetector {
         return witnessStatuses.getOrDefault(witnessId, new WitnessStatus()).suspicious;
     }
 
-    public boolean recordSignature(Identifier witnessId, long sequence, byte signatureFirstByte) {
+    public boolean recordSignature(Identifier witnessId, long sequence, byte[] signatureBytes) {
+        Objects.requireNonNull(witnessId, "witnessId cannot be null");
+        Objects.requireNonNull(signatureBytes, "signatureBytes cannot be null");
+
         var history = signatureHistory.computeIfAbsent(witnessId, k -> new java.util.concurrent.ConcurrentHashMap<>());
         var existing = history.get(sequence);
-        if (existing != null && !java.util.Arrays.equals(existing, new byte[]{signatureFirstByte})) {
-            // Equivocation detected
+        if (existing != null && !java.util.Arrays.equals(existing, signatureBytes)) {
+            // Equivocation detected: different signatures at same sequence
             recordInvalidSignature(witnessId);
             if (equivocationDetected != null) {
                 equivocationDetected.inc();
             }
             return true;
         }
-        history.put(sequence, new byte[]{signatureFirstByte});
+        history.put(sequence, signatureBytes);
         return false;
     }
 
