@@ -161,9 +161,18 @@ class BLSAggregateTest {
 
     @Test
     void aggregateMultipleSignaturesCreatesCorrectBitmap() {
-        var sig1 = new BLSSignature(BLSTestFixtures.randomMessage(SIGNATURE_SIZE));
-        var sig2 = new BLSSignature(BLSTestFixtures.randomMessage(SIGNATURE_SIZE));
-        var sig3 = new BLSSignature(BLSTestFixtures.randomMessage(SIGNATURE_SIZE));
+        // Use real BLS signatures instead of random bytes
+        var provider = new com.hellblazer.delos.cryptography.bls.impl.TekuBLSProvider();
+        var message = BLSTestFixtures.randomMessage(32);
+
+        // Generate three real signatures
+        var keyPair1 = provider.generateKeyPair(BLSTestFixtures.RANDOM);
+        var keyPair2 = provider.generateKeyPair(BLSTestFixtures.RANDOM);
+        var keyPair3 = provider.generateKeyPair(BLSTestFixtures.RANDOM);
+
+        var sig1 = new BLSSignature(provider.sign(keyPair1.secretKey(), message));
+        var sig2 = new BLSSignature(provider.sign(keyPair2.secretKey(), message));
+        var sig3 = new BLSSignature(provider.sign(keyPair3.secretKey(), message));
 
         // Signer indices: 0, 2, 5
         var aggregate = BLSAggregate.aggregate(
