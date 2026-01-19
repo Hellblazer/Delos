@@ -276,7 +276,7 @@ public class WitnessContext {
      * @param digest Digest to convert
      * @return Identifier wrapping digest
      */
-    private Identifier toIdentifier(Digest digest) {
+    public Identifier toIdentifier(Digest digest) {
         return new SelfAddressingIdentifier(digest);
     }
 }
