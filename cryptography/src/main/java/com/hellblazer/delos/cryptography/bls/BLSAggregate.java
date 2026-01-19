@@ -4,6 +4,8 @@
 
 package com.hellblazer.delos.cryptography.bls;
 
+import com.hellblazer.delos.cryptography.bls.impl.TekuBLSProvider;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
@@ -67,16 +69,18 @@ public record BLSAggregate(BLSSignature aggregatedSignature, byte[] signerBitmap
             );
         }
 
-        // Aggregate signatures - placeholder for now
-        // TODO: Phase 1B-2 - Implement actual cryptographic aggregation
-        // For now, using first signature as representative; real aggregation requires
-        // proper provider initialization and error handling
+        // Aggregate signatures using BLS provider
         BLSSignature aggregated;
         if (signatures.size() == 1) {
             aggregated = signatures.get(0);
         } else {
-            // Placeholder: use first signature (will be fixed in Phase 1B-2)
-            aggregated = signatures.get(0);
+            // Use the provider to aggregate multiple signatures
+            var provider = new TekuBLSProvider();
+            var sigBytes = signatures.stream()
+                                     .map(BLSSignature::toBytes)
+                                     .toList();
+            var aggregatedBytes = provider.aggregateSignatures(sigBytes);
+            aggregated = new BLSSignature(aggregatedBytes);
         }
 
         // Build bitmap from signer indices
