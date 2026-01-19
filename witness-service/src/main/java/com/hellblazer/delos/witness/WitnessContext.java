@@ -16,6 +16,7 @@ import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
 
 import java.nio.ByteBuffer;
 import java.time.Duration;
+import java.util.List;
 import java.util.SequencedSet;
 import java.util.Set;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -278,5 +279,28 @@ public class WitnessContext {
      */
     public Identifier toIdentifier(Digest digest) {
         return new SelfAddressingIdentifier(digest);
+    }
+
+    /**
+     * Get the committee BLS public keys.
+     * <p>
+     * <strong>NOTE:</strong> This is a Phase 1B-3 dependency. The method is currently
+     * a stub that throws UnsupportedOperationException. Full implementation requires:
+     * <ul>
+     *   <li>Integration with CommitteeBLSKeyStore (Phase 1B-3)</li>
+     *   <li>BLS key derivation from committee member identities</li>
+     *   <li>Key refresh on view changes</li>
+     * </ul>
+     * <p>
+     * See Phase 1B-2-C Implementation Plan lines 1090-1135 for implementation options.
+     *
+     * @return List of BLS public keys for committee members
+     * @throws UnsupportedOperationException until Phase 1B-3 is implemented
+     */
+    public List<com.hellblazer.delos.cryptography.bls.BLSPublicKey> getCommitteeBLSKeys() {
+        throw new UnsupportedOperationException(
+            "getCommitteeBLSKeys() is Phase 1B-3 work. " +
+            "See Phase 1B-2-C Implementation Plan lines 1090-1135 for implementation options."
+        );
     }
 }

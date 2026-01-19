@@ -302,6 +302,33 @@ message DrainStatus {
 }
 
 /**
+ * Phase transition request for migration management.
+ * Admin endpoint to manually advance migration phase.
+ */
+message PhaseTransitionRequest {
+  // Target migration phase (INIT, DUAL, BLS_ONLY)
+  string newPhase = 1;
+}
+
+/**
+ * Phase transition response.
+ * Indicates success or failure of phase transition.
+ */
+message PhaseTransitionResponse {
+  // Whether transition succeeded
+  bool success = 1;
+
+  // Previous phase (if successful)
+  string oldPhase = 2;
+
+  // New phase (if successful)
+  string newPhase = 3;
+
+  // Error message (if failed)
+  string errorMessage = 4;
+}
+
+/**
  * KERI Witness Service
  * Provides witness receipt signing, collection, validation, and streaming.
  */
@@ -366,4 +393,11 @@ service WitnessService {
    * Non-blocking check of drain period progress.
    */
   rpc GetDrainStatus(google.protobuf.Empty) returns (DrainStatus);
+
+  /**
+   * Manually advance migration phase (admin endpoint).
+   * Allows administrative control of Ed25519 to BLS migration.
+   * Security: Should require authentication in production.
+   */
+  rpc ManualAdvancePhase(PhaseTransitionRequest) returns (PhaseTransitionResponse);
 }

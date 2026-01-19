@@ -117,6 +117,15 @@ public class WitnessBootstrap implements AutoCloseable {
                 .build()
         );
 
+        // Create migration components for Ed25519 to BLS transition
+        var migrationStateTracker = new com.hellblazer.delos.witness.migration.MigrationStateTracker(
+            com.hellblazer.delos.witness.migration.MigrationPhase.INIT,
+            0L
+        );
+        var compatibilityLayer = new com.hellblazer.delos.witness.migration.ReceiptCompatibilityLayer(
+            migrationStateTracker
+        );
+
         // Create gRPC service implementation
         witnessService = new WitnessServiceImpl(
             witnessCHOAM,
@@ -128,7 +137,9 @@ public class WitnessBootstrap implements AutoCloseable {
                 .epoch(0)
                 .drainPeriod(config.drainPeriod())
                 .build(),
-            config.digestAlgorithm()
+            config.digestAlgorithm(),
+            migrationStateTracker,
+            compatibilityLayer
         );
 
         // Initialize Fireflies integration for view changes

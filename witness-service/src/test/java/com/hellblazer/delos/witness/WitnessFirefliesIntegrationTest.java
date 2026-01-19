@@ -104,7 +104,13 @@ class WitnessFirefliesIntegrationTest {
         witnessCHOAM = new WitnessCHOAM(null, null, stateMachine, parameters);
         witnessCHOAM.onViewChange(genesisBlock);
 
-        witnessService = new WitnessServiceImpl(witnessCHOAM, witnessContext, receiptManager, parameters, ALGORITHM);
+        var migrationStateTracker = new com.hellblazer.delos.witness.migration.MigrationStateTracker(
+            com.hellblazer.delos.witness.migration.MigrationPhase.INIT, 0L
+        );
+        var compatibilityLayer = new com.hellblazer.delos.witness.migration.ReceiptCompatibilityLayer(migrationStateTracker);
+
+        witnessService = new WitnessServiceImpl(witnessCHOAM, witnessContext, receiptManager, parameters, ALGORITHM,
+                                                migrationStateTracker, compatibilityLayer);
     }
 
     @Test

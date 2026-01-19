@@ -9,6 +9,10 @@ package com.hellblazer.delos.witness;
 import com.hellblazer.delos.choam.support.HashedCertifiedBlock;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
+import com.hellblazer.delos.witness.migration.CompatibilityResult;
+import com.hellblazer.delos.witness.migration.MigrationPhase;
+import com.hellblazer.delos.witness.migration.MigrationStateTracker;
+import com.hellblazer.delos.witness.migration.ReceiptCompatibilityLayer;
 import com.hellblazer.delos.witness.proto.*;
 import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
@@ -16,6 +20,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -42,6 +47,11 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
     private final WitnessParameters parameters;
     private final DigestAlgorithm digestAlgorithm;
 
+    // Task 4: Migration compatibility layer integration
+    private final MigrationStateTracker migrationStateTracker;
+    private final ReceiptCompatibilityLayer compatibilityLayer;
+    private final AtomicReference<MigrationPhase> currentPhase;
+
     // Subscription management for streaming endpoints
     private final Map<String, ReceiptSubscription> activeSubscriptions = new ConcurrentHashMap<>();
     private final ReadWriteLock subscriptionLock = new ReentrantReadWriteLock();
@@ -54,16 +64,38 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
     private long totalReceiptsIssued = 0;
     private String lastErrorMessage = "";
 
+    /**
+     * Create WitnessServiceImpl with migration compatibility support.
+     *
+     * @param witnessCHOAM CHOAM state machine
+     * @param witnessContext Witness context for committee selection
+     * @param receiptManager Receipt manager
+     * @param parameters Witness parameters
+     * @param digestAlgorithm Digest algorithm
+     * @param migrationStateTracker Migration state tracker
+     * @param compatibilityLayer Receipt compatibility layer
+     */
     public WitnessServiceImpl(WitnessCHOAM witnessCHOAM,
                             WitnessContext witnessContext,
                             WitnessReceiptManager receiptManager,
                             WitnessParameters parameters,
-                            DigestAlgorithm digestAlgorithm) {
+                            DigestAlgorithm digestAlgorithm,
+                            MigrationStateTracker migrationStateTracker,
+                            ReceiptCompatibilityLayer compatibilityLayer) {
         this.witnessCHOAM = witnessCHOAM;
         this.witnessContext = witnessContext;
         this.receiptManager = receiptManager;
         this.parameters = parameters;
         this.digestAlgorithm = digestAlgorithm;
+        this.migrationStateTracker = migrationStateTracker;
+        this.compatibilityLayer = compatibilityLayer;
+        this.currentPhase = new AtomicReference<>(migrationStateTracker.getCurrentPhase());
+
+        // Register listener for phase changes
+        migrationStateTracker.addPhaseChangeListener(newPhase -> {
+            currentPhase.set(newPhase);
+            log.info("Migration phase updated to: {}", newPhase);
+        });
     }
 
     /**
@@ -222,8 +254,19 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
     }
 
     /**
-     * Validate receipt signature threshold.
-     * Verifies M-of-N signatures present and all signers are committee members.
+     * Validate receipt signature threshold with migration phase awareness.
+     * <p>
+     * Task 4: Integrates ReceiptCompatibilityLayer for format detection and validation.
+     * Routes receipts to appropriate validator based on migration phase.
+     * <p>
+     * Validation flow:
+     * <ol>
+     *   <li>Detect signature format (BLS or Ed25519)</li>
+     *   <li>Validate format allowed in current phase</li>
+     *   <li>Route to appropriate validator</li>
+     *   <li>Handle fallback in DUAL phase if policy allows</li>
+     *   <li>Update metrics</li>
+     * </ol>
      *
      * @param request WitnessReceipt to validate
      * @param responseObserver Observer for ReceiptResponse with validation result
@@ -236,67 +279,70 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
             var eventCoordinates = EventCoordinates.from(request.getEventCoordinates());
             int signatureCount = request.getSignaturesCount();
 
-            log.debug("ValidateReceipt: event={}, signatures={}", eventCoordinates, signatureCount);
+            log.debug("ValidateReceipt: event={}, signatures={}, phase={}",
+                     eventCoordinates, signatureCount, currentPhase.get());
 
-            // Check threshold achieved
-            if (signatureCount < parameters.threshold()) {
-                var response = ReceiptResponse.newBuilder()
-                    .setReceipt(request)
-                    .setStatus(ValidationStatus.INVALID)
-                    .setSignatureCount(signatureCount)
-                    .setRequiredThreshold(parameters.threshold())
-                    .build();
+            // Task 4: Integrate ReceiptCompatibilityLayer for format validation
+            var compatibilityResult = compatibilityLayer.validateReceipt(request, currentPhase.get());
 
-                responseObserver.onNext(response);
-                responseObserver.onCompleted();
+            // Map CompatibilityResult to ValidationStatus
+            var validationStatus = mapCompatibilityResultToStatus(compatibilityResult);
 
+            // Check threshold achieved (for Ed25519, count from signatures; for BLS, assume threshold if valid)
+            var effectiveSignatureCount = request.hasBlsSig() ? parameters.threshold() : signatureCount;
+
+            if (effectiveSignatureCount < parameters.threshold() &&
+                validationStatus == ValidationStatus.THRESHOLD_MET) {
+                validationStatus = ValidationStatus.INVALID;
                 log.debug("ValidateReceipt: insufficient signatures for event={}, got {} needed {}",
-                         eventCoordinates, signatureCount, parameters.threshold());
-                return;
+                         eventCoordinates, effectiveSignatureCount, parameters.threshold());
             }
-
-            // Verify all signers are committee members for this event
-            // TODO Phase 1A-3: Extract signer identities and validate membership
-            // For now, assume valid if threshold met and epoch matches
 
             // Validate epoch/view consistency
             long receiptEpoch = request.getEpoch();
             if (receiptEpoch > parameters.epoch()) {
                 // Receipt from future epoch - invalid
-                var response = ReceiptResponse.newBuilder()
-                    .setReceipt(request)
-                    .setStatus(ValidationStatus.STALE)
-                    .setSignatureCount(signatureCount)
-                    .setRequiredThreshold(parameters.threshold())
-                    .build();
-
-                responseObserver.onNext(response);
-                responseObserver.onCompleted();
-
+                validationStatus = ValidationStatus.STALE;
                 log.debug("ValidateReceipt: future epoch for event={}, receipt_epoch={} > current={}",
                          eventCoordinates, receiptEpoch, parameters.epoch());
-                return;
             }
 
-            // Validation passed
+            // Build response
             var response = ReceiptResponse.newBuilder()
                 .setReceipt(request)
-                .setStatus(ValidationStatus.THRESHOLD_MET)
-                .setSignatureCount(signatureCount)
+                .setStatus(validationStatus)
+                .setSignatureCount(effectiveSignatureCount)
                 .setRequiredThreshold(parameters.threshold())
                 .build();
 
             responseObserver.onNext(response);
             responseObserver.onCompleted();
 
-            log.debug("ValidateReceipt: valid receipt for event={}, signatures={}/{}",
-                     eventCoordinates, signatureCount, parameters.threshold());
+            log.debug("ValidateReceipt: validation complete for event={}, status={}, signatures={}/{}",
+                     eventCoordinates, validationStatus, effectiveSignatureCount, parameters.threshold());
 
         } catch (Exception e) {
             log.error("Error in validateReceipt", e);
             lastErrorMessage = "ValidateReceipt error: " + e.getMessage();
             responseObserver.onError(e);
         }
+    }
+
+    /**
+     * Map CompatibilityResult to ValidationStatus.
+     *
+     * @param result Compatibility validation result
+     * @return Corresponding ValidationStatus
+     */
+    private ValidationStatus mapCompatibilityResultToStatus(CompatibilityResult result) {
+        return switch (result) {
+            case CompatibilityResult.Valid v -> ValidationStatus.THRESHOLD_MET;
+            case CompatibilityResult.BlsValidationFailed f -> ValidationStatus.INVALID;
+            case CompatibilityResult.Ed25519ValidationFailed f -> ValidationStatus.INVALID;
+            case CompatibilityResult.FormatNotSupported f -> ValidationStatus.INVALID;
+            case CompatibilityResult.MixedFormatError f -> ValidationStatus.INVALID;
+            case CompatibilityResult.UnknownFormat f -> ValidationStatus.INVALID;
+        };
     }
 
     /**
@@ -739,6 +785,92 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
     public boolean isAcceptingCollections() {
         var stats = witnessCHOAM.getStatistics();
         return !stats.draining();
+    }
+
+    /**
+     * Manually advance migration phase (admin endpoint).
+     * <p>
+     * Task 4: Allows administrative control of migration phase transitions.
+     * Triggers MigrationStateTracker phase transition and notifies all listeners.
+     * <p>
+     * <strong>Security:</strong> This endpoint should require authentication/authorization
+     * in production deployments. Current implementation is a stub for integration testing.
+     * <p>
+     * Valid phase transitions:
+     * <ul>
+     *   <li>INIT → DUAL</li>
+     *   <li>DUAL → BLS_ONLY</li>
+     * </ul>
+     *
+     * @param request Phase transition request with new phase name
+     * @param responseObserver Observer for phase transition response
+     */
+    public void manualAdvancePhase(PhaseTransitionRequest request,
+                                  StreamObserver<PhaseTransitionResponse> responseObserver) {
+        try {
+            String newPhaseStr = request.getNewPhase();
+            log.info("ManualAdvancePhase: requesting phase transition to {}", newPhaseStr);
+
+            // Parse phase from string
+            MigrationPhase newPhase;
+            try {
+                newPhase = MigrationPhase.valueOf(newPhaseStr);
+            } catch (IllegalArgumentException e) {
+                log.warn("ManualAdvancePhase: invalid phase name: {}", newPhaseStr);
+                var response = PhaseTransitionResponse.newBuilder()
+                    .setSuccess(false)
+                    .setErrorMessage("Invalid phase name: " + newPhaseStr)
+                    .build();
+                responseObserver.onNext(response);
+                responseObserver.onCompleted();
+                return;
+            }
+
+            // Trigger phase transition
+            migrationStateTracker.manualAdvance(newPhase);
+
+            // Build success response
+            var response = PhaseTransitionResponse.newBuilder()
+                .setSuccess(true)
+                .setOldPhase(currentPhase.get().name())
+                .setNewPhase(newPhase.name())
+                .build();
+
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
+
+            log.info("ManualAdvancePhase: phase transition complete, old={}, new={}",
+                    currentPhase.get(), newPhase);
+
+        } catch (Exception e) {
+            log.error("Error in manualAdvancePhase", e);
+            lastErrorMessage = "ManualAdvancePhase error: " + e.getMessage();
+
+            var response = PhaseTransitionResponse.newBuilder()
+                .setSuccess(false)
+                .setErrorMessage(e.getMessage())
+                .build();
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
+        }
+    }
+
+    /**
+     * Get current migration phase.
+     *
+     * @return Current migration phase
+     */
+    public MigrationPhase getCurrentMigrationPhase() {
+        return currentPhase.get();
+    }
+
+    /**
+     * Get compatibility layer metrics.
+     *
+     * @return Compatibility layer instance for metrics access
+     */
+    public ReceiptCompatibilityLayer getCompatibilityLayer() {
+        return compatibilityLayer;
     }
 
     /**

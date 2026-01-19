@@ -93,12 +93,19 @@ class WitnessViewChangePropagationTest {
             new WitnessCHOAM.Statistics(0, 0, 0, false, 0)
         );
 
+        var migrationStateTracker = new com.hellblazer.delos.witness.migration.MigrationStateTracker(
+            com.hellblazer.delos.witness.migration.MigrationPhase.INIT, 0L
+        );
+        var compatibilityLayer = new com.hellblazer.delos.witness.migration.ReceiptCompatibilityLayer(migrationStateTracker);
+
         service = new WitnessServiceImpl(
             witnessCHOAM,
             witnessContext,
             receiptManager,
             parameters,
-            ALGORITHM
+            ALGORITHM,
+            migrationStateTracker,
+            compatibilityLayer
         );
     }
 
