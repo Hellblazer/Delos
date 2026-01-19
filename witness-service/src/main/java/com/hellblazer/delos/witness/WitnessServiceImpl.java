@@ -555,6 +555,125 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
     }
 
     /**
+     * Notify witness service of view change from Fireflies.
+     * Initiates drain period for in-flight collections before epoch transition.
+     *
+     * @param request ViewChange notification with new epoch and members
+     * @param responseObserver Observer for DrainStatus response
+     */
+    @Override
+    public void notifyViewChange(ViewChange request,
+                                StreamObserver<DrainStatus> responseObserver) {
+        try {
+            long newEpoch = request.getNewEpoch();
+            log.debug("NotifyViewChange: old_epoch={}, new_epoch={}", request.getOldEpoch(), newEpoch);
+
+            // Update witness context with new members (Phase 1A-3: implement)
+            // TODO Phase 1A-3: Update WitnessContext with new members from request
+
+            // Initiate drain period for in-flight collections
+            // (drain starts automatically via onViewChange, but we signal it here)
+
+            // Build drain status response
+            var stats = witnessCHOAM.getStatistics();
+            var response = DrainStatus.newBuilder()
+                .setInFlightCount(stats.inFlightCollections())
+                .setDrainComplete(false)
+                .setRemainingMs(parameters.drainPeriod().toMillis())
+                .setState(DrainStatus.DrainState.DRAINING)
+                .setTimestamp(com.google.protobuf.Timestamp.newBuilder()
+                    .setSeconds(System.currentTimeMillis() / 1000)
+                    .build())
+                .build();
+
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
+
+            log.debug("NotifyViewChange: drain status reported, in_flight={}, drain_period={}ms",
+                     stats.inFlightCollections(), parameters.drainPeriod().toMillis());
+
+        } catch (Exception e) {
+            log.error("Error in notifyViewChange", e);
+            lastErrorMessage = "NotifyViewChange error: " + e.getMessage();
+            responseObserver.onError(e);
+        }
+    }
+
+    /**
+     * Query current drain status.
+     * Non-blocking check of drain period progress.
+     *
+     * @param request Empty request
+     * @param responseObserver Observer for DrainStatus response
+     */
+    @Override
+    public void getDrainStatus(com.google.protobuf.Empty request,
+                              StreamObserver<DrainStatus> responseObserver) {
+        try {
+            log.debug("GetDrainStatus: querying drain period status");
+
+            var stats = witnessCHOAM.getStatistics();
+            long remainingMs = witnessCHOAM.getDrainRemainingMs();
+            boolean drainComplete = remainingMs <= 0;
+
+            var drainState = stats.draining() ?
+                (drainComplete ? DrainStatus.DrainState.TRANSITIONING : DrainStatus.DrainState.DRAINING) :
+                DrainStatus.DrainState.STABLE;
+
+            var response = DrainStatus.newBuilder()
+                .setInFlightCount(stats.inFlightCollections())
+                .setDrainComplete(drainComplete)
+                .setRemainingMs(Math.max(0, remainingMs))
+                .setState(drainState)
+                .setTimestamp(com.google.protobuf.Timestamp.newBuilder()
+                    .setSeconds(System.currentTimeMillis() / 1000)
+                    .build())
+                .build();
+
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
+
+            log.debug("GetDrainStatus: state={}, remaining={}ms, in_flight={}",
+                     drainState, remainingMs, stats.inFlightCollections());
+
+        } catch (Exception e) {
+            log.error("Error in getDrainStatus", e);
+            lastErrorMessage = "GetDrainStatus error: " + e.getMessage();
+            responseObserver.onError(e);
+        }
+    }
+
+    /**
+     * Subscribe to view change notifications.
+     * Streams membership changes, drain periods, and epoch transitions.
+     *
+     * @param request ViewChangeSubscription with optional epoch filter
+     * @param responseObserver Stream observer for ViewChange notifications
+     */
+    @Override
+    public void subscribeViewChanges(ViewChangeSubscription request,
+                                    StreamObserver<ViewChange> responseObserver) {
+        try {
+            long fromEpoch = request.getFromEpoch();
+            log.debug("SubscribeViewChanges: from_epoch={}", fromEpoch);
+
+            // Create subscription record for view change streaming
+            String subscriptionId = UUID.randomUUID().toString();
+
+            // TODO Phase 1A-3: Integrate with Fireflies view change listener
+            // For now, just accept the subscription and complete
+            // Full implementation will stream view changes as they occur
+
+            responseObserver.onCompleted();
+            log.debug("SubscribeViewChanges: subscription registered, id={}", subscriptionId);
+
+        } catch (Exception e) {
+            log.error("Error in subscribeViewChanges", e);
+            responseObserver.onError(e);
+        }
+    }
+
+    /**
      * Shutdown method for cleanup.
      * Should be called when service is shutting down.
      */

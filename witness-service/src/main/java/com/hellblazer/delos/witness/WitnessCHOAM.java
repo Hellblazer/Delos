@@ -401,6 +401,27 @@ public class WitnessCHOAM {
     }
 
     /**
+     * Get remaining time in drain period (milliseconds).
+     * Returns 0 or negative if drain period is complete or not draining.
+     *
+     * @return Remaining drain time in milliseconds
+     */
+    public long getDrainRemainingMs() {
+        drainLock.readLock().lock();
+        try {
+            if (!draining || drainStart == null) {
+                return 0;
+            }
+
+            Duration elapsed = Duration.between(drainStart, Instant.now());
+            long remaining = parameters.drainPeriod().minus(elapsed).toMillis();
+            return Math.max(0, remaining);
+        } finally {
+            drainLock.readLock().unlock();
+        }
+    }
+
+    /**
      * Retrieve receipt by event coordinates.
      * Returns null if receipt not yet available or not found.
      *
