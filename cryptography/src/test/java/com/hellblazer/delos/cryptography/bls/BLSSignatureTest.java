@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.*;
  * @author hal.hildebrand
  */
 class BLSSignatureTest {
-    private static final int COMPRESSED_SIZE = 48;
+    private static final int COMPRESSED_SIZE = 96; // G2 signature (minimal-pubkey-size variant)
 
     // ========== Construction Tests ==========
 
@@ -34,16 +34,16 @@ class BLSSignatureTest {
         var tooShort = BLSTestFixtures.randomMessage(32);
         assertThatThrownBy(() -> new BLSSignature(tooShort))
             .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("must be 48 bytes");
+            .hasMessageContaining("must be 96 bytes");
 
-        var tooLong = BLSTestFixtures.randomMessage(96);
+        var tooLong = BLSTestFixtures.randomMessage(128);
         assertThatThrownBy(() -> new BLSSignature(tooLong))
             .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("must be 48 bytes");
+            .hasMessageContaining("must be 96 bytes");
     }
 
     @Test
-    void constructorAccepts48Bytes() {
+    void constructorAccepts96Bytes() {
         var validBytes = BLSTestFixtures.randomMessage(COMPRESSED_SIZE);
         var signature = new BLSSignature(validBytes);
         assertThat(signature).isNotNull();

@@ -290,6 +290,91 @@ public enum SignatureAlgorithm {
             return ops.verify(publicKey, bytes, message);
         }
 
+    }, BLS_12_381 {
+        @Override
+        public PrivateKey toEncryption(PrivateKey edPrivateKey) {
+            throw new UnsupportedOperationException("BLS keys cannot be converted to encryption keys");
+        }
+
+        @Override
+        public PublicKey toEncryption(PublicKey edPublicKey) {
+            throw new UnsupportedOperationException("BLS keys cannot be converted to encryption keys");
+        }
+
+        @Override
+        public String algorithmName() {
+            return "BLS12-381";
+        }
+
+        @Override
+        public String curveName() {
+            return "bls12-381";
+        }
+
+        @Override
+        public byte[] encode(PublicKey publicKey) {
+            throw new UnsupportedOperationException("BLS encoding not supported via this method. Use BLSPublicKey.toPubKey()");
+        }
+
+        @Override
+        public KeyPair generateKeyPair() {
+            throw new UnsupportedOperationException("BLS key generation not supported via this method. Use BLSOperations.generateKeyPair()");
+        }
+
+        @Override
+        public KeyPair generateKeyPair(SecureRandom secureRandom) {
+            throw new UnsupportedOperationException("BLS key generation not supported via this method. Use BLSOperations.generateKeyPair()");
+        }
+
+        @Override
+        public PublicKey publicKey(byte[] bytes) {
+            throw new UnsupportedOperationException("BLS public key deserialization not supported via this method. Use BLSPublicKey.fromPubKey()");
+        }
+
+        @Override
+        public int publicKeyLength() {
+            return 48; // G1 point compressed (minimal-pubkey-size variant)
+        }
+
+        @Override
+        public JohnHancock sign(ULong sequenceNumber, PrivateKey[] privateKeys, InputStream is) {
+            throw new UnsupportedOperationException("BLS signing not supported via this method. Use BLSOperations.sign()");
+        }
+
+        @Override
+        public JohnHancock signature(ULong sequenceNumber, byte[] signatureBytes) {
+            throw new UnsupportedOperationException("BLS signature not supported via this method. Use BLSSignature");
+        }
+
+        @Override
+        public byte signatureCode() {
+            return 4; // BLS uses code 4 to avoid conflict with ED_448 (code 3)
+        }
+
+        @Override
+        public String signatureInstanceName() {
+            return "BLS12-381";
+        }
+
+        @Override
+        public int signatureLength() {
+            return 96; // G2 point compressed (minimal-pubkey-size variant)
+        }
+
+        @Override
+        protected boolean verify(PublicKey publicKey, byte[] signature, InputStream message) {
+            throw new UnsupportedOperationException("BLS verification not supported via this method. Use BLSOperations.verify()");
+        }
+
+        /**
+         * BLS supports signature aggregation, unlike EdDSA variants.
+         *
+         * @return true for BLS_12_381
+         */
+        public boolean supportsAggregation() {
+            return true;
+        }
+
     }, NULL_SIGNATURE {
         @Override
         public PrivateKey toEncryption(PrivateKey edPrivateKey) {
@@ -385,6 +470,8 @@ public enum SignatureAlgorithm {
                 yield ED_25519;
             case 3:
                 yield ED_448;
+            case 4:
+                yield BLS_12_381;
             default:
                 throw new IllegalArgumentException("Unknown signature code: " + i);
         };
@@ -454,6 +541,17 @@ public enum SignatureAlgorithm {
     abstract public String signatureInstanceName();
 
     abstract public int signatureLength();
+
+    /**
+     * Indicates whether this signature algorithm supports signature aggregation.
+     * <p>
+     * Only BLS-12-381 supports aggregation; EdDSA variants do not.
+     *
+     * @return true if aggregation is supported, false otherwise
+     */
+    public boolean supportsAggregation() {
+        return false; // Default: EdDSA variants don't support aggregation
+    }
 
     /**
      * Convert the Ed* public/private signature keys into the equivalent X* public/private encryption key. See

@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.*;
  * @author hal.hildebrand
  */
 class BLSAggregateTest {
-    private static final int SIGNATURE_SIZE = 48;
+    private static final int SIGNATURE_SIZE = 96; // G2 signature (minimal-pubkey-size variant)
 
     // ========== Construction Tests ==========
 

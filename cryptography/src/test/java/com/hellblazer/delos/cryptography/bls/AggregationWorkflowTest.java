@@ -33,9 +33,9 @@ class AggregationWorkflowTest {
     @Test
     void sequentialAggregationWorkflow_threeSigners() {
         // GIVEN: Three signatures for the same message
-        var sig1 = new BLSSignature(BLSTestFixtures.randomMessage(48));
-        var sig2 = new BLSSignature(BLSTestFixtures.randomMessage(48));
-        var sig3 = new BLSSignature(BLSTestFixtures.randomMessage(48));
+        var sig1 = new BLSSignature(BLSTestFixtures.randomMessage(96));
+        var sig2 = new BLSSignature(BLSTestFixtures.randomMessage(96));
+        var sig3 = new BLSSignature(BLSTestFixtures.randomMessage(96));
 
         var signatures = List.of(sig1, sig2, sig3);
         var signerIndices = List.of(0, 2, 5); // Committee positions
@@ -56,7 +56,7 @@ class AggregationWorkflowTest {
         var signerIndices = List.of(0, 1, 2, 3, 4, 5, 6);
 
         for (int i = 0; i < 7; i++) {
-            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(48)));
+            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(96)));
         }
 
         // WHEN: Aggregate all signatures
@@ -70,7 +70,7 @@ class AggregationWorkflowTest {
     @Test
     void aggregationWorkflow_singleSigner() {
         // GIVEN: Single signature (edge case)
-        var signature = new BLSSignature(BLSTestFixtures.randomMessage(48));
+        var signature = new BLSSignature(BLSTestFixtures.randomMessage(96));
 
         // WHEN: Create aggregate from single signature
         var aggregate = BLSAggregate.aggregate(List.of(signature), List.of(3));
@@ -87,7 +87,7 @@ class AggregationWorkflowTest {
         var signerIndices = new ArrayList<Integer>();
 
         for (int i = 0; i < 21; i++) {
-            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(48)));
+            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(96)));
             signerIndices.add(i);
         }
 
@@ -104,9 +104,9 @@ class AggregationWorkflowTest {
     @Test
     void bitmapCorrectness_sparseSigners() {
         // GIVEN: Sparse signer indices (not consecutive)
-        var sig1 = new BLSSignature(BLSTestFixtures.randomMessage(48));
-        var sig2 = new BLSSignature(BLSTestFixtures.randomMessage(48));
-        var sig3 = new BLSSignature(BLSTestFixtures.randomMessage(48));
+        var sig1 = new BLSSignature(BLSTestFixtures.randomMessage(96));
+        var sig2 = new BLSSignature(BLSTestFixtures.randomMessage(96));
+        var sig3 = new BLSSignature(BLSTestFixtures.randomMessage(96));
 
         var signatures = List.of(sig1, sig2, sig3);
         var signerIndices = List.of(1, 7, 15); // Sparse positions
@@ -127,7 +127,7 @@ class AggregationWorkflowTest {
         var signerIndices = List.of(0, 1, 2, 3, 4);
 
         for (int i = 0; i < 5; i++) {
-            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(48)));
+            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(96)));
         }
 
         // WHEN: Create aggregate
@@ -147,20 +147,20 @@ class AggregationWorkflowTest {
         // GIVEN: Eight signatures
         var signatures = new ArrayList<BLSSignature>();
         for (int i = 0; i < 8; i++) {
-            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(48)));
+            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(96)));
         }
         var signerIndices = List.of(0, 1, 2, 3, 4, 5, 6, 7);
 
         // WHEN: Calculate storage sizes
         var aggregate = BLSAggregate.aggregate(signatures, signerIndices);
 
-        var rawSize = 8 * 48;  // 384 bytes for 8 individual signatures
-        var aggregateSize = 48 + aggregate.getSignerBitmapSize(); // 48 + 1 = 49 bytes
+        var rawSize = 8 * 96;  // 768 bytes for 8 individual signatures
+        var aggregateSize = 96 + aggregate.getSignerBitmapSize(); // 96 + 1 = 97 bytes
 
         // THEN: Aggregate should be significantly more efficient
         assertThat(aggregateSize).isLessThan(rawSize);
-        assertThat(aggregateSize).isEqualTo(49); // 48 bytes signature + 1 byte bitmap
-        assertThat(rawSize).isEqualTo(384);
+        assertThat(aggregateSize).isEqualTo(97); // 96 bytes signature + 1 byte bitmap
+        assertThat(rawSize).isEqualTo(768);
 
         // Compression ratio: ~7.8x
         var compressionRatio = (double) rawSize / aggregateSize;
@@ -173,23 +173,23 @@ class AggregationWorkflowTest {
         var signatures = new ArrayList<BLSSignature>();
         var signerIndices = new ArrayList<Integer>();
         for (int i = 0; i < 21; i++) {
-            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(48)));
+            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(96)));
             signerIndices.add(i);
         }
 
         // WHEN: Calculate storage sizes
         var aggregate = BLSAggregate.aggregate(signatures, signerIndices);
 
-        var rawSize = 21 * 48;  // 1008 bytes
-        var aggregateSize = 48 + aggregate.getSignerBitmapSize(); // 48 + 3 = 51 bytes
+        var rawSize = 21 * 96;  // 2016 bytes
+        var aggregateSize = 96 + aggregate.getSignerBitmapSize(); // 96 + 3 = 99 bytes
 
         // THEN: Aggregate should be dramatically more efficient
         assertThat(aggregateSize).isLessThan(rawSize);
         assertThat(aggregate.getSignerBitmapSize()).isEqualTo(3); // Need 3 bytes for 21 signers
 
-        // Compression ratio: ~19.8x
+        // Compression ratio: ~20.4x
         var compressionRatio = (double) rawSize / aggregateSize;
-        assertThat(compressionRatio).isGreaterThan(19.0);
+        assertThat(compressionRatio).isGreaterThan(20.0);
     }
 
     // Note: Actual cryptographic verification tests will be in AggregationVerificationTest

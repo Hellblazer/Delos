@@ -11,19 +11,22 @@ import java.util.Arrays;
 import java.util.Objects;
 
 /**
- * BLS-12-381 signature (G1 point, 48 bytes compressed).
+ * BLS-12-381 signature (G2 point, 96 bytes compressed).
  * Immutable wrapper over compressed BLS signature bytes.
+ * <p>
+ * Uses Teku's minimal-pubkey-size variant where signatures are on G2 (96 bytes)
+ * and public keys are on G1 (48 bytes). This is the standard Ethereum 2.0 configuration.
  * <p>
  * Uses defensive copying to ensure immutability of byte arrays.
  *
- * @param compressedBytes The G1 point in compressed form (48 bytes)
+ * @param compressedBytes The G2 point in compressed form (96 bytes)
  * @author hal.hildebrand
  */
 public record BLSSignature(byte[] compressedBytes) {
     /**
-     * Size of a compressed BLS signature (G1 point)
+     * Size of a compressed BLS signature (G2 point in minimal-pubkey-size variant)
      */
-    public static final int COMPRESSED_SIZE = 48;
+    public static final int COMPRESSED_SIZE = 96;
 
     /**
      * Signature code for BLS-12-381 in proto Sig messages.

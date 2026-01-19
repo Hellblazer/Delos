@@ -193,8 +193,8 @@ class BLSSecretKeyTest {
             this.signCalled = true;
             this.lastSecretKeyBytes = secretKey;
             this.lastMessage = message;
-            // Return a mock signature (96 bytes as per BLS spec)
-            return BLSTestFixtures.randomMessage(48);
+            // Return a mock signature (96 bytes G2 signature in minimal-pubkey-size variant)
+            return BLSTestFixtures.randomMessage(96);
         }
 
         @Override

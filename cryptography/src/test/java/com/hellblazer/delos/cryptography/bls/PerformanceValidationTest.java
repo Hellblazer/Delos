@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.*;
  * Validates performance targets from Phase 1B-1 specification:
  * - Aggregate creation: <1ms
  * - Aggregate verification: <5ms (Phase 4 - provider dependent)
- * - Storage validation: 48 + ceil(n/8) bytes vs 48*n
+ * - Storage validation: 96 + ceil(n/8) bytes vs 96*n (G2 signatures)
  * - Bitmap decoding: <0.1ms
  * <p>
  * Note: Verification performance tests will be added in Phase 4
@@ -39,7 +39,7 @@ class PerformanceValidationTest {
         var signerIndices = List.of(0, 1, 2, 3, 4, 5, 6);
 
         for (int i = 0; i < 7; i++) {
-            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(48)));
+            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(96)));
         }
 
         // Warmup
@@ -71,7 +71,7 @@ class PerformanceValidationTest {
         var signerIndices = new ArrayList<Integer>();
 
         for (int i = 0; i < 21; i++) {
-            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(48)));
+            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(96)));
             signerIndices.add(i);
         }
 
@@ -105,7 +105,7 @@ class PerformanceValidationTest {
         var signerIndices = new ArrayList<Integer>();
 
         for (int i = 0; i < 21; i++) {
-            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(48)));
+            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(96)));
             signerIndices.add(i);
         }
 
@@ -141,20 +141,20 @@ class PerformanceValidationTest {
         var signerIndices = List.of(0, 1, 2, 3, 4, 5, 6);
 
         for (int i = 0; i < 7; i++) {
-            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(48)));
+            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(96)));
         }
 
         var aggregate = BLSAggregate.aggregate(signatures, signerIndices);
 
         // WHEN: Calculate storage requirements
         var n = 7;
-        var rawSize = 48 * n;  // Individual signatures
-        var aggregateSize = 48 + aggregate.getSignerBitmapSize();  // Aggregate + bitmap
+        var rawSize = 96 * n;  // Individual signatures (G2, 96 bytes each)
+        var aggregateSize = 96 + aggregate.getSignerBitmapSize();  // Aggregate + bitmap
 
-        // THEN: Aggregate should match formula: 48 + ceil(n/8) bytes
-        var expectedSize = 48 + (int) Math.ceil(n / 8.0);
+        // THEN: Aggregate should match formula: 96 + ceil(n/8) bytes
+        var expectedSize = 96 + (int) Math.ceil(n / 8.0);
         assertThat(aggregateSize).isEqualTo(expectedSize);
-        assertThat(aggregateSize).isEqualTo(49); // 48 + 1
+        assertThat(aggregateSize).isEqualTo(97); // 96 + 1
 
         // Storage efficiency
         var compressionRatio = (double) rawSize / aggregateSize;
@@ -171,7 +171,7 @@ class PerformanceValidationTest {
         var signerIndices = new ArrayList<Integer>();
 
         for (int i = 0; i < 21; i++) {
-            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(48)));
+            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(96)));
             signerIndices.add(i);
         }
 
@@ -179,17 +179,17 @@ class PerformanceValidationTest {
 
         // WHEN: Calculate storage requirements
         var n = 21;
-        var rawSize = 48 * n;  // 1008 bytes
-        var aggregateSize = 48 + aggregate.getSignerBitmapSize();
+        var rawSize = 96 * n;  // 2016 bytes
+        var aggregateSize = 96 + aggregate.getSignerBitmapSize();
 
-        // THEN: Should match formula: 48 + ceil(21/8) = 48 + 3 = 51
-        var expectedSize = 48 + (int) Math.ceil(n / 8.0);
+        // THEN: Should match formula: 96 + ceil(21/8) = 96 + 3 = 99
+        var expectedSize = 96 + (int) Math.ceil(n / 8.0);
         assertThat(aggregateSize).isEqualTo(expectedSize);
-        assertThat(aggregateSize).isEqualTo(51);
+        assertThat(aggregateSize).isEqualTo(99);
 
         // Storage efficiency
         var compressionRatio = (double) rawSize / aggregateSize;
-        assertThat(compressionRatio).isGreaterThan(19.0);
+        assertThat(compressionRatio).isGreaterThan(20.0);
 
         System.out.printf("Storage (21 signers): %d bytes aggregate vs %d bytes raw (%.1fx compression)%n",
             aggregateSize, rawSize, compressionRatio);
@@ -202,7 +202,7 @@ class PerformanceValidationTest {
         var signerIndices = new ArrayList<Integer>();
 
         for (int i = 0; i < 100; i++) {
-            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(48)));
+            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(96)));
             signerIndices.add(i);
         }
 
@@ -210,17 +210,17 @@ class PerformanceValidationTest {
 
         // WHEN: Calculate storage requirements
         var n = 100;
-        var rawSize = 48 * n;  // 4800 bytes
-        var aggregateSize = 48 + aggregate.getSignerBitmapSize();
+        var rawSize = 96 * n;  // 9600 bytes
+        var aggregateSize = 96 + aggregate.getSignerBitmapSize();
 
-        // THEN: Should match formula: 48 + ceil(100/8) = 48 + 13 = 61
-        var expectedSize = 48 + (int) Math.ceil(n / 8.0);
+        // THEN: Should match formula: 96 + ceil(100/8) = 96 + 13 = 109
+        var expectedSize = 96 + (int) Math.ceil(n / 8.0);
         assertThat(aggregateSize).isEqualTo(expectedSize);
-        assertThat(aggregateSize).isEqualTo(61);
+        assertThat(aggregateSize).isEqualTo(109);
 
         // Storage efficiency
         var compressionRatio = (double) rawSize / aggregateSize;
-        assertThat(compressionRatio).isGreaterThan(78.0);
+        assertThat(compressionRatio).isGreaterThan(88.0);
 
         System.out.printf("Storage (100 signers): %d bytes aggregate vs %d bytes raw (%.1fx compression)%n",
             aggregateSize, rawSize, compressionRatio);

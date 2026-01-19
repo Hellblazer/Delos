@@ -35,6 +35,10 @@ public class TestCertificates {
             if (s.equals(SignatureAlgorithm.NULL_SIGNATURE)) {
                 break;
             }
+            // BLS_12_381 uses TekuBLS with BLSKeyPair interface, not standard Java KeyPair
+            if (s.equals(SignatureAlgorithm.BLS_12_381)) {
+                continue;
+            }
             KeyPair keyPair;
             try {
                 keyPair = s.generateKeyPair();

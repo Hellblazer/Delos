@@ -34,8 +34,8 @@ class BLSKeyPairTest {
 
     @Test
     void constructorRejectsNullSecretKey() {
-        var pop = new ProofOfPossession(BLSTestFixtures.randomMessage(48));
-        var publicKey = new BLSPublicKey(BLSTestFixtures.randomMessage(96), pop);
+        var pop = new ProofOfPossession(BLSTestFixtures.randomMessage(96));
+        var publicKey = new BLSPublicKey(BLSTestFixtures.randomMessage(48), pop);
 
         assertThatThrownBy(() -> new BLSKeyPair(publicKey, null))
             .isInstanceOf(NullPointerException.class)
@@ -47,7 +47,7 @@ class BLSKeyPairTest {
         var provider = new MockBLSProvider();
         // Configure mock to return a valid key pair
         var secretKeyBytes = BLSTestFixtures.randomMessage(32);
-        var publicKeyBytes = BLSTestFixtures.randomMessage(96);
+        var publicKeyBytes = BLSTestFixtures.randomMessage(48); // G1 public key (48 bytes)
         provider.nextKeyPair = new BLSProvider.KeyPair(secretKeyBytes, publicKeyBytes);
 
         var keyPair = BLSKeyPair.generate(provider);
@@ -66,7 +66,7 @@ class BLSKeyPairTest {
 
         // Configure mock to return deterministic key pairs
         var secretKeyBytes = BLSTestFixtures.randomMessage(32);
-        var publicKeyBytes = BLSTestFixtures.randomMessage(96);
+        var publicKeyBytes = BLSTestFixtures.randomMessage(48); // G1 public key (48 bytes)
         provider.nextKeyPair = new BLSProvider.KeyPair(secretKeyBytes, publicKeyBytes);
 
         var keyPair1 = BLSKeyPair.generate(random1, provider);
@@ -80,9 +80,9 @@ class BLSKeyPairTest {
     void signDelegatesToSecretKey() {
         var provider = new MockBLSProvider();
         var secretKeyBytes = BLSTestFixtures.randomMessage(32);
-        var publicKeyBytes = BLSTestFixtures.randomMessage(96);
+        var publicKeyBytes = BLSTestFixtures.randomMessage(48); // G1 public key (48 bytes)
         var secretKey = new BLSSecretKey(secretKeyBytes, provider);
-        var pop = new ProofOfPossession(BLSTestFixtures.randomMessage(48));
+        var pop = new ProofOfPossession(BLSTestFixtures.randomMessage(96));
         var publicKey = new BLSPublicKey(publicKeyBytes, pop);
         var keyPair = new BLSKeyPair(publicKey, secretKey);
 
@@ -97,9 +97,9 @@ class BLSKeyPairTest {
     void closeClosesSecretKey() throws Exception {
         var provider = new MockBLSProvider();
         var secretKeyBytes = BLSTestFixtures.randomMessage(32);
-        var publicKeyBytes = BLSTestFixtures.randomMessage(96);
+        var publicKeyBytes = BLSTestFixtures.randomMessage(48); // G1 public key (48 bytes)
         var secretKey = new BLSSecretKey(secretKeyBytes, provider);
-        var pop = new ProofOfPossession(BLSTestFixtures.randomMessage(48));
+        var pop = new ProofOfPossession(BLSTestFixtures.randomMessage(96));
         var publicKey = new BLSPublicKey(publicKeyBytes, pop);
         var keyPair = new BLSKeyPair(publicKey, secretKey);
 
@@ -126,7 +126,7 @@ class BLSKeyPairTest {
             if (nextKeyPair == null) {
                 // Generate a default key pair for testing
                 var secretKey = BLSTestFixtures.randomMessage(32);
-                var publicKey = BLSTestFixtures.randomMessage(96);
+                var publicKey = BLSTestFixtures.randomMessage(48); // G1 public key (48 bytes)
                 return new KeyPair(secretKey, publicKey);
             }
             return nextKeyPair;
@@ -135,7 +135,7 @@ class BLSKeyPairTest {
         @Override
         public byte[] sign(byte[] secretKey, byte[] message) {
             this.signCalled = true;
-            return BLSTestFixtures.randomMessage(48);
+            return BLSTestFixtures.randomMessage(96); // G2 signature (96 bytes)
         }
 
         @Override

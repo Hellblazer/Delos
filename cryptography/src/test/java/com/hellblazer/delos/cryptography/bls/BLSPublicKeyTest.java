@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.*;
  * @author hal.hildebrand
  */
 class BLSPublicKeyTest {
-    private static final int COMPRESSED_SIZE = 96;
+    private static final int COMPRESSED_SIZE = 48; // G1 public key (minimal-pubkey-size variant)
 
     // ========== Construction Tests ==========
 
@@ -31,7 +31,7 @@ class BLSPublicKeyTest {
         var pop = createMockPoP();
         assertThatThrownBy(() -> new BLSPublicKey(null, pop))
             .isInstanceOf(NullPointerException.class)
-            .hasMessageContaining("g2Compressed cannot be null");
+            .hasMessageContaining("g1Compressed cannot be null");
     }
 
     @Test
@@ -45,22 +45,22 @@ class BLSPublicKeyTest {
     @Test
     void constructorRejectsWrongSize() {
         var pop = createMockPoP();
-        var tooShort = BLSTestFixtures.randomMessage(48);
+        var tooShort = BLSTestFixtures.randomMessage(32); // 32 bytes is too short (should be 48)
         assertThatThrownBy(() -> new BLSPublicKey(tooShort, pop))
             .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("must be 96 bytes");
+            .hasMessageContaining("must be 48 bytes");
 
-        var tooLong = BLSTestFixtures.randomMessage(128);
+        var tooLong = BLSTestFixtures.randomMessage(96); // 96 bytes is too long (should be 48)
         assertThatThrownBy(() -> new BLSPublicKey(tooLong, pop))
             .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("must be 96 bytes");
+            .hasMessageContaining("must be 48 bytes");
     }
 
     @Test
-    void constructorAccepts96Bytes() {
-        var g2 = BLSTestFixtures.randomMessage(COMPRESSED_SIZE);
+    void constructorAccepts48Bytes() {
+        var g1 = BLSTestFixtures.randomMessage(COMPRESSED_SIZE); // 48 bytes for G1
         var pop = createMockPoP();
-        var publicKey = new BLSPublicKey(g2, pop);
+        var publicKey = new BLSPublicKey(g1, pop);
         assertThat(publicKey).isNotNull();
         assertThat(publicKey.toBytesCompressed()).hasSize(COMPRESSED_SIZE);
     }
@@ -114,15 +114,15 @@ class BLSPublicKeyTest {
 
     @Test
     void toPubKeyReturnsValidProto() {
-        var g2 = BLSTestFixtures.randomMessage(COMPRESSED_SIZE);
+        var g1 = BLSTestFixtures.randomMessage(COMPRESSED_SIZE); // 48 bytes G1
         var pop = createMockPoP();
-        var publicKey = new BLSPublicKey(g2, pop);
+        var publicKey = new BLSPublicKey(g1, pop);
 
         var proto = publicKey.toPubKey();
 
         assertThat(proto).isNotNull();
         assertThat(proto.getCode()).isEqualTo(4); // BLS_12_381 code for public keys
-        assertThat(proto.getEncoded().toByteArray()).hasSize(COMPRESSED_SIZE + 48); // G2 (96) + PoP (48)
+        assertThat(proto.getEncoded().toByteArray()).hasSize(COMPRESSED_SIZE + 96); // G1 (48) + PoP (96)
     }
 
     @Test
@@ -188,7 +188,7 @@ class BLSPublicKeyTest {
     // ========== Helper Methods ==========
 
     private ProofOfPossession createMockPoP() {
-        return new ProofOfPossession(BLSTestFixtures.randomMessage(48));
+        return new ProofOfPossession(BLSTestFixtures.randomMessage(96)); // PoP is G2 signature (96 bytes)
     }
 
     // ========== Mock Provider for Testing ==========

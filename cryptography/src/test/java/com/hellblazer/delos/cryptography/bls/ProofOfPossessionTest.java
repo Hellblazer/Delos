@@ -21,7 +21,7 @@ import static org.assertj.core.api.Assertions.*;
  * @author hal.hildebrand
  */
 class ProofOfPossessionTest {
-    private static final int COMPRESSED_SIZE = 48;
+    private static final int COMPRESSED_SIZE = 96; // G2 PoP signature (minimal-pubkey-size variant)
 
     // ========== Construction Tests ==========
 
@@ -37,16 +37,16 @@ class ProofOfPossessionTest {
         var tooShort = BLSTestFixtures.randomMessage(32);
         assertThatThrownBy(() -> new ProofOfPossession(tooShort))
             .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("must be 48 bytes");
+            .hasMessageContaining("must be 96 bytes");
 
-        var tooLong = BLSTestFixtures.randomMessage(96);
+        var tooLong = BLSTestFixtures.randomMessage(128);
         assertThatThrownBy(() -> new ProofOfPossession(tooLong))
             .isInstanceOf(IllegalArgumentException.class)
-            .hasMessageContaining("must be 48 bytes");
+            .hasMessageContaining("must be 96 bytes");
     }
 
     @Test
-    void constructorAccepts48Bytes() {
+    void constructorAccepts96Bytes() {
         var validBytes = BLSTestFixtures.randomMessage(COMPRESSED_SIZE);
         var pop = new ProofOfPossession(validBytes);
         assertThat(pop).isNotNull();
@@ -77,7 +77,7 @@ class ProofOfPossessionTest {
         var secretKeyBytes = BLSTestFixtures.randomMessage(32);
         var secretKey = new BLSSecretKey(secretKeyBytes, provider);
 
-        var pop = ProofOfPossession.generate(secretKey, BLSTestFixtures.randomMessage(96), provider);
+        var pop = ProofOfPossession.generate(secretKey, BLSTestFixtures.randomMessage(48), provider); // 48-byte G1 public key
 
         assertThat(pop).isNotNull();
         assertThat(pop.compressedSignature()).hasSize(COMPRESSED_SIZE);
@@ -88,7 +88,7 @@ class ProofOfPossessionTest {
     void generatedPoPUsesPublicKeyAsMessage() {
         var provider = new MockBLSProvider();
         var secretKeyBytes = BLSTestFixtures.randomMessage(32);
-        var publicKeyBytes = BLSTestFixtures.randomMessage(96);
+        var publicKeyBytes = BLSTestFixtures.randomMessage(48); // 48-byte G1 public key
         var secretKey = new BLSSecretKey(secretKeyBytes, provider);
 
         ProofOfPossession.generate(secretKey, publicKeyBytes, provider);
@@ -103,7 +103,7 @@ class ProofOfPossessionTest {
     void verifyAcceptsValidPoP() {
         var provider = new MockBLSProvider();
         provider.verifyResult = true; // Mock says verification succeeds
-        var publicKeyBytes = BLSTestFixtures.randomMessage(96);
+        var publicKeyBytes = BLSTestFixtures.randomMessage(48); // 48-byte G1 public key
         var popBytes = BLSTestFixtures.randomMessage(COMPRESSED_SIZE);
         var pop = new ProofOfPossession(popBytes);
 
@@ -119,7 +119,7 @@ class ProofOfPossessionTest {
     void verifyRejectsInvalidPoP() {
         var provider = new MockBLSProvider();
         provider.verifyResult = false; // Mock says verification fails
-        var publicKeyBytes = BLSTestFixtures.randomMessage(96);
+        var publicKeyBytes = BLSTestFixtures.randomMessage(48); // 48-byte G1 public key
         var popBytes = BLSTestFixtures.randomMessage(COMPRESSED_SIZE);
         var pop = new ProofOfPossession(popBytes);
 
@@ -132,7 +132,7 @@ class ProofOfPossessionTest {
     void verifyRejectsPoPForDifferentKey() {
         var provider = new MockBLSProvider();
         provider.verifyResult = false; // Verification fails for wrong key
-        var publicKeyBytes = BLSTestFixtures.randomMessage(96);
+        var publicKeyBytes = BLSTestFixtures.randomMessage(48); // 48-byte G1 public key
         var popBytes = BLSTestFixtures.randomMessage(COMPRESSED_SIZE);
         var pop = new ProofOfPossession(popBytes);
 

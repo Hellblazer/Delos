@@ -11,23 +11,26 @@ import java.util.Arrays;
 import java.util.Objects;
 
 /**
- * BLS-12-381 public key (G2 point, 96 bytes) + mandatory Proof of Possession.
+ * BLS-12-381 public key (G1 point, 48 bytes) + mandatory Proof of Possession.
+ * <p>
+ * Uses Teku's minimal-pubkey-size variant where public keys are on G1 (48 bytes)
+ * and signatures are on G2 (96 bytes). This is the standard Ethereum 2.0 configuration.
  * <p>
  * BLS public keys must always include a Proof of Possession (PoP) to prevent
  * rogue key attacks in signature aggregation scenarios.
  * <p>
- * The public key is a point on the G2 curve of BLS12-381, represented as
- * 96 bytes in compressed form. The PoP is a signature over the public key itself.
+ * The public key is a point on the G1 curve of BLS12-381, represented as
+ * 48 bytes in compressed form. The PoP is a signature over the public key itself (96 bytes G2).
  *
- * @param g2Compressed       The G2 point in compressed form (96 bytes)
- * @param proofOfPossession The proof of possession (48 bytes)
+ * @param g1Compressed       The G1 point in compressed form (48 bytes)
+ * @param proofOfPossession The proof of possession (96 bytes G2 signature)
  * @author hal.hildebrand
  */
-public record BLSPublicKey(byte[] g2Compressed, ProofOfPossession proofOfPossession) {
+public record BLSPublicKey(byte[] g1Compressed, ProofOfPossession proofOfPossession) {
     /**
-     * Size of a compressed BLS public key (G2 point)
+     * Size of a compressed BLS public key (G1 point in minimal-pubkey-size variant)
      */
-    public static final int COMPRESSED_SIZE = 96;
+    public static final int COMPRESSED_SIZE = 48;
 
     /**
      * Public key code for BLS-12-381 in proto PubKey messages.
@@ -38,18 +41,18 @@ public record BLSPublicKey(byte[] g2Compressed, ProofOfPossession proofOfPossess
     /**
      * Compact constructor with validation and defensive copy.
      *
-     * @throws NullPointerException     if g2Compressed or proofOfPossession is null
-     * @throws IllegalArgumentException if g2Compressed is not COMPRESSED_SIZE bytes
+     * @throws NullPointerException     if g1Compressed or proofOfPossession is null
+     * @throws IllegalArgumentException if g1Compressed is not COMPRESSED_SIZE bytes
      */
     public BLSPublicKey {
-        Objects.requireNonNull(g2Compressed, "g2Compressed cannot be null");
+        Objects.requireNonNull(g1Compressed, "g1Compressed cannot be null");
         Objects.requireNonNull(proofOfPossession, "proofOfPossession cannot be null");
-        if (g2Compressed.length != COMPRESSED_SIZE) {
+        if (g1Compressed.length != COMPRESSED_SIZE) {
             throw new IllegalArgumentException(
-                "Public key must be " + COMPRESSED_SIZE + " bytes, got " + g2Compressed.length);
+                "Public key must be " + COMPRESSED_SIZE + " bytes, got " + g1Compressed.length);
         }
         // Defensive copy
-        g2Compressed = g2Compressed.clone();
+        g1Compressed = g1Compressed.clone();
     }
 
     /**
@@ -72,15 +75,15 @@ public record BLSPublicKey(byte[] g2Compressed, ProofOfPossession proofOfPossess
         if (encoded.length != COMPRESSED_SIZE + ProofOfPossession.COMPRESSED_SIZE) {
             throw new IllegalArgumentException(
                 "Expected " + (COMPRESSED_SIZE + ProofOfPossession.COMPRESSED_SIZE) +
-                " bytes (96 G2 + 48 PoP), got " + encoded.length);
+                " bytes (48 G1 + 96 PoP), got " + encoded.length);
         }
 
-        // Extract G2 point (first 96 bytes) and PoP (last 48 bytes)
-        var g2 = Arrays.copyOfRange(encoded, 0, COMPRESSED_SIZE);
+        // Extract G1 point (first 48 bytes) and PoP (last 96 bytes)
+        var g1 = Arrays.copyOfRange(encoded, 0, COMPRESSED_SIZE);
         var popBytes = Arrays.copyOfRange(encoded, COMPRESSED_SIZE, encoded.length);
         var pop = new ProofOfPossession(popBytes);
 
-        return new BLSPublicKey(g2, pop);
+        return new BLSPublicKey(g1, pop);
     }
 
     /**
@@ -89,17 +92,17 @@ public record BLSPublicKey(byte[] g2Compressed, ProofOfPossession proofOfPossess
      * @return A copy of the G2 point bytes
      */
     @Override
-    public byte[] g2Compressed() {
-        return g2Compressed.clone();
+    public byte[] g1Compressed() {
+        return g1Compressed.clone();
     }
 
     /**
-     * Get the compressed public key bytes (alias for g2Compressed).
+     * Get the compressed public key bytes (alias for g1Compressed).
      *
      * @return A copy of the public key bytes
      */
     public byte[] toBytesCompressed() {
-        return g2Compressed();
+        return g1Compressed();
     }
 
     /**
@@ -109,20 +112,20 @@ public record BLSPublicKey(byte[] g2Compressed, ProofOfPossession proofOfPossess
      * @return true if PoP is valid, false otherwise
      */
     public boolean verifyPoP(BLSProvider provider) {
-        return proofOfPossession.verify(g2Compressed, provider);
+        return proofOfPossession.verify(g1Compressed, provider);
     }
 
     /**
      * Serialize this public key to a protobuf PubKey message.
      * <p>
-     * The encoding concatenates G2 (96 bytes) + PoP (48 bytes) = 144 bytes total.
+     * The encoding concatenates G1 (48 bytes) + PoP (96 bytes) = 144 bytes total.
      *
      * @return A protobuf PubKey with BLS_PUBKEY code
      */
     public PubKey toPubKey() {
-        // Concatenate G2 and PoP
+        // Concatenate G1 and PoP
         var encoded = new byte[COMPRESSED_SIZE + ProofOfPossession.COMPRESSED_SIZE];
-        System.arraycopy(g2Compressed, 0, encoded, 0, COMPRESSED_SIZE);
+        System.arraycopy(g1Compressed, 0, encoded, 0, COMPRESSED_SIZE);
         System.arraycopy(proofOfPossession.compressedSignature(), 0, encoded, COMPRESSED_SIZE,
                          ProofOfPossession.COMPRESSED_SIZE);
 
@@ -141,7 +144,7 @@ public record BLSPublicKey(byte[] g2Compressed, ProofOfPossession proofOfPossess
     public boolean equals(Object obj) {
         if (this == obj) return true;
         if (!(obj instanceof BLSPublicKey other)) return false;
-        return Arrays.equals(g2Compressed, other.g2Compressed);
+        return Arrays.equals(g1Compressed, other.g1Compressed);
     }
 
     /**
@@ -149,7 +152,7 @@ public record BLSPublicKey(byte[] g2Compressed, ProofOfPossession proofOfPossess
      */
     @Override
     public int hashCode() {
-        return Arrays.hashCode(g2Compressed);
+        return Arrays.hashCode(g1Compressed);
     }
 
     /**
@@ -157,7 +160,7 @@ public record BLSPublicKey(byte[] g2Compressed, ProofOfPossession proofOfPossess
      */
     @Override
     public String toString() {
-        return "BLSPublicKey[" + g2Compressed.length + " bytes G2]";
+        return "BLSPublicKey[" + g1Compressed.length + " bytes G2]";
     }
 }
 
