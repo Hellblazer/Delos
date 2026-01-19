@@ -329,6 +329,164 @@ message PhaseTransitionResponse {
 }
 
 /**
+ * BLS key registration request.
+ * Includes public key, proof of possession, and registration signature.
+ */
+message RegisterKeyRequest {
+  // Member identifier (KERI identifier)
+  stereotomy.Ident memberId = 1;
+
+  // BLS public key (48 bytes for BLS12-381 G1)
+  bytes publicKey = 2;
+
+  // Proof of Possession (96 bytes signature over public key)
+  bytes proofOfPossession = 3;
+
+  // Registration signature (96 bytes signature over member ID)
+  bytes registrationSignature = 4;
+
+  // Registration epoch
+  uint64 registrationEpoch = 5;
+}
+
+/**
+ * BLS key registration response.
+ * Indicates success or validation failure.
+ */
+message RegisterKeyResponse {
+  // Whether registration succeeded
+  bool success = 1;
+
+  // Error message if validation failed
+  string errorMessage = 2;
+
+  // Validation details (for debugging)
+  string validationDetails = 3;
+}
+
+/**
+ * Request to retrieve a member's BLS public key.
+ */
+message GetPublicKeyRequest {
+  // Member identifier
+  stereotomy.Ident memberId = 1;
+}
+
+/**
+ * Response containing a member's BLS public key.
+ */
+message GetPublicKeyResponse {
+  // Whether key was found
+  bool found = 1;
+
+  // BLS public key (48 bytes for BLS12-381 G1)
+  bytes publicKey = 2;
+
+  // When the key was registered
+  google.protobuf.Timestamp registrationTime = 3;
+}
+
+/**
+ * Request to retrieve all registered BLS public keys.
+ */
+message GetPublicKeysRequest {
+  // No parameters needed
+}
+
+/**
+ * Single entry in the public keys map.
+ */
+message PublicKeyEntry {
+  // Member identifier
+  stereotomy.Ident memberId = 1;
+
+  // BLS public key (48 bytes)
+  bytes publicKey = 2;
+}
+
+/**
+ * Response containing all registered BLS public keys.
+ */
+message GetPublicKeysResponse {
+  // All registered public keys
+  repeated PublicKeyEntry publicKeys = 1;
+
+  // Total count of registered keys
+  uint32 totalCount = 2;
+}
+
+/**
+ * Request to initiate genesis phase transition.
+ */
+message InitiateTransitionRequest {
+  // No parameters needed (readiness checked internally)
+}
+
+/**
+ * Response from transition initiation.
+ */
+message InitiateTransitionResponse {
+  // Whether initiation succeeded
+  bool success = 1;
+
+  // Current transition status
+  TransitionStatus status = 2;
+
+  // Error message if failed
+  string errorMessage = 3;
+}
+
+/**
+ * Request to get current transition status.
+ */
+message GetTransitionStatusRequest {
+  // No parameters needed
+}
+
+/**
+ * Response with transition progress.
+ */
+message GetTransitionStatusResponse {
+  // Current status
+  TransitionStatus status = 1;
+
+  // Progress percentage (0-100)
+  int32 progressPercent = 2;
+
+  // Remaining drain time in milliseconds
+  uint64 remainingDrainMs = 3;
+}
+
+/**
+ * Request to soft rollback during drain period.
+ */
+message SoftRollbackRequest {
+  // No parameters needed
+}
+
+/**
+ * Response from soft rollback attempt.
+ */
+message SoftRollbackResponse {
+  // Whether rollback succeeded
+  bool success = 1;
+
+  // Error message if failed
+  string errorMessage = 2;
+}
+
+/**
+ * Transition status enumeration.
+ */
+enum TransitionStatus {
+  NOT_STARTED = 0;
+  WAITING_FOR_READINESS = 1;
+  DRAINING = 2;
+  COMPLETE = 3;
+  FAILED = 4;
+}
+
+/**
  * KERI Witness Service
  * Provides witness receipt signing, collection, validation, and streaming.
  */
@@ -400,4 +558,49 @@ service WitnessService {
    * Security: Should require authentication in production.
    */
   rpc ManualAdvancePhase(PhaseTransitionRequest) returns (PhaseTransitionResponse);
+}
+
+/**
+ * BLS Key Registration Service
+ * Manages committee member BLS key registration for Phase 1B migration.
+ */
+service KeyRegistrationService {
+  /**
+   * Register a BLS public key for a committee member.
+   * Validates Proof of Possession and registration signature.
+   */
+  rpc RegisterKey(RegisterKeyRequest) returns (RegisterKeyResponse);
+
+  /**
+   * Retrieve the BLS public key for a specific member.
+   */
+  rpc GetPublicKey(GetPublicKeyRequest) returns (GetPublicKeyResponse);
+
+  /**
+   * Retrieve all registered BLS public keys.
+   */
+  rpc GetPublicKeys(GetPublicKeysRequest) returns (GetPublicKeysResponse);
+}
+
+/**
+ * Phase Transition Service
+ * Manages genesis transition from DUAL to BLS_ONLY mode.
+ */
+service PhaseTransitionService {
+  /**
+   * Initiate genesis phase transition.
+   * Requires committee readiness (BFT quorum of registered keys).
+   */
+  rpc InitiateTransition(InitiateTransitionRequest) returns (InitiateTransitionResponse);
+
+  /**
+   * Get current transition status and progress.
+   */
+  rpc GetTransitionStatus(GetTransitionStatusRequest) returns (GetTransitionStatusResponse);
+
+  /**
+   * Attempt soft rollback during drain period.
+   * Only succeeds if still in DRAINING state.
+   */
+  rpc SoftRollback(SoftRollbackRequest) returns (SoftRollbackResponse);
 }
