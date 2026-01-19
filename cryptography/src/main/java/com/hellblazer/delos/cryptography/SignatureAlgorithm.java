@@ -4,6 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
  */
+/*
+ * Portions copyright (c) 2025, Hal Hildebrand.
+ * Modifications made under GNU Affero General Public License.
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ */
 package com.hellblazer.delos.cryptography;
 
 import com.google.protobuf.ByteString;
