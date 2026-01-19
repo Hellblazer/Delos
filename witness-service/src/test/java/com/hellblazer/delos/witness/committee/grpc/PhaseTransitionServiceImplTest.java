@@ -300,4 +300,77 @@ class PhaseTransitionServiceImplTest {
         assertThat(response.getSuccess()).isFalse();
         assertThat(response.getErrorMessage()).contains("Rollback not allowed");
     }
+
+    /**
+     * Test 7: Get transition readiness returns BFT quorum status.
+     * Verifies readiness check returns correct metrics when committee is ready.
+     */
+    @Test
+    void testGetTransitionReadinessWhenReady() {
+        // Arrange
+        var request = GetTransitionReadinessRequest.newBuilder().build();
+
+        @SuppressWarnings("unchecked")
+        StreamObserver<GetTransitionReadinessResponse> responseObserver = mock(StreamObserver.class);
+
+        // Act
+        grpcService.getTransitionReadiness(request, responseObserver);
+
+        // Assert
+        var captor = ArgumentCaptor.forClass(GetTransitionReadinessResponse.class);
+        verify(responseObserver).onNext(captor.capture());
+        verify(responseObserver).onCompleted();
+        verify(responseObserver, never()).onError(any());
+
+        var response = captor.getValue();
+        assertThat(response.getIsReady()).isTrue();
+        assertThat(response.getRegisteredMemberCount()).isEqualTo(BFT_THRESHOLD);  // 3 keys registered
+        assertThat(response.getTotalMemberCount()).isEqualTo(COMMITTEE_SIZE);  // k=4
+        assertThat(response.getRequiredQuorum()).isEqualTo(BFT_THRESHOLD);  // 2f+1=3
+        assertThat(response.getFaultToleranceThreshold()).isGreaterThan(0);  // f=1
+    }
+
+    /**
+     * Test 8: Get transition readiness returns not-ready when quorum insufficient.
+     * Verifies readiness check correctly identifies insufficient BFT quorum.
+     */
+    @Test
+    void testGetTransitionReadinessWhenNotReady() {
+        // Arrange - create service with empty key store (not ready)
+        var emptyKeyStore = new InMemoryCommitteeBLSKeyStore();
+        var witnessParams = WitnessParameters.newBuilder()
+            .k(COMMITTEE_SIZE)
+            .threshold(BFT_THRESHOLD)
+            .epoch(0)
+            .drainPeriod(Duration.ofMillis(100))
+            .build();
+
+        var emptyChecker = new TransitionReadinessChecker(emptyKeyStore, witnessParams);
+        var emptyStateTracker = new MigrationStateTracker(MigrationPhase.DUAL, 0L);
+        var emptyCoordinator = new GenesisTransitionCoordinator(emptyChecker, emptyStateTracker, witnessParams);
+        var emptyGrpcService = new PhaseTransitionServiceImpl(emptyCoordinator, emptyChecker);
+
+        var request = GetTransitionReadinessRequest.newBuilder().build();
+
+        @SuppressWarnings("unchecked")
+        StreamObserver<GetTransitionReadinessResponse> responseObserver = mock(StreamObserver.class);
+
+        // Act
+        emptyGrpcService.getTransitionReadiness(request, responseObserver);
+
+        // Assert
+        var captor = ArgumentCaptor.forClass(GetTransitionReadinessResponse.class);
+        verify(responseObserver).onNext(captor.capture());
+        verify(responseObserver).onCompleted();
+        verify(responseObserver, never()).onError(any());
+
+        var response = captor.getValue();
+        assertThat(response.getIsReady()).isFalse();  // Not ready
+        assertThat(response.getRegisteredMemberCount()).isEqualTo(0);  // No keys registered
+        assertThat(response.getTotalMemberCount()).isEqualTo(COMMITTEE_SIZE);  // k=4
+        assertThat(response.getRequiredQuorum()).isEqualTo(BFT_THRESHOLD);  // Need 3 keys
+
+        // Cleanup
+        emptyCoordinator.shutdown();
+    }
 }

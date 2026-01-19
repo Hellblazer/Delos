@@ -231,6 +231,40 @@ message ViewChangeSubscription {
 }
 
 /**
+ * Phase 1B-3 BLS integration health metrics.
+ * Aggregates status from migration, key registration, transition coordination,
+ * Byzantine detection, and BLS validation.
+ */
+message Phase1B3HealthStatus {
+  // Current migration phase (INIT, DUAL, BLS_ONLY)
+  string currentPhase = 1;
+
+  // Transition readiness status
+  TransitionStatus transitionStatus = 2;
+
+  // Number of members with registered BLS keys
+  int32 registeredKeyCount = 3;
+
+  // Total committee member count (k)
+  int32 totalMemberCount = 4;
+
+  // Number of members shunned for Byzantine behavior
+  int32 shunnedMemberCount = 5;
+
+  // Total BLS signature validations performed
+  int64 blsValidationsTotal = 6;
+
+  // Total BLS validation failures
+  int64 blsFailuresTotal = 7;
+
+  // Whether phase transition is currently in progress
+  bool transitionInProgress = 8;
+
+  // Overall health status (true if all checks pass)
+  bool isHealthy = 9;
+}
+
+/**
  * Health status of witness service.
  */
 message HealthStatus {
@@ -268,6 +302,9 @@ message HealthStatus {
 
   // Timestamp of this health check
   google.protobuf.Timestamp timestamp = 9;
+
+  // Phase 1B-3 BLS integration health (added for backward-compatible extension)
+  Phase1B3HealthStatus phase1b3Health = 10;
 }
 
 /**
@@ -488,6 +525,33 @@ message SoftRollbackResponse {
 }
 
 /**
+ * Request to check committee readiness for phase transition.
+ */
+message GetTransitionReadinessRequest {
+  // No parameters needed
+}
+
+/**
+ * Response with transition readiness status.
+ */
+message GetTransitionReadinessResponse {
+  // Whether committee is ready for transition (BFT quorum satisfied)
+  bool isReady = 1;
+
+  // Number of members with registered BLS keys
+  int32 registeredMemberCount = 2;
+
+  // Total committee size (k)
+  int32 totalMemberCount = 3;
+
+  // Required quorum for safe transition (2f+1)
+  int32 requiredQuorum = 4;
+
+  // Byzantine fault tolerance threshold (f)
+  int32 faultToleranceThreshold = 5;
+}
+
+/**
  * Transition status enumeration.
  */
 enum TransitionStatus {
@@ -615,4 +679,10 @@ service PhaseTransitionService {
    * Only succeeds if still in DRAINING state.
    */
   rpc SoftRollback(SoftRollbackRequest) returns (SoftRollbackResponse);
+
+  /**
+   * Check committee readiness for phase transition.
+   * Non-blocking query of BFT quorum status.
+   */
+  rpc GetTransitionReadiness(GetTransitionReadinessRequest) returns (GetTransitionReadinessResponse);
 }

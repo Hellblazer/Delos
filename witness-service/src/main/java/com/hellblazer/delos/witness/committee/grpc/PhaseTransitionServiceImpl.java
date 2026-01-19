@@ -161,6 +161,38 @@ public final class PhaseTransitionServiceImpl extends PhaseTransitionServiceGrpc
         }
     }
 
+    @Override
+    public void getTransitionReadiness(
+        GetTransitionReadinessRequest request,
+        StreamObserver<GetTransitionReadinessResponse> responseObserver
+    ) {
+        try {
+            var isReady = readinessChecker.isReadyForTransition();
+            var registeredCount = readinessChecker.getRegisteredMemberCount();
+            var totalCount = readinessChecker.getTotalMemberCount();
+            var requiredQuorum = readinessChecker.getRequiredQuorum();
+            var faultTolerance = readinessChecker.getFaultToleranceThreshold();
+
+            var response = GetTransitionReadinessResponse.newBuilder()
+                .setIsReady(isReady)
+                .setRegisteredMemberCount(registeredCount)
+                .setTotalMemberCount(totalCount)
+                .setRequiredQuorum(requiredQuorum)
+                .setFaultToleranceThreshold(faultTolerance)
+                .build();
+
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
+            log.debug("Transition readiness check: ready={}, registered={}/{}, quorum={}",
+                isReady, registeredCount, totalCount, requiredQuorum);
+        } catch (Exception e) {
+            responseObserver.onError(Status.INTERNAL
+                .withDescription("Error checking transition readiness: " + e.getMessage())
+                .asRuntimeException());
+            log.error("Error checking transition readiness", e);
+        }
+    }
+
     /**
      * Map domain TransitionStatus to protobuf TransitionStatus.
      *
