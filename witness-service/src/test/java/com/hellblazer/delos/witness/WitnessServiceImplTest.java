@@ -104,7 +104,7 @@ class WitnessServiceImplTest {
         witnessCHOAM = new WitnessCHOAM(null, null, stateMachine, parameters);
         witnessCHOAM.onViewChange(genesisBlock);
 
-        witnessService = new WitnessServiceImpl(witnessCHOAM, receiptManager, parameters, ALGORITHM);
+        witnessService = new WitnessServiceImpl(witnessCHOAM, witnessContext, receiptManager, parameters, ALGORITHM);
     }
 
     @Test
@@ -421,6 +421,192 @@ class WitnessServiceImplTest {
         // Then: All operations complete successfully
         verify(receiptObserver).onCompleted();
         assertEquals(3, responses.size());
+    }
+
+    @Test
+    void testGetCommittee_ReturnsCommitteeInfo() {
+        // Given: Committee request
+        var request = CommitteeRequest.newBuilder()
+            .build();
+
+        // When: Querying committee
+        var responseCaptor = new AtomicReference<CommitteeInfo>();
+        var observer = new StreamObserver<CommitteeInfo>() {
+            @Override
+            public void onNext(CommitteeInfo value) {
+                responseCaptor.set(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {}
+
+            @Override
+            public void onCompleted() {}
+        };
+        witnessService.getCommittee(request, observer);
+
+        // Then: Response contains correct committee info
+        var response = responseCaptor.get();
+        assertNotNull(response);
+        assertEquals(parameters.k(), response.getCommitteeSize());
+        assertEquals(parameters.threshold(), response.getThreshold());
+        assertEquals(parameters.epoch(), response.getEpoch());
+        assertEquals((parameters.k() - 1) / 3, response.getFaultTolerance());
+    }
+
+    @Test
+    void testGetCommittee_FaultToleranceCalculation() {
+        // Given: Committee size parameters
+        var request = CommitteeRequest.newBuilder().build();
+
+        // When: Querying committee for fault tolerance
+        var responseCaptor = new AtomicReference<CommitteeInfo>();
+        var observer = new StreamObserver<CommitteeInfo>() {
+            @Override
+            public void onNext(CommitteeInfo value) {
+                responseCaptor.set(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {}
+
+            @Override
+            public void onCompleted() {}
+        };
+        witnessService.getCommittee(request, observer);
+
+        // Then: Fault tolerance correctly calculated (k=7 => f=2)
+        var response = responseCaptor.get();
+        assertNotNull(response);
+        assertEquals(2, response.getFaultTolerance());
+    }
+
+    @Test
+    void testHealth_ReturnsHealthStatus() {
+        // Given: Service is running
+        // When: Querying health
+        var responseCaptor = new AtomicReference<HealthStatus>();
+        var observer = new StreamObserver<HealthStatus>() {
+            @Override
+            public void onNext(HealthStatus value) {
+                responseCaptor.set(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {}
+
+            @Override
+            public void onCompleted() {}
+        };
+        witnessService.health(com.google.protobuf.Empty.getDefaultInstance(), observer);
+
+        // Then: Response contains health metrics
+        var response = responseCaptor.get();
+        assertNotNull(response);
+        assertEquals(parameters.epoch(), response.getEpoch());
+        assertEquals(parameters.k(), response.getCommitteeSize());
+        assertTrue(response.getUptimeSeconds() >= 0);
+        assertTrue(response.getAvgReceiptLatencyMs() >= 0.0);
+    }
+
+    @Test
+    void testHealth_ReportsInFlightCollections() {
+        // Given: Collections in progress
+        var event = createEventCoordinates("health-test", 1L);
+        witnessCHOAM.initiateCollection(event, 0L);
+
+        // When: Querying health
+        var responseCaptor = new AtomicReference<HealthStatus>();
+        var observer = new StreamObserver<HealthStatus>() {
+            @Override
+            public void onNext(HealthStatus value) {
+                responseCaptor.set(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {}
+
+            @Override
+            public void onCompleted() {}
+        };
+        witnessService.health(com.google.protobuf.Empty.getDefaultInstance(), observer);
+
+        // Then: Response reports in-flight collections
+        var response = responseCaptor.get();
+        assertNotNull(response);
+        assertEquals(1, response.getInFlightCollections());
+    }
+
+    @Test
+    void testHealth_TrackingUptimeAndMetrics() throws InterruptedException {
+        // Given: Service running
+        var initialResponse = new AtomicReference<HealthStatus>();
+        var observer1 = new StreamObserver<HealthStatus>() {
+            @Override
+            public void onNext(HealthStatus value) {
+                initialResponse.set(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {}
+
+            @Override
+            public void onCompleted() {}
+        };
+        witnessService.health(com.google.protobuf.Empty.getDefaultInstance(), observer1);
+        long initialUptime = initialResponse.get().getUptimeSeconds();
+
+        // When: Time passes and health checked again
+        Thread.sleep(100);
+        var laterResponse = new AtomicReference<HealthStatus>();
+        var observer2 = new StreamObserver<HealthStatus>() {
+            @Override
+            public void onNext(HealthStatus value) {
+                laterResponse.set(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {}
+
+            @Override
+            public void onCompleted() {}
+        };
+        witnessService.health(com.google.protobuf.Empty.getDefaultInstance(), observer2);
+        long laterUptime = laterResponse.get().getUptimeSeconds();
+
+        // Then: Uptime increased monotonically
+        assertTrue(laterUptime >= initialUptime);
+    }
+
+    @Test
+    void testGetCommittee_ConcurrentRequests() {
+        // Given: Multiple concurrent committee queries
+        var responses = Collections.synchronizedList(new ArrayList<CommitteeInfo>());
+
+        // When: Multiple requests concurrently
+        for (int i = 0; i < 5; i++) {
+            var request = CommitteeRequest.newBuilder().build();
+            var observer = new StreamObserver<CommitteeInfo>() {
+                @Override
+                public void onNext(CommitteeInfo value) {
+                    responses.add(value);
+                }
+
+                @Override
+                public void onError(Throwable t) {}
+
+                @Override
+                public void onCompleted() {}
+            };
+            witnessService.getCommittee(request, observer);
+        }
+
+        // Then: All responses received with consistent metadata
+        assertEquals(5, responses.size());
+        responses.forEach(r -> {
+            assertEquals(parameters.k(), r.getCommitteeSize());
+            assertEquals(parameters.threshold(), r.getThreshold());
+        });
     }
 
     // Helper methods

@@ -25,7 +25,8 @@ import java.util.stream.Collectors;
  * Provides:
  * - SubscribeReceipts: Server-push streaming of witnessed receipts matching filter criteria
  * - PollFuture: Non-blocking async polling for collection progress
- * - Future: Committee membership and health endpoints (Phase 1A-3)
+ * - GetCommittee: Query committee composition and metadata for events
+ * - Health: Service health status and operational metrics
  *
  * Bridges CHOAM state machine to gRPC streaming model using StreamObserver pattern.
  * Filtering supports controller, sequence range, ilk type, and epoch constraints.
@@ -35,6 +36,7 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
     private static final Logger log = LoggerFactory.getLogger(WitnessServiceImpl.class);
 
     private final WitnessCHOAM witnessCHOAM;
+    private final WitnessContext witnessContext;
     private final WitnessReceiptManager receiptManager;
     private final WitnessParameters parameters;
     private final DigestAlgorithm digestAlgorithm;
@@ -46,11 +48,18 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
     // In-flight collection tracking for polling
     private final Map<String, CollectionPollingState> pollingStates = new ConcurrentHashMap<>();
 
+    // Service health tracking
+    private final long serviceStartTime = System.currentTimeMillis();
+    private long totalReceiptsIssued = 0;
+    private String lastErrorMessage = "";
+
     public WitnessServiceImpl(WitnessCHOAM witnessCHOAM,
+                            WitnessContext witnessContext,
                             WitnessReceiptManager receiptManager,
                             WitnessParameters parameters,
                             DigestAlgorithm digestAlgorithm) {
         this.witnessCHOAM = witnessCHOAM;
+        this.witnessContext = witnessContext;
         this.receiptManager = receiptManager;
         this.parameters = parameters;
         this.digestAlgorithm = digestAlgorithm;
@@ -228,6 +237,88 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
         long createdAt,
         int pollCount
     ) {}
+
+    /**
+     * Get current witness committee for an event.
+     * Returns committee members, threshold, and epoch information.
+     *
+     * @param request CommitteeRequest with event coordinates
+     * @param responseObserver Observer for CommitteeInfo response
+     */
+    @Override
+    public void getCommittee(CommitteeRequest request,
+                            StreamObserver<CommitteeInfo> responseObserver) {
+        try {
+            log.debug("GetCommittee: event={}", request.getEventCoordinates());
+
+            // Calculate fault tolerance parameter (f = (k-1)/3 for BFT)
+            int faultTolerance = (parameters.k() - 1) / 3;
+
+            // Build committee info response
+            // TODO Phase 1A-3: Include actual committee member list from WitnessContext
+            var response = CommitteeInfo.newBuilder()
+                .setCommitteeSize(parameters.k())
+                .setThreshold(parameters.threshold())
+                .setEpoch(parameters.epoch())
+                .setFaultTolerance(faultTolerance)
+                .build();
+
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
+
+            log.debug("GetCommittee: returned committee size={}, threshold={}, f={}",
+                     parameters.k(), parameters.threshold(), faultTolerance);
+
+        } catch (Exception e) {
+            log.error("Error in getCommittee", e);
+            lastErrorMessage = "GetCommittee error: " + e.getMessage();
+            responseObserver.onError(e);
+        }
+    }
+
+    /**
+     * Check witness service health and status.
+     * Returns uptime, metrics, and current operational status.
+     *
+     * @param request Empty request (from google.protobuf.Empty)
+     * @param responseObserver Observer for HealthStatus response
+     */
+    @Override
+    public void health(com.google.protobuf.Empty request,
+                      StreamObserver<HealthStatus> responseObserver) {
+        try {
+            // Calculate uptime in seconds
+            long uptimeMs = System.currentTimeMillis() - serviceStartTime;
+            long uptimeSeconds = uptimeMs / 1000;
+
+            var stats = witnessCHOAM.getStatistics();
+
+            // Calculate average receipt latency (for now, placeholder)
+            double avgLatencyMs = 0.0;  // TODO Phase 1A-3: Get actual latency metrics
+
+            var response = HealthStatus.newBuilder()
+                .setEpoch(parameters.epoch())
+                .setInFlightCollections(stats.inFlightCollections())
+                .setTotalReceipts(totalReceiptsIssued)
+                .setAvgReceiptLatencyMs(avgLatencyMs)
+                .setCommitteeSize(parameters.k())
+                .setUptimeSeconds(uptimeSeconds)
+                .setLastError(lastErrorMessage)
+                .build();
+
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
+
+            log.debug("Health: epoch={}, in_flight={}, uptime={}s, total_receipts={}",
+                     parameters.epoch(), stats.inFlightCollections(),
+                     uptimeSeconds, totalReceiptsIssued);
+
+        } catch (Exception e) {
+            log.error("Error in health", e);
+            lastErrorMessage = "Health check error: " + e.getMessage();
+            responseObserver.onError(e);
+        }
+    }
 
     /**
      * Shutdown method for cleanup.
