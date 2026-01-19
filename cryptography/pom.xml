@@ -55,6 +55,11 @@
             <groupId>com.codevasp</groupId>
             <artifactId>lazysodium-java-code</artifactId>
         </dependency>
+        <dependency>
+            <groupId>tech.pegasys.teku.internal</groupId>
+            <artifactId>bls</artifactId>
+            <version>24.12.0</version>
+        </dependency>
 
         <!-- Test only deps below this line -->
 

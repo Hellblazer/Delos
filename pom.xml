@@ -713,6 +713,14 @@
                 <enabled>false</enabled>
             </snapshots>
         </repository>
+        <repository>
+            <id>cloudsmith-consensys-teku</id>
+            <name>ConsenSys Teku Maven Repository (Cloudsmith)</name>
+            <url>https://dl.cloudsmith.io/public/consensys/teku/maven/</url>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </repository>
     </repositories>
     <pluginRepositories>
         <pluginRepository>
