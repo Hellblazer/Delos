@@ -67,13 +67,15 @@ public record BLSAggregate(BLSSignature aggregatedSignature, byte[] signerBitmap
             );
         }
 
-        // For single signature, no cryptographic aggregation needed
+        // Aggregate signatures - placeholder for now
+        // TODO: Phase 1B-2 - Implement actual cryptographic aggregation
+        // For now, using first signature as representative; real aggregation requires
+        // proper provider initialization and error handling
         BLSSignature aggregated;
         if (signatures.size() == 1) {
             aggregated = signatures.get(0);
         } else {
-            // TODO: Phase 4 - actual cryptographic aggregation via provider
-            // For now, use the first signature as placeholder
+            // Placeholder: use first signature (will be fixed in Phase 1B-2)
             aggregated = signatures.get(0);
         }
 

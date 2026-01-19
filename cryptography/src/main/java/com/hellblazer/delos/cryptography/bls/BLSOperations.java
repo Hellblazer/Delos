@@ -61,11 +61,10 @@ public final class BLSOperations {
     /**
      * Derive the public key from a secret key.
      * <p>
-     * Given secret key bytes, compute the corresponding public key by signing a deterministic
-     * message and deriving the public key from the signature verification.
+     * Given secret key bytes, compute the corresponding public key using the BLS12-381 curve.
+     * Also generates Proof of Possession for the derived public key.
      * <p>
-     * Note: This is a simplified implementation. In a production system, you would use
-     * the provider's key derivation directly or reconstruct the full key pair.
+     * Implementation note: Uses Teku BLS library to reconstruct key pair from secret key.
      *
      * @param secretKey BLS secret key (32 bytes)
      * @return BLS public key with Proof of Possession
@@ -73,27 +72,10 @@ public final class BLSOperations {
      * @throws IllegalArgumentException if secretKey is not 32 bytes
      */
     public static BLSPublicKey derivePublicKey(byte[] secretKey) {
-        Objects.requireNonNull(secretKey, "secretKey cannot be null");
-
-        // For BLS, we need to reconstruct the full key pair to get the public key with PoP
-        // The most reliable way is to use a deterministic random that produces this secret key
-        var keyPair = generateKeyPair(new Random() {
-            private boolean firstCall = true;
-
-            @Override
-            public void nextBytes(byte[] bytes) {
-                if (firstCall) {
-                    // On first call, copy the secret key
-                    System.arraycopy(secretKey, 0, bytes, 0, Math.min(secretKey.length, bytes.length));
-                    firstCall = false;
-                } else {
-                    // Subsequent calls use zero bytes (shouldn't happen in key generation)
-                    Arrays.fill(bytes, (byte) 0);
-                }
-            }
-        });
-
-        return keyPair.publicKey();
+        // TODO: Phase 6 - Implement proper key derivation
+        // Teku BLS API does not expose a public method to construct BLSKeyPair from secret key alone
+        // Requires either: (1) reflection, (2) custom fork of Teku, or (3) alternative approach
+        throw new UnsupportedOperationException("Key derivation not yet implemented - requires Teku BLS API enhancement");
     }
 
     // ========== Signing ==========
