@@ -66,7 +66,7 @@ jobs:
             delos-maven-
           fail-on-cache-miss: false
       - name: Test Batch 1 (Light CHOAM unit tests + light modules)
-        run: ./mvnw -batch-mode surefire:test -pl choam -Dtest='DynamicTest,SessionTest,PendingQueueBoundsTest,TransactionSignatureTest' --file pom.xml && ./mvnw -batch-mode surefire:test -pl tron,schemas --file pom.xml
+        run: CI=true ./mvnw -batch-mode surefire:test -pl choam -Dtest='DynamicTest,SessionTest,PendingQueueBoundsTest,TransactionSignatureTest' --file pom.xml && CI=true ./mvnw -batch-mode surefire:test -pl tron,schemas --file pom.xml
       - name: Save Maven cache after batch-1 tests
         uses: actions/cache@v4
         with:
@@ -100,7 +100,7 @@ jobs:
             delos-maven-
           fail-on-cache-miss: false
       - name: Test Batch 2a (CHOAM checkpoint tests)
-        run: ./mvnw -batch-mode surefire:test -pl choam -Dtest='CHOAMCheckpointTest,SynchronizationCircuitBreakerTest,CheckpointValidationRaceTest' --file pom.xml
+        run: CI=true ./mvnw -batch-mode surefire:test -pl choam -Dtest='CHOAMCheckpointTest,SynchronizationCircuitBreakerTest,CheckpointValidationRaceTest' --file pom.xml
       - name: Save Maven cache after batch-2a tests
         uses: actions/cache@v4
         with:
@@ -134,7 +134,7 @@ jobs:
             delos-maven-
           fail-on-cache-miss: false
       - name: Test Batch 2b (CHOAM validation + sql-state)
-        run: ./mvnw -batch-mode surefire:test -pl choam -Dtest='CHOAMBlockValidationTest' --file pom.xml && ./mvnw -batch-mode surefire:test -pl sql-state --file pom.xml
+        run: CI=true ./mvnw -batch-mode surefire:test -pl choam -Dtest='CHOAMBlockValidationTest' --file pom.xml && CI=true ./mvnw -batch-mode surefire:test -pl sql-state --file pom.xml
       - name: Save Maven cache after batch-2b tests
         uses: actions/cache@v4
         with:
@@ -168,7 +168,7 @@ jobs:
             delos-maven-
           fail-on-cache-miss: false
       - name: Test Batch 3a (CHOAM concurrency + correctness tests)
-        run: ./mvnw -batch-mode surefire:test -pl choam -Dtest='CHOAMConcurrencyTest,CHOAMFSMErrorPathsTest,CallbackReentrancyTest,ViewStateContractTest,NestedLockDetectionTest' -Dlarge_tests=true --file pom.xml
+        run: CI=true ./mvnw -batch-mode surefire:test -pl choam -Dtest='CHOAMConcurrencyTest,CHOAMFSMErrorPathsTest,CallbackReentrancyTest,ViewStateContractTest,NestedLockDetectionTest' -Dlarge_tests=true --file pom.xml
       - name: Save Maven cache after batch-3a tests
         uses: actions/cache@v4
         with:
@@ -202,7 +202,7 @@ jobs:
             delos-maven-
           fail-on-cache-miss: false
       - name: Test Batch 3b (Consensus layer - fireflies + ethereal)
-        run: ./mvnw -batch-mode surefire:test -pl fireflies,ethereal --file pom.xml
+        run: CI=true ./mvnw -batch-mode surefire:test -pl fireflies,ethereal --file pom.xml
       - name: Save Maven cache after batch-3b tests
         uses: actions/cache@v4
         with:
@@ -236,7 +236,7 @@ jobs:
             delos-maven-
           fail-on-cache-miss: false
       - name: Test Batch 3c (Identity/services layer)
-        run: ./mvnw -batch-mode surefire:test -pl cryptography,stereotomy,thoth,java-noise,protocols,memberships,gorgoneion,gorgoneion-client,vm-socket,stereotomy-services,grpc,liquibase-deterministic,leyden --file pom.xml
+        run: CI=true ./mvnw -batch-mode surefire:test -pl cryptography,stereotomy,thoth,java-noise,protocols,memberships,gorgoneion,gorgoneion-client,vm-socket,stereotomy-services,grpc,liquibase-deterministic,leyden --file pom.xml
       - name: Save Maven cache after batch-3c tests
         uses: actions/cache@v4
         with:
@@ -270,7 +270,7 @@ jobs:
             delos-maven-
           fail-on-cache-miss: false
       - name: Test Batch 4 (CHOAM Byzantine safety tests ONLY)
-        run: ./mvnw -batch-mode surefire:test -pl choam -Dtest='GenesisAssemblyTest,ByzantineFaultInjectionTest,DeterminismVerificationTest,CHOAMThreadAndLockingTest' -Dlarge_tests=true --file pom.xml
+        run: CI=true ./mvnw -batch-mode surefire:test -pl choam -Dtest='GenesisAssemblyTest,ByzantineFaultInjectionTest,DeterminismVerificationTest,CHOAMThreadAndLockingTest' -Dlarge_tests=true --file pom.xml
       - name: Save Maven cache after batch-4 tests
         uses: actions/cache@v4
         with:
