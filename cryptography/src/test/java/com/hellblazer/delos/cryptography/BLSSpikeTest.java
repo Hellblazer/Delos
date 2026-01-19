@@ -6,6 +6,7 @@ import tech.pegasys.teku.bls.BLS;
 import tech.pegasys.teku.bls.BLSKeyPair;
 import tech.pegasys.teku.bls.BLSSignature;
 
+import java.security.SecureRandom;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -36,7 +37,7 @@ public class BLSSpikeTest {
     @Test
     public void spike_keyGeneration_shouldCreateValidKeyPair() {
         // Test 1: Key generation
-        var keyPair = BLSKeyPair.random();
+        var keyPair = BLSKeyPair.random(new SecureRandom());
 
         assertNotNull(keyPair, "Key pair should not be null");
         assertNotNull(keyPair.getSecretKey(), "Secret key should not be null");
@@ -54,7 +55,7 @@ public class BLSSpikeTest {
     @Test
     public void spike_signing_shouldProduceValidSignature() {
         // Test 2: Signing
-        var keyPair = BLSKeyPair.random();
+        var keyPair = BLSKeyPair.random(new SecureRandom());
         var message = Bytes.wrap(TEST_MESSAGE.getBytes());
 
         var signature = BLS.sign(keyPair.getSecretKey(), message);
@@ -69,7 +70,7 @@ public class BLSSpikeTest {
     @Test
     public void spike_verification_shouldValidateCorrectSignature() {
         // Test 3: Verification (valid signature)
-        var keyPair = BLSKeyPair.random();
+        var keyPair = BLSKeyPair.random(new SecureRandom());
         var message = Bytes.wrap(TEST_MESSAGE.getBytes());
         var signature = BLS.sign(keyPair.getSecretKey(), message);
 
@@ -83,8 +84,8 @@ public class BLSSpikeTest {
     @Test
     public void spike_verification_shouldRejectInvalidSignature() {
         // Test 3b: Verification (invalid signature)
-        var keyPair1 = BLSKeyPair.random();
-        var keyPair2 = BLSKeyPair.random();
+        var keyPair1 = BLSKeyPair.random(new SecureRandom());
+        var keyPair2 = BLSKeyPair.random(new SecureRandom());
         var message = Bytes.wrap(TEST_MESSAGE.getBytes());
         var signature = BLS.sign(keyPair1.getSecretKey(), message);
 
@@ -102,9 +103,9 @@ public class BLSSpikeTest {
         var message = Bytes.wrap(TEST_MESSAGE.getBytes());
 
         // Create 3 different key pairs and signatures
-        var keyPair1 = BLSKeyPair.random();
-        var keyPair2 = BLSKeyPair.random();
-        var keyPair3 = BLSKeyPair.random();
+        var keyPair1 = BLSKeyPair.random(new SecureRandom());
+        var keyPair2 = BLSKeyPair.random(new SecureRandom());
+        var keyPair3 = BLSKeyPair.random(new SecureRandom());
 
         var sig1 = BLS.sign(keyPair1.getSecretKey(), message);
         var sig2 = BLS.sign(keyPair2.getSecretKey(), message);
@@ -137,7 +138,7 @@ public class BLSSpikeTest {
         // Test 5: JNI library loading (implicit test - if we get here, it loaded)
         try {
             // This will trigger JNI library loading on first BLS operation
-            var keyPair = BLSKeyPair.random();
+            var keyPair = BLSKeyPair.random(new SecureRandom());
             assertNotNull(keyPair);
 
             System.out.println("✓ JNI library loaded successfully");
@@ -159,7 +160,7 @@ public class BLSSpikeTest {
 
         // Key generation baseline
         long keyGenStart = System.nanoTime();
-        var keyPair = BLSKeyPair.random();
+        var keyPair = BLSKeyPair.random(new SecureRandom());
         long keyGenDuration = System.nanoTime() - keyGenStart;
 
         // Signing baseline
