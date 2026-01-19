@@ -1,5 +1,6 @@
 package com.hellblazer.delos.cryptography.bls;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
@@ -121,4 +122,68 @@ public interface BLSProvider {
      * @throws IllegalArgumentException if list sizes don't match or sizes are invalid
      */
     boolean batchVerify(List<byte[]> publicKeys, List<byte[]> messages, List<byte[]> signatures);
+
+    /**
+     * Verify a BLSAggregate signature against committee public keys using the signer bitmap.
+     * <p>
+     * This method filters the public keys based on the aggregate's signer bitmap,
+     * then verifies the aggregated signature against the filtered keys and message.
+     * <p>
+     * Phase 3 addition for witness service aggregation support.
+     *
+     * @param publicKeys List of all committee public keys (each 48 bytes compressed)
+     * @param message    Common message that was signed (arbitrary bytes)
+     * @param aggregate  BLS aggregate containing signature and signer bitmap
+     * @return true if aggregate signature verifies, false otherwise
+     * @throws NullPointerException     if any parameter is null
+     * @throws IllegalArgumentException if sizes are invalid
+     */
+    default boolean verifyAggregateWithBitmap(List<byte[]> publicKeys, byte[] message, BLSAggregate aggregate) {
+        // Phase 4 implementation: filter keys by bitmap, then verify
+        var filteredKeys = filterByBitmap(publicKeys, aggregate.signerBitmap());
+        return verifyAggregate(filteredKeys, message, aggregate.aggregatedSignature().compressedBytes());
+    }
+
+    /**
+     * Filter a list of public keys based on a signer bitmap.
+     * <p>
+     * Returns only the public keys at positions where the bitmap has set bits.
+     * Used for aggregate signature verification with partial committee signatures.
+     * <p>
+     * Phase 3 addition for bitmap-based key filtering.
+     *
+     * @param publicKeys   List of all committee public keys
+     * @param signerBitmap Bitmap indicating which keys to include
+     * @return List of public keys at positions indicated by bitmap
+     * @throws NullPointerException     if any parameter is null
+     * @throws IllegalArgumentException if bitmap indicates indices beyond publicKeys size
+     */
+    default List<byte[]> filterByBitmap(List<byte[]> publicKeys, byte[] signerBitmap) {
+        if (publicKeys == null) {
+            throw new NullPointerException("publicKeys cannot be null");
+        }
+        if (signerBitmap == null) {
+            throw new NullPointerException("signerBitmap cannot be null");
+        }
+
+        var filtered = new ArrayList<byte[]>();
+
+        for (int byteIndex = 0; byteIndex < signerBitmap.length; byteIndex++) {
+            var b = signerBitmap[byteIndex];
+            for (int bitIndex = 0; bitIndex < 8; bitIndex++) {
+                if ((b & (1 << bitIndex)) != 0) {
+                    var keyIndex = byteIndex * 8 + bitIndex;
+                    if (keyIndex >= publicKeys.size()) {
+                        throw new IllegalArgumentException(
+                            "Bitmap indicates signer index " + keyIndex +
+                            " but publicKeys has only " + publicKeys.size() + " keys"
+                        );
+                    }
+                    filtered.add(publicKeys.get(keyIndex));
+                }
+            }
+        }
+
+        return filtered;
+    }
 }
