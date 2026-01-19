@@ -114,13 +114,13 @@ class WitnessByzantineTest {
         byzantineDetector.recordSignature(
             byzantineSigner.getIdentifier(),
             1L, // sequence number
-            sig1.getBytes()[0]
+            sig1.getBytes()[0][0]
         );
 
         var isEquivocation = byzantineDetector.recordSignature(
             byzantineSigner.getIdentifier(),
             1L, // same sequence
-            sig2.getBytes()[0]
+            sig2.getBytes()[0][0]
         );
 
         assertTrue(isEquivocation, "Should detect equivocation with different signatures at same sequence");
@@ -199,13 +199,13 @@ class WitnessByzantineTest {
         byzantineDetector.recordSignature(
             byzantineSigner.getIdentifier(),
             100L,
-            sig1.getBytes()[0]
+            sig1.getBytes()[0][0]
         );
 
         var equivocation = byzantineDetector.recordSignature(
             byzantineSigner.getIdentifier(),
             100L, // same sequence
-            sig2.getBytes()[0]
+            sig2.getBytes()[0][0]
         );
 
         assertTrue(equivocation, "Should detect equivocation across different recipients");
@@ -226,7 +226,7 @@ class WitnessByzantineTest {
             new Thread(() -> {
                 try {
                     var sig = signer.sign(event.toByteString()).getBytes()[0];
-                    signatures.put(signer.getIdentifier(), sig);
+                    signatures.put(signer.getIdentifier().toString(), sig);
                     latch.countDown();
                 } catch (Exception e) {
                     fail("Honest signer failed: " + e.getMessage());
@@ -246,7 +246,7 @@ class WitnessByzantineTest {
         Thread.sleep(100); // Simulate delayed Byzantine response
         for (var signer : byzantineSigners) {
             var sig = signer.sign(event.toByteString()).getBytes()[0];
-            signatures.put(signer.getIdentifier(), sig);
+            signatures.put(signer.getIdentifier().toString(), sig);
         }
 
         // But honest nodes already achieved consensus
@@ -455,7 +455,7 @@ class WitnessByzantineTest {
         assertNotNull(report, "Forensic report should be generated");
         assertTrue(report.contains("invalid signature"),
             "Report should document invalid signatures");
-        assertTrue(report.contains(byzantineSigner.getIdentifier()),
+        assertTrue(report.contains(byzantineSigner.getIdentifier().toString()),
             "Report should identify Byzantine node");
     }
 
@@ -488,12 +488,12 @@ class WitnessByzantineTest {
             "Should identify exactly the Byzantine nodes");
 
         for (var signer : byzantineSigners) {
-            assertTrue(identifiedByzantine.contains(signer.getIdentifier()),
+            assertTrue(identifiedByzantine.containsKey(signer.getIdentifier()),
                 "Byzantine node should be in identified list");
         }
 
         for (var signer : honestSigners) {
-            assertFalse(identifiedByzantine.contains(signer.getIdentifier()),
+            assertFalse(identifiedByzantine.containsKey(signer.getIdentifier()),
                 "Honest node should not be in identified list");
         }
     }
