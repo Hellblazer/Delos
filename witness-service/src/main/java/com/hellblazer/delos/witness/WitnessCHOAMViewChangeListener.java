@@ -123,9 +123,10 @@ public class WitnessCHOAMViewChangeListener {
      *
      * Phase 1A-3 Process:
      * 1. Get actual block height from CHOAM consensus (if available)
-     * 2. Create block with real CHOAM height or synthetic height (backwards compatibility)
-     * 3. Update WitnessContext with new members and epoch
-     * 4. Notify WitnessCHOAM of view change (triggers drain period)
+     * 2. Verify height continuity and detect gaps
+     * 3. Create block with real CHOAM height or synthetic height (backwards compatibility)
+     * 4. Update WitnessContext with new members and epoch
+     * 5. Notify WitnessCHOAM of view change (triggers drain period)
      *
      * @param viewChange Fireflies notification with membership changes
      */
@@ -137,6 +138,19 @@ public class WitnessCHOAMViewChangeListener {
             newHeight = (choamHeight != null) ? choamHeight.longValue() : viewHeight.incrementAndGet();
             if (choamHeight != null) {
                 log.debug("Using CHOAM consensus height: {}", newHeight);
+
+                // Verify height continuity across view changes
+                if (!verifyHeightContinuity(newHeight)) {
+                    log.error("Height continuity violation detected, proceeding with caution");
+                }
+
+                // Detect and log height gaps during recovery
+                long expectedHeight = viewHeight.get() + 1;
+                long gap = detectHeightGap(expectedHeight, newHeight);
+                if (gap > 0) {
+                    log.warn("Detected {} missing blocks during recovery, height jumped from {} to {}",
+                            gap, expectedHeight - 1, newHeight);
+                }
             } else {
                 log.warn("CHOAM height unavailable, using synthetic height: {}", newHeight);
             }
@@ -189,11 +203,54 @@ public class WitnessCHOAMViewChangeListener {
 
     /**
      * Get current view height (for testing and monitoring).
+     * Returns CHOAM consensus height if available, otherwise synthetic counter.
      *
      * @return Current height
      */
     public long getViewHeight() {
+        if (choam != null) {
+            var choamHeight = choam.currentHeight();
+            if (choamHeight != null) {
+                return choamHeight.longValue();
+            }
+        }
         return viewHeight.get();
+    }
+
+    /**
+     * Detect height gaps during recovery.
+     * Used to identify missing blocks or discontinuities.
+     *
+     * @param expectedHeight Expected next height
+     * @param actualHeight   Actual height from CHOAM
+     * @return Gap size (0 if no gap, positive if gap exists)
+     */
+    public long detectHeightGap(long expectedHeight, long actualHeight) {
+        if (actualHeight > expectedHeight) {
+            long gap = actualHeight - expectedHeight;
+            log.warn("Height gap detected: expected={}, actual={}, gap={}", expectedHeight, actualHeight, gap);
+            return gap;
+        }
+        return 0;
+    }
+
+    /**
+     * Verify height continuity across view changes.
+     * Ensures monotonic increase without backwards transitions.
+     *
+     * @param newHeight New height to validate
+     * @return true if height is valid (monotonic increase), false if violation
+     */
+    public boolean verifyHeightContinuity(long newHeight) {
+        long currentHeight = getViewHeight();
+        if (newHeight < currentHeight) {
+            log.error("Height continuity violation: current={}, new={}", currentHeight, newHeight);
+            return false;
+        }
+        if (newHeight > currentHeight + 1) {
+            log.warn("Height discontinuity: current={}, new={}, gap={}", currentHeight, newHeight, newHeight - currentHeight);
+        }
+        return true;
     }
 
     /**

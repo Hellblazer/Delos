@@ -221,6 +221,55 @@ public class WitnessContext {
     }
 
     /**
+     * Refresh committee cache after view change.
+     * Updates internal state to reflect new Fireflies membership.
+     * Called during view change propagation.
+     *
+     * @return Updated member count
+     */
+    public int refreshCommittee() {
+        lock.writeLock().lock();
+        try {
+            currentMembers = firefliesContext.allMembers()
+                .map(Member::getId)
+                .map(this::toIdentifier)
+                .collect(Collectors.toSet());
+            return currentMembers.size();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Get current committee members (immutable view).
+     *
+     * @return Current members
+     */
+    public Set<Identifier> getCurrentMembers() {
+        lock.readLock().lock();
+        try {
+            return Set.copyOf(currentMembers);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Update committee membership for view change.
+     * Thread-safe update with ReadWriteLock.
+     *
+     * @param newMembers New committee members
+     */
+    public void updateCommitteeMembers(Set<Identifier> newMembers) {
+        lock.writeLock().lock();
+        try {
+            currentMembers = Set.copyOf(newMembers);
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    /**
      * Convert Digest to Identifier.
      * Helper for compatibility between membership and stereotomy types.
      *
