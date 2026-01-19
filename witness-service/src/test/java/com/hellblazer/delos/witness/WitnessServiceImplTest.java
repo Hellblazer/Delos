@@ -609,6 +609,176 @@ class WitnessServiceImplTest {
         });
     }
 
+    @Test
+    void testSignEvent_InitiatesAsyncCollection() {
+        // Given: A valid event signing request
+        var event = createEventCoordinates("test-event", 1L);
+        var request = EventSigningRequest.newBuilder()
+            .setEventCoordinates(event.toEventCoords())
+            .setEventDigest(ALGORITHM.digest("content".getBytes()).toDigeste())
+            .setSigningThreshold(parameters.threshold())
+            .setCommitteeSize(parameters.k())
+            .setTimeoutMs(5000)
+            .build();
+
+        // When: SignEvent is called
+        var responseRef = new AtomicReference<ReceiptFuture>();
+        witnessService.signEvent(request, new StreamObserver<ReceiptFuture>() {
+            @Override
+            public void onNext(ReceiptFuture value) {
+                responseRef.set(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                fail("SignEvent should not error: " + t.getMessage());
+            }
+
+            @Override
+            public void onCompleted() {
+            }
+        });
+
+        // Then: Receipt future returned immediately with PENDING status
+        assertNotNull(responseRef.get());
+        assertEquals(ValidationStatus.PENDING, responseRef.get().getStatus());
+        assertFalse(responseRef.get().getCollectionId().isEmpty());
+        assertEquals(event.toEventCoords(), responseRef.get().getEventCoordinates());
+    }
+
+    @Test
+    void testGetReceipt_TimeoutWhenReceiptUnavailable() {
+        // Given: A receipt request for non-existent collection
+        var event = createEventCoordinates("missing-event", 2L);
+        var request = ReceiptRequest.newBuilder()
+            .setEventCoordinates(event.toEventCoords())
+            .setTimeoutMs(100)  // Short timeout for testing
+            .build();
+
+        // When: GetReceipt is called
+        var responseRef = new AtomicReference<ReceiptResponse>();
+        witnessService.getReceipt(request, new StreamObserver<ReceiptResponse>() {
+            @Override
+            public void onNext(ReceiptResponse value) {
+                responseRef.set(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                fail("GetReceipt should not error: " + t.getMessage());
+            }
+
+            @Override
+            public void onCompleted() {
+            }
+        });
+
+        // Then: TIMEOUT status returned
+        assertNotNull(responseRef.get());
+        assertEquals(ValidationStatus.TIMEOUT, responseRef.get().getStatus());
+    }
+
+    @Test
+    void testValidateReceipt_InsufficientSignatures() {
+        // Given: A receipt with fewer signatures than threshold
+        var event = createEventCoordinates("validate-event", 3L);
+        var receipt = WitnessReceipt.newBuilder()
+            .setEventCoordinates(event.toEventCoords())
+            .setEventDigest(ALGORITHM.digest("content".getBytes()).toDigeste())
+            .setEpoch(0)
+            .setViewRef(ALGORITHM.digest("view".getBytes()).toDigeste())
+            .build();
+
+        // When: ValidateReceipt is called with < threshold signatures
+        var responseRef = new AtomicReference<ReceiptResponse>();
+        witnessService.validateReceipt(receipt, new StreamObserver<ReceiptResponse>() {
+            @Override
+            public void onNext(ReceiptResponse value) {
+                responseRef.set(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                fail("ValidateReceipt should not error: " + t.getMessage());
+            }
+
+            @Override
+            public void onCompleted() {
+            }
+        });
+
+        // Then: INVALID status returned
+        assertNotNull(responseRef.get());
+        assertEquals(ValidationStatus.INVALID, responseRef.get().getStatus());
+    }
+
+    @Test
+    void testNotifyViewChange_InitiatesDrainPeriod() {
+        // Given: A view change notification
+        var viewChange = ViewChange.newBuilder()
+            .setOldEpoch(0)
+            .setNewEpoch(1)
+            .setDrainPeriodMs(500)
+            .build();
+
+        // When: NotifyViewChange is called
+        var responseRef = new AtomicReference<DrainStatus>();
+        witnessService.notifyViewChange(viewChange, new StreamObserver<DrainStatus>() {
+            @Override
+            public void onNext(DrainStatus value) {
+                responseRef.set(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                fail("NotifyViewChange should not error: " + t.getMessage());
+            }
+
+            @Override
+            public void onCompleted() {
+            }
+        });
+
+        // Then: Drain status returned with DRAINING state
+        assertNotNull(responseRef.get());
+        assertEquals(DrainStatus.DrainState.DRAINING, responseRef.get().getState());
+        assertTrue(responseRef.get().getRemainingMs() > 0);
+    }
+
+    @Test
+    void testGetDrainStatus_ReportsCurrentDrainState() throws InterruptedException {
+        // When: GetDrainStatus is called
+        // Wait for any active drain period to complete
+        Thread.sleep(750);  // Drain period is 500ms, add buffer for state transitions
+
+        var responseRef = new AtomicReference<DrainStatus>();
+        witnessService.getDrainStatus(com.google.protobuf.Empty.getDefaultInstance(),
+            new StreamObserver<DrainStatus>() {
+                @Override
+                public void onNext(DrainStatus value) {
+                    responseRef.set(value);
+                }
+
+                @Override
+                public void onError(Throwable t) {
+                    fail("GetDrainStatus should not error: " + t.getMessage());
+                }
+
+                @Override
+                public void onCompleted() {
+                }
+            });
+
+        // Then: Valid drain status returned
+        assertNotNull(responseRef.get());
+        // State should be one of the valid states
+        assertNotNull(responseRef.get().getState());
+        // Remaining time should be >= 0
+        assertTrue(responseRef.get().getRemainingMs() >= 0);
+        // In-flight collection count should be non-negative
+        assertTrue(responseRef.get().getInFlightCount() >= 0);
+    }
+
     // Helper methods
 
     private List<MockMember> createWitnessPool(int size) {
