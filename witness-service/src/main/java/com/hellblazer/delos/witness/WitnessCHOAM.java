@@ -401,6 +401,20 @@ public class WitnessCHOAM {
     }
 
     /**
+     * Retrieve receipt by event coordinates.
+     * Returns null if receipt not yet available or not found.
+     *
+     * @param eventCoordinates Event coordinates to retrieve receipt for
+     * @return WitnessReceipt if found and threshold met, null otherwise
+     */
+    public com.hellblazer.delos.witness.proto.WitnessReceipt getReceiptByEvent(EventCoordinates eventCoordinates) {
+        // TODO Phase 1A-3: Query CHOAM log for persisted receipt
+        // For now, this is a placeholder that integrates with the state machine
+        // Full implementation will retrieve from CHOAM session/replicated state
+        return null;
+    }
+
+    /**
      * Get the underlying state machine (package-protected for testing).
      */
     WitnessStateMachine getStateMachine() {

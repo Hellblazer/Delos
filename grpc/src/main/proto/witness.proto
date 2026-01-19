@@ -248,6 +248,37 @@ message HealthStatus {
 }
 
 /**
+ * Drain status for in-flight collections during view change.
+ * Tracks completion of collections and remaining time in drain period.
+ */
+message DrainStatus {
+  // Number of in-flight collections still pending
+  uint32 inFlightCount = 1;
+
+  // Collection IDs still pending completion
+  repeated string pendingCollectionIds = 2;
+
+  // Whether drain period has completed
+  bool drainComplete = 3;
+
+  // Time remaining in drain period (milliseconds)
+  uint64 remainingMs = 4;
+
+  // Current drain state
+  enum DrainState {
+    STABLE = 0;           // Normal operation
+    DRAINING = 1;         // In drain period
+    TRANSITIONING = 2;    // Updating to new view
+  }
+
+  // Current state
+  DrainState state = 5;
+
+  // Timestamp of this status
+  google.protobuf.Timestamp timestamp = 6;
+}
+
+/**
  * KERI Witness Service
  * Provides witness receipt signing, collection, validation, and streaming.
  */
@@ -295,8 +326,21 @@ service WitnessService {
   rpc SubscribeViewChanges(ViewChangeSubscription) returns (stream ViewChange);
 
   /**
+   * Notify witness service of view change from Fireflies.
+   * Initiates drain period for in-flight collections.
+   * Returns drain status and completion time.
+   */
+  rpc NotifyViewChange(ViewChange) returns (DrainStatus);
+
+  /**
    * Check witness service health and status.
    * Returns uptime, metrics, and current operational status.
    */
   rpc Health(google.protobuf.Empty) returns (HealthStatus);
+
+  /**
+   * Query current drain status.
+   * Non-blocking check of drain period progress.
+   */
+  rpc GetDrainStatus(google.protobuf.Empty) returns (DrainStatus);
 }

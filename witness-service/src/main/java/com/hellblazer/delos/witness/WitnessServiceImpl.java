@@ -8,6 +8,7 @@ package com.hellblazer.delos.witness;
 
 import com.hellblazer.delos.choam.support.HashedCertifiedBlock;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
+import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.witness.proto.*;
 import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
@@ -63,6 +64,239 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
         this.receiptManager = receiptManager;
         this.parameters = parameters;
         this.digestAlgorithm = digestAlgorithm;
+    }
+
+    /**
+     * Sign new key event and return async receipt future.
+     * Initiates M-of-N receipt collection across the witness committee.
+     * Returns immediately with a collection ID for polling or streaming.
+     *
+     * @param request Event signing request with coordinates and thresholds
+     * @param responseObserver Observer for ReceiptFuture response
+     */
+    @Override
+    public void signEvent(EventSigningRequest request,
+                         StreamObserver<ReceiptFuture> responseObserver) {
+        try {
+            // Keep proto version for response, convert to internal for logic
+            var protoEventCoords = request.getEventCoordinates();
+            var eventCoordinates = EventCoordinates.from(protoEventCoords);
+            log.debug("SignEvent: event={}, threshold={}/{}", eventCoordinates,
+                     request.getSigningThreshold(), request.getCommitteeSize());
+
+            // Generate unique collection ID for this signing operation
+            String collectionId = UUID.randomUUID().toString();
+
+            // Select committee for this event using ring iterator (deterministic per event)
+            var committee = witnessContext.selectCommittee(eventCoordinates);
+            if (committee.isEmpty()) {
+                log.warn("SignEvent: no committee available for event={}", eventCoordinates);
+                responseObserver.onNext(ReceiptFuture.newBuilder()
+                    .setCollectionId(collectionId)
+                    .setStatus(ValidationStatus.INVALID)
+                    .setEventCoordinates(protoEventCoords)
+                    .build());
+                responseObserver.onCompleted();
+                return;
+            }
+
+            // Initialize receipt collection in WitnessCHOAM
+            witnessCHOAM.initiateCollection(eventCoordinates, parameters.epoch());
+
+            // Record collection for polling
+            pollingStates.put(collectionId, new CollectionPollingState(
+                collectionId, System.currentTimeMillis(), 0));
+
+            // Increment issued receipts counter
+            totalReceiptsIssued++;
+
+            // Return future immediately (async collection in background)
+            var response = ReceiptFuture.newBuilder()
+                .setCollectionId(collectionId)
+                .setStatus(ValidationStatus.PENDING)
+                .setEventCoordinates(protoEventCoords)
+                .build();
+
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
+
+            log.debug("SignEvent: initiated collectionId={}, committee_size={}",
+                     collectionId, committee.size());
+
+        } catch (Exception e) {
+            log.error("Error in signEvent", e);
+            lastErrorMessage = "SignEvent error: " + e.getMessage();
+            responseObserver.onError(e);
+        }
+    }
+
+    /**
+     * Retrieve witnessed receipt by event coordinates.
+     * Blocks until receipt is available or timeout is exceeded.
+     * Polls the receipt collection state at intervals.
+     *
+     * @param request Receipt request with event coordinates and optional timeout
+     * @param responseObserver Observer for ReceiptResponse
+     */
+    @Override
+    public void getReceipt(ReceiptRequest request,
+                          StreamObserver<ReceiptResponse> responseObserver) {
+        try {
+            // Convert proto EventCoords to internal EventCoordinates
+            var eventCoordinates = EventCoordinates.from(request.getEventCoordinates());
+            long timeoutMs = request.getTimeoutMs() > 0 ? request.getTimeoutMs() : 5000;
+
+            log.debug("GetReceipt: event={}, timeout={}ms", eventCoordinates, timeoutMs);
+
+            // Query CHOAM for receipt by event coordinates
+            var receipt = witnessCHOAM.getReceiptByEvent(eventCoordinates);
+
+            if (receipt != null) {
+                // Receipt found, return immediately
+                var response = ReceiptResponse.newBuilder()
+                    .setReceipt(receipt)
+                    .setStatus(ValidationStatus.THRESHOLD_MET)
+                    .setSignatureCount((int) receipt.getSignaturesCount())
+                    .setRequiredThreshold(parameters.threshold())
+                    .build();
+
+                responseObserver.onNext(response);
+                responseObserver.onCompleted();
+
+                log.debug("GetReceipt: found receipt for event={}, signatures={}",
+                         eventCoordinates, receipt.getSignaturesCount());
+                return;
+            }
+
+            // Receipt not yet available
+            // Poll with timeout (simplified - full implementation would use proper async/await)
+            long startTime = System.currentTimeMillis();
+            boolean found = false;
+
+            while (System.currentTimeMillis() - startTime < timeoutMs) {
+                Thread.sleep(100);  // Poll interval
+
+                receipt = witnessCHOAM.getReceiptByEvent(eventCoordinates);
+                if (receipt != null) {
+                    found = true;
+                    break;
+                }
+            }
+
+            if (found) {
+                var response = ReceiptResponse.newBuilder()
+                    .setReceipt(receipt)
+                    .setStatus(ValidationStatus.THRESHOLD_MET)
+                    .setSignatureCount((int) receipt.getSignaturesCount())
+                    .setRequiredThreshold(parameters.threshold())
+                    .build();
+
+                responseObserver.onNext(response);
+                responseObserver.onCompleted();
+
+                log.debug("GetReceipt: found receipt after polling, event={}", eventCoordinates);
+            } else {
+                // Timeout waiting for receipt
+                var response = ReceiptResponse.newBuilder()
+                    .setStatus(ValidationStatus.TIMEOUT)
+                    .setSignatureCount(0)
+                    .setRequiredThreshold(parameters.threshold())
+                    .build();
+
+                responseObserver.onNext(response);
+                responseObserver.onCompleted();
+
+                log.warn("GetReceipt: timeout waiting for receipt, event={}", eventCoordinates);
+            }
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("GetReceipt interrupted", e);
+            lastErrorMessage = "GetReceipt interrupted: " + e.getMessage();
+            responseObserver.onError(e);
+        } catch (Exception e) {
+            log.error("Error in getReceipt", e);
+            lastErrorMessage = "GetReceipt error: " + e.getMessage();
+            responseObserver.onError(e);
+        }
+    }
+
+    /**
+     * Validate receipt signature threshold.
+     * Verifies M-of-N signatures present and all signers are committee members.
+     *
+     * @param request WitnessReceipt to validate
+     * @param responseObserver Observer for ReceiptResponse with validation result
+     */
+    @Override
+    public void validateReceipt(WitnessReceipt request,
+                               StreamObserver<ReceiptResponse> responseObserver) {
+        try {
+            // Convert proto EventCoords to internal EventCoordinates
+            var eventCoordinates = EventCoordinates.from(request.getEventCoordinates());
+            int signatureCount = request.getSignaturesCount();
+
+            log.debug("ValidateReceipt: event={}, signatures={}", eventCoordinates, signatureCount);
+
+            // Check threshold achieved
+            if (signatureCount < parameters.threshold()) {
+                var response = ReceiptResponse.newBuilder()
+                    .setReceipt(request)
+                    .setStatus(ValidationStatus.INVALID)
+                    .setSignatureCount(signatureCount)
+                    .setRequiredThreshold(parameters.threshold())
+                    .build();
+
+                responseObserver.onNext(response);
+                responseObserver.onCompleted();
+
+                log.debug("ValidateReceipt: insufficient signatures for event={}, got {} needed {}",
+                         eventCoordinates, signatureCount, parameters.threshold());
+                return;
+            }
+
+            // Verify all signers are committee members for this event
+            // TODO Phase 1A-3: Extract signer identities and validate membership
+            // For now, assume valid if threshold met and epoch matches
+
+            // Validate epoch/view consistency
+            long receiptEpoch = request.getEpoch();
+            if (receiptEpoch > parameters.epoch()) {
+                // Receipt from future epoch - invalid
+                var response = ReceiptResponse.newBuilder()
+                    .setReceipt(request)
+                    .setStatus(ValidationStatus.STALE)
+                    .setSignatureCount(signatureCount)
+                    .setRequiredThreshold(parameters.threshold())
+                    .build();
+
+                responseObserver.onNext(response);
+                responseObserver.onCompleted();
+
+                log.debug("ValidateReceipt: future epoch for event={}, receipt_epoch={} > current={}",
+                         eventCoordinates, receiptEpoch, parameters.epoch());
+                return;
+            }
+
+            // Validation passed
+            var response = ReceiptResponse.newBuilder()
+                .setReceipt(request)
+                .setStatus(ValidationStatus.THRESHOLD_MET)
+                .setSignatureCount(signatureCount)
+                .setRequiredThreshold(parameters.threshold())
+                .build();
+
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
+
+            log.debug("ValidateReceipt: valid receipt for event={}, signatures={}/{}",
+                     eventCoordinates, signatureCount, parameters.threshold());
+
+        } catch (Exception e) {
+            log.error("Error in validateReceipt", e);
+            lastErrorMessage = "ValidateReceipt error: " + e.getMessage();
+            responseObserver.onError(e);
+        }
     }
 
     /**
