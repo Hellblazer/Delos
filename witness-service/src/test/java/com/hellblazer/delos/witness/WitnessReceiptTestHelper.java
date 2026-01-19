@@ -94,8 +94,18 @@ public class WitnessReceiptTestHelper {
     }
 
     public KERL_ createTestKERL(String identifier) {
-        // KERL_ only contains events, not identifier or sequence number
-        return KERL_.newBuilder().build();
+        // Create KERL with differentiable content based on identifier hash
+        var builder = KERL_.newBuilder();
+        // Add events based on identifier to create different KERLs
+        int eventCount = Math.abs(identifier.hashCode()) % 10 + 1;
+        for (int i = 0; i < eventCount; i++) {
+            // Add dummy interaction events to differentiate KERLs
+            builder.addEvents(
+                com.hellblazer.delos.stereotomy.event.proto.KeyEventWithAttachments.newBuilder()
+                    .build()
+            );
+        }
+        return builder.build();
     }
 
     public byte[] tamperSignature(byte[] signature) {

@@ -50,8 +50,8 @@ public class ByzantineWitnessDetector {
     private final Counter signatureForgeryDetected;
     private final Counter thresholdBypassDetected;
 
-    private final java.util.concurrent.ConcurrentHashMap<String, WitnessStatus> witnessStatuses = new java.util.concurrent.ConcurrentHashMap<>();
-    private final java.util.concurrent.ConcurrentHashMap<String, java.util.Map<Long, byte[]>> signatureHistory = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ConcurrentHashMap<Identifier, WitnessStatus> witnessStatuses = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ConcurrentHashMap<Identifier, java.util.Map<Long, byte[]>> signatureHistory = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.Map<String, Integer> metrics;
 
     /**
@@ -425,12 +425,12 @@ public class ByzantineWitnessDetector {
 
     // Additional methods for testing support
 
-    public void recordInvalidSignature(String witnessId) {
+    public void recordInvalidSignature(Identifier witnessId) {
+        Objects.requireNonNull(witnessId, "witnessId cannot be null");
         var status = witnessStatuses.computeIfAbsent(witnessId, k -> new WitnessStatus());
         status.invalidSignatures++;
-        if (status.invalidSignatures >= 3) {
-            status.suspicious = true;
-        }
+        // Mark as suspicious on first invalid signature
+        status.suspicious = true;
         if (metrics != null) {
             metrics.merge("invalid_signatures", 1, Integer::sum);
             if (status.suspicious) {
@@ -442,14 +442,15 @@ public class ByzantineWitnessDetector {
         }
     }
 
-    public boolean isSuspicious(String witnessId) {
+    public boolean isSuspicious(Identifier witnessId) {
+        Objects.requireNonNull(witnessId, "witnessId cannot be null");
         return witnessStatuses.getOrDefault(witnessId, new WitnessStatus()).suspicious;
     }
 
-    public boolean recordSignature(String witnessId, long sequence, byte[] signature) {
+    public boolean recordSignature(Identifier witnessId, long sequence, byte signatureFirstByte) {
         var history = signatureHistory.computeIfAbsent(witnessId, k -> new java.util.concurrent.ConcurrentHashMap<>());
         var existing = history.get(sequence);
-        if (existing != null && !java.util.Arrays.equals(existing, signature)) {
+        if (existing != null && !java.util.Arrays.equals(existing, new byte[]{signatureFirstByte})) {
             // Equivocation detected
             recordInvalidSignature(witnessId);
             if (equivocationDetected != null) {
@@ -457,11 +458,11 @@ public class ByzantineWitnessDetector {
             }
             return true;
         }
-        history.put(sequence, signature);
+        history.put(sequence, new byte[]{signatureFirstByte});
         return false;
     }
 
-    public void recordParticipationRate(String witnessId, double participationPercent) {
+    public void recordParticipationRate(Identifier witnessId, double participationPercent) {
         var status = witnessStatuses.computeIfAbsent(witnessId, k -> new WitnessStatus());
         status.participationRate = participationPercent;
         if (participationPercent < 80) {
@@ -469,12 +470,12 @@ public class ByzantineWitnessDetector {
         }
     }
 
-    public void recordValidSignature(String witnessId) {
+    public void recordValidSignature(Identifier witnessId) {
         var status = witnessStatuses.computeIfAbsent(witnessId, k -> new WitnessStatus());
         status.validSignatures++;
     }
 
-    public void evaluateRecovery(String witnessId) {
+    public void evaluateRecovery(Identifier witnessId) {
         var status = witnessStatuses.get(witnessId);
         if (status != null && status.validSignatures >= 100) {
             // Sufficient valid signatures to clear suspicion
@@ -483,17 +484,17 @@ public class ByzantineWitnessDetector {
         }
     }
 
-    public void markForExclusion(String witnessId) {
+    public void markForExclusion(Identifier witnessId) {
         var status = witnessStatuses.computeIfAbsent(witnessId, k -> new WitnessStatus());
         status.markedForExclusion = true;
         status.suspicious = true;
     }
 
-    public boolean isMarkedForExclusion(String witnessId) {
+    public boolean isMarkedForExclusion(Identifier witnessId) {
         return witnessStatuses.getOrDefault(witnessId, new WitnessStatus()).markedForExclusion;
     }
 
-    public String generateForensicReport(String witnessId) {
+    public String generateForensicReport(Identifier witnessId) {
         var status = witnessStatuses.get(witnessId);
         if (status == null) {
             return "No record for witness: " + witnessId;
@@ -520,11 +521,12 @@ public class ByzantineWitnessDetector {
         );
     }
 
-    public java.util.List<String> getIdentifiedByzantineNodes() {
-        return witnessStatuses.entrySet().stream()
+    public java.util.Map<Identifier, WitnessStatus> getIdentifiedByzantineNodes() {
+        var result = new java.util.concurrent.ConcurrentHashMap<Identifier, WitnessStatus>();
+        witnessStatuses.entrySet().stream()
             .filter(e -> e.getValue().suspicious)
-            .map(java.util.Map.Entry::getKey)
-            .toList();
+            .forEach(e -> result.put(e.getKey(), e.getValue()));
+        return result;
     }
 
     private static class WitnessStatus {
