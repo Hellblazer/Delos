@@ -101,6 +101,15 @@ Historical receipts with Ed25519 signatures remain valid and queryable. Only NEW
 
 **Location**: `witness-service/src/main/java/com/hellblazer/delos/witness/committee/CommitteeBLSKeyStore.java`
 
+**AUDIT FIX (Issue #5)**: Key persistence strategy defined.
+
+For Phase 1B-3 initial implementation:
+- **Primary Implementation**: `InMemoryCommitteeBLSKeyStore` (in-memory, cleared on restart)
+- **Production Path**: CHOAM-backed storage (deferred to Phase 1C)
+- **Rationale**: Committee keys are ephemeral per session. Regenerated on node restart.
+  Members re-register keys after restart. CHOAM persistence can be added later for
+  faster startup in large networks.
+
 ```java
 package com.hellblazer.delos.witness.committee;
 
@@ -114,6 +123,10 @@ import java.util.Set;
 /**
  * Storage for committee member BLS public keys.
  * Thread-safe implementation for concurrent access during receipt validation.
+ *
+ * AUDIT FIX (Issue #5): Storage strategy documented.
+ * Phase 1B-3 uses in-memory implementation (InMemoryCommitteeBLSKeyStore).
+ * Production persistence layer (CHOAM-backed) deferred to Phase 1C.
  */
 public interface CommitteeBLSKeyStore {
 
@@ -190,13 +203,18 @@ import java.time.Instant;
 import java.util.Objects;
 
 /**
- * BLS key registration record with Proof of Possession.
+ * BLS key registration record with Proof of Possession and registration signature.
  * Immutable record for thread-safe sharing.
+ *
+ * AUDIT FIX (Issue #2): Added registrationSignature for two-step validation.
+ * - proofOfPossession: Proves key ownership (signs public key itself)
+ * - registrationSignature: Proves member authorization (signs member identifier)
  */
 public record BLSKeyRegistration(
     Identifier memberId,
     BLSPublicKey publicKey,
     ProofOfPossession proofOfPossession,
+    BLSSignature registrationSignature,
     long registrationEpoch,
     Instant registrationTime
 ) {
@@ -204,6 +222,7 @@ public record BLSKeyRegistration(
         Objects.requireNonNull(memberId, "memberId cannot be null");
         Objects.requireNonNull(publicKey, "publicKey cannot be null");
         Objects.requireNonNull(proofOfPossession, "proofOfPossession cannot be null");
+        Objects.requireNonNull(registrationSignature, "registrationSignature cannot be null");
         Objects.requireNonNull(registrationTime, "registrationTime cannot be null");
         if (registrationEpoch < 0) {
             throw new IllegalArgumentException("registrationEpoch must be >= 0");
@@ -217,12 +236,14 @@ public record BLSKeyRegistration(
         Identifier memberId,
         BLSPublicKey publicKey,
         ProofOfPossession proofOfPossession,
+        BLSSignature registrationSignature,
         long currentEpoch
     ) {
         return new BLSKeyRegistration(
             memberId,
             publicKey,
             proofOfPossession,
+            registrationSignature,
             currentEpoch,
             Instant.now()
         );
@@ -247,25 +268,31 @@ import org.slf4j.LoggerFactory;
 import java.util.Objects;
 
 /**
- * Validates Proof of Possession for BLS key registration.
- * Prevents key impersonation attacks.
+ * Validates Proof of Possession and registration signature for BLS key registration.
+ * Implements two-step validation: key ownership proof + member authorization.
+ *
+ * AUDIT FIX (Issue #2): Separated concerns between:
+ * - Step 1: Standard BLS PoP (signs public key itself) - proves key ownership
+ * - Step 2: Registration signature (signs member ID) - proves member authorization
  */
 public final class ProofOfPossessionValidator {
 
     private static final Logger log = LoggerFactory.getLogger(ProofOfPossessionValidator.class);
 
     private final BLSOperations blsOperations;
+    private final BLSProvider blsProvider;
 
-    public ProofOfPossessionValidator(BLSOperations blsOperations) {
+    public ProofOfPossessionValidator(BLSOperations blsOperations, BLSProvider blsProvider) {
         this.blsOperations = Objects.requireNonNull(blsOperations, "blsOperations cannot be null");
+        this.blsProvider = Objects.requireNonNull(blsProvider, "blsProvider cannot be null");
     }
 
     /**
-     * Validate Proof of Possession for a key registration.
+     * Validate both Proof of Possession and registration signature for key registration.
      *
-     * PoP proves that the registrant possesses the private key corresponding
-     * to the public key being registered. This prevents Eve from registering
-     * Alice's public key under Eve's identifier.
+     * Two-step validation:
+     * 1. PoP proves the registrant possesses the private key (key ownership).
+     * 2. Registration signature proves the member ID authorizes this key (member authorization).
      *
      * @param registration Key registration to validate
      * @return ValidationResult indicating success or failure reason
@@ -274,25 +301,38 @@ public final class ProofOfPossessionValidator {
         Objects.requireNonNull(registration, "registration cannot be null");
 
         try {
-            // PoP is a signature over the member's identifier using the BLS private key
-            var message = registration.memberId().getDigest().getBytes();
-            var isValid = blsOperations.verifyProofOfPossession(
-                registration.publicKey(),
-                registration.proofOfPossession(),
-                message
+            // Step 1: Verify Proof of Possession (key ownership)
+            // Standard BLS PoP signs the public key itself
+            var popValid = registration.proofOfPossession().verify(
+                registration.publicKey().toBytesCompressed(),
+                blsProvider
             );
 
-            if (isValid) {
-                log.debug("PoP validation successful for member: {}", registration.memberId());
-                return new ValidationResult.Valid(registration);
-            } else {
+            if (!popValid) {
                 log.warn("PoP validation failed for member: {}", registration.memberId());
                 return new ValidationResult.Invalid("Proof of Possession signature verification failed");
             }
 
+            // Step 2: Verify registration signature (member authorization)
+            // Registration signature signs the member identifier, proving authorization
+            var memberMessage = registration.memberId().getDigest().getBytes();
+            var authValid = BLSOperations.verify(
+                registration.publicKey(),
+                memberMessage,
+                registration.registrationSignature()
+            );
+
+            if (!authValid) {
+                log.warn("Registration signature validation failed for member: {}", registration.memberId());
+                return new ValidationResult.Invalid("Registration signature verification failed");
+            }
+
+            log.debug("Two-step validation successful for member: {}", registration.memberId());
+            return new ValidationResult.Valid(registration);
+
         } catch (Exception e) {
-            log.error("PoP validation error for member: {}", registration.memberId(), e);
-            return new ValidationResult.Error("PoP validation exception: " + e.getMessage());
+            log.error("Validation error for member: {}", registration.memberId(), e);
+            return new ValidationResult.Error("Validation exception: " + e.getMessage());
         }
     }
 
@@ -307,19 +347,28 @@ public final class ProofOfPossessionValidator {
 }
 ```
 
-##### 4. WitnessContext.getCommitteeBLSKeys() Implementation (~30 lines)
+##### 4. WitnessContext.getCommitteeBLSKeys() Implementation (~50 lines)
 
 **Location**: Update `witness-service/src/main/java/com/hellblazer/delos/witness/WitnessContext.java`
+
+**AUDIT FIX (Issue #2+)**: Add field, new constructor, and backward-compatible overload to avoid breaking existing callers.
 
 ```java
 // Add field
 private final CommitteeBLSKeyStore committeeBLSKeyStore;
 
-// Update constructor to accept key store
+// NEW constructor for Phase 1B-3 (with key store)
 public WitnessContext(Context<?> firefliesContext, WitnessParameters parameters,
                       DigestAlgorithm digestAlgorithm, CommitteeBLSKeyStore keyStore) {
     // ... existing initialization ...
     this.committeeBLSKeyStore = Objects.requireNonNull(keyStore, "keyStore cannot be null");
+}
+
+// BACKWARD-COMPATIBLE overload - existing callers won't break
+// Uses default in-memory key store implementation
+public WitnessContext(Context<?> firefliesContext, WitnessParameters parameters,
+                      DigestAlgorithm digestAlgorithm) {
+    this(firefliesContext, parameters, digestAlgorithm, new InMemoryCommitteeBLSKeyStore());
 }
 
 /**
@@ -531,6 +580,33 @@ KeyRegistrationServiceTest.java (6 tests)
 
 #### Deliverables
 
+##### PhaseProvider.java (~30 lines) - AUDIT FIX Issue #3
+
+**Location**: `witness-service/src/main/java/com/hellblazer/delos/witness/migration/PhaseProvider.java`
+
+Add interface to break circular dependency:
+
+```java
+package com.hellblazer.delos.witness.migration;
+
+/**
+ * Interface to query current migration phase.
+ * Separates dependency on MigrationStateTracker, allowing TransitionReadinessChecker
+ * to depend on this interface instead of the full tracker.
+ *
+ * AUDIT FIX (Issue #3): Breaks circular dependency by allowing MigrationStateTracker
+ * to implement PhaseProvider, while TransitionReadinessChecker depends only on this interface.
+ */
+public interface PhaseProvider {
+    /**
+     * Get the current migration phase.
+     *
+     * @return Current phase (INIT, DUAL, or BLS_ONLY)
+     */
+    MigrationPhase getCurrentPhase();
+}
+```
+
 ##### 1. TransitionReadinessChecker.java (~150 lines)
 
 **Location**: `witness-service/src/main/java/com/hellblazer/delos/witness/migration/TransitionReadinessChecker.java`
@@ -551,6 +627,9 @@ import java.util.Set;
 /**
  * Checks if the system is ready for BLS_ONLY phase transition.
  * Validates that all prerequisites are met before allowing genesis transition.
+ *
+ * AUDIT FIX (Issue #3): Now depends on PhaseProvider interface instead of MigrationStateTracker,
+ * breaking circular dependency.
  */
 public final class TransitionReadinessChecker {
 
@@ -558,18 +637,18 @@ public final class TransitionReadinessChecker {
 
     private final WitnessContext witnessContext;
     private final CommitteeBLSKeyStore keyStore;
-    private final MigrationStateTracker stateTracker;
+    private final PhaseProvider phaseProvider;
     private final WitnessParameters parameters;
 
     public TransitionReadinessChecker(
         WitnessContext witnessContext,
         CommitteeBLSKeyStore keyStore,
-        MigrationStateTracker stateTracker,
+        PhaseProvider phaseProvider,
         WitnessParameters parameters
     ) {
         this.witnessContext = Objects.requireNonNull(witnessContext);
         this.keyStore = Objects.requireNonNull(keyStore);
-        this.stateTracker = Objects.requireNonNull(stateTracker);
+        this.phaseProvider = Objects.requireNonNull(phaseProvider);
         this.parameters = Objects.requireNonNull(parameters);
     }
 
@@ -579,7 +658,7 @@ public final class TransitionReadinessChecker {
      * @return TransitionReadiness with detailed status
      */
     public TransitionReadiness checkReadiness() {
-        var currentPhase = stateTracker.getCurrentPhase();
+        var currentPhase = phaseProvider.getCurrentPhase();
         var currentMembers = witnessContext.getCurrentMembers();
         var membersWithKeys = countMembersWithKeys(currentMembers);
         var totalMembers = currentMembers.size();
@@ -875,34 +954,31 @@ public TransitionReadinessChecker.TransitionReadiness getTransitionReadiness() {
 
 **Location**: `grpc/src/main/proto/witness.proto`
 
+**AUDIT FIX (Issue #1)**: Extend existing PhaseTransitionRequest/Response messages instead of replacing them.
+Existing messages are at lines 308-329. Add new fields below existing ones to maintain backward compatibility.
+
 ```protobuf
-// Phase transition request (admin endpoint)
+// EXTEND existing PhaseTransitionRequest with new fields
+// NOTE: Existing message already has: string newPhase = 1
+// Add new fields with field numbers 2, 3 (do NOT replace)
 message PhaseTransitionRequest {
-    enum TargetPhase {
-        DUAL = 0;
-        BLS_ONLY = 1;
-    }
-    TargetPhase target_phase = 1;
-    bool force = 2;
-    string justification = 3;  // Audit trail
+    string newPhase = 1;           // KEEP existing field
+    bool force = 2;                // ADD new field
+    string justification = 3;      // ADD new field (audit trail)
 }
 
+// EXTEND existing PhaseTransitionResponse with new field
+// NOTE: Existing message already has: bool success, string oldPhase, string newPhase, string errorMessage
+// Add new field with number 5 (do NOT replace)
 message PhaseTransitionResponse {
-    enum Status {
-        SUCCESS = 0;
-        NOT_READY = 1;
-        QUORUM_UNAVAILABLE = 2;
-        ALREADY_IN_PROGRESS = 3;
-        TRANSITION_FAILED = 4;
-    }
-    Status status = 1;
-    string previous_phase = 2;
-    string new_phase = 3;
-    int64 epoch_transitioned = 4;
-    string message = 5;
+    bool success = 1;              // KEEP existing field
+    string oldPhase = 2;           // KEEP existing field
+    string newPhase = 3;           // KEEP existing field
+    string errorMessage = 4;       // KEEP existing field
+    int64 epoch_transitioned = 5;  // ADD new field for Phase 1B-3
 }
 
-// Transition readiness query
+// NEW: Transition readiness query
 message TransitionReadinessRequest {}
 
 message TransitionReadinessResponse {
@@ -921,7 +997,7 @@ message TransitionReadinessResponse {
 service WitnessService {
     // ... existing methods ...
 
-    // Admin: Manual phase transition
+    // Admin: Manual phase transition (uses extended PhaseTransitionRequest/Response)
     rpc TransitionPhase(PhaseTransitionRequest) returns (PhaseTransitionResponse);
 
     // Query: Check transition readiness
@@ -1011,33 +1087,51 @@ private void shunMember(Identifier member, String reason) {
 
 ##### 2. Fireflies Shunning Integration
 
+**AUDIT FIX (Issue #4)**: Clarified Byzantine member exclusion approach.
+Investigation needed during Phase 1B-3-C to determine if Fireflies has accusation API or if witness-level tracking needed.
+
 ```java
 package com.hellblazer.delos.witness.integration;
 
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
 
 /**
- * Interface for notifying Fireflies of Byzantine members.
+ * Interface for tracking Byzantine members at witness level.
+ *
+ * AUDIT FIX (Issue #4): This is witness-level Byzantine tracking.
+ * Integration with Fireflies view changes (member exclusion) is handled separately
+ * via Fireflies.View subscription and potential accusation/shunning mechanisms.
+ *
+ * Implementation Strategy (TBD in Phase 1B-3-C):
+ * - Option A: If Fireflies has accusation/shunning API, use it
+ * - Option B: Track at witness level, rely on Fireflies view changes to exclude members
+ * - Recommend: Investigate AccusationWrapper.java and View.java for existing mechanisms
  */
 public interface FirefliesShunningIntegration {
 
     /**
-     * Mark a member as Byzantine and request shunning.
+     * Mark a member as Byzantine and track for potential exclusion.
      *
-     * @param member Member to shun
-     * @param reason Reason for shunning
+     * @param member Member to track as Byzantine
+     * @param reason Reason for Byzantine classification
      */
-    void shun(Identifier member, String reason);
+    void recordByzantine(Identifier member, String reason);
 
     /**
-     * Check if a member is currently shunned.
+     * Check if a member is tracked as Byzantine.
      */
-    boolean isShunned(Identifier member);
+    boolean isByzantine(Identifier member);
 
     /**
-     * Get count of shunned members.
+     * Get count of tracked Byzantine members.
      */
-    int shunnedCount();
+    int byzantineCount();
+
+    /**
+     * Integration point: Called when Fireflies view excludes a member.
+     * Records correlation with witnessed Byzantine behavior.
+     */
+    void onMemberExcluded(Identifier member);
 }
 ```
 
