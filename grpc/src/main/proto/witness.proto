@@ -1,0 +1,170 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.hellblazer.delos.witness.proto";
+option java_outer_classname = "WitnessProto";
+option objc_class_prefix = "Witness";
+
+import "crypto.proto";
+import "stereotomy.proto";
+import "google/protobuf/timestamp.proto";
+
+package witness;
+
+/**
+ * Witness receipt for KERI key events.
+ * Includes event coordinates, digest, witness signatures, and Fireflies view reference.
+ * Immutable once threshold achieved.
+ */
+message WitnessReceipt {
+  // Event coordinates identifying which event is receipted
+  stereotomy.EventCoords eventCoordinates = 1;
+
+  // Hash of the event content for validation
+  crypto.Digeste eventDigest = 2;
+
+  // Witness signatures (Phase 1A: individual Ed25519, Phase 1B: BLS aggregate)
+  repeated crypto.Sig signatures = 3;
+
+  // Fireflies epoch for staleness detection
+  uint64 epoch = 4;
+
+  // Fireflies view reference for validation
+  crypto.Digeste viewRef = 5;
+
+  // Timestamp when receipt was created
+  google.protobuf.Timestamp timestamp = 6;
+}
+
+/**
+ * Request for witness receipts by event coordinates.
+ * Supports filtering and timeout specification.
+ */
+message ReceiptRequest {
+  // Event coordinates to retrieve receipt for
+  stereotomy.EventCoords eventCoordinates = 1;
+
+  // Optional timeout in milliseconds
+  uint64 timeoutMs = 2;
+
+  // Optional filter for specific witness identifiers
+  repeated stereotomy.Ident witnessFilter = 3;
+}
+
+/**
+ * Response containing witness receipt and validation status.
+ */
+message ReceiptResponse {
+  // The witness receipt (may be null if not yet available)
+  WitnessReceipt receipt = 1;
+
+  // Validation status
+  ValidationStatus status = 2;
+
+  // Number of signatures received so far
+  uint32 signatureCount = 3;
+
+  // Required threshold for accountability
+  uint32 requiredThreshold = 4;
+}
+
+/**
+ * Validation status for witness receipts.
+ */
+enum ValidationStatus {
+  UNKNOWN = 0;
+  PENDING = 1;          // Receipt collection in progress
+  THRESHOLD_MET = 2;    // M-of-N threshold achieved
+  INVALID = 3;          // Receipt validation failed
+  STALE = 4;            // Receipt from old epoch/view
+  TIMEOUT = 5;          // Collection timeout exceeded
+}
+
+/**
+ * Request to sign a key event and return receipt.
+ */
+message EventSigningRequest {
+  // The key event to sign (as Any to support all event types)
+  stereotomy.EventCoords eventCoordinates = 1;
+
+  // Event content hash
+  crypto.Digeste eventDigest = 2;
+
+  // Required signature threshold (M)
+  uint32 signingThreshold = 3;
+
+  // Committee cardinality (k)
+  uint32 committeeSize = 4;
+
+  // Timeout for receipt collection (ms)
+  uint64 timeoutMs = 5;
+}
+
+/**
+ * Future result for async receipt collection.
+ * Returned immediately, allows polling or streaming for completion.
+ */
+message ReceiptFuture {
+  // Unique ID for this collection operation
+  string collectionId = 1;
+
+  // Initial status
+  ValidationStatus status = 2;
+
+  // Event coordinates being receipted
+  stereotomy.EventCoords eventCoordinates = 3;
+}
+
+/**
+ * Filter criteria for receipt subscription.
+ */
+message ReceiptFilter {
+  // Filter by specific controller identifiers
+  repeated stereotomy.Ident controllers = 1;
+
+  // Filter by event sequence number range
+  uint64 minSequence = 2;
+  uint64 maxSequence = 3;
+
+  // Filter by event ilk (icp, rot, ixn, etc.)
+  repeated string ilks = 4;
+
+  // Filter by epoch
+  uint64 epoch = 5;
+}
+
+/**
+ * KERI Witness Service
+ * Provides witness receipt signing, collection, validation, and streaming.
+ */
+service WitnessService {
+  /**
+   * Sign new key event and return async receipt future.
+   * Controller initiates receipt collection, service returns immediately with future.
+   */
+  rpc SignEvent(EventSigningRequest) returns (ReceiptFuture);
+
+  /**
+   * Retrieve witnessed receipt by event coordinates.
+   * Blocks until receipt available or timeout.
+   */
+  rpc GetReceipt(ReceiptRequest) returns (ReceiptResponse);
+
+  /**
+   * Validate receipt signature threshold.
+   * Verifies M-of-N signatures and epoch/view consistency.
+   */
+  rpc ValidateReceipt(WitnessReceipt) returns (ReceiptResponse);
+
+  /**
+   * Subscribe to receipt stream matching filter criteria.
+   * Enables push-based receipt gossip and propagation.
+   */
+  rpc SubscribeReceipts(ReceiptFilter) returns (stream WitnessReceipt);
+
+  /**
+   * Poll receipt future for completion status.
+   * Non-blocking check of async collection progress.
+   */
+  rpc PollFuture(ReceiptFuture) returns (ReceiptResponse);
+}
