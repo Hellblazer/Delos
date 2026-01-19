@@ -322,6 +322,13 @@ public class WitnessStateMachine {
     }
 
     /**
+     * Get the underlying receipt manager (package-protected for testing).
+     */
+    WitnessReceiptManager getReceiptManager() {
+        return receiptManager;
+    }
+
+    /**
      * Get statistics for monitoring.
      */
     public record Statistics(
