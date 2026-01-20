@@ -4,6 +4,7 @@
 
 package com.hellblazer.delos.cryptography.bls;
 
+import com.hellblazer.delos.cryptography.bls.impl.TekuBLSProvider;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -28,14 +29,24 @@ import static org.assertj.core.api.Assertions.*;
  */
 class AggregationWorkflowTest {
 
+    private static final TekuBLSProvider PROVIDER = new TekuBLSProvider();
+    private static final byte[] MESSAGE = BLSTestFixtures.randomMessage(32);
+    private static int nextSignerSeed = 0x200;
+
+    private static BLSSignature generateRealBLSSignature() {
+        var keyPair = PROVIDER.generateKeyPair(BLSTestFixtures.deterministicRandom(nextSignerSeed++));
+        var signatureBytes = PROVIDER.sign(keyPair.secretKey(), MESSAGE);
+        return new BLSSignature(signatureBytes);
+    }
+
     // ========== Sequential Aggregation Workflow Tests ==========
 
     @Test
     void sequentialAggregationWorkflow_threeSigners() {
         // GIVEN: Three signatures for the same message
-        var sig1 = new BLSSignature(BLSTestFixtures.randomMessage(96));
-        var sig2 = new BLSSignature(BLSTestFixtures.randomMessage(96));
-        var sig3 = new BLSSignature(BLSTestFixtures.randomMessage(96));
+        var sig1 = generateRealBLSSignature();
+        var sig2 = generateRealBLSSignature();
+        var sig3 = generateRealBLSSignature();
 
         var signatures = List.of(sig1, sig2, sig3);
         var signerIndices = List.of(0, 2, 5); // Committee positions
@@ -56,7 +67,7 @@ class AggregationWorkflowTest {
         var signerIndices = List.of(0, 1, 2, 3, 4, 5, 6);
 
         for (int i = 0; i < 7; i++) {
-            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(96)));
+            signatures.add(generateRealBLSSignature());
         }
 
         // WHEN: Aggregate all signatures
@@ -87,7 +98,7 @@ class AggregationWorkflowTest {
         var signerIndices = new ArrayList<Integer>();
 
         for (int i = 0; i < 21; i++) {
-            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(96)));
+            signatures.add(generateRealBLSSignature());
             signerIndices.add(i);
         }
 
@@ -104,9 +115,9 @@ class AggregationWorkflowTest {
     @Test
     void bitmapCorrectness_sparseSigners() {
         // GIVEN: Sparse signer indices (not consecutive)
-        var sig1 = new BLSSignature(BLSTestFixtures.randomMessage(96));
-        var sig2 = new BLSSignature(BLSTestFixtures.randomMessage(96));
-        var sig3 = new BLSSignature(BLSTestFixtures.randomMessage(96));
+        var sig1 = generateRealBLSSignature();
+        var sig2 = generateRealBLSSignature();
+        var sig3 = generateRealBLSSignature();
 
         var signatures = List.of(sig1, sig2, sig3);
         var signerIndices = List.of(1, 7, 15); // Sparse positions
@@ -127,7 +138,7 @@ class AggregationWorkflowTest {
         var signerIndices = List.of(0, 1, 2, 3, 4);
 
         for (int i = 0; i < 5; i++) {
-            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(96)));
+            signatures.add(generateRealBLSSignature());
         }
 
         // WHEN: Create aggregate
@@ -147,7 +158,7 @@ class AggregationWorkflowTest {
         // GIVEN: Eight signatures
         var signatures = new ArrayList<BLSSignature>();
         for (int i = 0; i < 8; i++) {
-            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(96)));
+            signatures.add(generateRealBLSSignature());
         }
         var signerIndices = List.of(0, 1, 2, 3, 4, 5, 6, 7);
 
@@ -173,7 +184,7 @@ class AggregationWorkflowTest {
         var signatures = new ArrayList<BLSSignature>();
         var signerIndices = new ArrayList<Integer>();
         for (int i = 0; i < 21; i++) {
-            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(96)));
+            signatures.add(generateRealBLSSignature());
             signerIndices.add(i);
         }
 

@@ -4,6 +4,7 @@
 
 package com.hellblazer.delos.cryptography.bls;
 
+import com.hellblazer.delos.cryptography.bls.impl.TekuBLSProvider;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -29,6 +30,15 @@ class PerformanceValidationTest {
 
     private static final int WARMUP_ITERATIONS = 100;
     private static final int MEASUREMENT_ITERATIONS = 1000;
+    private static final TekuBLSProvider PROVIDER = new TekuBLSProvider();
+    private static final byte[] MESSAGE = BLSTestFixtures.randomMessage(32);
+    private static int nextSignerSeed = 0x300;
+
+    private static BLSSignature generateRealBLSSignature() {
+        var keyPair = PROVIDER.generateKeyPair(BLSTestFixtures.deterministicRandom(nextSignerSeed++));
+        var signatureBytes = PROVIDER.sign(keyPair.secretKey(), MESSAGE);
+        return new BLSSignature(signatureBytes);
+    }
 
     // ========== Aggregate Creation Performance ==========
 
@@ -39,7 +49,7 @@ class PerformanceValidationTest {
         var signerIndices = List.of(0, 1, 2, 3, 4, 5, 6);
 
         for (int i = 0; i < 7; i++) {
-            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(96)));
+            signatures.add(generateRealBLSSignature());
         }
 
         // Warmup
@@ -71,7 +81,7 @@ class PerformanceValidationTest {
         var signerIndices = new ArrayList<Integer>();
 
         for (int i = 0; i < 21; i++) {
-            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(96)));
+            signatures.add(generateRealBLSSignature());
             signerIndices.add(i);
         }
 
@@ -105,7 +115,7 @@ class PerformanceValidationTest {
         var signerIndices = new ArrayList<Integer>();
 
         for (int i = 0; i < 21; i++) {
-            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(96)));
+            signatures.add(generateRealBLSSignature());
             signerIndices.add(i);
         }
 
@@ -141,7 +151,7 @@ class PerformanceValidationTest {
         var signerIndices = List.of(0, 1, 2, 3, 4, 5, 6);
 
         for (int i = 0; i < 7; i++) {
-            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(96)));
+            signatures.add(generateRealBLSSignature());
         }
 
         var aggregate = BLSAggregate.aggregate(signatures, signerIndices);
@@ -171,7 +181,7 @@ class PerformanceValidationTest {
         var signerIndices = new ArrayList<Integer>();
 
         for (int i = 0; i < 21; i++) {
-            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(96)));
+            signatures.add(generateRealBLSSignature());
             signerIndices.add(i);
         }
 
