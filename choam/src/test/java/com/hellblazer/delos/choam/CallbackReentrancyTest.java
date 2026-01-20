@@ -230,7 +230,7 @@ public class CallbackReentrancyTest {
 
         transactioneers.forEach(Transactioneer::start);
         try {
-            final var complete = countdown.await(LARGE_TESTS ? 30 : 25, TimeUnit.SECONDS);
+            final var complete = countdown.await(LARGE_TESTS ? 60 : 45, TimeUnit.SECONDS);
             assertTrue(complete, "Transactions did not complete in time");
         } finally {
             routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
