@@ -1,13 +1,9 @@
 /*
- * Copyright (c) 2021, salesforce.com, inc.
+ * Copyright (c) 2026, Hal Hildebrand.
  * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
- */
-/*
- * Portions copyright (c) 2025, Hal Hildebrand.
- * Modifications made under GNU Affero General Public License.
+ * GNU Affero General Public License
  * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
  */
 package com.hellblazer.delos.cryptography;
 
