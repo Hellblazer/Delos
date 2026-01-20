@@ -1,7 +1,9 @@
 /*
- * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (https://h2database.com/html/license.html).
- * Initial Developer: H2 Group
+ * Copyright (c) 2026, Hal Hildebrand.
+ * All rights reserved.
+ * GNU Affero General Public License
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
  */
 package org.h2.schema;
 
