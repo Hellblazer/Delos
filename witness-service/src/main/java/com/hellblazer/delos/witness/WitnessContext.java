@@ -1,8 +1,14 @@
 /*
- * Copyright (c) 2024, Salesforce.com, Inc.
+ * Copyright (c) 2026, Hal Hildebrand.
  * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
+ * GNU Affero General Public License
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
+ */
+/*
+ * Portions copyright (c) 2025, Hal Hildebrand.
+ * Modifications made under GNU Affero General Public License.
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
  */
 package com.hellblazer.delos.witness;
 
@@ -13,9 +19,13 @@ import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
+import com.hellblazer.delos.witness.committee.CommitteeBLSKeyStore;
+import com.hellblazer.delos.witness.committee.InMemoryCommitteeBLSKeyStore;
 
 import java.nio.ByteBuffer;
 import java.time.Duration;
+import java.util.List;
+import java.util.Objects;
 import java.util.SequencedSet;
 import java.util.Set;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -41,6 +51,7 @@ public class WitnessContext {
     private final WitnessParameters parameters;
     private final DigestAlgorithm digestAlgorithm;
     private final ReadWriteLock lock;
+    private final CommitteeBLSKeyStore committeeBLSKeyStore;
 
     private volatile long currentEpoch;
     private volatile Set<Identifier> currentMembers;
@@ -57,6 +68,9 @@ public class WitnessContext {
 
     /**
      * Create witness context with specific digest algorithm.
+     * <p>
+     * Backward-compatible constructor - delegates to 4-parameter constructor
+     * with default InMemoryCommitteeBLSKeyStore.
      *
      * @param firefliesContext Parent Fireflies context
      * @param parameters       Witness configuration
@@ -64,9 +78,27 @@ public class WitnessContext {
      */
     public WitnessContext(Context<?> firefliesContext, WitnessParameters parameters,
                           DigestAlgorithm digestAlgorithm) {
-        this.firefliesContext = firefliesContext;
-        this.parameters = parameters;
-        this.digestAlgorithm = digestAlgorithm;
+        this(firefliesContext, parameters, digestAlgorithm, new InMemoryCommitteeBLSKeyStore());
+    }
+
+    /**
+     * Create witness context with specific digest algorithm and BLS key store.
+     * <p>
+     * Primary constructor for Phase 1B-3. Allows injection of custom CommitteeBLSKeyStore
+     * implementation (e.g., CHOAM-backed persistence in Phase 1C).
+     *
+     * @param firefliesContext     Parent Fireflies context
+     * @param parameters           Witness configuration
+     * @param digestAlgorithm      Algorithm for event hashing
+     * @param committeeBLSKeyStore Storage for committee member BLS public keys
+     * @throws NullPointerException if any parameter is null
+     */
+    public WitnessContext(Context<?> firefliesContext, WitnessParameters parameters,
+                          DigestAlgorithm digestAlgorithm, CommitteeBLSKeyStore committeeBLSKeyStore) {
+        this.firefliesContext = Objects.requireNonNull(firefliesContext, "firefliesContext cannot be null");
+        this.parameters = Objects.requireNonNull(parameters, "parameters cannot be null");
+        this.digestAlgorithm = Objects.requireNonNull(digestAlgorithm, "digestAlgorithm cannot be null");
+        this.committeeBLSKeyStore = Objects.requireNonNull(committeeBLSKeyStore, "committeeBLSKeyStore cannot be null");
         this.lock = new ReentrantReadWriteLock();
         this.currentEpoch = parameters.epoch();
 
@@ -278,5 +310,28 @@ public class WitnessContext {
      */
     public Identifier toIdentifier(Digest digest) {
         return new SelfAddressingIdentifier(digest);
+    }
+
+    /**
+     * Get the CommitteeBLSKeyStore for managing committee member BLS public keys.
+     * <p>
+     * Provides access to the BLS key storage for committee key registration,
+     * retrieval, and removal. Used by KeyRegistrationService and receipt validators.
+     * <p>
+     * <b>Phase 1B-3 Implementation</b>: Returns the CommitteeBLSKeyStore instance
+     * provided during construction (defaults to InMemoryCommitteeBLSKeyStore).
+     * <p>
+     * The returned store allows:
+     * <ul>
+     *   <li>Key registration via {@link CommitteeBLSKeyStore#registerKey}</li>
+     *   <li>Key retrieval via {@link CommitteeBLSKeyStore#getPublicKey}</li>
+     *   <li>Batch retrieval via {@link CommitteeBLSKeyStore#getPublicKeys}</li>
+     *   <li>Key removal via {@link CommitteeBLSKeyStore#removeKey}</li>
+     * </ul>
+     *
+     * @return The committee BLS key store instance
+     */
+    public CommitteeBLSKeyStore getCommitteeBLSKeys() {
+        return committeeBLSKeyStore;
     }
 }

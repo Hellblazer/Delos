@@ -1,8 +1,9 @@
 /*
- * Copyright (c) 2021, salesforce.com, inc.
+ * Copyright (c) 2026, Hal Hildebrand.
  * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
+ * GNU Affero General Public License
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
  */
 package com.hellblazer.delos.cryptography.cert;
 
@@ -34,6 +35,10 @@ public class TestCertificates {
         for (SignatureAlgorithm s : SignatureAlgorithm.values()) {
             if (s.equals(SignatureAlgorithm.NULL_SIGNATURE)) {
                 break;
+            }
+            // BLS_12_381 uses TekuBLS with BLSKeyPair interface, not standard Java KeyPair
+            if (s.equals(SignatureAlgorithm.BLS_12_381)) {
+                continue;
             }
             KeyPair keyPair;
             try {

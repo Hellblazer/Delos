@@ -2,6 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Copyright
+Use the following as the copyright statment for all source files.  Replace <current year> with the current year.
+
+"Copyright (c) <current year>, Hal Hhildebrand.
+  All rights reserved.
+  GNU Affero General Public License
+  For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+  This file is part of the Delos Distributed Systems Framework."
+
 ## Build Commands
 
 **First-time setup (required once):**

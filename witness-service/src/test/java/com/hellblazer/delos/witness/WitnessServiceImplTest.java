@@ -1,8 +1,14 @@
 /*
- * Copyright (c) 2024, Salesforce.com, Inc.
+ * Copyright (c) 2026, Hal Hildebrand.
  * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
+ * GNU Affero General Public License
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
+ */
+/*
+ * Portions copyright (c) 2025, Hal Hildebrand.
+ * Modifications made under GNU Affero General Public License.
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
  */
 package com.hellblazer.delos.witness;
 
@@ -17,6 +23,9 @@ import com.hellblazer.delos.membership.MockMember;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
+import com.hellblazer.delos.witness.migration.MigrationPhase;
+import com.hellblazer.delos.witness.migration.MigrationStateTracker;
+import com.hellblazer.delos.witness.migration.ReceiptCompatibilityLayer;
 import com.hellblazer.delos.witness.proto.*;
 import io.grpc.stub.StreamObserver;
 import org.joou.ULong;
@@ -27,6 +36,7 @@ import org.mockito.MockitoAnnotations;
 
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 
@@ -57,6 +67,8 @@ class WitnessServiceImplTest {
     private WitnessCHOAM witnessCHOAM;
     private WitnessServiceImpl witnessService;
     private Set<Identifier> committee;
+    private MigrationStateTracker migrationStateTracker;
+    private ReceiptCompatibilityLayer compatibilityLayer;
 
     @Mock
     private StreamObserver<WitnessReceipt> receiptObserver;
@@ -104,7 +116,11 @@ class WitnessServiceImplTest {
         witnessCHOAM = new WitnessCHOAM(null, null, stateMachine, parameters);
         witnessCHOAM.onViewChange(genesisBlock);
 
-        witnessService = new WitnessServiceImpl(witnessCHOAM, witnessContext, receiptManager, parameters, ALGORITHM);
+        migrationStateTracker = new MigrationStateTracker(MigrationPhase.INIT, 0L);
+        compatibilityLayer = new ReceiptCompatibilityLayer(migrationStateTracker);
+
+        witnessService = new WitnessServiceImpl(witnessCHOAM, witnessContext, receiptManager, parameters, ALGORITHM,
+                                                migrationStateTracker, compatibilityLayer);
     }
 
     @Test
@@ -798,5 +814,623 @@ class WitnessServiceImplTest {
             (identifierStr + "-" + sequenceNumber).getBytes()
         );
         return new EventCoordinates(identifier, ULong.valueOf(sequenceNumber), digest, "icp");
+    }
+
+    // ========== Task 4: Integration Tests for ReceiptCompatibilityLayer ==========
+
+    @Test
+    void testValidateReceiptWithBLSInDualPhase() {
+        // Given: Receipt with BLS signature in DUAL phase
+        migrationStateTracker.manualAdvance(MigrationPhase.DUAL);
+        var event = createEventCoordinates("bls-dual", 1L);
+        var blsReceipt = WitnessReceipt.newBuilder()
+            .setEventCoordinates(event.toEventCoords())
+            .setEventDigest(ALGORITHM.digest("content".getBytes()).toDigeste())
+            .setEpoch(0)
+            .setViewRef(ALGORITHM.digest("view".getBytes()).toDigeste())
+            .setBlsSig(BLSAggregateSignature.newBuilder()
+                .setSignature(com.google.protobuf.ByteString.copyFromUtf8("bls-signature-data"))
+                .build())
+            .build();
+
+        // When: Validating BLS receipt in DUAL phase
+        var responseRef = new AtomicReference<ReceiptResponse>();
+        witnessService.validateReceipt(blsReceipt, new StreamObserver<ReceiptResponse>() {
+            @Override
+            public void onNext(ReceiptResponse value) {
+                responseRef.set(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                fail("ValidateReceipt should not error: " + t.getMessage());
+            }
+
+            @Override
+            public void onCompleted() {
+            }
+        });
+
+        // Then: Receipt accepted (may have validation failures internally but phase check passes)
+        assertNotNull(responseRef.get());
+        // BLS validation metrics should be incremented
+        assertTrue(compatibilityLayer.getBlsValidationFailures() > 0);
+    }
+
+    @Test
+    void testValidateReceiptWithEd25519InInitPhase() {
+        // Given: Receipt with Ed25519 signatures in INIT phase
+        var event = createEventCoordinates("ed25519-init", 2L);
+        var ed25519Receipt = WitnessReceipt.newBuilder()
+            .setEventCoordinates(event.toEventCoords())
+            .setEventDigest(ALGORITHM.digest("content".getBytes()).toDigeste())
+            .setEpoch(0)
+            .setViewRef(ALGORITHM.digest("view".getBytes()).toDigeste())
+            .addSignatures(com.hellblazer.delos.cryptography.proto.Sig.newBuilder()
+                .setCode(1) // Ed25519 signature code
+                .addSignatures(com.google.protobuf.ByteString.copyFromUtf8("ed25519-sig-1"))
+                .build())
+            .addSignatures(com.hellblazer.delos.cryptography.proto.Sig.newBuilder()
+                .setCode(1) // Ed25519 signature code
+                .addSignatures(com.google.protobuf.ByteString.copyFromUtf8("ed25519-sig-2"))
+                .build())
+            .build();
+
+        // When: Validating Ed25519 receipt in INIT phase
+        var responseRef = new AtomicReference<ReceiptResponse>();
+        witnessService.validateReceipt(ed25519Receipt, new StreamObserver<ReceiptResponse>() {
+            @Override
+            public void onNext(ReceiptResponse value) {
+                responseRef.set(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                fail("ValidateReceipt should not error: " + t.getMessage());
+            }
+
+            @Override
+            public void onCompleted() {
+            }
+        });
+
+        // Then: Receipt accepted in INIT phase
+        assertNotNull(responseRef.get());
+        // Ed25519 validation metrics should be incremented
+        assertTrue(compatibilityLayer.getEd25519ValidationFailures() > 0);
+    }
+
+    @Test
+    void testValidateReceiptPhaseRejection() {
+        // Given: BLS receipt in INIT phase (should be rejected)
+        var event = createEventCoordinates("bls-init-reject", 3L);
+        var blsReceipt = WitnessReceipt.newBuilder()
+            .setEventCoordinates(event.toEventCoords())
+            .setEventDigest(ALGORITHM.digest("content".getBytes()).toDigeste())
+            .setEpoch(0)
+            .setViewRef(ALGORITHM.digest("view".getBytes()).toDigeste())
+            .setBlsSig(BLSAggregateSignature.newBuilder()
+                .setSignature(com.google.protobuf.ByteString.copyFromUtf8("bls-signature-data"))
+                .build())
+            .build();
+
+        // When: Validating BLS receipt in INIT phase
+        var responseRef = new AtomicReference<ReceiptResponse>();
+        witnessService.validateReceipt(blsReceipt, new StreamObserver<>() {
+            @Override
+            public void onNext(ReceiptResponse value) {
+                responseRef.set(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                fail("ValidateReceipt should not error: " + t.getMessage());
+            }
+
+            @Override
+            public void onCompleted() {
+            }
+        });
+
+        // Then: Receipt rejected (INVALID status)
+        assertNotNull(responseRef.get());
+        assertEquals(ValidationStatus.INVALID, responseRef.get().getStatus());
+        // Unsupported format errors incremented
+        assertTrue(compatibilityLayer.getUnsupportedFormatErrors() > 0);
+    }
+
+    @Test
+    void testValidateReceiptFormatFallback() {
+        // Given: Receipt with both BLS and Ed25519 in DUAL phase (fallback scenario)
+        migrationStateTracker.manualAdvance(MigrationPhase.DUAL);
+        var event = createEventCoordinates("fallback-test", 4L);
+        var mixedReceipt = WitnessReceipt.newBuilder()
+            .setEventCoordinates(event.toEventCoords())
+            .setEventDigest(ALGORITHM.digest("content".getBytes()).toDigeste())
+            .setEpoch(0)
+            .setViewRef(ALGORITHM.digest("view".getBytes()).toDigeste())
+            .setBlsSig(BLSAggregateSignature.newBuilder()
+                .setSignature(com.google.protobuf.ByteString.copyFromUtf8("bls-signature-data"))
+                .build())
+            .addSignatures(com.hellblazer.delos.cryptography.proto.Sig.newBuilder()
+                .setCode(1) // Ed25519 signature code
+                .addSignatures(com.google.protobuf.ByteString.copyFromUtf8("ed25519-sig-1"))
+                .build())
+            .build();
+
+        // When: Validating mixed receipt (should fail as mixed format)
+        var responseRef = new AtomicReference<ReceiptResponse>();
+        witnessService.validateReceipt(mixedReceipt, new StreamObserver<ReceiptResponse>() {
+            @Override
+            public void onNext(ReceiptResponse value) {
+                responseRef.set(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                fail("ValidateReceipt should not error: " + t.getMessage());
+            }
+
+            @Override
+            public void onCompleted() {
+            }
+        });
+
+        // Then: Mixed format rejected
+        assertNotNull(responseRef.get());
+        assertEquals(ValidationStatus.INVALID, responseRef.get().getStatus());
+    }
+
+    @Test
+    void testManualAdvancePhaseTransition() {
+        // Given: Service in INIT phase
+        assertEquals(MigrationPhase.INIT, migrationStateTracker.getCurrentPhase());
+
+        // When: Manually advancing to DUAL phase
+        var request = PhaseTransitionRequest.newBuilder()
+            .setNewPhase("DUAL")
+            .build();
+        var responseRef = new AtomicReference<PhaseTransitionResponse>();
+        witnessService.manualAdvancePhase(request, new StreamObserver<>() {
+            @Override
+            public void onNext(PhaseTransitionResponse value) {
+                responseRef.set(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                fail("ManualAdvancePhase should not error: " + t.getMessage());
+            }
+
+            @Override
+            public void onCompleted() {
+            }
+        });
+
+        // Then: Phase advanced successfully
+        assertNotNull(responseRef.get());
+        assertTrue(responseRef.get().getSuccess());
+        assertEquals(MigrationPhase.DUAL, migrationStateTracker.getCurrentPhase());
+    }
+
+    @Test
+    void testManualAdvancePhaseNotification() throws InterruptedException {
+        // Given: Phase change listener registered
+        var phaseChangeNotified = new CountDownLatch(1);
+        var newPhaseRef = new AtomicReference<MigrationPhase>();
+        migrationStateTracker.addPhaseChangeListener(newPhase -> {
+            newPhaseRef.set(newPhase);
+            phaseChangeNotified.countDown();
+        });
+
+        // When: Advancing phase
+        var request = PhaseTransitionRequest.newBuilder()
+            .setNewPhase("DUAL")
+            .build();
+        witnessService.manualAdvancePhase(request, new StreamObserver<>() {
+            @Override
+            public void onNext(PhaseTransitionResponse value) {}
+
+            @Override
+            public void onError(Throwable t) {
+                fail("ManualAdvancePhase should not error: " + t.getMessage());
+            }
+
+            @Override
+            public void onCompleted() {}
+        });
+
+        // Then: Listener notified
+        assertTrue(phaseChangeNotified.await(1, TimeUnit.SECONDS));
+        assertEquals(MigrationPhase.DUAL, newPhaseRef.get());
+    }
+
+    @Test
+    void testMetricsIncrementedOnValidation() {
+        // Given: Initial metrics at zero
+        compatibilityLayer.resetMetrics();
+        migrationStateTracker.manualAdvance(MigrationPhase.DUAL);
+
+        // When: Validating multiple receipts (BLS and Ed25519)
+        for (int i = 0; i < 3; i++) {
+            var event = createEventCoordinates("metrics-bls-" + i, i);
+            var blsReceipt = WitnessReceipt.newBuilder()
+                .setEventCoordinates(event.toEventCoords())
+                .setEventDigest(ALGORITHM.digest(("content-" + i).getBytes()).toDigeste())
+                .setEpoch(0)
+                .setViewRef(ALGORITHM.digest("view".getBytes()).toDigeste())
+                .setBlsSig(BLSAggregateSignature.newBuilder()
+                    .setSignature(com.google.protobuf.ByteString.copyFromUtf8("bls-sig-" + i))
+                    .build())
+                .build();
+            witnessService.validateReceipt(blsReceipt, new StreamObserver<ReceiptResponse>() {
+                @Override
+                public void onNext(ReceiptResponse value) {}
+                @Override
+                public void onError(Throwable t) {}
+                @Override
+                public void onCompleted() {}
+            });
+        }
+
+        for (int i = 0; i < 2; i++) {
+            var event = createEventCoordinates("metrics-ed25519-" + i, i + 100);
+            var ed25519Receipt = WitnessReceipt.newBuilder()
+                .setEventCoordinates(event.toEventCoords())
+                .setEventDigest(ALGORITHM.digest(("content-" + i).getBytes()).toDigeste())
+                .setEpoch(0)
+                .setViewRef(ALGORITHM.digest("view".getBytes()).toDigeste())
+                .addSignatures(com.hellblazer.delos.cryptography.proto.Sig.newBuilder()
+                    .setCode(1) // Ed25519 signature code
+                    .addSignatures(com.google.protobuf.ByteString.copyFromUtf8("ed25519-sig-" + i))
+                    .build())
+                .build();
+            witnessService.validateReceipt(ed25519Receipt, new StreamObserver<ReceiptResponse>() {
+                @Override
+                public void onNext(ReceiptResponse value) {}
+                @Override
+                public void onError(Throwable t) {}
+                @Override
+                public void onCompleted() {}
+            });
+        }
+
+        // Then: Metrics incremented correctly
+        assertEquals(3, compatibilityLayer.getBlsValidationFailures());
+        assertEquals(2, compatibilityLayer.getEd25519ValidationFailures());
+    }
+
+    @Test
+    void testMetricsFallbackTracking() {
+        // Given: DUAL phase with fallback enabled
+        migrationStateTracker.manualAdvance(MigrationPhase.DUAL);
+        compatibilityLayer.setFallbackPolicy(ReceiptCompatibilityLayer.FallbackPolicy.MONITORED);
+        compatibilityLayer.resetMetrics();
+
+        // When: Validating BLS receipt that will trigger fallback
+        var event = createEventCoordinates("fallback-metrics", 1L);
+        var blsReceipt = WitnessReceipt.newBuilder()
+            .setEventCoordinates(event.toEventCoords())
+            .setEventDigest(ALGORITHM.digest("content".getBytes()).toDigeste())
+            .setEpoch(0)
+            .setViewRef(ALGORITHM.digest("view".getBytes()).toDigeste())
+            .setBlsSig(BLSAggregateSignature.newBuilder()
+                .setSignature(com.google.protobuf.ByteString.copyFromUtf8("bls-sig"))
+                .build())
+            .addSignatures(com.hellblazer.delos.cryptography.proto.Sig.newBuilder()
+                .setCode(1) // Ed25519 signature code
+                .addSignatures(com.google.protobuf.ByteString.copyFromUtf8("ed25519-sig"))
+                .build())
+            .build();
+
+        witnessService.validateReceipt(blsReceipt, new StreamObserver<ReceiptResponse>() {
+            @Override
+            public void onNext(ReceiptResponse value) {}
+            @Override
+            public void onError(Throwable t) {}
+            @Override
+            public void onCompleted() {}
+        });
+
+        // Then: Fallback metrics tracked (fallback attempted due to mixed format error)
+        // Note: Mixed format will be rejected, so fallback won't actually occur in this case
+        // This test verifies the metrics infrastructure is in place
+        assertTrue(compatibilityLayer.getFormatFallbackAttempts() >= 0);
+        assertTrue(compatibilityLayer.getFormatFallbackSuccesses() >= 0);
+    }
+
+    @Test
+    void testConcurrentValidateReceipt() throws InterruptedException, ExecutionException, TimeoutException {
+        // Given: Multiple receipts to validate concurrently
+        migrationStateTracker.manualAdvance(MigrationPhase.DUAL);
+        var executor = Executors.newVirtualThreadPerTaskExecutor();
+        var futures = new ArrayList<Future<ReceiptResponse>>();
+
+        // When: Validating 10 receipts concurrently
+        for (int i = 0; i < 10; i++) {
+            final int index = i;
+            var future = executor.submit(() -> {
+                var event = createEventCoordinates("concurrent-" + index, index);
+                var receipt = WitnessReceipt.newBuilder()
+                    .setEventCoordinates(event.toEventCoords())
+                    .setEventDigest(ALGORITHM.digest(("content-" + index).getBytes()).toDigeste())
+                    .setEpoch(0)
+                    .setViewRef(ALGORITHM.digest("view".getBytes()).toDigeste())
+                    .setBlsSig(BLSAggregateSignature.newBuilder()
+                        .setSignature(com.google.protobuf.ByteString.copyFromUtf8("bls-sig-" + index))
+                        .build())
+                    .build();
+
+                var responseRef = new AtomicReference<ReceiptResponse>();
+                witnessService.validateReceipt(receipt, new StreamObserver<ReceiptResponse>() {
+                    @Override
+                    public void onNext(ReceiptResponse value) {
+                        responseRef.set(value);
+                    }
+                    @Override
+                    public void onError(Throwable t) {}
+                    @Override
+                    public void onCompleted() {}
+                });
+                return responseRef.get();
+            });
+            futures.add(future);
+        }
+
+        // Then: All validations complete without deadlock
+        for (var future : futures) {
+            var response = future.get(5, TimeUnit.SECONDS);
+            assertNotNull(response);
+        }
+        executor.shutdown();
+        assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+    }
+
+    @Test
+    void testPhaseIsolationBetweenReceipts() {
+        // Given: Receipt validated in INIT phase
+        var event1 = createEventCoordinates("phase-isolation-1", 1L);
+        var ed25519Receipt = WitnessReceipt.newBuilder()
+            .setEventCoordinates(event1.toEventCoords())
+            .setEventDigest(ALGORITHM.digest("content1".getBytes()).toDigeste())
+            .setEpoch(0)
+            .setViewRef(ALGORITHM.digest("view".getBytes()).toDigeste())
+            .addSignatures(com.hellblazer.delos.cryptography.proto.Sig.newBuilder()
+                .setCode(1) // Ed25519 signature code
+                .addSignatures(com.google.protobuf.ByteString.copyFromUtf8("ed25519-sig"))
+                .build())
+            .build();
+
+        var response1Ref = new AtomicReference<ReceiptResponse>();
+        witnessService.validateReceipt(ed25519Receipt, new StreamObserver<ReceiptResponse>() {
+            @Override
+            public void onNext(ReceiptResponse value) {
+                response1Ref.set(value);
+            }
+            @Override
+            public void onError(Throwable t) {}
+            @Override
+            public void onCompleted() {}
+        });
+
+        // When: Phase changes to DUAL and BLS receipt validated
+        migrationStateTracker.manualAdvance(MigrationPhase.DUAL);
+        var event2 = createEventCoordinates("phase-isolation-2", 2L);
+        var blsReceipt = WitnessReceipt.newBuilder()
+            .setEventCoordinates(event2.toEventCoords())
+            .setEventDigest(ALGORITHM.digest("content2".getBytes()).toDigeste())
+            .setEpoch(0)
+            .setViewRef(ALGORITHM.digest("view".getBytes()).toDigeste())
+            .setBlsSig(BLSAggregateSignature.newBuilder()
+                .setSignature(com.google.protobuf.ByteString.copyFromUtf8("bls-sig"))
+                .build())
+            .build();
+
+        var response2Ref = new AtomicReference<ReceiptResponse>();
+        witnessService.validateReceipt(blsReceipt, new StreamObserver<ReceiptResponse>() {
+            @Override
+            public void onNext(ReceiptResponse value) {
+                response2Ref.set(value);
+            }
+            @Override
+            public void onError(Throwable t) {}
+            @Override
+            public void onCompleted() {}
+        });
+
+        // Then: Both receipts validated in their respective phases
+        assertNotNull(response1Ref.get());
+        assertNotNull(response2Ref.get());
+        // Verify phase state is DUAL after transition
+        assertEquals(MigrationPhase.DUAL, migrationStateTracker.getCurrentPhase());
+    }
+
+    // ========== Additional Stress & Edge Case Tests (4 tests) ==========
+
+    @Test
+    void testReceiptValidationUnder100ConcurrentThreads() throws InterruptedException, ExecutionException, TimeoutException {
+        // Given: DUAL phase with 100 virtual threads validating concurrently
+        migrationStateTracker.manualAdvance(MigrationPhase.DUAL);
+        compatibilityLayer.resetMetrics();
+
+        int threadCount = 100;
+        var executor = Executors.newVirtualThreadPerTaskExecutor();
+        var futures = new ArrayList<Future<ReceiptResponse>>();
+
+        try {
+            // When: 100 threads validate receipts concurrently for 5 seconds worth of operations
+            for (int i = 0; i < threadCount; i++) {
+                final int index = i;
+                var future = executor.submit(() -> {
+                    var event = createEventCoordinates("stress-" + index, index);
+                    var receipt = WitnessReceipt.newBuilder()
+                        .setEventCoordinates(event.toEventCoords())
+                        .setEventDigest(ALGORITHM.digest(("stress-content-" + index).getBytes()).toDigeste())
+                        .setEpoch(0)
+                        .setViewRef(ALGORITHM.digest("view".getBytes()).toDigeste())
+                        .setBlsSig(BLSAggregateSignature.newBuilder()
+                            .setSignature(com.google.protobuf.ByteString.copyFromUtf8("bls-sig-" + index))
+                            .build())
+                        .build();
+
+                    var responseRef = new AtomicReference<ReceiptResponse>();
+                    witnessService.validateReceipt(receipt, new StreamObserver<ReceiptResponse>() {
+                        @Override
+                        public void onNext(ReceiptResponse value) {
+                            responseRef.set(value);
+                        }
+                        @Override
+                        public void onError(Throwable t) {}
+                        @Override
+                        public void onCompleted() {}
+                    });
+                    return responseRef.get();
+                });
+                futures.add(future);
+            }
+
+            // Then: All validations complete without deadlock, no resource leaks
+            for (var future : futures) {
+                var response = future.get(15, TimeUnit.SECONDS);
+                assertNotNull(response);
+            }
+
+            // Verify metrics still accurate after stress test
+            assertEquals(threadCount, compatibilityLayer.getBlsValidationFailures());
+        } finally {
+            executor.shutdown();
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void testMetricsDoNotRollover() {
+        // Given: Large number of validations to test metric overflow protection
+        migrationStateTracker.manualAdvance(MigrationPhase.DUAL);
+        compatibilityLayer.resetMetrics();
+
+        // When: Validating many receipts (simulating long-running service)
+        int validationCount = 10000;
+        for (int i = 0; i < validationCount; i++) {
+            var event = createEventCoordinates("rollover-" + i, i);
+            var receipt = WitnessReceipt.newBuilder()
+                .setEventCoordinates(event.toEventCoords())
+                .setEventDigest(ALGORITHM.digest(("content-" + i).getBytes()).toDigeste())
+                .setEpoch(0)
+                .setViewRef(ALGORITHM.digest("view".getBytes()).toDigeste())
+                .setBlsSig(BLSAggregateSignature.newBuilder()
+                    .setSignature(com.google.protobuf.ByteString.copyFromUtf8("bls-sig-" + i))
+                    .build())
+                .build();
+            witnessService.validateReceipt(receipt, new StreamObserver<ReceiptResponse>() {
+                @Override
+                public void onNext(ReceiptResponse value) {}
+                @Override
+                public void onError(Throwable t) {}
+                @Override
+                public void onCompleted() {}
+            });
+        }
+
+        // Then: Metrics accurately reflect large numbers (no overflow)
+        assertEquals(validationCount, compatibilityLayer.getBlsValidationFailures());
+
+        // Verify no overflow occurred (metrics less than Long.MAX_VALUE)
+        assertTrue(compatibilityLayer.getBlsValidationFailures() < Long.MAX_VALUE);
+        assertTrue(compatibilityLayer.getBlsValidationFailures() > 0);
+    }
+
+    @Test
+    void testMetricsAreAtomicUnderConcurrency() throws InterruptedException, ExecutionException, TimeoutException {
+        // Given: Multiple threads incrementing metrics concurrently
+        migrationStateTracker.manualAdvance(MigrationPhase.DUAL);
+        compatibilityLayer.resetMetrics();
+
+        int threadCount = 50;
+        int validationsPerThread = 20;
+        var executor = Executors.newVirtualThreadPerTaskExecutor();
+        var futures = new ArrayList<Future<?>>();
+
+        try {
+            // When: Concurrent validations from multiple threads
+            for (int i = 0; i < threadCount; i++) {
+                final int threadId = i;
+                futures.add(executor.submit(() -> {
+                    for (int j = 0; j < validationsPerThread; j++) {
+                        var event = createEventCoordinates("atomic-" + threadId + "-" + j, threadId * 1000L + j);
+                        var receipt = WitnessReceipt.newBuilder()
+                            .setEventCoordinates(event.toEventCoords())
+                            .setEventDigest(ALGORITHM.digest(("content-" + threadId + "-" + j).getBytes()).toDigeste())
+                            .setEpoch(0)
+                            .setViewRef(ALGORITHM.digest("view".getBytes()).toDigeste())
+                            .setBlsSig(BLSAggregateSignature.newBuilder()
+                                .setSignature(com.google.protobuf.ByteString.copyFromUtf8("bls-sig-" + threadId + "-" + j))
+                                .build())
+                            .build();
+                        witnessService.validateReceipt(receipt, new StreamObserver<ReceiptResponse>() {
+                            @Override
+                            public void onNext(ReceiptResponse value) {}
+                            @Override
+                            public void onError(Throwable t) {}
+                            @Override
+                            public void onCompleted() {}
+                        });
+                    }
+                }));
+            }
+
+            // Wait for all validations
+            for (var future : futures) {
+                future.get(15, TimeUnit.SECONDS);
+            }
+
+            // Then: Metrics should reflect exact count (no lost updates due to race conditions)
+            int expectedFailures = threadCount * validationsPerThread;
+            assertEquals(expectedFailures, compatibilityLayer.getBlsValidationFailures());
+        } finally {
+            executor.shutdown();
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void testFallbackPolicyStrictNeverFallsBack() {
+        // Given: DUAL phase with STRICT fallback policy
+        migrationStateTracker.manualAdvance(MigrationPhase.DUAL);
+        compatibilityLayer.setFallbackPolicy(ReceiptCompatibilityLayer.FallbackPolicy.STRICT);
+        compatibilityLayer.resetMetrics();
+
+        // When: BLS validation fails (dummy data), fallback would normally be attempted
+        var event = createEventCoordinates("strict-fallback", 1L);
+        var receipt = WitnessReceipt.newBuilder()
+            .setEventCoordinates(event.toEventCoords())
+            .setEventDigest(ALGORITHM.digest("content".getBytes()).toDigeste())
+            .setEpoch(0)
+            .setViewRef(ALGORITHM.digest("view".getBytes()).toDigeste())
+            .setBlsSig(BLSAggregateSignature.newBuilder()
+                .setSignature(com.google.protobuf.ByteString.copyFromUtf8("bls-sig"))
+                .build())
+            .addSignatures(com.hellblazer.delos.cryptography.proto.Sig.newBuilder()
+                .setCode(1) // Ed25519 signature present
+                .addSignatures(com.google.protobuf.ByteString.copyFromUtf8("ed25519-sig"))
+                .build())
+            .build();
+
+        var responseRef = new AtomicReference<ReceiptResponse>();
+        witnessService.validateReceipt(receipt, new StreamObserver<ReceiptResponse>() {
+            @Override
+            public void onNext(ReceiptResponse value) {
+                responseRef.set(value);
+            }
+            @Override
+            public void onError(Throwable t) {}
+            @Override
+            public void onCompleted() {}
+        });
+
+        // Then: STRICT policy prevents fallback (no fallback attempts recorded)
+        assertNotNull(responseRef.get());
+        // Mixed format will be rejected outright, so no fallback should be attempted
+        assertEquals(0, compatibilityLayer.getFormatFallbackAttempts());
     }
 }

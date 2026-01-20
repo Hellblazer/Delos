@@ -1,8 +1,14 @@
 /*
- * Copyright (c) 2024, Salesforce.com, Inc.
+ * Copyright (c) 2026, Hal Hildebrand.
  * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
+ * GNU Affero General Public License
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
+ */
+/*
+ * Portions copyright (c) 2025, Hal Hildebrand.
+ * Modifications made under GNU Affero General Public License.
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
  */
 package com.hellblazer.delos.witness;
 
@@ -93,12 +99,19 @@ class WitnessViewChangePropagationTest {
             new WitnessCHOAM.Statistics(0, 0, 0, false, 0)
         );
 
+        var migrationStateTracker = new com.hellblazer.delos.witness.migration.MigrationStateTracker(
+            com.hellblazer.delos.witness.migration.MigrationPhase.INIT, 0L
+        );
+        var compatibilityLayer = new com.hellblazer.delos.witness.migration.ReceiptCompatibilityLayer(migrationStateTracker);
+
         service = new WitnessServiceImpl(
             witnessCHOAM,
             witnessContext,
             receiptManager,
             parameters,
-            ALGORITHM
+            ALGORITHM,
+            migrationStateTracker,
+            compatibilityLayer
         );
     }
 

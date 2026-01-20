@@ -1,8 +1,9 @@
 /*
- * Copyright (c) 2024, Salesforce.com, Inc.
+ * Copyright (c) 2026, Hal Hildebrand.
  * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
+ * GNU Affero General Public License
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
  */
 package com.hellblazer.delos.witness.validation;
 
@@ -45,6 +46,7 @@ import java.util.Objects;
 public class ByzantineWitnessDetector {
 
     private static final Logger log = LoggerFactory.getLogger(ByzantineWitnessDetector.class);
+    private static final int BLS_FAILURE_THRESHOLD = 5;
 
     private final Counter equivocationDetected;
     private final Counter signatureForgeryDetected;
@@ -53,6 +55,11 @@ public class ByzantineWitnessDetector {
     private final java.util.concurrent.ConcurrentHashMap<Identifier, WitnessStatus> witnessStatuses = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.concurrent.ConcurrentHashMap<Identifier, java.util.Map<Long, byte[]>> signatureHistory = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.Map<String, Integer> metrics;
+
+    // BLS failure tracking (Phase 1B-3 C-1)
+    private final java.util.concurrent.ConcurrentHashMap<Identifier, java.util.concurrent.atomic.AtomicInteger> blsFailureCounts = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ConcurrentHashMap<Identifier, Long> blsFailureTimestamps = new java.util.concurrent.ConcurrentHashMap<>();
+    private volatile FirefliesShunningIntegration shunningIntegration;
 
     /**
      * Create Byzantine detector with metrics tracking.
@@ -332,6 +339,140 @@ public class ByzantineWitnessDetector {
     }
 
     /**
+     * Set Fireflies shunning integration callback.
+     * <p>
+     * Must be set before BLS failure tracking triggers shunning.
+     * </p>
+     *
+     * @param integration Shunning integration implementation
+     */
+    public void setShunningIntegration(FirefliesShunningIntegration integration) {
+        this.shunningIntegration = integration;
+    }
+
+    /**
+     * Record BLS validation failure for a member.
+     * <p>
+     * Tracks failure count and timestamps for Byzantine detection.
+     * When threshold is reached, triggers Fireflies shunning.
+     * </p>
+     *
+     * @param memberId Member identifier
+     * @param reason Failure reason (for logging)
+     */
+    public void recordBlsValidationFailure(Identifier memberId, String reason) {
+        Objects.requireNonNull(memberId, "memberId cannot be null");
+        Objects.requireNonNull(reason, "reason cannot be null");
+
+        // Increment failure count
+        var count = blsFailureCounts.computeIfAbsent(
+            memberId,
+            k -> new java.util.concurrent.atomic.AtomicInteger(0)
+        ).incrementAndGet();
+
+        // Update timestamp
+        blsFailureTimestamps.put(memberId, System.currentTimeMillis());
+
+        log.warn("BLS validation failure for member={}: {} (count={})", memberId, reason, count);
+
+        // Check threshold and trigger shunning
+        if (count >= BLS_FAILURE_THRESHOLD) {
+            log.error("BLS failure threshold reached for member={}, triggering shunning", memberId);
+            markForExclusion(memberId);
+
+            // Trigger Fireflies shunning if integration available
+            if (shunningIntegration != null) {
+                shunningIntegration.markMemberForShunning(memberId)
+                    .exceptionally(ex -> {
+                        log.error("Failed to trigger Fireflies shunning for member={}", memberId, ex);
+                        return null;
+                    });
+            }
+        }
+    }
+
+    /**
+     * Get BLS failure count for a member.
+     *
+     * @param memberId Member identifier
+     * @return Failure count (0 if no failures recorded)
+     */
+    public int getBlsFailureCount(Identifier memberId) {
+        Objects.requireNonNull(memberId, "memberId cannot be null");
+        var counter = blsFailureCounts.get(memberId);
+        return counter != null ? counter.get() : 0;
+    }
+
+    /**
+     * Check if a member should be shunned based on BLS failures.
+     * <p>
+     * Returns true if failure count meets or exceeds threshold.
+     * </p>
+     *
+     * @param memberId Member identifier
+     * @return true if member should be shunned
+     */
+    public boolean shouldShun(Identifier memberId) {
+        Objects.requireNonNull(memberId, "memberId cannot be null");
+        return getBlsFailureCount(memberId) >= BLS_FAILURE_THRESHOLD;
+    }
+
+    /**
+     * Clear stale BLS failure entries older than TTL.
+     * <p>
+     * Used to age out old failures and allow recovery for members
+     * that have corrected their behavior.
+     * </p>
+     *
+     * @param ttlMs Time-to-live in milliseconds
+     */
+    public void clearStaleFailures(long ttlMs) {
+        var now = System.currentTimeMillis();
+        var staleMembers = blsFailureTimestamps.entrySet().stream()
+            .filter(entry -> (now - entry.getValue()) > ttlMs)
+            .map(java.util.Map.Entry::getKey)
+            .toList();
+
+        for (var memberId : staleMembers) {
+            blsFailureCounts.remove(memberId);
+            blsFailureTimestamps.remove(memberId);
+            log.debug("Cleared stale BLS failures for member={}", memberId);
+        }
+    }
+
+    /**
+     * Get enhanced Byzantine detection statistics including BLS failures.
+     *
+     * @return Enhanced detection stats
+     */
+    public ByzantineStats getByzantineStats() {
+        var totalBlsFailures = blsFailureCounts.values().stream()
+            .mapToInt(java.util.concurrent.atomic.AtomicInteger::get)
+            .sum();
+
+        return new ByzantineStats(
+            equivocationDetected != null ? equivocationDetected.getCount() : 0,
+            signatureForgeryDetected != null ? signatureForgeryDetected.getCount() : 0,
+            thresholdBypassDetected != null ? thresholdBypassDetected.getCount() : 0,
+            totalBlsFailures
+        );
+    }
+
+    /**
+     * Get count of members currently shunned based on BLS failures.
+     * <p>
+     * Returns the number of members with failure counts meeting or exceeding threshold.
+     * </p>
+     *
+     * @return Count of shunned members
+     */
+    public int getShunnedMemberCount() {
+        return (int) blsFailureCounts.entrySet().stream()
+            .filter(entry -> entry.getValue().get() >= BLS_FAILURE_THRESHOLD)
+            .count();
+    }
+
+    /**
      * Sealed interface for Byzantine evidence.
      */
     public sealed interface ByzantineEvidence {
@@ -413,13 +554,21 @@ public class ByzantineWitnessDetector {
     public record ByzantineStats(
         long equivocationCount,
         long signatureForgeryCount,
-        long thresholdBypassCount
+        long thresholdBypassCount,
+        long blsFailureCount
     ) {
+        /**
+         * Constructor for backwards compatibility (no BLS failures).
+         */
+        public ByzantineStats(long equivocationCount, long signatureForgeryCount, long thresholdBypassCount) {
+            this(equivocationCount, signatureForgeryCount, thresholdBypassCount, 0);
+        }
+
         /**
          * Get total Byzantine detections.
          */
         public long totalDetections() {
-            return equivocationCount + signatureForgeryCount + thresholdBypassCount;
+            return equivocationCount + signatureForgeryCount + thresholdBypassCount + blsFailureCount;
         }
     }
 
@@ -447,18 +596,21 @@ public class ByzantineWitnessDetector {
         return witnessStatuses.getOrDefault(witnessId, new WitnessStatus()).suspicious;
     }
 
-    public boolean recordSignature(Identifier witnessId, long sequence, byte signatureFirstByte) {
+    public boolean recordSignature(Identifier witnessId, long sequence, byte[] signatureBytes) {
+        Objects.requireNonNull(witnessId, "witnessId cannot be null");
+        Objects.requireNonNull(signatureBytes, "signatureBytes cannot be null");
+
         var history = signatureHistory.computeIfAbsent(witnessId, k -> new java.util.concurrent.ConcurrentHashMap<>());
         var existing = history.get(sequence);
-        if (existing != null && !java.util.Arrays.equals(existing, new byte[]{signatureFirstByte})) {
-            // Equivocation detected
+        if (existing != null && !java.util.Arrays.equals(existing, signatureBytes)) {
+            // Equivocation detected: different signatures at same sequence
             recordInvalidSignature(witnessId);
             if (equivocationDetected != null) {
                 equivocationDetected.inc();
             }
             return true;
         }
-        history.put(sequence, new byte[]{signatureFirstByte});
+        history.put(sequence, signatureBytes);
         return false;
     }
 

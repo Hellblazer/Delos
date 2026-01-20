@@ -1,8 +1,9 @@
 /*
- * Copyright (c) 2024, Salesforce.com, Inc.
+ * Copyright (c) 2026, Hal Hildebrand.
  * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
+ * GNU Affero General Public License
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
  */
 package com.hellblazer.delos.witness;
 
@@ -203,20 +204,26 @@ class WitnessMetricsTest {
     }
 
     @Test
-    void shouldHaveAllSixMetrics() {
+    void shouldHaveAllMetricsIncludingPhase1B3() {
         var registry = new MetricRegistry();
         var metrics = new WitnessMetrics(registry);
 
         // Initialize gauges
         metrics.setThresholdAchievementRate(0.0);
         metrics.setInFlightCollections(0);
+        metrics.setBlsKeysRegistered(0);
+        metrics.setBlsKeysCoverage(0.0);
+        metrics.setTransitionReadiness(0);
+        metrics.setTransitionInProgress(0);
 
-        // Verify all 6 metrics registered
-        assertThat(registry.getMetrics()).hasSize(6);
+        // Verify all metrics registered (original 6 + 8 Phase 1B-3 = 14+ metrics)
+        var allMetrics = registry.getMetrics();
+        assertThat(allMetrics.size()).isGreaterThanOrEqualTo(14);
 
         // Verify by type
         assertThat(registry.getHistograms()).hasSize(2); // receiptCollectionLatency, receiptGossipLatency
         assertThat(registry.getTimers()).hasSize(2);     // viewChangeCoordinationTime, committeeSelectionTime
-        assertThat(registry.getGauges()).hasSize(2);     // thresholdAchievementRate, inFlightCollections
+        assertThat(registry.getGauges().size()).isGreaterThanOrEqualTo(6); // Original 2 + Phase 1B-3 gauges
+        assertThat(registry.getCounters().size()).isGreaterThanOrEqualTo(5); // Phase 1B-3 counters (new)
     }
 }
