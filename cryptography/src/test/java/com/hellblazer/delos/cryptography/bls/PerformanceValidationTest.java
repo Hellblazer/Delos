@@ -197,12 +197,17 @@ class PerformanceValidationTest {
 
     @Test
     void storageValidation_hundredSigners() {
-        // GIVEN: 100 signatures (large committee)
+        // GIVEN: 100 real BLS signatures (large committee)
+        var provider = new com.hellblazer.delos.cryptography.bls.impl.TekuBLSProvider();
+        var message = BLSTestFixtures.randomMessage(32);
         var signatures = new ArrayList<BLSSignature>();
         var signerIndices = new ArrayList<Integer>();
 
         for (int i = 0; i < 100; i++) {
-            signatures.add(new BLSSignature(BLSTestFixtures.randomMessage(96)));
+            // Generate real BLS signature with deterministic random
+            var keyPair = provider.generateKeyPair(BLSTestFixtures.deterministicRandom(i + 0x100L));
+            var signatureBytes = provider.sign(keyPair.secretKey(), message);
+            signatures.add(new BLSSignature(signatureBytes));
             signerIndices.add(i);
         }
 
