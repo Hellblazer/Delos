@@ -1,0 +1,688 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.hellblazer.delos.witness.proto";
+option java_outer_classname = "WitnessProto";
+option objc_class_prefix = "Witness";
+
+import "crypto.proto";
+import "stereotomy.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+package witness;
+
+/**
+ * BLS aggregate signature with signer indices.
+ * Phase 1B: Compact representation of committee signatures.
+ */
+message BLSAggregateSignature {
+  // 96-byte BLS12-381 aggregate signature
+  bytes signature = 1;
+
+  // Signer indices (members who contributed to aggregate)
+  // Corresponds to bitmap positions
+  repeated int32 signerIndices = 2;
+}
+
+/**
+ * Witness receipt for KERI key events.
+ * Includes event coordinates, digest, witness signatures, and Fireflies view reference.
+ * Immutable once threshold achieved.
+ *
+ * Phase 1B: Extended with BLS aggregate support using oneof for backward compatibility.
+ */
+message WitnessReceipt {
+  // Event coordinates identifying which event is receipted
+  stereotomy.EventCoords eventCoordinates = 1;
+
+  // Hash of the event content for validation
+  crypto.Digeste eventDigest = 2;
+
+  // Witness signatures (Phase 1A: individual Ed25519, Phase 1B: BLS aggregate)
+  repeated crypto.Sig signatures = 3;
+
+  // Fireflies epoch for staleness detection
+  uint64 epoch = 4;
+
+  // Fireflies view reference for validation
+  crypto.Digeste viewRef = 5;
+
+  // Timestamp when receipt was created
+  google.protobuf.Timestamp timestamp = 6;
+
+  // Phase 1B: BLS aggregate signature (when format is BLS_12_381)
+  // If present, overrides individual signatures for aggregation
+  BLSAggregateSignature blsSig = 11;
+
+  // Signer bitmap for BLS (bit array indicating which committee members signed)
+  // Encoded as raw bytes for compact representation
+  bytes signerBitmap = 12;
+}
+
+/**
+ * Request for witness receipts by event coordinates.
+ * Supports filtering and timeout specification.
+ */
+message ReceiptRequest {
+  // Event coordinates to retrieve receipt for
+  stereotomy.EventCoords eventCoordinates = 1;
+
+  // Optional timeout in milliseconds
+  uint64 timeoutMs = 2;
+
+  // Optional filter for specific witness identifiers
+  repeated stereotomy.Ident witnessFilter = 3;
+}
+
+/**
+ * Response containing witness receipt and validation status.
+ */
+message ReceiptResponse {
+  // The witness receipt (may be null if not yet available)
+  WitnessReceipt receipt = 1;
+
+  // Validation status
+  ValidationStatus status = 2;
+
+  // Number of signatures received so far
+  uint32 signatureCount = 3;
+
+  // Required threshold for accountability
+  uint32 requiredThreshold = 4;
+}
+
+/**
+ * Validation status for witness receipts.
+ */
+enum ValidationStatus {
+  UNKNOWN = 0;
+  PENDING = 1;          // Receipt collection in progress
+  THRESHOLD_MET = 2;    // M-of-N threshold achieved
+  INVALID = 3;          // Receipt validation failed
+  STALE = 4;            // Receipt from old epoch/view
+  TIMEOUT = 5;          // Collection timeout exceeded
+}
+
+/**
+ * Request to sign a key event and return receipt.
+ */
+message EventSigningRequest {
+  // The key event to sign (as Any to support all event types)
+  stereotomy.EventCoords eventCoordinates = 1;
+
+  // Event content hash
+  crypto.Digeste eventDigest = 2;
+
+  // Required signature threshold (M)
+  uint32 signingThreshold = 3;
+
+  // Committee cardinality (k)
+  uint32 committeeSize = 4;
+
+  // Timeout for receipt collection (ms)
+  uint64 timeoutMs = 5;
+}
+
+/**
+ * Future result for async receipt collection.
+ * Returned immediately, allows polling or streaming for completion.
+ */
+message ReceiptFuture {
+  // Unique ID for this collection operation
+  string collectionId = 1;
+
+  // Initial status
+  ValidationStatus status = 2;
+
+  // Event coordinates being receipted
+  stereotomy.EventCoords eventCoordinates = 3;
+}
+
+/**
+ * Filter criteria for receipt subscription.
+ */
+message ReceiptFilter {
+  // Filter by specific controller identifiers
+  repeated stereotomy.Ident controllers = 1;
+
+  // Filter by event sequence number range
+  uint64 minSequence = 2;
+  uint64 maxSequence = 3;
+
+  // Filter by event ilk (icp, rot, ixn, etc.)
+  repeated string ilks = 4;
+
+  // Filter by epoch
+  uint64 epoch = 5;
+}
+
+/**
+ * Information about the current witness committee for an event.
+ * Returned by GetCommittee RPC, includes committee members, threshold, and epoch.
+ */
+message CommitteeInfo {
+  // Event coordinates for which committee is selected
+  stereotomy.EventCoords eventCoordinates = 1;
+
+  // Committee members (witness identifiers)
+  repeated stereotomy.Ident members = 2;
+
+  // Number of committee members (k)
+  uint32 committeeSize = 3;
+
+  // Signature threshold required (M)
+  uint32 threshold = 4;
+
+  // Fireflies epoch during which this committee is active
+  uint64 epoch = 5;
+
+  // View reference for this committee selection
+  crypto.Digeste viewRef = 6;
+
+  // Fault tolerance level (f = (k-1)/3)
+  uint32 faultTolerance = 7;
+}
+
+/**
+ * Request for committee information.
+ */
+message CommitteeRequest {
+  // Event coordinates for committee selection
+  stereotomy.EventCoords eventCoordinates = 1;
+}
+
+/**
+ * View change event notification.
+ * Sent when Fireflies membership changes (epoch increment).
+ */
+message ViewChange {
+  // Old epoch number
+  uint64 oldEpoch = 1;
+
+  // New epoch number
+  uint64 newEpoch = 2;
+
+  // Old committee members that will be removed
+  repeated stereotomy.Ident removedMembers = 3;
+
+  // New committee members being added
+  repeated stereotomy.Ident addedMembers = 4;
+
+  // Drain period in milliseconds (grace period for in-flight collections)
+  uint64 drainPeriodMs = 5;
+
+  // Timestamp when view change occurred
+  google.protobuf.Timestamp timestamp = 6;
+
+  // View reference before change
+  crypto.Digeste oldViewRef = 7;
+
+  // View reference after change
+  crypto.Digeste newViewRef = 8;
+}
+
+/**
+ * Subscription request for view change notifications.
+ */
+message ViewChangeSubscription {
+  // Optional epoch filter (if set, only receive changes at/after this epoch)
+  uint64 fromEpoch = 1;
+}
+
+/**
+ * Phase 1B-3 BLS integration health metrics.
+ * Aggregates status from migration, key registration, transition coordination,
+ * Byzantine detection, and BLS validation.
+ */
+message Phase1B3HealthStatus {
+  // Current migration phase (INIT, DUAL, BLS_ONLY)
+  string currentPhase = 1;
+
+  // Transition readiness status
+  TransitionStatus transitionStatus = 2;
+
+  // Number of members with registered BLS keys
+  int32 registeredKeyCount = 3;
+
+  // Total committee member count (k)
+  int32 totalMemberCount = 4;
+
+  // Number of members shunned for Byzantine behavior
+  int32 shunnedMemberCount = 5;
+
+  // Total BLS signature validations performed
+  int64 blsValidationsTotal = 6;
+
+  // Total BLS validation failures
+  int64 blsFailuresTotal = 7;
+
+  // Whether phase transition is currently in progress
+  bool transitionInProgress = 8;
+
+  // Overall health status (true if all checks pass)
+  bool isHealthy = 9;
+}
+
+/**
+ * Health status of witness service.
+ */
+message HealthStatus {
+  // Current epoch
+  uint64 epoch = 1;
+
+  // Number of in-flight receipt collections
+  uint32 inFlightCollections = 2;
+
+  // Total receipts issued (cumulative counter)
+  uint64 totalReceipts = 3;
+
+  // Average receipt latency in milliseconds
+  double avgReceiptLatencyMs = 4;
+
+  // Current committee size (if applicable)
+  uint32 committeeSize = 5;
+
+  // Service uptime in seconds
+  uint64 uptimeSeconds = 6;
+
+  // Last error message (if any)
+  string lastError = 7;
+
+  // Service status enum
+  enum Status {
+    UNKNOWN = 0;
+    HEALTHY = 1;
+    DEGRADED = 2;
+    UNHEALTHY = 3;
+  }
+
+  // Current status
+  Status status = 8;
+
+  // Timestamp of this health check
+  google.protobuf.Timestamp timestamp = 9;
+
+  // Phase 1B-3 BLS integration health (added for backward-compatible extension)
+  Phase1B3HealthStatus phase1b3Health = 10;
+}
+
+/**
+ * Drain status for in-flight collections during view change.
+ * Tracks completion of collections and remaining time in drain period.
+ */
+message DrainStatus {
+  // Number of in-flight collections still pending
+  uint32 inFlightCount = 1;
+
+  // Collection IDs still pending completion
+  repeated string pendingCollectionIds = 2;
+
+  // Whether drain period has completed
+  bool drainComplete = 3;
+
+  // Time remaining in drain period (milliseconds)
+  uint64 remainingMs = 4;
+
+  // Current drain state
+  enum DrainState {
+    STABLE = 0;           // Normal operation
+    DRAINING = 1;         // In drain period
+    TRANSITIONING = 2;    // Updating to new view
+  }
+
+  // Current state
+  DrainState state = 5;
+
+  // Timestamp of this status
+  google.protobuf.Timestamp timestamp = 6;
+}
+
+/**
+ * Phase transition request for migration management.
+ * Admin endpoint to manually advance migration phase.
+ */
+message PhaseTransitionRequest {
+  // Target migration phase (INIT, DUAL, BLS_ONLY)
+  string newPhase = 1;
+
+  // Force transition even if readiness checks fail (admin override)
+  // Default: false - respects readiness requirements
+  bool force = 2;
+
+  // Justification for forced transition (required if force=true)
+  // Logged for audit trail
+  string justification = 3;
+}
+
+/**
+ * Phase transition response.
+ * Indicates success or failure of phase transition.
+ */
+message PhaseTransitionResponse {
+  // Whether transition succeeded
+  bool success = 1;
+
+  // Previous phase (if successful)
+  string oldPhase = 2;
+
+  // New phase (if successful)
+  string newPhase = 3;
+
+  // Error message (if failed)
+  string errorMessage = 4;
+
+  // Epoch when transition was recorded (Fireflies epoch)
+  // 0 if transition failed or not applicable
+  int64 epoch_transitioned = 5;
+}
+
+/**
+ * BLS key registration request.
+ * Includes public key, proof of possession, and registration signature.
+ */
+message RegisterKeyRequest {
+  // Member identifier (KERI identifier)
+  stereotomy.Ident memberId = 1;
+
+  // BLS public key (48 bytes for BLS12-381 G1)
+  bytes publicKey = 2;
+
+  // Proof of Possession (96 bytes signature over public key)
+  bytes proofOfPossession = 3;
+
+  // Registration signature (96 bytes signature over member ID)
+  bytes registrationSignature = 4;
+
+  // Registration epoch
+  uint64 registrationEpoch = 5;
+}
+
+/**
+ * BLS key registration response.
+ * Indicates success or validation failure.
+ */
+message RegisterKeyResponse {
+  // Whether registration succeeded
+  bool success = 1;
+
+  // Error message if validation failed
+  string errorMessage = 2;
+
+  // Validation details (for debugging)
+  string validationDetails = 3;
+}
+
+/**
+ * Request to retrieve a member's BLS public key.
+ */
+message GetPublicKeyRequest {
+  // Member identifier
+  stereotomy.Ident memberId = 1;
+}
+
+/**
+ * Response containing a member's BLS public key.
+ */
+message GetPublicKeyResponse {
+  // Whether key was found
+  bool found = 1;
+
+  // BLS public key (48 bytes for BLS12-381 G1)
+  bytes publicKey = 2;
+
+  // When the key was registered
+  google.protobuf.Timestamp registrationTime = 3;
+}
+
+/**
+ * Request to retrieve all registered BLS public keys.
+ */
+message GetPublicKeysRequest {
+  // No parameters needed
+}
+
+/**
+ * Single entry in the public keys map.
+ */
+message PublicKeyEntry {
+  // Member identifier
+  stereotomy.Ident memberId = 1;
+
+  // BLS public key (48 bytes)
+  bytes publicKey = 2;
+}
+
+/**
+ * Response containing all registered BLS public keys.
+ */
+message GetPublicKeysResponse {
+  // All registered public keys
+  repeated PublicKeyEntry publicKeys = 1;
+
+  // Total count of registered keys
+  uint32 totalCount = 2;
+}
+
+/**
+ * Request to initiate genesis phase transition.
+ */
+message InitiateTransitionRequest {
+  // No parameters needed (readiness checked internally)
+}
+
+/**
+ * Response from transition initiation.
+ */
+message InitiateTransitionResponse {
+  // Whether initiation succeeded
+  bool success = 1;
+
+  // Current transition status
+  TransitionStatus status = 2;
+
+  // Error message if failed
+  string errorMessage = 3;
+}
+
+/**
+ * Request to get current transition status.
+ */
+message GetTransitionStatusRequest {
+  // No parameters needed
+}
+
+/**
+ * Response with transition progress.
+ */
+message GetTransitionStatusResponse {
+  // Current status
+  TransitionStatus status = 1;
+
+  // Progress percentage (0-100)
+  int32 progressPercent = 2;
+
+  // Remaining drain time in milliseconds
+  uint64 remainingDrainMs = 3;
+}
+
+/**
+ * Request to soft rollback during drain period.
+ */
+message SoftRollbackRequest {
+  // No parameters needed
+}
+
+/**
+ * Response from soft rollback attempt.
+ */
+message SoftRollbackResponse {
+  // Whether rollback succeeded
+  bool success = 1;
+
+  // Error message if failed
+  string errorMessage = 2;
+}
+
+/**
+ * Request to check committee readiness for phase transition.
+ */
+message GetTransitionReadinessRequest {
+  // No parameters needed
+}
+
+/**
+ * Response with transition readiness status.
+ */
+message GetTransitionReadinessResponse {
+  // Whether committee is ready for transition (BFT quorum satisfied)
+  bool isReady = 1;
+
+  // Number of members with registered BLS keys
+  int32 registeredMemberCount = 2;
+
+  // Total committee size (k)
+  int32 totalMemberCount = 3;
+
+  // Required quorum for safe transition (2f+1)
+  int32 requiredQuorum = 4;
+
+  // Byzantine fault tolerance threshold (f)
+  int32 faultToleranceThreshold = 5;
+}
+
+/**
+ * Transition status enumeration.
+ */
+enum TransitionStatus {
+  NOT_STARTED = 0;
+  WAITING_FOR_READINESS = 1;
+  DRAINING = 2;
+  COMPLETE = 3;
+  FAILED = 4;
+}
+
+/**
+ * KERI Witness Service
+ * Provides witness receipt signing, collection, validation, and streaming.
+ */
+service WitnessService {
+  /**
+   * Sign new key event and return async receipt future.
+   * Controller initiates receipt collection, service returns immediately with future.
+   */
+  rpc SignEvent(EventSigningRequest) returns (ReceiptFuture);
+
+  /**
+   * Retrieve witnessed receipt by event coordinates.
+   * Blocks until receipt available or timeout.
+   */
+  rpc GetReceipt(ReceiptRequest) returns (ReceiptResponse);
+
+  /**
+   * Validate receipt signature threshold.
+   * Verifies M-of-N signatures and epoch/view consistency.
+   */
+  rpc ValidateReceipt(WitnessReceipt) returns (ReceiptResponse);
+
+  /**
+   * Subscribe to receipt stream matching filter criteria.
+   * Enables push-based receipt gossip and propagation.
+   */
+  rpc SubscribeReceipts(ReceiptFilter) returns (stream WitnessReceipt);
+
+  /**
+   * Poll receipt future for completion status.
+   * Non-blocking check of async collection progress.
+   */
+  rpc PollFuture(ReceiptFuture) returns (ReceiptResponse);
+
+  /**
+   * Get current witness committee for an event.
+   * Returns committee members, threshold, and epoch information.
+   */
+  rpc GetCommittee(CommitteeRequest) returns (CommitteeInfo);
+
+  /**
+   * Subscribe to view change notifications.
+   * Notifies about membership changes, drain periods, and epoch transitions.
+   */
+  rpc SubscribeViewChanges(ViewChangeSubscription) returns (stream ViewChange);
+
+  /**
+   * Notify witness service of view change from Fireflies.
+   * Initiates drain period for in-flight collections.
+   * Returns drain status and completion time.
+   */
+  rpc NotifyViewChange(ViewChange) returns (DrainStatus);
+
+  /**
+   * Check witness service health and status.
+   * Returns uptime, metrics, and current operational status.
+   */
+  rpc Health(google.protobuf.Empty) returns (HealthStatus);
+
+  /**
+   * Query current drain status.
+   * Non-blocking check of drain period progress.
+   */
+  rpc GetDrainStatus(google.protobuf.Empty) returns (DrainStatus);
+
+  /**
+   * Manually advance migration phase (admin endpoint).
+   * Allows administrative control of Ed25519 to BLS migration.
+   * Security: Should require authentication in production.
+   */
+  rpc ManualAdvancePhase(PhaseTransitionRequest) returns (PhaseTransitionResponse);
+}
+
+/**
+ * BLS Key Registration Service
+ * Manages committee member BLS key registration for Phase 1B migration.
+ */
+service KeyRegistrationService {
+  /**
+   * Register a BLS public key for a committee member.
+   * Validates Proof of Possession and registration signature.
+   */
+  rpc RegisterKey(RegisterKeyRequest) returns (RegisterKeyResponse);
+
+  /**
+   * Retrieve the BLS public key for a specific member.
+   */
+  rpc GetPublicKey(GetPublicKeyRequest) returns (GetPublicKeyResponse);
+
+  /**
+   * Retrieve all registered BLS public keys.
+   */
+  rpc GetPublicKeys(GetPublicKeysRequest) returns (GetPublicKeysResponse);
+}
+
+/**
+ * Phase Transition Service
+ * Manages genesis transition from DUAL to BLS_ONLY mode.
+ */
+service PhaseTransitionService {
+  /**
+   * Initiate genesis phase transition.
+   * Requires committee readiness (BFT quorum of registered keys).
+   */
+  rpc InitiateTransition(InitiateTransitionRequest) returns (InitiateTransitionResponse);
+
+  /**
+   * Get current transition status and progress.
+   */
+  rpc GetTransitionStatus(GetTransitionStatusRequest) returns (GetTransitionStatusResponse);
+
+  /**
+   * Attempt soft rollback during drain period.
+   * Only succeeds if still in DRAINING state.
+   */
+  rpc SoftRollback(SoftRollbackRequest) returns (SoftRollbackResponse);
+
+  /**
+   * Check committee readiness for phase transition.
+   * Non-blocking query of BFT quorum status.
+   */
+  rpc GetTransitionReadiness(GetTransitionReadinessRequest) returns (GetTransitionReadinessResponse);
+}

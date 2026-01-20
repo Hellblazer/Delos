@@ -31,6 +31,8 @@
         <module>delphinius</module>
         <module>stereotomy-services</module>
         <module>thoth</module>
+        <module>witness-service</module>
+        <module>fireflies-keri-service</module>
 
         <!-- gRPC and other infrastructure -->
         <module>grpc</module>
@@ -151,6 +153,11 @@
             <dependency>
                 <groupId>com.hellblazer.delos</groupId>
                 <artifactId>thoth</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.hellblazer.delos</groupId>
+                <artifactId>fireflies-keri-service</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -694,14 +701,23 @@
     <repositories>
         <repository>
             <id>central</id>
-            <url>https://repo.maven.org/maven2/</url>
+            <url>https://repo1.maven.org/maven2/</url>
             <snapshots>
                 <enabled>false</enabled>
             </snapshots>
         </repository>
         <repository>
-            <id>central-1</id>
-            <url>https://repo1.maven.org/maven2/</url>
+            <id>consensys-artifacts-teku</id>
+            <name>ConsenSys Artifacts - Teku</name>
+            <url>https://artifacts.consensys.net/public/teku/maven/</url>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </repository>
+        <repository>
+            <id>consensys-artifacts-maven</id>
+            <name>ConsenSys Artifacts - Maven Public</name>
+            <url>https://artifacts.consensys.net/public/maven/maven/</url>
             <snapshots>
                 <enabled>false</enabled>
             </snapshots>
@@ -710,13 +726,6 @@
     <pluginRepositories>
         <pluginRepository>
             <id>central</id>
-            <url>https://repo.maven.org/maven2/</url>
-            <snapshots>
-                <enabled>false</enabled>
-            </snapshots>
-        </pluginRepository>
-        <pluginRepository>
-            <id>central-1</id>
             <url>https://repo1.maven.org/maven2/</url>
             <snapshots>
                 <enabled>false</enabled>

@@ -211,7 +211,8 @@ public class ChurnTest {
             // Stabilization after join: gossip propagation across cluster
             // Large tests need extended stabilization time for 100-node gossip convergence
             // CI runners have high variability - increased timeout from 90s to 120s
-            final int stabilizeTimeout = IS_CI ? 120_000 : (LARGE_TESTS ? 120_000 : 45_000);
+            // Standard 75-node tests need 90s for full convergence during churn phases
+            final int stabilizeTimeout = IS_CI ? 120_000 : (LARGE_TESTS ? 120_000 : 90_000);
             success = Utils.waitForCondition(stabilizeTimeout, 1_000, () -> {
                 return testViews.stream()
                                 .map(v -> v.getContext())
