@@ -7,14 +7,19 @@
  */
 package com.hellblazer.delos.witness.validation;
 
+import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.cryptography.bls.*;
+import com.hellblazer.delos.stereotomy.identifier.Identifier;
+import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
 import com.hellblazer.delos.witness.aggregation.ValidationResult;
+import com.hellblazer.delos.witness.committee.CommitteeKeyCache;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
@@ -39,9 +44,12 @@ import static org.assertj.core.api.Assertions.*;
 @DisplayName("AggregateValidator Tests")
 class AggregateValidatorTest {
 
+    private static final DigestAlgorithm DIGEST_ALGORITHM = DigestAlgorithm.DEFAULT;
+
     private BLSProvider provider;
     private AggregateValidator validator;
     private Random entropy;
+    private int identifierCounter;
 
     // Test fixtures
     private List<BLSKeyPair> committeeKeys;
@@ -580,6 +588,112 @@ class AggregateValidatorTest {
         assertThat(results.get(0)).isInstanceOf(ValidationResult.Valid.class);
     }
 
+    // ========== Cache-Optimized Validation Tests (Phase 1C-1-D-E) ==========
+
+    @Test
+    @DisplayName("validateBatchCached with cache hit should succeed")
+    void testValidateBatchCachedWithCacheHit() {
+        // Create committee identifiers
+        var committeeIds = new ArrayList<Identifier>();
+        var committeeMembers = new HashMap<Identifier, byte[]>();
+        for (int i = 0; i < committeePublicKeys.size(); i++) {
+            var id = createIdentifier();
+            committeeIds.add(id);
+            committeeMembers.put(id, committeePublicKeys.get(i).toBytesCompressed());
+        }
+
+        // Create cache and pre-populate
+        var cache = new CommitteeKeyCache(provider);
+        cache.precomputeCommittee(committeeMembers);
+
+        // Create validator with cache
+        var cachedValidator = new AggregateValidator(provider, cache);
+
+        // Create test data
+        var signers1 = List.of(0, 1, 2, 3, 4);
+        var signers2 = List.of(1, 2, 3, 5, 6);
+        var message1 = new byte[32];
+        var message2 = new byte[32];
+        entropy.nextBytes(message1);
+        entropy.nextBytes(message2);
+
+        var receipts = List.of(
+            createAggregateWithMessage(signers1, message1),
+            createAggregateWithMessage(signers2, message2)
+        );
+        var messages = List.of(message1, message2);
+
+        // Verify using cached keys
+        var results = cachedValidator.validateBatchCached(committeeIds, receipts, messages);
+
+        assertThat(results).hasSize(2);
+        assertThat(results.get(0)).isInstanceOf(ValidationResult.Valid.class);
+        assertThat(results.get(1)).isInstanceOf(ValidationResult.Valid.class);
+
+        // Verify cache was used
+        assertThat(cache.getHitCount()).isGreaterThan(0);
+    }
+
+    @Test
+    @DisplayName("validateBatchCached without cache should throw")
+    void testValidateBatchCachedWithoutCache() {
+        // Create validator without cache
+        var noCacheValidator = new AggregateValidator(provider);
+
+        // Create test data
+        var committeeIds = List.of(createIdentifier());
+        var signers = List.of(0, 1, 2);
+        var receipts = List.of(createAggregate(signers));
+        var messages = List.of(testMessage);
+
+        // Should throw because cache is required
+        assertThatThrownBy(() -> noCacheValidator.validateBatchCached(committeeIds, receipts, messages))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("Cache is required");
+    }
+
+    @Test
+    @DisplayName("validateBatchCached with cache miss should throw")
+    void testValidateBatchCachedWithCacheMiss() {
+        // Create empty cache
+        var cache = new CommitteeKeyCache(provider);
+        var cachedValidator = new AggregateValidator(provider, cache);
+
+        // Create test data with identifiers not in cache
+        var committeeIds = List.of(
+            createIdentifier(),
+            createIdentifier()
+        );
+        var signers = List.of(0, 1, 2);
+        var receipts = List.of(createAggregate(signers));
+        var messages = List.of(testMessage);
+
+        // Should throw because keys are not in cache
+        assertThatThrownBy(() -> cachedValidator.validateBatchCached(committeeIds, receipts, messages))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("Cache miss");
+    }
+
+    @Test
+    @DisplayName("validateBatchCached with null parameters should throw")
+    void testValidateBatchCachedNullParameters() {
+        var cache = new CommitteeKeyCache(provider);
+        var cachedValidator = new AggregateValidator(provider, cache);
+
+        var committeeIds = List.of(createIdentifier());
+        var receipts = List.of(createAggregate(List.of(0, 1, 2)));
+        var messages = List.of(testMessage);
+
+        assertThatThrownBy(() -> cachedValidator.validateBatchCached(null, receipts, messages))
+            .isInstanceOf(NullPointerException.class);
+
+        assertThatThrownBy(() -> cachedValidator.validateBatchCached(committeeIds, null, messages))
+            .isInstanceOf(NullPointerException.class);
+
+        assertThatThrownBy(() -> cachedValidator.validateBatchCached(committeeIds, receipts, null))
+            .isInstanceOf(NullPointerException.class);
+    }
+
     // ========== Helper Methods ==========
 
     /**
@@ -606,5 +720,14 @@ class AggregateValidatorTest {
             signatures.add(signature);
         }
         return BLSAggregate.aggregate(signatures, signerIndices);
+    }
+
+    /**
+     * Create a unique identifier for testing.
+     */
+    private Identifier createIdentifier() {
+        var idString = "member-" + identifierCounter++;
+        var digest = DIGEST_ALGORITHM.digest(idString.getBytes());
+        return new SelfAddressingIdentifier(digest);
     }
 }

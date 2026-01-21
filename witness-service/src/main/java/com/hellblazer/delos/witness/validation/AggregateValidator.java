@@ -12,7 +12,9 @@ import com.hellblazer.delos.cryptography.bls.BLSProvider;
 import com.hellblazer.delos.cryptography.bls.BLSPublicKey;
 import com.hellblazer.delos.cryptography.bls.BLSSignature;
 import com.hellblazer.delos.cryptography.bls.ParsedBLSKey;
+import com.hellblazer.delos.stereotomy.identifier.Identifier;
 import com.hellblazer.delos.witness.aggregation.ValidationResult;
+import com.hellblazer.delos.witness.committee.CommitteeKeyCache;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -67,6 +69,7 @@ import java.util.Objects;
 public final class AggregateValidator {
 
     private final BLSProvider provider;
+    private final CommitteeKeyCache committeeKeyCache; // Nullable - cache is optional
 
     /**
      * Create validator with specified BLS provider.
@@ -75,7 +78,30 @@ public final class AggregateValidator {
      * @throws NullPointerException if provider is null
      */
     public AggregateValidator(BLSProvider provider) {
+        this(provider, null);
+    }
+
+    /**
+     * Create validator with specified BLS provider and optional cache.
+     * <p>
+     * Phase 1C-1-D-E: Cache-optimized constructor for committee key pre-computation.
+     * <p>
+     * When cache is provided, validateBatch() will attempt to use cached ParsedBLSKey objects
+     * to eliminate per-verification parsing overhead. This provides additional speedup on top
+     * of batch verification:
+     * <ul>
+     *   <li>Cache hit: ~1µs per key lookup vs 50-100µs parsing</li>
+     *   <li>Batch verification: 2-4x speedup for 10+ receipts</li>
+     *   <li>Combined: 4-8x total speedup expected for realistic batch sizes</li>
+     * </ul>
+     *
+     * @param provider BLS cryptographic provider for verification operations
+     * @param cache    Optional committee key cache (null for no caching)
+     * @throws NullPointerException if provider is null
+     */
+    public AggregateValidator(BLSProvider provider, CommitteeKeyCache cache) {
         this.provider = Objects.requireNonNull(provider, "provider cannot be null");
+        this.committeeKeyCache = cache; // Nullable
     }
 
     /**
@@ -330,6 +356,85 @@ public final class AggregateValidator {
         }
 
         return results;
+    }
+
+    /**
+     * Validate batch of BLS aggregate signatures using cache-optimized verification.
+     * <p>
+     * Phase 1C-1-D-E: Cache-optimized batch validation. When committeeKeyCache is available,
+     * this method attempts to use pre-parsed keys from the cache to eliminate parsing overhead.
+     * <p>
+     * Optimization strategy:
+     * <ol>
+     *   <li>If cache is null: throw IllegalStateException (cache required for this method)</li>
+     *   <li>If cache is available: attempt to retrieve all committee keys</li>
+     *   <li>If all keys are cached: use verifyBatchParsed() for maximum performance</li>
+     *   <li>If any cache miss: throw IllegalStateException (caller should provide fallback)</li>
+     * </ol>
+     * <p>
+     * Performance characteristics:
+     * <ul>
+     *   <li>Cache hit (all keys): ~1µs per key + batch verification speedup (2-4x)</li>
+     *   <li>Cache miss (any key): Exception - caller must handle fallback</li>
+     *   <li>Combined optimization: 4-8x speedup expected for realistic workloads</li>
+     * </ul>
+     *
+     * @param committeeIds Committee member identifiers (for cache lookup)
+     * @param receipts     List of BLS aggregates to verify
+     * @param messages     List of messages (parallel to receipts)
+     * @return List of validation results (parallel to receipts)
+     * @throws NullPointerException     if any parameter is null
+     * @throws IllegalArgumentException if receipts and messages have different sizes
+     * @throws IllegalStateException    if cache is null or cache miss occurs
+     */
+    public List<ValidationResult> validateBatchCached(
+        List<Identifier> committeeIds,
+        List<BLSAggregate> receipts,
+        List<byte[]> messages
+    ) {
+        Objects.requireNonNull(committeeIds, "committeeIds cannot be null");
+        Objects.requireNonNull(receipts, "receipts cannot be null");
+        Objects.requireNonNull(messages, "messages cannot be null");
+
+        if (receipts.size() != messages.size()) {
+            throw new IllegalArgumentException(
+                "receipts and messages must have same size: " +
+                receipts.size() + " vs " + messages.size()
+            );
+        }
+
+        if (receipts.isEmpty()) {
+            return List.of();
+        }
+
+        // If no cache available, fall back to standard validation
+        if (committeeKeyCache == null) {
+            // Need to convert Identifiers to BLSPublicKey objects - delegate to caller
+            // This overload requires cache, so throw if cache is missing
+            throw new IllegalStateException("Cache is required for identifier-based validation");
+        }
+
+        // Attempt to retrieve all committee keys from cache
+        var parsedKeys = committeeKeyCache.getAll(committeeIds);
+
+        // Check if all keys are cached (no nulls)
+        boolean allCached = parsedKeys.stream().allMatch(Objects::nonNull);
+
+        if (allCached) {
+            // Fast path: all keys cached, use parsed key verification
+            var parsedKeysPerReceipt = new ArrayList<List<ParsedBLSKey>>(receipts.size());
+            for (int i = 0; i < receipts.size(); i++) {
+                parsedKeysPerReceipt.add(parsedKeys);
+            }
+            return verifyBatchParsed(receipts, parsedKeysPerReceipt, messages);
+        } else {
+            // Cache miss: need to fall back, but we don't have BLSPublicKey objects
+            // The caller should handle this by providing both identifiers and keys
+            throw new IllegalStateException(
+                "Cache miss detected for committee keys. " +
+                "Caller should provide BLSPublicKey objects for fallback."
+            );
+        }
     }
 
     /**

@@ -7,15 +7,20 @@
  */
 package com.hellblazer.delos.witness.validation;
 
+import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.cryptography.bls.BLSAggregate;
 import com.hellblazer.delos.cryptography.bls.BLSProvider;
 import com.hellblazer.delos.cryptography.bls.BLSSignature;
+import com.hellblazer.delos.stereotomy.identifier.Identifier;
+import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
 import com.hellblazer.delos.witness.aggregation.ValidationResult;
+import com.hellblazer.delos.witness.committee.CommitteeKeyCache;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Random;
 
@@ -42,14 +47,18 @@ class BLSKeyPairHelper {
 @DisplayName("BatchVerificationPipeline - Batch Verification Tests")
 class BatchVerificationPipelineTest {
 
+    private static final DigestAlgorithm DIGEST_ALGORITHM = DigestAlgorithm.DEFAULT;
+
     private BLSProvider provider;
     private BatchVerificationPipeline pipeline;
+    private int identifierCounter;
 
     @BeforeEach
     void setUp() {
         provider = BLSProvider.getDefault();
         pipeline = new BatchVerificationPipeline(provider);
         pipeline.resetMetrics();
+        identifierCounter = 0;
     }
 
     @Test
@@ -268,6 +277,183 @@ class BatchVerificationPipelineTest {
         assertThat(pipeline.getAverageLatencyMicros()).isEqualTo(0.0);
     }
 
+    // ===== Cache Integration Tests (Phase 1C-1-D-E) =====
+
+    @Test
+    @DisplayName("verifyBatch with cache hit should use cached keys")
+    void verifyBatchWithCacheHitUsesCachedKeys() {
+        var random = new Random(777);
+        var committee = createCommittee(random, 7);
+        var committeeKeys = extractPublicKeys(committee);
+
+        // Create committee identifiers and populate cache
+        var committeeIds = new ArrayList<Identifier>();
+        var committeeMembers = new HashMap<Identifier, byte[]>();
+        for (int i = 0; i < committee.size(); i++) {
+            var id = createIdentifier();
+            committeeIds.add(id);
+            committeeMembers.put(id, committee.get(i).publicKey);
+        }
+
+        var cache = new CommitteeKeyCache(provider);
+        cache.precomputeCommittee(committeeMembers);
+
+        var cachedPipeline = new BatchVerificationPipeline(provider, cache);
+        cachedPipeline.resetMetrics();
+
+        // Create test aggregates
+        var receipts = new ArrayList<BLSAggregate>();
+        var messages = new ArrayList<byte[]>();
+        for (int i = 0; i < 3; i++) {
+            var message = ("Event " + i).getBytes();
+            var aggregate = createAggregate(committee, List.of(0, 1, 2, 3), message, provider);
+            receipts.add(aggregate);
+            messages.add(message);
+        }
+
+        // WHEN: Verify using cache-optimized method
+        var results = cachedPipeline.verifyBatch(committeeIds, committeeKeys, receipts, messages);
+
+        // THEN: All should be valid
+        assertThat(results).hasSize(3);
+        assertThat(results).allMatch(r -> r instanceof ValidationResult.Valid);
+
+        // THEN: Cache hit should be recorded
+        assertThat(cachedPipeline.getCacheHits()).isEqualTo(1);
+        assertThat(cachedPipeline.getCacheMisses()).isEqualTo(0);
+        assertThat(cachedPipeline.getCacheHitRate()).isEqualTo(1.0);
+    }
+
+    @Test
+    @DisplayName("verifyBatch with cache miss should fall back to standard verification")
+    void verifyBatchWithCacheMissFallsBackToStandardVerification() {
+        var random = new Random(888);
+        var committee = createCommittee(random, 5);
+        var committeeKeys = extractPublicKeys(committee);
+
+        // Create empty cache (no keys pre-populated)
+        var cache = new CommitteeKeyCache(provider);
+        var cachedPipeline = new BatchVerificationPipeline(provider, cache);
+        cachedPipeline.resetMetrics();
+
+        // Create committee identifiers (not in cache)
+        var committeeIds = new ArrayList<Identifier>();
+        for (int i = 0; i < committee.size(); i++) {
+            committeeIds.add(createIdentifier());
+        }
+
+        // Create test aggregate
+        var message = "Event".getBytes();
+        var aggregate = createAggregate(committee, List.of(0, 1, 2), message, provider);
+
+        // WHEN: Verify with cache miss
+        var results = cachedPipeline.verifyBatch(committeeIds, committeeKeys, List.of(aggregate), List.of(message));
+
+        // THEN: Should still succeed via fallback
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0)).isInstanceOf(ValidationResult.Valid.class);
+
+        // THEN: Cache miss should be recorded
+        assertThat(cachedPipeline.getCacheHits()).isEqualTo(0);
+        assertThat(cachedPipeline.getCacheMisses()).isEqualTo(1);
+        assertThat(cachedPipeline.getCacheMissRate()).isEqualTo(1.0);
+    }
+
+    @Test
+    @DisplayName("verifyBatch without cache should record cache miss")
+    void verifyBatchWithoutCacheRecordsCacheMiss() {
+        var random = new Random(999);
+        var committee = createCommittee(random, 5);
+        var committeeKeys = extractPublicKeys(committee);
+
+        // Create pipeline without cache
+        var noCachePipeline = new BatchVerificationPipeline(provider, null);
+        noCachePipeline.resetMetrics();
+
+        var committeeIds = List.of(createIdentifier());
+        var message = "Event".getBytes();
+        var aggregate = createAggregate(committee, List.of(0, 1, 2), message, provider);
+
+        // WHEN: Verify without cache
+        var results = noCachePipeline.verifyBatch(committeeIds, committeeKeys, List.of(aggregate), List.of(message));
+
+        // THEN: Should succeed
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0)).isInstanceOf(ValidationResult.Valid.class);
+
+        // THEN: Cache miss should be recorded
+        assertThat(noCachePipeline.getCacheMisses()).isEqualTo(1);
+        assertThat(noCachePipeline.getCacheHits()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("verifyBatch cache metrics accumulate correctly")
+    void verifyBatchCacheMetricsAccumulateCorrectly() {
+        var random = new Random(1010);
+        var committee = createCommittee(random, 5);
+        var committeeKeys = extractPublicKeys(committee);
+
+        // Setup cache with some keys
+        var committeeIds = new ArrayList<Identifier>();
+        var committeeMembers = new HashMap<Identifier, byte[]>();
+        for (int i = 0; i < committee.size(); i++) {
+            var id = createIdentifier();
+            committeeIds.add(id);
+            committeeMembers.put(id, committee.get(i).publicKey);
+        }
+
+        var cache = new CommitteeKeyCache(provider);
+        cache.precomputeCommittee(committeeMembers);
+
+        var cachedPipeline = new BatchVerificationPipeline(provider, cache);
+        cachedPipeline.resetMetrics();
+
+        // Batch 1: Cache hit
+        var message1 = "Event1".getBytes();
+        var aggregate1 = createAggregate(committee, List.of(0, 1, 2), message1, provider);
+        cachedPipeline.verifyBatch(committeeIds, committeeKeys, List.of(aggregate1), List.of(message1));
+
+        // Batch 2: Cache miss (unknown IDs)
+        var unknownIds = List.of(createIdentifier(), createIdentifier());
+        var message2 = "Event2".getBytes();
+        var aggregate2 = createAggregate(committee, List.of(1, 2, 3), message2, provider);
+        cachedPipeline.verifyBatch(unknownIds, committeeKeys, List.of(aggregate2), List.of(message2));
+
+        // THEN: Metrics should reflect 1 hit and 1 miss
+        assertThat(cachedPipeline.getCacheHits()).isEqualTo(1);
+        assertThat(cachedPipeline.getCacheMisses()).isEqualTo(1);
+        assertThat(cachedPipeline.getCacheHitRate()).isEqualTo(0.5);
+        assertThat(cachedPipeline.getCacheMissRate()).isEqualTo(0.5);
+    }
+
+    @Test
+    @DisplayName("resetMetrics clears cache metrics")
+    void resetMetricsClearsCacheMetrics() {
+        var random = new Random(1111);
+        var committee = createCommittee(random, 5);
+        var committeeKeys = extractPublicKeys(committee);
+
+        var cache = new CommitteeKeyCache(provider);
+        var cachedPipeline = new BatchVerificationPipeline(provider, cache);
+
+        // Generate some cache metrics
+        var committeeIds = List.of(createIdentifier());
+        var message = "Event".getBytes();
+        var aggregate = createAggregate(committee, List.of(0, 1, 2), message, provider);
+        cachedPipeline.verifyBatch(committeeIds, committeeKeys, List.of(aggregate), List.of(message));
+
+        assertThat(cachedPipeline.getCacheMisses()).isGreaterThan(0);
+
+        // WHEN: Reset
+        cachedPipeline.resetMetrics();
+
+        // THEN: Cache metrics cleared
+        assertThat(cachedPipeline.getCacheHits()).isEqualTo(0);
+        assertThat(cachedPipeline.getCacheMisses()).isEqualTo(0);
+        assertThat(cachedPipeline.getCacheHitRate()).isEqualTo(0.0);
+        assertThat(cachedPipeline.getCacheMissRate()).isEqualTo(0.0);
+    }
+
     // ===== Helper Methods =====
 
     private List<BLSKeyPairHelper> createCommittee(Random random, int size) {
@@ -297,5 +483,11 @@ class BatchVerificationPipelineTest {
         }
 
         return BLSAggregate.aggregate(signatures, signerIndices);
+    }
+
+    private Identifier createIdentifier() {
+        var idString = "member-" + identifierCounter++;
+        var digest = DIGEST_ALGORITHM.digest(idString.getBytes());
+        return new SelfAddressingIdentifier(digest);
     }
 }
