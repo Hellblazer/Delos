@@ -55,10 +55,10 @@ public interface BLSProvider {
     /**
      * Get the default BLS provider implementation.
      *
-     * @return Default provider (TekuBLSProvider)
+     * @return Default provider (TekuBLSProvider singleton)
      */
     static BLSProvider getDefault() {
-        return new com.hellblazer.delos.cryptography.bls.impl.TekuBLSProvider();
+        return com.hellblazer.delos.cryptography.bls.impl.TekuBLSProvider.getInstance();
     }
 
     /**

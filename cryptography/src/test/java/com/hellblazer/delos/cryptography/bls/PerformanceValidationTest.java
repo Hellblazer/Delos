@@ -34,7 +34,7 @@ class PerformanceValidationTest {
 
     private static final int WARMUP_ITERATIONS = 100;
     private static final int MEASUREMENT_ITERATIONS = 1000;
-    private static final TekuBLSProvider PROVIDER = new TekuBLSProvider();
+    private static final TekuBLSProvider PROVIDER = TekuBLSProvider.getInstance();
     private static final byte[] MESSAGE = BLSTestFixtures.randomMessage(32);
     private static int nextSignerSeed = 0x300;
 
@@ -212,7 +212,7 @@ class PerformanceValidationTest {
     @Test
     void storageValidation_hundredSigners() {
         // GIVEN: 100 real BLS signatures (large committee)
-        var provider = new com.hellblazer.delos.cryptography.bls.impl.TekuBLSProvider();
+        var provider = com.hellblazer.delos.cryptography.bls.impl.TekuBLSProvider.getInstance();
         var message = BLSTestFixtures.randomMessage(32);
         var signatures = new ArrayList<BLSSignature>();
         var signerIndices = new ArrayList<Integer>();

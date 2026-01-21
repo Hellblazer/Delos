@@ -31,7 +31,7 @@ class TekuBLSProviderTest {
 
     @BeforeEach
     void setUp() {
-        provider = new TekuBLSProvider();
+        provider = TekuBLSProvider.getInstance();
     }
 
     // ===== Task 4.1: Key Generation Tests (RED phase) =====
@@ -377,5 +377,167 @@ class TekuBLSProviderTest {
         assertThat(aggregate.length)
             .as("Aggregate should be constant 96 bytes")
             .isEqualTo(96);
+    }
+
+    // ===== Task 1C-1-B: Caching and Singleton Tests =====
+
+    @Test
+    @DisplayName("singleton pattern returns same instance")
+    void singletonPatternReturnsSameInstance() {
+        var provider1 = TekuBLSProvider.getInstance();
+        var provider2 = TekuBLSProvider.getInstance();
+
+        assertThat(provider1)
+            .as("Should return same singleton instance")
+            .isSameAs(provider2);
+    }
+
+    @Test
+    @DisplayName("BLSProvider.getDefault returns singleton instance")
+    void blsProviderGetDefaultReturnsSingleton() {
+        var provider1 = BLSProvider.getDefault();
+        var provider2 = BLSProvider.getDefault();
+
+        assertThat(provider1)
+            .as("BLSProvider.getDefault() should return singleton")
+            .isSameAs(provider2);
+        assertThat(provider1)
+            .as("Should be instance of TekuBLSProvider")
+            .isInstanceOf(TekuBLSProvider.class);
+    }
+
+    @Test
+    @DisplayName("public key caching reduces repeated parsing overhead")
+    void publicKeyCachingReducesRepeatedParsingOverhead() {
+        var singletonProvider = TekuBLSProvider.getInstance();
+        singletonProvider.clearCache();
+
+        var random = new Random(12345);
+        var keyPair = singletonProvider.generateKeyPair(random);
+        var message = "cache test message".getBytes();
+        var signature = singletonProvider.sign(keyPair.secretKey(), message);
+
+        // First verification (cache miss)
+        var valid1 = singletonProvider.verify(keyPair.publicKey(), message, signature);
+        assertThat(valid1).as("First verification should succeed").isTrue();
+
+        var stats1 = singletonProvider.getCacheStats();
+        var initialMisses = stats1.missCount();
+        var initialHits = stats1.hitCount();
+
+        // Second verification with same key (cache hit)
+        var valid2 = singletonProvider.verify(keyPair.publicKey(), message, signature);
+        assertThat(valid2).as("Second verification should succeed").isTrue();
+
+        var stats2 = singletonProvider.getCacheStats();
+        var newHits = stats2.hitCount();
+
+        assertThat(newHits)
+            .as("Cache hit count should increase on second call with same key")
+            .isGreaterThan(initialHits);
+    }
+
+    @Test
+    @DisplayName("cache hit performance is significantly faster than cache miss")
+    void cacheHitPerformanceSignificantlyFasterThanCacheMiss() {
+        var singletonProvider = TekuBLSProvider.getInstance();
+        singletonProvider.clearCache();
+
+        var random = new Random(54321);
+        var keyPair = singletonProvider.generateKeyPair(random);
+        var message = "performance test".getBytes();
+        var signature = singletonProvider.sign(keyPair.secretKey(), message);
+
+        // Warmup to stabilize JIT
+        for (int i = 0; i < 100; i++) {
+            singletonProvider.verify(keyPair.publicKey(), message, signature);
+        }
+
+        // Measure cache miss latency (first call after clearing)
+        var missDurations = new ArrayList<Long>();
+        for (int i = 0; i < 10; i++) {
+            singletonProvider.clearCache();
+            var start = System.nanoTime();
+            singletonProvider.verify(keyPair.publicKey(), message, signature);
+            var duration = (System.nanoTime() - start) / 1000; // Convert to µs
+            missDurations.add(duration);
+        }
+        var avgMissDuration = missDurations.stream().mapToLong(Long::longValue).average().orElse(0);
+
+        // Measure cache hit latency (repeated calls with populated cache)
+        singletonProvider.clearCache();
+        singletonProvider.verify(keyPair.publicKey(), message, signature); // Populate cache
+        var hitDurations = new ArrayList<Long>();
+        for (int i = 0; i < 100; i++) {
+            var start = System.nanoTime();
+            singletonProvider.verify(keyPair.publicKey(), message, signature);
+            var duration = (System.nanoTime() - start) / 1000; // Convert to µs
+            hitDurations.add(duration);
+        }
+        var avgHitDuration = hitDurations.stream().mapToLong(Long::longValue).average().orElse(0);
+
+        // Cache hit should be faster than cache miss
+        assertThat(avgHitDuration)
+            .as("Cache hit latency should be less than cache miss latency")
+            .isLessThan(avgMissDuration);
+    }
+
+    @Test
+    @DisplayName("cache eviction when exceeding maximum size")
+    void cacheEvictionWhenExceedingMaximumSize() {
+        var singletonProvider = TekuBLSProvider.getInstance();
+        singletonProvider.clearCache();
+
+        var random = new Random(99999);
+        var message = "eviction test".getBytes();
+
+        // Generate more keys than cache size (10,000)
+        for (int i = 0; i < 10_100; i++) {
+            var keyPair = singletonProvider.generateKeyPair(random);
+            var signature = singletonProvider.sign(keyPair.secretKey(), message);
+            singletonProvider.verify(keyPair.publicKey(), message, signature);
+        }
+
+        var stats = singletonProvider.getCacheStats();
+
+        assertThat(stats.evictionCount())
+            .as("Should have evicted entries when cache exceeded max size")
+            .isGreaterThan(0);
+    }
+
+    @Test
+    @DisplayName("cache efficiency in verifyAggregate with repeated keys")
+    void cacheEfficiencyInVerifyAggregateWithRepeatedKeys() {
+        var singletonProvider = TekuBLSProvider.getInstance();
+        singletonProvider.clearCache();
+
+        var random = new Random(777);
+        var message = "aggregate cache test".getBytes();
+
+        // Generate 100 keys and signatures
+        var publicKeys = new ArrayList<byte[]>();
+        var signatures = new ArrayList<byte[]>();
+        for (int i = 0; i < 100; i++) {
+            var keyPair = singletonProvider.generateKeyPair(random);
+            publicKeys.add(keyPair.publicKey());
+            signatures.add(singletonProvider.sign(keyPair.secretKey(), message));
+        }
+
+        var aggregate = singletonProvider.aggregateSignatures(signatures);
+
+        // Get initial cache stats
+        singletonProvider.clearCache();
+        singletonProvider.verifyAggregate(publicKeys, message, aggregate);
+        var stats1 = singletonProvider.getCacheStats();
+        var misses1 = stats1.missCount();
+
+        // Verify again - should have cache hits
+        singletonProvider.verifyAggregate(publicKeys, message, aggregate);
+        var stats2 = singletonProvider.getCacheStats();
+        var hits2 = stats2.hitCount();
+
+        assertThat(hits2)
+            .as("Second verifyAggregate call should have cache hits for keys")
+            .isGreaterThan(0);
     }
 }

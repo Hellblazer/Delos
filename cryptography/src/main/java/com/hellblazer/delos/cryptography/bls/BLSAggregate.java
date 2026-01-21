@@ -78,8 +78,8 @@ public record BLSAggregate(BLSSignature aggregatedSignature, byte[] signerBitmap
         if (signatures.size() == 1) {
             aggregated = signatures.get(0);
         } else {
-            // Use the provider to aggregate multiple signatures
-            var provider = new TekuBLSProvider();
+            // Use the provider singleton to aggregate multiple signatures
+            var provider = TekuBLSProvider.getInstance();
             var sigBytes = signatures.stream()
                                      .map(BLSSignature::toBytes)
                                      .toList();

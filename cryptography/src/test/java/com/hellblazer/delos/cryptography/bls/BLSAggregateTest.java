@@ -166,7 +166,7 @@ class BLSAggregateTest {
     @Test
     void aggregateMultipleSignaturesCreatesCorrectBitmap() {
         // Use real BLS signatures instead of random bytes
-        var provider = new com.hellblazer.delos.cryptography.bls.impl.TekuBLSProvider();
+        var provider = com.hellblazer.delos.cryptography.bls.impl.TekuBLSProvider.getInstance();
         var message = BLSTestFixtures.randomMessage(32);
 
         // Generate three real signatures with deterministic random
