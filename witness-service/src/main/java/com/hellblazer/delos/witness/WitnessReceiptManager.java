@@ -8,6 +8,7 @@
 package com.hellblazer.delos.witness;
 
 import com.hellblazer.delos.cryptography.Digest;
+import com.hellblazer.delos.cryptography.bls.BLSAggregate;
 import com.hellblazer.delos.cryptography.bls.BLSSignature;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
@@ -187,6 +188,44 @@ public class WitnessReceiptManager {
         } finally {
             lock.writeLock().unlock();
         }
+    }
+
+    /**
+     * Get BLS aggregate signature for an event if threshold met.
+     * <p>
+     * Returns aggregate only when threshold signatures have been accumulated.
+     * Returns empty if threshold not met, event unknown, or BLS not supported.
+     *
+     * @param event Event coordinates
+     * @return Optional containing BLS aggregate if available
+     * @throws NullPointerException if event is null
+     */
+    public Optional<BLSAggregate> getBLSAggregate(EventCoordinates event) {
+        Objects.requireNonNull(event, "event required");
+
+        // Return empty if BLS not supported in current phase
+        if (blsAggregator == null) {
+            return Optional.empty();
+        }
+
+        return blsAggregator.getAggregate(event);
+    }
+
+    /**
+     * Get count of in-flight BLS signature accumulations.
+     * <p>
+     * Returns number of events with active BLS signature accumulation.
+     * Distinct from getInFlightCount() which tracks all collections (Ed25519 + BLS).
+     *
+     * @return Count of active BLS accumulations, 0 if BLS not supported
+     */
+    public int getBLSInFlightCount() {
+        // Return 0 if BLS not supported in current phase
+        if (blsAggregator == null) {
+            return 0;
+        }
+
+        return blsAggregator.metrics().activeAccumulators();
     }
 
     /**

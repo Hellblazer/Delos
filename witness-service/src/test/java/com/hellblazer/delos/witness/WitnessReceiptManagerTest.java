@@ -11,6 +11,10 @@ import com.hellblazer.delos.context.Context;
 import com.hellblazer.delos.context.StaticContext;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
+import com.hellblazer.delos.cryptography.bls.BLSKeyPair;
+import com.hellblazer.delos.cryptography.bls.BLSSignature;
+import com.hellblazer.delos.cryptography.bls.BLSTestFixtures;
+import com.hellblazer.delos.cryptography.bls.impl.TekuBLSProvider;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.membership.MockMember;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
@@ -24,12 +28,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import static org.assertj.core.api.Assertions.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -436,6 +441,262 @@ class WitnessReceiptManagerTest {
         );
     }
 
+    // ========== BLS Signature Accumulation Tests ==========
+
+    @Test
+    @DisplayName("addBLSSignature: Accept and accumulate real BLS signatures in DUAL phase")
+    void testAddBLSSignatureInDualPhase() {
+        // Given: Manager in DUAL phase
+        var k = 5;
+        var threshold = 4;  // Valid for k=5: M > (2*5)/3 = 3.33, so M >= 4
+        var dualParams = WitnessParameters.newBuilder()
+            .k(k)
+            .threshold(threshold)
+            .epoch(0)
+            .drainPeriod(Duration.ofMillis(500))
+            .signatureFormat(SignatureFormat.BLS_12_381)
+            .migrationPhase(MigrationPhase.DUAL)
+            .build();
+
+        var manager = new WitnessReceiptManager(dualParams);
+        var event = createEventCoordinates("bls-event", 100L);
+
+        // When: Add 2 BLS signatures
+        var keyPair1 = createBLSKeyPair(1);
+        var keyPair2 = createBLSKeyPair(2);
+        var message = createEventMessage(event);
+
+        manager.addBLSSignature(event, createTestMember(0), 0, keyPair1.sign(message));
+        manager.addBLSSignature(event, createTestMember(1), 1, keyPair2.sign(message));
+
+        // Then: Signatures accumulated
+        var state = manager.getCollectionState(event);
+        assertThat(state.signatureCount()).isEqualTo(2);
+        assertThat(state.getFormat()).isEqualTo(SignatureFormat.BLS_12_381);
+        assertThat(state.isThresholdAchieved()).isFalse();  // Threshold is 4
+    }
+
+    @Test
+    @DisplayName("testBLSThresholdDetection: Threshold achieved when M BLS signatures accumulated")
+    void testBLSThresholdDetection() {
+        // Given: Manager with valid threshold
+        var k = 5;
+        var threshold = 4;  // Valid for k=5
+        var dualParams = WitnessParameters.newBuilder()
+            .k(k)
+            .threshold(threshold)
+            .epoch(0)
+            .drainPeriod(Duration.ofMillis(500))
+            .signatureFormat(SignatureFormat.BLS_12_381)
+            .migrationPhase(MigrationPhase.DUAL)
+            .build();
+
+        var manager = new WitnessReceiptManager(dualParams);
+        var event = createEventCoordinates("bls-threshold", 101L);
+        var message = createEventMessage(event);
+
+        // When: Add threshold BLS signatures
+        for (int i = 0; i < threshold; i++) {
+            var keyPair = createBLSKeyPair(i);
+            manager.addBLSSignature(event, createTestMember(i), i, keyPair.sign(message));
+        }
+
+        // Then: Threshold met
+        var state = manager.getCollectionState(event);
+        assertThat(state.isThresholdAchieved()).isTrue();
+        assertThat(state.signatureCount()).isEqualTo(threshold);
+        assertThat(state.getBLSSnapshot()).isPresent();
+
+        // And: Aggregate available
+        var aggregate = manager.getBLSAggregate(event);
+        assertThat(aggregate).isPresent();
+        assertThat(aggregate.get().getSignerIndices()).hasSize(threshold);
+    }
+
+    @Test
+    @DisplayName("testBLSDeduplication: Duplicate signatures from same member ignored")
+    void testBLSDeduplication() {
+        // Given: Manager in DUAL phase
+        var k = 5;
+        var threshold = 4;  // Valid for k=5
+        var dualParams = WitnessParameters.newBuilder()
+            .k(k)
+            .threshold(threshold)
+            .epoch(0)
+            .drainPeriod(Duration.ofMillis(500))
+            .signatureFormat(SignatureFormat.BLS_12_381)
+            .migrationPhase(MigrationPhase.DUAL)
+            .build();
+
+        var manager = new WitnessReceiptManager(dualParams);
+        var event = createEventCoordinates("bls-dedup", 102L);
+        var member = createTestMember(0);
+        var message = createEventMessage(event);
+        var keyPair = createBLSKeyPair(0);
+
+        // When: Add same member's signature twice
+        manager.addBLSSignature(event, member, 0, keyPair.sign(message));
+        manager.addBLSSignature(event, member, 0, keyPair.sign(message));  // Duplicate
+
+        // Then: Count is 1 (deduplication)
+        var state = manager.getCollectionState(event);
+        assertThat(state.signatureCount()).isEqualTo(1);
+        assertThat(state.getSigners()).hasSize(1).contains(member);
+    }
+
+    @Test
+    @DisplayName("testBLSConcurrentAccumulation: Thread-safe concurrent BLS signature addition")
+    void testBLSConcurrentAccumulation() throws InterruptedException {
+        // Given: Manager in DUAL phase with larger committee
+        var k = 20;
+        var threshold = 14;  // Valid for k=20: M > (2*20)/3 = 13.33, so M >= 14
+        var dualParams = WitnessParameters.newBuilder()
+            .k(k)
+            .threshold(threshold)
+            .epoch(0)
+            .drainPeriod(Duration.ofMillis(500))
+            .signatureFormat(SignatureFormat.BLS_12_381)
+            .migrationPhase(MigrationPhase.DUAL)
+            .build();
+
+        var manager = new WitnessReceiptManager(dualParams);
+        var event = createEventCoordinates("bls-concurrent", 103L);
+        var message = createEventMessage(event);
+
+        // When: Multiple threads add BLS signatures concurrently
+        var signerCount = 15;
+        var threads = new ArrayList<Thread>();
+        var errors = new ConcurrentLinkedQueue<Throwable>();
+
+        for (int i = 0; i < signerCount; i++) {
+            final int index = i;
+            var thread = new Thread(() -> {
+                try {
+                    var keyPair = createBLSKeyPair(index);
+                    manager.addBLSSignature(
+                        event,
+                        createTestMember(index),
+                        index,
+                        keyPair.sign(message)
+                    );
+                } catch (Throwable t) {
+                    errors.add(t);
+                }
+            });
+            threads.add(thread);
+            thread.start();
+        }
+
+        // Wait for all threads to complete
+        for (var thread : threads) {
+            thread.join();
+        }
+
+        // Then: No race conditions or errors
+        assertThat(errors).isEmpty();
+
+        // And: Threshold met (some signatures may be rejected as late signers after threshold)
+        var state = manager.getCollectionState(event);
+        assertThat(state.signatureCount()).isGreaterThanOrEqualTo(threshold);
+        assertThat(state.isThresholdAchieved()).isTrue();  // Threshold is 14
+
+        // And: Aggregate available with threshold count
+        var aggregate = manager.getBLSAggregate(event);
+        assertThat(aggregate).isPresent();
+        assertThat(aggregate.get().getSignerIndices().size()).isGreaterThanOrEqualTo(threshold);
+    }
+
+    @Test
+    @DisplayName("getBLSAggregate: Returns empty when threshold not met")
+    void testGetBLSAggregateBeforeThreshold() {
+        // Given: Manager with valid threshold
+        var k = 5;
+        var threshold = 4;  // Valid for k=5
+        var dualParams = WitnessParameters.newBuilder()
+            .k(k)
+            .threshold(threshold)
+            .epoch(0)
+            .drainPeriod(Duration.ofMillis(500))
+            .signatureFormat(SignatureFormat.BLS_12_381)
+            .migrationPhase(MigrationPhase.DUAL)
+            .build();
+
+        var manager = new WitnessReceiptManager(dualParams);
+        var event = createEventCoordinates("bls-no-agg", 104L);
+
+        // When: Add 2 signatures (below threshold)
+        var message = createEventMessage(event);
+        for (int i = 0; i < 2; i++) {
+            var keyPair = createBLSKeyPair(i);
+            manager.addBLSSignature(event, createTestMember(i), i, keyPair.sign(message));
+        }
+
+        // Then: Aggregate not yet available
+        var aggregate = manager.getBLSAggregate(event);
+        assertThat(aggregate).isEmpty();
+    }
+
+    @Test
+    @DisplayName("getBLSAggregate: Returns empty in INIT phase")
+    void testGetBLSAggregateInInitPhase() {
+        // Given: Manager in INIT phase (BLS not supported)
+        // parameters is in INIT phase by default
+        var event = createEventCoordinates("bls-init", 105L);
+
+        // When: Query for BLS aggregate
+        var aggregate = receiptManager.getBLSAggregate(event);
+
+        // Then: Empty (BLS not supported)
+        assertThat(aggregate).isEmpty();
+    }
+
+    @Test
+    @DisplayName("getBLSInFlightCount: Tracks active BLS accumulations")
+    void testGetBLSInFlightCount() {
+        // Given: Manager in DUAL phase
+        var k = 5;
+        var threshold = 4;  // Valid for k=5
+        var dualParams = WitnessParameters.newBuilder()
+            .k(k)
+            .threshold(threshold)
+            .epoch(0)
+            .drainPeriod(Duration.ofMillis(500))
+            .signatureFormat(SignatureFormat.BLS_12_381)
+            .migrationPhase(MigrationPhase.DUAL)
+            .build();
+
+        var manager = new WitnessReceiptManager(dualParams);
+
+        // When: Add BLS signatures for 3 different events
+        var message1 = createEventMessage(createEventCoordinates("e1", 1L));
+        var message2 = createEventMessage(createEventCoordinates("e2", 2L));
+        var message3 = createEventMessage(createEventCoordinates("e3", 3L));
+
+        var event1 = createEventCoordinates("e1", 1L);
+        var event2 = createEventCoordinates("e2", 2L);
+        var event3 = createEventCoordinates("e3", 3L);
+
+        manager.addBLSSignature(event1, createTestMember(0), 0,
+            createBLSKeyPair(0).sign(message1));
+        manager.addBLSSignature(event2, createTestMember(1), 1,
+            createBLSKeyPair(1).sign(message2));
+        manager.addBLSSignature(event3, createTestMember(2), 2,
+            createBLSKeyPair(2).sign(message3));
+
+        // Then: In-flight count is 3
+        assertThat(manager.getBLSInFlightCount()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("getBLSInFlightCount: Returns 0 in INIT phase")
+    void testGetBLSInFlightCountInInitPhase() {
+        // Given: Manager in INIT phase (BLS not supported)
+        // parameters is in INIT phase by default
+
+        // Then: BLS in-flight count is 0
+        assertThat(receiptManager.getBLSInFlightCount()).isZero();
+    }
+
     // Helper methods
 
     private List<MockMember> createWitnessPool(int size) {
@@ -457,5 +718,22 @@ class WitnessReceiptManagerTest {
         var ilk = "icp";
 
         return new EventCoordinates(identifier, ULong.valueOf(sequenceNumber), digest, ilk);
+    }
+
+    private BLSKeyPair createBLSKeyPair(int seed) {
+        var random = BLSTestFixtures.deterministicRandom(seed);
+        return BLSKeyPair.generate(random, new TekuBLSProvider());
+    }
+
+    private byte[] createEventMessage(EventCoordinates event) {
+        return ALGORITHM.digest(
+            (event.getDigest().toString() + ":" + event.getSequenceNumber()).getBytes()
+        ).getBytes();
+    }
+
+    private Identifier createTestMember(int index) {
+        return new SelfAddressingIdentifier(
+            ALGORITHM.digest(("test-member-" + index).getBytes())
+        );
     }
 }
