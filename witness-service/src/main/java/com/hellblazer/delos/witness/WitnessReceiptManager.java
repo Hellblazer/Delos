@@ -185,12 +185,15 @@ public class WitnessReceiptManager {
                         "ViewRef mismatch from " + member
                     );
                 }
-                // TODO: Phase 1C-3-C - Implement buffering logic for view change degradation
-                // Buffered case commented out until AccumulationResult.Buffered is properly implemented
-                // case AccumulationResult.Buffered buffered -> {
-                //     // For now, signatures are buffered but not yet persisted or processed
-                //     // Full buffering implementation will be added in subsequent phases
-                // }
+                case AccumulationResult.Buffered buf -> {
+                    // TODO: Phase 1C-3-C (Delos-3961) - Implement full buffering logic
+                    // For now, buffering is not supported - signatures during view transitions are dropped
+                    throw new UnsupportedOperationException(
+                        "Signature buffering not yet implemented (member: " + member +
+                        ", buffer position: " + buf.bufferPosition() +
+                        ", expected replay epoch: " + buf.expectedReplayEpoch() + ")"
+                    );
+                }
             }
         } finally {
             lock.writeLock().unlock();

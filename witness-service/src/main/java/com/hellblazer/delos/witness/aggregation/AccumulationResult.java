@@ -26,7 +26,8 @@ public sealed interface AccumulationResult
             AccumulationResult.InvalidSignature,
             AccumulationResult.EpochMismatch,
             AccumulationResult.ViewRefMismatch,
-            AccumulationResult.LateSigner {
+            AccumulationResult.LateSigner,
+            AccumulationResult.Buffered {
 
     /**
      * Signature successfully accumulated, threshold not yet met.
@@ -159,6 +160,27 @@ public sealed interface AccumulationResult
         }
     }
 
+    /**
+     * Signature buffered during view transition.
+     * Will be replayed when new committee is active.
+     *
+     * @param member The member whose signature was buffered
+     * @param bufferPosition Position in buffer queue
+     * @param expectedReplayEpoch Epoch when signature will be replayed
+     */
+    record Buffered(
+        Identifier member,
+        int bufferPosition,
+        long expectedReplayEpoch
+    ) implements AccumulationResult {
+        public Buffered {
+            Objects.requireNonNull(member, "member cannot be null");
+            if (bufferPosition < 0) {
+                throw new IllegalArgumentException("bufferPosition must be >= 0");
+            }
+        }
+    }
+
     /** Check if accumulation was successful (Accumulated or ThresholdMet). */
     default boolean isSuccess() {
         return this instanceof Accumulated || this instanceof ThresholdMet;
@@ -167,5 +189,10 @@ public sealed interface AccumulationResult
     /** Check if threshold was reached. */
     default boolean isThresholdMet() {
         return this instanceof ThresholdMet;
+    }
+
+    /** Check if signature was buffered during view transition. */
+    default boolean isBuffered() {
+        return this instanceof Buffered;
     }
 }
