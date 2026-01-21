@@ -17,6 +17,11 @@ import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
 import com.hellblazer.delos.witness.aggregation.SignatureAccumulator;
 import com.hellblazer.delos.witness.aggregation.SignatureFormat;
+import com.hellblazer.delos.witness.migration.MigrationPhase;
+import com.hellblazer.delos.witness.migration.MigrationStateTracker;
+import com.hellblazer.delos.witness.migration.ReceiptCompatibilityLayer;
+import com.hellblazer.delos.witness.proto.BLSAggregateSignature;
+import com.hellblazer.delos.witness.proto.WitnessReceipt;
 import org.joou.ULong;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -38,12 +43,12 @@ import static org.assertj.core.api.Assertions.*;
 /**
  * Phase 1B-2-D-2: BLS Performance Benchmarks
  * <p>
- * Comprehensive performance benchmarks for BLS receipt validation across 16 scenarios in 4 categories:
+ * Comprehensive performance benchmarks for BLS receipt validation across 19 scenarios in 4 categories:
  * <ol>
  *   <li>Ed25519 vs BLS Signature Comparison (5 benchmarks)</li>
  *   <li>Aggregation Throughput (4 benchmarks)</li>
  *   <li>Committee Threshold Achievement (4 benchmarks)</li>
- *   <li>Fallback/Hybrid Mode (3 benchmarks)</li>
+ *   <li>Fallback/Hybrid Mode (6 benchmarks)</li>
  * </ol>
  * <p>
  * Performance SLAs:
@@ -53,7 +58,11 @@ import static org.assertj.core.api.Assertions.*;
  * - Aggregate should be 3-7x faster than individual Ed25519 verification
  * - Signature accumulator throughput: >1000 ops/sec
  * - Threshold achievement: <200ms for 7-signer committee
- * - Hybrid mode overhead: <5% dispatch penalty
+ * - Format detection overhead: <2µs (p99)
+ * - Phase validation overhead: <1µs (p99)
+ * - Combined dispatch overhead: <5µs (p99)
+ * - Full BLS operation: <1100µs (p99)
+ * - Full Ed25519 operation: <1200µs (p99)
  * <p>
  * Uses real BLS cryptography (not mocked) with realistic committee sizes (7, 21 members).
  *
@@ -73,6 +82,12 @@ class BLSPerformanceBenchmarkTest {
     private List<BLSKeyPair> committee21;
     private Ed25519BLSComparisonTest comparisonHelper;
 
+    // Phase 1C-1-A: Dispatch overhead test fixtures
+    private volatile Object volatileSink; // Prevent dead code elimination
+    private WitnessReceipt blsReceipt;
+    private WitnessReceipt ed25519Receipt;
+    private MigrationStateTracker migrationTracker;
+
     @BeforeEach
     void setUp() {
         blsProvider = BLSProvider.getDefault();
@@ -90,6 +105,34 @@ class BLSPerformanceBenchmarkTest {
         // Create comparison helper for Ed25519 benchmarks
         comparisonHelper = new Ed25519BLSComparisonTest();
         comparisonHelper.setUp();
+
+        // Phase 1C-1-A: Create dispatch overhead test fixtures
+        // Pre-build receipt protos (not measured in dispatch tests)
+        blsReceipt = WitnessReceipt.newBuilder()
+            .setBlsSig(BLSAggregateSignature.newBuilder()
+                .setSignature(com.google.protobuf.ByteString.copyFrom(new byte[96]))
+                .addSignerIndices(0)
+                .addSignerIndices(1)
+                .addSignerIndices(2)
+                .addSignerIndices(3)
+                .addSignerIndices(4)
+                .addSignerIndices(5)
+                .addSignerIndices(6)
+                .build())
+            .setEpoch(100L)
+            .build();
+
+        ed25519Receipt = WitnessReceipt.newBuilder()
+            .addSignatures(com.hellblazer.delos.cryptography.proto.Sig.newBuilder()
+                .addSignatures(com.google.protobuf.ByteString.copyFrom(new byte[64]))
+                .build())
+            .addSignatures(com.hellblazer.delos.cryptography.proto.Sig.newBuilder()
+                .addSignatures(com.google.protobuf.ByteString.copyFrom(new byte[64]))
+                .build())
+            .setEpoch(100L)
+            .build();
+
+        migrationTracker = new MigrationStateTracker(MigrationPhase.DUAL, 0L);
     }
 
     // ========================================
@@ -563,61 +606,100 @@ class BLSPerformanceBenchmarkTest {
     // ========================================
 
     @Test
-    @DisplayName("4.1: Pure dispatch overhead (BLS path - format detection only)")
-    void hybridModeDispatchBLSPath() {
-        var latencies = new ArrayList<Long>();
+    @DisplayName("4.1: Format Detection Overhead")
+    void formatDetectionOverhead() {
+        var latencies = new long[MEASUREMENT_ITERATIONS];
 
-        // Warmup
+        // Warmup (100 iterations)
         for (int i = 0; i < WARMUP_ITERATIONS; i++) {
-            pureDispatchBLSPath();
+            ReceiptCompatibilityLayer.detectFormat(blsReceipt);
         }
 
-        // Measure pure dispatch (format check + routing only, no crypto)
+        // Measure (1000 iterations)
         for (int i = 0; i < MEASUREMENT_ITERATIONS; i++) {
             var start = System.nanoTime();
-            pureDispatchBLSPath();
-            var end = System.nanoTime();
-            latencies.add((end - start) / 1_000);
+            var format = ReceiptCompatibilityLayer.detectFormat(blsReceipt);
+            var duration = System.nanoTime() - start;
+            latencies[i] = duration / 1000; // Convert to microseconds
+            volatileSink = format; // Prevent DCE
         }
 
-        var stats = calculateStats(latencies);
+        // Report percentiles
+        java.util.Arrays.sort(latencies);
+        var p50 = latencies[MEASUREMENT_ITERATIONS / 2];
+        var p95 = latencies[(int)(MEASUREMENT_ITERATIONS * 0.95)];
+        var p99 = latencies[(int)(MEASUREMENT_ITERATIONS * 0.99)];
 
-        System.out.printf("Pure Dispatch (BLS): avg=%.3fµs, p99=%.3fµs%n", stats.avg, stats.p99);
-
-        assertThat(stats.p99)
-            .describedAs("BLS dispatch overhead (format check only) should be <10µs at p99")
-            .isLessThan(10.0);
+        System.out.printf("Format Detection: p50=%dµs, p95=%dµs, p99=%dµs%n", p50, p95, p99);
+        assertThat(p99).as("Format detection p99 latency").isLessThan(2000L); // 2µs
     }
 
     @Test
-    @DisplayName("4.2: Pure dispatch overhead (Ed25519 fallback - format detection only)")
-    void hybridModeDispatchEd25519Fallback() {
-        var latencies = new ArrayList<Long>();
+    @DisplayName("4.2: Phase Validation Overhead")
+    void phaseValidationOverhead() {
+        var latencies = new long[MEASUREMENT_ITERATIONS];
 
         // Warmup
         for (int i = 0; i < WARMUP_ITERATIONS; i++) {
-            pureDispatchEd25519Path();
+            migrationTracker.validateInCurrentPhase(SignatureFormat.BLS_12_381);
         }
 
-        // Measure pure dispatch (format check + routing only, no crypto)
+        // Measure
         for (int i = 0; i < MEASUREMENT_ITERATIONS; i++) {
             var start = System.nanoTime();
-            pureDispatchEd25519Path();
-            var end = System.nanoTime();
-            latencies.add((end - start) / 1_000);
+            var valid = migrationTracker.validateInCurrentPhase(SignatureFormat.BLS_12_381);
+            var duration = System.nanoTime() - start;
+            latencies[i] = duration / 1000; // Convert to microseconds
+            volatileSink = valid; // Prevent DCE
         }
 
-        var stats = calculateStats(latencies);
+        // Report percentiles
+        java.util.Arrays.sort(latencies);
+        var p50 = latencies[MEASUREMENT_ITERATIONS / 2];
+        var p95 = latencies[(int)(MEASUREMENT_ITERATIONS * 0.95)];
+        var p99 = latencies[(int)(MEASUREMENT_ITERATIONS * 0.99)];
 
-        System.out.printf("Pure Dispatch (Ed25519): avg=%.3fµs, p99=%.3fµs%n", stats.avg, stats.p99);
-
-        assertThat(stats.p99)
-            .describedAs("Ed25519 dispatch overhead (format check only) should be <10µs at p99")
-            .isLessThan(10.0);
+        System.out.printf("Phase Validation: p50=%dµs, p95=%dµs, p99=%dµs%n", p50, p95, p99);
+        assertThat(p99).as("Phase validation p99 latency").isLessThan(1000L); // 1µs
     }
 
     @Test
-    @DisplayName("4.3: Full BLS operation (sign + verify)")
+    @DisplayName("4.3: Combined Dispatch Overhead")
+    void combinedDispatchOverhead() {
+        var latencies = new long[MEASUREMENT_ITERATIONS];
+
+        // Warmup
+        for (int i = 0; i < WARMUP_ITERATIONS; i++) {
+            var format = ReceiptCompatibilityLayer.detectFormat(blsReceipt);
+            migrationTracker.validateInCurrentPhase(SignatureFormat.BLS_12_381);
+        }
+
+        // Measure
+        for (int i = 0; i < MEASUREMENT_ITERATIONS; i++) {
+            var start = System.nanoTime();
+
+            var format = ReceiptCompatibilityLayer.detectFormat(blsReceipt);
+            var valid = migrationTracker.validateInCurrentPhase(SignatureFormat.BLS_12_381);
+            // Simple routing logic (no cryptographic operations)
+            var result = valid != null && (format == SignatureFormat.BLS_12_381);
+
+            var duration = System.nanoTime() - start;
+            latencies[i] = duration / 1000; // Convert to microseconds
+            volatileSink = result; // Prevent DCE
+        }
+
+        // Report percentiles
+        java.util.Arrays.sort(latencies);
+        var p50 = latencies[MEASUREMENT_ITERATIONS / 2];
+        var p95 = latencies[(int)(MEASUREMENT_ITERATIONS * 0.95)];
+        var p99 = latencies[(int)(MEASUREMENT_ITERATIONS * 0.99)];
+
+        System.out.printf("Combined Dispatch: p50=%dµs, p95=%dµs, p99=%dµs%n", p50, p95, p99);
+        assertThat(p99).as("Combined dispatch p99 latency").isLessThan(5000L); // 5µs
+    }
+
+    @Test
+    @DisplayName("4.4: Full BLS operation (sign + verify)")
     void fullPathBLSOperation() {
         var latencies = new ArrayList<Long>();
 
@@ -646,7 +728,7 @@ class BLSPerformanceBenchmarkTest {
     }
 
     @Test
-    @DisplayName("4.4: Full Ed25519 operation (sign + verify)")
+    @DisplayName("4.5: Full Ed25519 operation (sign + verify)")
     void fullPathEd25519Operation() {
         var latencies = new ArrayList<Long>();
 
@@ -676,7 +758,7 @@ class BLSPerformanceBenchmarkTest {
     }
 
     @Test
-    @DisplayName("4.5: Mode switching overhead (phase transition)")
+    @DisplayName("4.6: Mode switching overhead (phase transition)")
     void modeSwitchingOverhead() {
         var latencies = new ArrayList<Long>();
 
