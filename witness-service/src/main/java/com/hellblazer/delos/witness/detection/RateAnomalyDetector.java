@@ -26,9 +26,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * Scoring logic:
  * - Normal rate (0-5 receipts/sec): score 0.0 (members quiet)
  * - Healthy rate (5-30 receipts/sec): score 0.0 (normal operation)
- * - Elevated rate (30-100 receipts/sec): score 0.1-0.5 (linear interpolation)
- * - High rate (100-500 receipts/sec): score 0.5-0.9 (linear interpolation)
- * - Extreme rate (> 500 receipts/sec): score 0.95+ (flooding attack)
+ * - Elevated rate (30-60 receipts/sec): score 0.1-0.5 (linear interpolation)
+ * - High rate (60-200 receipts/sec): score 0.5-0.9 (linear interpolation)
+ * - Extreme rate (> 200 receipts/sec): score 0.95+ (flooding attack)
  * </p>
  * <p>
  * Uses 5-second sliding window for rate calculation.
@@ -39,15 +39,15 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class RateAnomalyDetector implements ByzantineDetector {
 
-    private static final double ALPHA = 0.4;  // EMA smoothing factor (40% weight to new, 60% to history)
+    private static final double ALPHA = 0.5;  // EMA smoothing factor (50% weight to new, 50% to history)
     private static final long WINDOW_DURATION_MS = 5000;  // 5-second sliding window
     private static final int MAX_WINDOW_SIZE = 100;  // Cap window size for memory efficiency
 
     // Rate thresholds for scoring (receipts per second)
     private static final double QUIET_THRESHOLD = 5.0;
     private static final double NORMAL_THRESHOLD = 30.0;
-    private static final double ELEVATED_THRESHOLD = 100.0;
-    private static final double HIGH_THRESHOLD = 500.0;
+    private static final double ELEVATED_THRESHOLD = 60.0;   // Elevated: 30-60 receipts/sec
+    private static final double HIGH_THRESHOLD = 200.0;       // High: 60-200 receipts/sec
 
     // Score ranges for each tier
     private static final double ELEVATED_MIN_SCORE = 0.1;
@@ -65,11 +65,13 @@ public class RateAnomalyDetector implements ByzantineDetector {
      * @param receiptTimestamps    Sliding window of receipt timestamps (max 100)
      * @param averageReceiptRatePerSec EMA of receipt rate (receipts per second)
      * @param currentWindowSize    Number of receipts in current window
+     * @param lastReceiptTime      Timestamp of most recent receipt for inter-arrival calculation
      */
     public record RateStats(
         Deque<Instant> receiptTimestamps,
         double averageReceiptRatePerSec,
-        int currentWindowSize
+        int currentWindowSize,
+        Instant lastReceiptTime
     ) {}
 
     public RateAnomalyDetector(ByzantineDetectorConfig config) {
@@ -89,18 +91,37 @@ public class RateAnomalyDetector implements ByzantineDetector {
 
         var now = Instant.now();
 
-        // Update rate statistics using sliding window + EMA
+        // Update rate statistics using inter-arrival time + EMA
         memberStats.compute(memberId, (id, existingStats) -> {
             Deque<Instant> timestamps;
             double oldEmaRate;
+            Instant lastTime;
 
             if (existingStats == null) {
                 // First receipt: initialize
                 timestamps = new ArrayDeque<>();
-                oldEmaRate = 0.0;
+                oldEmaRate = 1.0;  // Start with low baseline rate
+                lastTime = null;
             } else {
                 timestamps = existingStats.receiptTimestamps();
                 oldEmaRate = existingStats.averageReceiptRatePerSec();
+                lastTime = existingStats.lastReceiptTime();
+            }
+
+            // Calculate instantaneous rate from inter-arrival time
+            double instantaneousRate;
+            if (lastTime != null) {
+                var interArrivalMillis = java.time.Duration.between(lastTime, now).toMillis();
+                if (interArrivalMillis >= 1) {  // At least 1ms
+                    // Rate = 1 / inter-arrival time (receipts per second)
+                    instantaneousRate = 1000.0 / interArrivalMillis;
+                } else {
+                    // Very rapid arrivals - assume very high rate
+                    instantaneousRate = 1000.0;  // 1000 receipts/sec
+                }
+            } else {
+                // First receipt - assume baseline rate
+                instantaneousRate = 1.0;
             }
 
             // Add current timestamp
@@ -115,36 +136,11 @@ public class RateAnomalyDetector implements ByzantineDetector {
                 timestamps.removeFirst();
             }
 
-            // Calculate current rate (receipts per second) based on actual time span
+            // Update EMA: newEMA = alpha * instantaneousRate + (1 - alpha) * oldEMA
+            var newEmaRate = ALPHA * instantaneousRate + (1 - ALPHA) * oldEmaRate;
+
             var windowSize = timestamps.size();
-            double calculatedRate;
-            if (windowSize > 1) {
-                // Calculate rate over actual time span of receipts in window
-                var oldestTimestamp = timestamps.getFirst();
-                var newestTimestamp = timestamps.getLast();
-                var elapsedSeconds = java.time.Duration.between(oldestTimestamp, newestTimestamp).toMillis() / 1000.0;
-                if (elapsedSeconds >= 0.001) {  // At least 1ms elapsed
-                    calculatedRate = windowSize / elapsedSeconds;
-                } else {
-                    // Receipts arriving nearly instantaneously - very high rate
-                    // Use minimum 1ms to avoid division by zero and astronomical rates
-                    calculatedRate = windowSize / 0.001;
-                }
-            } else {
-                // Single receipt - low rate
-                calculatedRate = 1.0;
-            }
-
-            // Update EMA: newEMA = alpha * calculatedRate + (1 - alpha) * oldEMA
-            double newEmaRate;
-            if (existingStats == null) {
-                // First sample: use calculated rate as initial EMA
-                newEmaRate = calculatedRate;
-            } else {
-                newEmaRate = ALPHA * calculatedRate + (1 - ALPHA) * oldEmaRate;
-            }
-
-            return new RateStats(timestamps, newEmaRate, windowSize);
+            return new RateStats(timestamps, newEmaRate, windowSize, now);
         });
     }
 
@@ -155,6 +151,11 @@ public class RateAnomalyDetector implements ByzantineDetector {
         var stats = memberStats.get(memberId);
         if (stats == null) {
             return 0.0;
+        }
+
+        // If window is nearly empty (< 3 receipts in last 5 seconds), rate is effectively low
+        if (stats.currentWindowSize() < 3) {
+            return 0.0;  // Too few recent receipts to indicate high rate
         }
 
         // Use the EMA rate from stats (updated in recordValidationResult)

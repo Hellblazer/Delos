@@ -44,9 +44,8 @@ class RateAnomalyDetectorTest {
     }
 
     @Test
-    void testNormalRate() {
+    void testNormalRate() throws InterruptedException {
         // 10 receipts over 5 seconds (2 receipts/sec) should score 0.0
-        var now = Instant.now();
         for (int i = 0; i < 10; i++) {
             detector.recordValidationResult(
                 memberId,
@@ -54,6 +53,7 @@ class RateAnomalyDetectorTest {
                 new ValidationResult.ValidationFailed("test"),
                 10
             );
+            Thread.sleep(500);  // 500ms between receipts
         }
 
         var score = detector.getAnomalyScore(memberId);
@@ -61,7 +61,7 @@ class RateAnomalyDetectorTest {
     }
 
     @Test
-    void testHealthyRate() {
+    void testHealthyRate() throws InterruptedException {
         // 50 receipts over 5 seconds (10 receipts/sec) should score 0.0
         for (int i = 0; i < 50; i++) {
             detector.recordValidationResult(
@@ -70,6 +70,7 @@ class RateAnomalyDetectorTest {
                 new ValidationResult.ValidationFailed("test"),
                 10
             );
+            Thread.sleep(100);  // 100ms between receipts
         }
 
         var score = detector.getAnomalyScore(memberId);
@@ -77,7 +78,7 @@ class RateAnomalyDetectorTest {
     }
 
     @Test
-    void testElevatedRate() {
+    void testElevatedRate() throws InterruptedException {
         // 200 receipts over 5 seconds (40 receipts/sec) should score between 0.1-0.5
         for (int i = 0; i < 200; i++) {
             detector.recordValidationResult(
@@ -86,6 +87,7 @@ class RateAnomalyDetectorTest {
                 new ValidationResult.ValidationFailed("test"),
                 10
             );
+            Thread.sleep(25);  // 25ms between receipts
         }
 
         var score = detector.getAnomalyScore(memberId);
@@ -95,7 +97,7 @@ class RateAnomalyDetectorTest {
     }
 
     @Test
-    void testHighRate() {
+    void testHighRate() throws InterruptedException {
         // 300 receipts over 5 seconds (60 receipts/sec) should score between 0.5-0.8
         for (int i = 0; i < 300; i++) {
             detector.recordValidationResult(
@@ -104,6 +106,7 @@ class RateAnomalyDetectorTest {
                 new ValidationResult.ValidationFailed("test"),
                 10
             );
+            Thread.sleep(17);  // ~17ms between receipts
         }
 
         var score = detector.getAnomalyScore(memberId);
@@ -113,8 +116,8 @@ class RateAnomalyDetectorTest {
     }
 
     @Test
-    void testExtremeRate() {
-        // 1000 receipts in rapid succession (200+ receipts/sec) should score > 0.9
+    void testExtremeRate() throws InterruptedException {
+        // 1000 receipts over 5 seconds (200 receipts/sec) should score > 0.9
         for (int i = 0; i < 1000; i++) {
             detector.recordValidationResult(
                 memberId,
@@ -122,6 +125,7 @@ class RateAnomalyDetectorTest {
                 new ValidationResult.ValidationFailed("test"),
                 10
             );
+            Thread.sleep(5);  // 5ms between receipts
         }
 
         var score = detector.getAnomalyScore(memberId);
@@ -151,7 +155,7 @@ class RateAnomalyDetectorTest {
         detector.recordValidationResult(
             memberId,
             coordinates,
-            new ValidationResult.Valid(null),
+            new ValidationResult.ValidationFailed("test"),
             10
         );
 
@@ -161,8 +165,8 @@ class RateAnomalyDetectorTest {
     }
 
     @Test
-    void testExponentialMovingAverageRecency() {
-        // Record 10 receipts slowly (normal rate)
+    void testExponentialMovingAverageRecency() throws InterruptedException {
+        // Record 10 receipts slowly (normal rate = 2 receipts/sec)
         for (int i = 0; i < 10; i++) {
             detector.recordValidationResult(
                 memberId,
@@ -170,10 +174,11 @@ class RateAnomalyDetectorTest {
                 new ValidationResult.ValidationFailed("test"),
                 10
             );
+            Thread.sleep(500);  // 500ms between receipts
         }
         var scoreAfterSlow = detector.getAnomalyScore(memberId);
 
-        // Now record 100 receipts rapidly (high rate)
+        // Now record 100 receipts rapidly (high rate = 200 receipts/sec)
         for (int i = 0; i < 100; i++) {
             detector.recordValidationResult(
                 memberId,
@@ -181,6 +186,7 @@ class RateAnomalyDetectorTest {
                 new ValidationResult.ValidationFailed("test"),
                 10
             );
+            Thread.sleep(5);  // 5ms between receipts
         }
         var scoreAfterFast = detector.getAnomalyScore(memberId);
 
@@ -190,11 +196,11 @@ class RateAnomalyDetectorTest {
     }
 
     @Test
-    void testMultipleMembersIndependent() {
+    void testMultipleMembersIndependent() throws InterruptedException {
         var member1 = new SelfAddressingIdentifier(DigestAlgorithm.DEFAULT.digest("member-1".getBytes()));
         var member2 = new SelfAddressingIdentifier(DigestAlgorithm.DEFAULT.digest("member-2".getBytes()));
 
-        // Member 1 sends at extreme rate
+        // Member 1 sends at extreme rate (1000 receipts over 5 sec = 200 receipts/sec)
         for (int i = 0; i < 1000; i++) {
             detector.recordValidationResult(
                 member1,
@@ -202,9 +208,10 @@ class RateAnomalyDetectorTest {
                 new ValidationResult.ValidationFailed("test"),
                 10
             );
+            Thread.sleep(5);  // 5ms between receipts
         }
 
-        // Member 2 sends at normal rate
+        // Member 2 sends at normal rate (10 receipts over 5 sec = 2 receipts/sec)
         for (int i = 0; i < 10; i++) {
             detector.recordValidationResult(
                 member2,
@@ -212,6 +219,7 @@ class RateAnomalyDetectorTest {
                 new ValidationResult.ValidationFailed("test"),
                 10
             );
+            Thread.sleep(500);  // 500ms between receipts
         }
 
         // Member 1 should have high score, member 2 should have low score
@@ -220,7 +228,7 @@ class RateAnomalyDetectorTest {
     }
 
     @Test
-    void testWindowSize() {
+    void testWindowSize() throws InterruptedException {
         // Record 200 receipts (well over the 100 cap)
         for (int i = 0; i < 200; i++) {
             detector.recordValidationResult(
@@ -229,6 +237,7 @@ class RateAnomalyDetectorTest {
                 new ValidationResult.ValidationFailed("test"),
                 10
             );
+            Thread.sleep(5);  // Small delay
         }
 
         // Verify window is capped at 100 entries
@@ -275,7 +284,7 @@ class RateAnomalyDetectorTest {
     }
 
     @Test
-    void testBoundaryConditions() {
+    void testBoundaryConditions() throws InterruptedException {
         // Test at exact threshold boundaries
 
         // Test at 5 receipts/sec boundary (should be 0.0)
@@ -286,18 +295,20 @@ class RateAnomalyDetectorTest {
                 new ValidationResult.ValidationFailed("test"),
                 10
             );
+            Thread.sleep(200);  // 200ms between receipts = 5 receipts/sec
         }
         assertThat(detector.getAnomalyScore(memberId)).isEqualTo(0.0);
 
         // Test at 30 receipts/sec boundary (transition point)
         var member2 = new SelfAddressingIdentifier(DigestAlgorithm.DEFAULT.digest("member-2".getBytes()));
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < 150; i++) {
             detector.recordValidationResult(
                 member2,
                 coordinates,
                 new ValidationResult.ValidationFailed("test"),
                 10
             );
+            Thread.sleep(33);  // ~30 receipts/sec
         }
         // Should be at or near transition from 0.0 to elevated
         var score = detector.getAnomalyScore(member2);
@@ -312,6 +323,7 @@ class RateAnomalyDetectorTest {
                 new ValidationResult.ValidationFailed("test"),
                 10
             );
+            Thread.sleep(10);  // ~100 receipts/sec
         }
         // Should be elevated score
         assertThat(detector.getAnomalyScore(member3)).isGreaterThanOrEqualTo(0.5);
@@ -338,7 +350,7 @@ class RateAnomalyDetectorTest {
         detector.recordValidationResult(
             memberId,
             coordinates,
-            new ValidationResult.Valid(null),
+            new ValidationResult.ValidationFailed("test"),
             10
         );
 
