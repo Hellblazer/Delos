@@ -16,10 +16,12 @@ import com.hellblazer.delos.membership.MockMember;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
+import com.hellblazer.delos.witness.committee.CommitteeBLSKeyStore;
 import org.joou.ULong;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.*;
 import java.util.stream.IntStream;
@@ -281,6 +283,195 @@ class WitnessContextTest {
             "bftSubset should produce deterministic results");
     }
 
+    @Test
+    void testCommitteeKeyCache_InitializedWithProvider() {
+        // Given: WitnessContext
+        // When: Get cache
+        var cache = witnessContext.getCommitteeKeyCache();
+
+        // Then: Cache exists and is operational
+        assertNotNull(cache, "Committee key cache should be initialized");
+        assertEquals(0, cache.getSize(), "Cache should be initially empty");
+    }
+
+    @Test
+    void testViewChange_TriggersKeyPrecomputation() {
+        // Given: Committee members with registered BLS keys
+        var keyStore = witnessContext.getCommitteeBLSKeys();
+        var newMembers = witnessPool.stream()
+            .limit(COMMITTEE_SIZE)
+            .map(m -> (Identifier) new SelfAddressingIdentifier(m.getId()))
+            .collect(java.util.stream.Collectors.toSet());
+
+        // Register keys for all members
+        newMembers.forEach(memberId -> registerBLSKey(memberId, keyStore));
+
+        // Verify cache initially empty
+        var cache = witnessContext.getCommitteeKeyCache();
+        var initialSize = cache.getSize();
+        assertEquals(0, initialSize, "Cache should start empty");
+
+        // When: Handle view change
+        witnessContext.handleViewChange(newMembers, 1L);
+
+        // Then: Cache pre-computed with committee keys
+        assertEquals(COMMITTEE_SIZE, cache.getSize(),
+            "Cache should contain all committee member keys after view change");
+
+        // Verify cache hit for registered members
+        newMembers.forEach(memberId -> {
+            var cachedKey = cache.get(memberId);
+            assertNotNull(cachedKey,
+                "Committee member " + memberId + " should have cached key after view change");
+        });
+    }
+
+    @Test
+    void testViewChange_ClearsCacheForNonMembers() {
+        // Given: Cache with old member keys
+        var keyStore = witnessContext.getCommitteeBLSKeys();
+        var oldMembers = witnessPool.stream()
+            .limit(3)
+            .map(m -> (Identifier) new SelfAddressingIdentifier(m.getId()))
+            .collect(java.util.stream.Collectors.toSet());
+
+        oldMembers.forEach(memberId -> registerBLSKey(memberId, keyStore));
+
+        // First view change to populate cache
+        witnessContext.handleViewChange(oldMembers, 1L);
+        assertEquals(3, witnessContext.getCommitteeKeyCache().getSize());
+
+        // When: View change to different members
+        var newMembers = witnessPool.stream()
+            .skip(10)
+            .limit(5)
+            .map(m -> (Identifier) new SelfAddressingIdentifier(m.getId()))
+            .collect(java.util.stream.Collectors.toSet());
+
+        newMembers.forEach(memberId -> registerBLSKey(memberId, keyStore));
+
+        witnessContext.handleViewChange(newMembers, 2L);
+
+        // Then: Cache cleared and re-populated with new members only
+        var cache = witnessContext.getCommitteeKeyCache();
+        assertEquals(5, cache.getSize(), "Cache should contain only new members");
+
+        oldMembers.forEach(oldMemberId -> {
+            var cachedKey = cache.get(oldMemberId);
+            assertNull(cachedKey, "Old member " + oldMemberId + " should not be in cache after view change");
+        });
+
+        newMembers.forEach(newMemberId -> {
+            var cachedKey = cache.get(newMemberId);
+            assertNotNull(cachedKey, "New member " + newMemberId + " should be in cache after view change");
+        });
+    }
+
+    @Test
+    void testViewChange_HandlesEmptyCommittee() {
+        // Given: Empty committee set
+        Set<Identifier> emptyCommittee = Set.of();
+
+        // When: Handle view change with empty committee
+        witnessContext.handleViewChange(emptyCommittee, 1L);
+
+        // Then: Cache cleared and empty
+        var cache = witnessContext.getCommitteeKeyCache();
+        assertEquals(0, cache.getSize(), "Cache should be empty for empty committee");
+    }
+
+    @Test
+    void testViewChange_HandlesPartialKeyRegistration() {
+        // Given: Some members have keys, some don't
+        var allMembers = witnessPool.stream()
+            .limit(COMMITTEE_SIZE)
+            .map(m -> (Identifier) new SelfAddressingIdentifier(m.getId()))
+            .collect(java.util.stream.Collectors.toList());
+
+        // Register keys for only first 3 members
+        var keyStore = witnessContext.getCommitteeBLSKeys();
+        allMembers.stream().limit(3).forEach(memberId -> registerBLSKey(memberId, keyStore));
+
+        // When: Handle view change with all members
+        witnessContext.handleViewChange(new HashSet<>(allMembers), 1L);
+
+        // Then: Cache contains only keys for registered members
+        var cache = witnessContext.getCommitteeKeyCache();
+        assertEquals(3, cache.getSize(),
+            "Cache should contain only keys for members with registered keys");
+
+        // Verify registered members have cached keys
+        allMembers.stream().limit(3).forEach(memberId -> {
+            assertNotNull(cache.get(memberId),
+                "Registered member should have cached key");
+        });
+
+        // Verify unregistered members don't have cached keys
+        allMembers.stream().skip(3).forEach(memberId -> {
+            assertNull(cache.get(memberId),
+                "Unregistered member should not have cached key");
+        });
+    }
+
+    @Test
+    void testViewChange_ThreadSafetyForConcurrentAccess() throws InterruptedException {
+        // Given: Committee members with keys
+        var keyStore = witnessContext.getCommitteeBLSKeys();
+        var members = witnessPool.stream()
+            .limit(COMMITTEE_SIZE)
+            .map(m -> (Identifier) new SelfAddressingIdentifier(m.getId()))
+            .collect(java.util.stream.Collectors.toSet());
+
+        members.forEach(memberId -> registerBLSKey(memberId, keyStore));
+
+        // When: Concurrent view changes and cache reads
+        var threads = new ArrayList<Thread>();
+        var errors = new ArrayList<Throwable>();
+
+        // View change threads
+        for (int i = 0; i < 5; i++) {
+            var epoch = i;
+            var thread = new Thread(() -> {
+                try {
+                    witnessContext.handleViewChange(members, epoch);
+                } catch (Throwable t) {
+                    synchronized (errors) {
+                        errors.add(t);
+                    }
+                }
+            });
+            threads.add(thread);
+            thread.start();
+        }
+
+        // Cache read threads
+        for (int i = 0; i < 10; i++) {
+            var thread = new Thread(() -> {
+                try {
+                    var cache = witnessContext.getCommitteeKeyCache();
+                    members.forEach(cache::get);
+                } catch (Throwable t) {
+                    synchronized (errors) {
+                        errors.add(t);
+                    }
+                }
+            });
+            threads.add(thread);
+            thread.start();
+        }
+
+        // Wait for all threads
+        for (var thread : threads) {
+            thread.join(5000);
+        }
+
+        // Then: No errors and cache consistent
+        assertTrue(errors.isEmpty(), "No concurrent access errors: " + errors);
+        var cache = witnessContext.getCommitteeKeyCache();
+        assertEquals(COMMITTEE_SIZE, cache.getSize(),
+            "Cache should be consistent after concurrent operations");
+    }
+
     // Helper methods
 
     private List<MockMember> createWitnessPool(int size) {
@@ -302,5 +493,33 @@ class WitnessContextTest {
         var ilk = "icp"; // Inception event
 
         return new EventCoordinates(identifier, ULong.valueOf(sequenceNumber), digest, ilk);
+    }
+
+    /**
+     * Helper method to register a BLS key for a committee member.
+     * Creates a complete BLS key registration with PoP and registration signature.
+     */
+    private void registerBLSKey(Identifier memberId, CommitteeBLSKeyStore keyStore) {
+        var provider = com.hellblazer.delos.cryptography.bls.impl.TekuBLSProvider.getInstance();
+        var random = new SecureRandom();
+        var keyPair = provider.generateKeyPair(random);
+
+        // Create BLSSecretKey wrapper for signing
+        var secretKey = new com.hellblazer.delos.cryptography.bls.BLSSecretKey(keyPair.secretKey(), provider);
+
+        // Generate proof of possession
+        var pop = com.hellblazer.delos.cryptography.bls.ProofOfPossession.generate(
+            secretKey, keyPair.publicKey(), provider
+        );
+        var publicKey = new com.hellblazer.delos.cryptography.bls.BLSPublicKey(keyPair.publicKey(), pop);
+
+        // Create registration signature (sign the member ID)
+        var memberIdBytes = memberId.getDigest(ALGORITHM).getBytes();
+        var blsSignature = secretKey.sign(memberIdBytes);
+
+        var registration = new com.hellblazer.delos.witness.committee.BLSKeyRegistration(
+            memberId, publicKey, pop, blsSignature, 0L, java.time.Instant.now()
+        );
+        keyStore.registerKey(registration);
     }
 }

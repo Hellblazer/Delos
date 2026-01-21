@@ -15,16 +15,22 @@ package com.hellblazer.delos.witness;
 import com.hellblazer.delos.context.Context;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
+import com.hellblazer.delos.cryptography.bls.impl.TekuBLSProvider;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
 import com.hellblazer.delos.witness.committee.CommitteeBLSKeyStore;
+import com.hellblazer.delos.witness.committee.CommitteeKeyCache;
 import com.hellblazer.delos.witness.committee.InMemoryCommitteeBLSKeyStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.SequencedSet;
 import java.util.Set;
@@ -44,14 +50,21 @@ import java.util.stream.Collectors;
  * <p>
  * Thread-safe: Committee selection and view changes use read-write locks.
  * </p>
+ * <p>
+ * Phase 1C-1-D-D: Integrated CommitteeKeyCache for pre-parsing BLS keys during view changes.
+ * The cache is populated during the 500ms drain period, eliminating per-receipt parsing overhead.
+ * </p>
  */
 public class WitnessContext {
+
+    private static final Logger log = LoggerFactory.getLogger(WitnessContext.class);
 
     private final Context<?> firefliesContext;
     private final WitnessParameters parameters;
     private final DigestAlgorithm digestAlgorithm;
     private final ReadWriteLock lock;
     private final CommitteeBLSKeyStore committeeBLSKeyStore;
+    private final CommitteeKeyCache committeeKeyCache;
 
     private volatile long currentEpoch;
     private volatile Set<Identifier> currentMembers;
@@ -86,6 +99,9 @@ public class WitnessContext {
      * <p>
      * Primary constructor for Phase 1B-3. Allows injection of custom CommitteeBLSKeyStore
      * implementation (e.g., CHOAM-backed persistence in Phase 1C).
+     * <p>
+     * Phase 1C-1-D-D: Initializes CommitteeKeyCache with default BLS provider for
+     * pre-computing parsed keys during view changes.
      *
      * @param firefliesContext     Parent Fireflies context
      * @param parameters           Witness configuration
@@ -101,6 +117,9 @@ public class WitnessContext {
         this.committeeBLSKeyStore = Objects.requireNonNull(committeeBLSKeyStore, "committeeBLSKeyStore cannot be null");
         this.lock = new ReentrantReadWriteLock();
         this.currentEpoch = parameters.epoch();
+
+        // Initialize CommitteeKeyCache with default BLS provider
+        this.committeeKeyCache = new CommitteeKeyCache(TekuBLSProvider.getInstance());
 
         // Initialize current members from Fireflies context
         this.currentMembers = firefliesContext.allMembers()
@@ -187,6 +206,9 @@ public class WitnessContext {
     /**
      * Handle Fireflies view change: update epoch and drain period.
      * Called when Fireflies detects view membership change.
+     * <p>
+     * Phase 1C-1-D-D: Pre-computes BLS keys for new committee members during the drain period.
+     * This eliminates per-receipt parsing overhead by caching parsed keys before verification resumes.
      *
      * @param newMembers Updated Fireflies view members
      * @param newEpoch   New epoch number
@@ -195,12 +217,48 @@ public class WitnessContext {
     public Duration handleViewChange(Set<Identifier> newMembers, long newEpoch) {
         lock.writeLock().lock();
         try {
+            var startTime = System.nanoTime();
+
+            // Update members and epoch
             currentMembers = Set.copyOf(newMembers);
             currentEpoch = newEpoch;
+
+            // Extract BLS public keys for new members from key store
+            var committeeKeys = extractCommitteeKeys(newMembers);
+
+            // Pre-compute parsed keys during drain period
+            log.info("View change epoch={} members={}, pre-parsing {} committee keys",
+                     newEpoch, newMembers.size(), committeeKeys.size());
+
+            committeeKeyCache.clearAndPrecompute(committeeKeys);
+
+            var elapsedMs = (System.nanoTime() - startTime) / 1_000_000;
+            log.info("Committee keys pre-computed in {}ms (cache size: {})",
+                     elapsedMs, committeeKeyCache.getSize());
+
             return parameters.drainPeriod();
         } finally {
             lock.writeLock().unlock();
         }
+    }
+
+    /**
+     * Extract raw BLS public keys for committee members from key store.
+     * <p>
+     * Filters to only members with registered keys. Used for cache pre-computation.
+     *
+     * @param members Committee members to extract keys for
+     * @return Map of member IDs to raw public key bytes (48 bytes each)
+     */
+    private Map<Identifier, byte[]> extractCommitteeKeys(Set<Identifier> members) {
+        var keys = new HashMap<Identifier, byte[]>();
+        for (var memberId : members) {
+            var publicKeyOpt = committeeBLSKeyStore.getPublicKey(memberId);
+            publicKeyOpt.ifPresent(publicKey -> {
+                keys.put(memberId, publicKey.g1Compressed());
+            });
+        }
+        return keys;
     }
 
     /**
@@ -333,5 +391,35 @@ public class WitnessContext {
      */
     public CommitteeBLSKeyStore getCommitteeBLSKeys() {
         return committeeBLSKeyStore;
+    }
+
+    /**
+     * Get the CommitteeKeyCache for accessing pre-parsed BLS keys.
+     * <p>
+     * Phase 1C-1-D-D: Provides access to the cache of pre-parsed BLS keys that are
+     * populated during view changes. This cache eliminates per-receipt parsing overhead
+     * during signature verification.
+     * <p>
+     * The cache is automatically managed:
+     * <ul>
+     *   <li>Cleared and repopulated during view changes via {@link #handleViewChange}</li>
+     *   <li>Contains only current committee members with registered keys</li>
+     *   <li>Thread-safe for concurrent access during verification</li>
+     *   <li>Provides metrics (hits, misses, evictions) for observability</li>
+     * </ul>
+     * <p>
+     * Typical usage pattern:
+     * <pre>
+     * var cache = witnessContext.getCommitteeKeyCache();
+     * var parsedKey = cache.get(memberId);  // Cache hit during verification
+     * if (parsedKey != null) {
+     *     // Use cached key for fast verification
+     * }
+     * </pre>
+     *
+     * @return The committee key cache instance
+     */
+    public CommitteeKeyCache getCommitteeKeyCache() {
+        return committeeKeyCache;
     }
 }
