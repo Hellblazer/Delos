@@ -7,7 +7,11 @@
  */
 package com.hellblazer.delos.witness;
 
+import com.hellblazer.delos.witness.aggregation.SignatureFormat;
+import com.hellblazer.delos.witness.migration.MigrationPhase;
+
 import java.time.Duration;
+import java.util.Objects;
 
 /**
  * Immutable configuration parameters for KERI witness network service.
@@ -16,24 +20,30 @@ import java.time.Duration;
  * - Minimum witness count: N >= 4 (3f+1 with f=1)
  * - Threshold requirement: M > (2*k)/3
  * - Drain period for view change coordination
+ * - Signature format (Ed25519 or BLS12-381)
+ * - Migration phase (INIT, DUAL, or BLS_ONLY)
  * </p>
  *
- * @param k            Committee cardinality (number of witnesses in pool)
- * @param threshold    Required number of witness signatures (M)
- * @param epoch        Current Fireflies epoch
- * @param drainPeriod  Time to allow in-flight collections to complete during view change
+ * @param k                 Committee cardinality (number of witnesses in pool)
+ * @param threshold         Required number of witness signatures (M)
+ * @param epoch             Current Fireflies epoch
+ * @param drainPeriod       Time to allow in-flight collections to complete during view change
+ * @param signatureFormat   Signature format (ED25519 or BLS_12_381)
+ * @param migrationPhase    Migration phase (INIT, DUAL, or BLS_ONLY)
  */
 public record WitnessParameters(
     int k,
     int threshold,
     long epoch,
-    Duration drainPeriod
+    Duration drainPeriod,
+    SignatureFormat signatureFormat,
+    MigrationPhase migrationPhase
 ) {
     private static final int MINIMUM_WITNESSES = 4;
     private static final Duration DEFAULT_DRAIN_PERIOD = Duration.ofMillis(500);
 
     /**
-     * Validates configuration parameters enforce KERI constraints.
+     * Validates configuration parameters enforce KERI constraints and format/phase consistency.
      */
     public WitnessParameters {
         if (k < MINIMUM_WITNESSES) {
@@ -68,6 +78,21 @@ public record WitnessParameters(
                 "drainPeriod must be positive, got: " + drainPeriod
             );
         }
+
+        Objects.requireNonNull(signatureFormat, "signatureFormat required");
+        Objects.requireNonNull(migrationPhase, "migrationPhase required");
+
+        // Validate format/phase consistency
+        if (signatureFormat == SignatureFormat.ED25519 && migrationPhase != MigrationPhase.INIT) {
+            throw new IllegalArgumentException(
+                "ED25519 format only valid in INIT phase, got: " + migrationPhase
+            );
+        }
+        if (signatureFormat == SignatureFormat.BLS_12_381 && migrationPhase == MigrationPhase.INIT) {
+            throw new IllegalArgumentException(
+                "BLS format requires DUAL or BLS_ONLY phase, got: INIT"
+            );
+        }
     }
 
     /**
@@ -97,6 +122,8 @@ public record WitnessParameters(
         private int threshold;
         private long epoch;
         private Duration drainPeriod = DEFAULT_DRAIN_PERIOD;
+        private SignatureFormat signatureFormat = SignatureFormat.ED25519;  // Default: legacy
+        private MigrationPhase migrationPhase = MigrationPhase.INIT;         // Default: Ed25519 only
 
         public Builder k(int k) {
             this.k = k;
@@ -118,8 +145,18 @@ public record WitnessParameters(
             return this;
         }
 
+        public Builder signatureFormat(SignatureFormat format) {
+            this.signatureFormat = format;
+            return this;
+        }
+
+        public Builder migrationPhase(MigrationPhase phase) {
+            this.migrationPhase = phase;
+            return this;
+        }
+
         public WitnessParameters build() {
-            return new WitnessParameters(k, threshold, epoch, drainPeriod);
+            return new WitnessParameters(k, threshold, epoch, drainPeriod, signatureFormat, migrationPhase);
         }
     }
 }

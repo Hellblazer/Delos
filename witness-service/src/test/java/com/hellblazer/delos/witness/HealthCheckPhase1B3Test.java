@@ -8,6 +8,7 @@
 package com.hellblazer.delos.witness;
 
 import com.codahale.metrics.MetricRegistry;
+import com.hellblazer.delos.witness.aggregation.SignatureFormat;
 import com.hellblazer.delos.witness.committee.CommitteeBLSKeyStore;
 import com.hellblazer.delos.witness.committee.GenesisTransitionCoordinator;
 import com.hellblazer.delos.witness.committee.TransitionReadinessChecker;
@@ -38,7 +39,14 @@ class HealthCheckPhase1B3Test {
         var keyStore = mock(CommitteeBLSKeyStore.class);
         when(keyStore.keyCount()).thenReturn(7);
 
-        var parameters = new WitnessParameters(10, 7, 1L, Duration.ofSeconds(30));
+        var parameters = WitnessParameters.newBuilder()
+            .k(10)
+            .threshold(7)
+            .epoch(1L)
+            .drainPeriod(Duration.ofSeconds(30))
+            .signatureFormat(SignatureFormat.BLS_12_381)
+            .migrationPhase(MigrationPhase.BLS_ONLY)
+            .build();
         var readinessChecker = new TransitionReadinessChecker(keyStore, parameters);
 
         var coordinator = new GenesisTransitionCoordinator(readinessChecker, stateTracker, parameters);
@@ -76,7 +84,14 @@ class HealthCheckPhase1B3Test {
         var keyStore = mock(CommitteeBLSKeyStore.class);
         when(keyStore.keyCount()).thenReturn(5);
 
-        var parameters = new WitnessParameters(10, 7, 1L, Duration.ofSeconds(30));
+        var parameters = WitnessParameters.newBuilder()
+            .k(10)
+            .threshold(7)
+            .epoch(1L)
+            .drainPeriod(Duration.ofSeconds(30))
+            .signatureFormat(SignatureFormat.BLS_12_381)
+            .migrationPhase(MigrationPhase.DUAL)
+            .build();
         var readinessChecker = new TransitionReadinessChecker(keyStore, parameters);
 
         var coordinator = new GenesisTransitionCoordinator(readinessChecker, stateTracker, parameters);

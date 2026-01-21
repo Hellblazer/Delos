@@ -16,8 +16,11 @@ import com.hellblazer.delos.membership.MockMember;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
+import com.hellblazer.delos.witness.aggregation.SignatureFormat;
+import com.hellblazer.delos.witness.migration.MigrationPhase;
 import org.joou.ULong;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -76,6 +79,8 @@ class WitnessReceiptManagerTest {
             .threshold(threshold)
             .epoch(0)
             .drainPeriod(Duration.ofMillis(500))
+            .signatureFormat(SignatureFormat.ED25519)  // Default: legacy for backward compatibility
+            .migrationPhase(MigrationPhase.INIT)       // Default: Ed25519 only
             .build();
 
         // Create witness context
@@ -278,6 +283,157 @@ class WitnessReceiptManagerTest {
         // Then: Matches parameters
         assertEquals(parameters.drainPeriod(), drainPeriod,
             "Drain period should match parameters");
+    }
+
+    @Test
+    @DisplayName("Configuration validation: Invalid format/phase combinations rejected")
+    void testConfigurationValidation() {
+        // Ed25519 format in DUAL phase should fail
+        var exception1 = assertThrows(IllegalArgumentException.class,
+            () -> WitnessParameters.newBuilder()
+                .k(COMMITTEE_SIZE)
+                .threshold(5)
+                .epoch(0)
+                .drainPeriod(Duration.ofMillis(500))
+                .signatureFormat(SignatureFormat.ED25519)
+                .migrationPhase(MigrationPhase.DUAL)  // Invalid: Ed25519 only valid in INIT
+                .build()
+        );
+        assertTrue(exception1.getMessage().contains("ED25519 format only valid in INIT phase"),
+            "Should reject ED25519 in DUAL phase");
+
+        // BLS format in INIT phase should fail
+        var exception2 = assertThrows(IllegalArgumentException.class,
+            () -> WitnessParameters.newBuilder()
+                .k(COMMITTEE_SIZE)
+                .threshold(5)
+                .epoch(0)
+                .drainPeriod(Duration.ofMillis(500))
+                .signatureFormat(SignatureFormat.BLS_12_381)
+                .migrationPhase(MigrationPhase.INIT)  // Invalid: BLS requires DUAL or BLS_ONLY
+                .build()
+        );
+        assertTrue(exception2.getMessage().contains("BLS format requires DUAL or BLS_ONLY phase"),
+            "Should reject BLS in INIT phase");
+    }
+
+    @Test
+    @DisplayName("INIT phase: Ed25519 signatures accepted, BLS rejected")
+    void testInitPhaseAcceptsOnlyEd25519() {
+        // Given: Manager in INIT phase (Ed25519 only)
+        var event = createEventCoordinates("event", 1L);
+        var member = committee.iterator().next();
+
+        // When: Add Ed25519 signature
+        // Then: Should succeed
+        assertDoesNotThrow(() ->
+            receiptManager.addSignature(event, member, ALGORITHM.digest("sig".getBytes())),
+            "Ed25519 signature should be accepted in INIT phase"
+        );
+
+        // Verify it was recorded
+        var state = receiptManager.getCollectionState(event);
+        assertEquals(SignatureFormat.ED25519, state.getFormat(),
+            "Collection format should be ED25519");
+        assertEquals(1, state.signatureCount(),
+            "Signature should be recorded");
+    }
+
+    @Test
+    @DisplayName("INIT phase: BLS signatures rejected")
+    void testInitPhaseRejectsBLSSignatures() {
+        // Given: Manager in INIT phase (Ed25519 only)
+        var event = createEventCoordinates("event", 1L);
+        var member = committee.iterator().next();
+
+        // When: Try to add BLS signature
+        // Then: Should be rejected
+        var exception = assertThrows(IllegalStateException.class,
+            () -> {
+                // Create a mock BLS signature (would need actual BLS implementation)
+                // For now, we verify the method exists and the phase check works
+                receiptManager.addBLSSignature(event, member, 0, null);
+            }
+        );
+        assertTrue(exception.getMessage().contains("BLS signatures not supported in INIT phase"),
+            "BLS signatures should be rejected in INIT phase");
+    }
+
+    @Test
+    @DisplayName("Collection state tracks format correctly")
+    void testCollectionStateTrackFormat() {
+        // Given: Ed25519 mode
+        var event = createEventCoordinates("event", 1L);
+        var member = committee.iterator().next();
+
+        // When: Add Ed25519 signature
+        receiptManager.addSignature(event, member, ALGORITHM.digest("sig".getBytes()));
+
+        // Then: Collection has correct format
+        var state = receiptManager.getCollectionState(event);
+        assertEquals(SignatureFormat.ED25519, state.getFormat(),
+            "Collection format should match signature format");
+    }
+
+    @Test
+    @DisplayName("Collection state provides getter methods")
+    void testCollectionStateGetters() {
+        // Given: A collection with signatures
+        var event = createEventCoordinates("event", 1L);
+        var members = new HashSet<>(committee).stream().limit(2).toList();
+
+        // When: Add signatures
+        int count = 0;
+        for (var member : members) {
+            receiptManager.addSignature(event, member,
+                ALGORITHM.digest(("sig-" + count++).getBytes()));
+        }
+
+        // Then: Collection provides all required information
+        var state = receiptManager.getCollectionState(event);
+        assertEquals(SignatureFormat.ED25519, state.getFormat());
+        assertEquals(2, state.signerCount());
+        assertEquals(2, state.signatureCount());
+        assertFalse(state.isThresholdAchieved());
+        assertFalse(state.getBLSSnapshot().isPresent());
+    }
+
+    @Test
+    @DisplayName("Ed25519-only phase rejects BLS in INIT")
+    void testEd25519OnlyPhaseValidation() {
+        // Given: Manager in INIT phase
+        var event = createEventCoordinates("event", 1L);
+        var member = committee.iterator().next();
+
+        // Then: BLS method should throw
+        assertThrows(IllegalStateException.class,
+            () -> receiptManager.addBLSSignature(event, member, 0, null)
+        );
+    }
+
+    @Test
+    @DisplayName("BLS_ONLY phase rejects Ed25519")
+    void testBlsOnlyPhaseRejectsEd25519() {
+        // Given: Manager in BLS_ONLY phase
+        var blsOnlyParams = WitnessParameters.newBuilder()
+            .k(COMMITTEE_SIZE)
+            .threshold(parameters.threshold())
+            .epoch(0)
+            .drainPeriod(Duration.ofMillis(500))
+            .signatureFormat(SignatureFormat.BLS_12_381)
+            .migrationPhase(MigrationPhase.BLS_ONLY)
+            .build();
+
+        var blsOnlyManager = new WitnessReceiptManager(blsOnlyParams);
+        var event = createEventCoordinates("event", 1L);
+        var member = committee.iterator().next();
+
+        // When: Try to add Ed25519 signature
+        // Then: Should be rejected
+        assertThrows(IllegalStateException.class,
+            () -> blsOnlyManager.addSignature(event, member, ALGORITHM.digest("sig".getBytes())),
+            "Ed25519 should be rejected in BLS_ONLY phase"
+        );
     }
 
     // Helper methods
