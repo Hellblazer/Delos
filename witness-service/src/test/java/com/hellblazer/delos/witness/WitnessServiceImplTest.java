@@ -19,6 +19,7 @@ import com.hellblazer.delos.choam.support.HashedCertifiedBlock;
 import com.hellblazer.delos.context.Context;
 import com.hellblazer.delos.context.StaticContext;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
+import com.hellblazer.delos.cryptography.bls.BLSProvider;
 import com.hellblazer.delos.membership.MockMember;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
@@ -27,6 +28,7 @@ import com.hellblazer.delos.witness.migration.MigrationPhase;
 import com.hellblazer.delos.witness.migration.MigrationStateTracker;
 import com.hellblazer.delos.witness.migration.ReceiptCompatibilityLayer;
 import com.hellblazer.delos.witness.proto.*;
+import com.hellblazer.delos.witness.validation.AggregateValidator;
 import io.grpc.stub.StreamObserver;
 import org.joou.ULong;
 import org.junit.jupiter.api.BeforeEach;
@@ -118,7 +120,12 @@ class WitnessServiceImplTest {
         witnessCHOAM.onViewChange(genesisBlock);
 
         migrationStateTracker = new MigrationStateTracker(MigrationPhase.INIT, 0L);
-        compatibilityLayer = new ReceiptCompatibilityLayer(migrationStateTracker);
+
+        // Create BLS provider and validator for compatibility layer
+        var blsProvider = BLSProvider.getDefault();
+        var aggregateValidator = new AggregateValidator(blsProvider);
+
+        compatibilityLayer = new ReceiptCompatibilityLayer(migrationStateTracker, aggregateValidator, witnessContext, parameters);
 
         witnessService = new WitnessServiceImpl(witnessCHOAM, witnessContext, receiptManager, parameters, ALGORITHM,
                                                 migrationStateTracker, compatibilityLayer);
