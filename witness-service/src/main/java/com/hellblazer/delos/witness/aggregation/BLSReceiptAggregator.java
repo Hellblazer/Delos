@@ -119,10 +119,10 @@ public final class BLSReceiptAggregator {
 
         // Lazy accumulator creation (thread-safe via computeIfAbsent)
         var accumulator = accumulators.computeIfAbsent(event,
-                                                       k -> new SignatureAccumulator(event, threshold, epoch));
+                                                       k -> new SignatureAccumulator(event, threshold, epoch, null));
 
-        // Delegate to accumulator
-        var result = accumulator.accumulate(member, committeeIndex, signature);
+        // Delegate to accumulator (passing epoch and null viewRef for validation)
+        var result = accumulator.accumulate(member, committeeIndex, signature, epoch, null);
 
         // Update metrics on successful accumulation
         if (result.isSuccess()) {

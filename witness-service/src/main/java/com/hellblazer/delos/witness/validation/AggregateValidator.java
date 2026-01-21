@@ -47,6 +47,19 @@ import java.util.Objects;
  * }
  * }</pre>
  *
+ * <h3>WitnessContext Integration</h3>
+ * <p>
+ * When used with WitnessContext for receipt validation, follow this pattern:
+ * <pre>{@code
+ * // Get committee keys from WitnessContext
+ * var committeeKeys = witnessContext.getCommitteeBLSKeys();
+ * var publicKeys = committeeKeys.getPublicKeys(committeeMembers);
+ *
+ * // Validate aggregate
+ * var validator = new AggregateValidator(BLSProvider.getDefault());
+ * var result = validator.validate(aggregate, publicKeys, message);
+ * }</pre>
+ *
  * @author hal.hildebrand
  */
 public final class AggregateValidator {

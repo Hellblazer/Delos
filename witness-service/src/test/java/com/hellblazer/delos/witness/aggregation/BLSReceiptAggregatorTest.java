@@ -384,24 +384,25 @@ class BLSReceiptAggregatorTest {
     @Test
     void shouldTrackTotalAccumulated() {
         var event = createTestEvent(1);
-        var threshold = 5;
+        var threshold = 3;
 
         // Initially zero
         assertThat(aggregator.metrics().totalAccumulated()).isZero();
 
-        // Accumulate 3 signatures
+        // Accumulate 3 signatures (meets threshold)
         for (int i = 0; i < 3; i++) {
             aggregator.accumulate(event, createMember(i), i, createSignature(i), threshold, 1);
         }
 
         assertThat(aggregator.metrics().totalAccumulated()).isEqualTo(3);
 
-        // Add more signatures
+        // Add more signatures - these are rejected as late signers after threshold
         for (int i = 3; i < 7; i++) {
             aggregator.accumulate(event, createMember(i), i, createSignature(i), threshold, 1);
         }
 
-        assertThat(aggregator.metrics().totalAccumulated()).isEqualTo(7);
+        // Only the first 3 accumulations count; rest are rejected as late signers
+        assertThat(aggregator.metrics().totalAccumulated()).isEqualTo(3);
     }
 
     @Test
