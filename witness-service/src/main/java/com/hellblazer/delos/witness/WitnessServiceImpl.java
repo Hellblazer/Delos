@@ -400,8 +400,14 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
             // Map CompatibilityResult to ValidationStatus
             var validationStatus = mapCompatibilityResultToStatus(compatibilityResult);
 
-            // Check threshold achieved (for Ed25519, count from signatures; for BLS, assume threshold if valid)
-            var effectiveSignatureCount = request.hasBlsSig() ? parameters.threshold() : signatureCount;
+            // Check threshold achieved (for Ed25519, count from signatures; for BLS, count signers from aggregate)
+            int effectiveSignatureCount;
+            if (request.hasBlsSig()) {
+                // BLS: count signers from the signerIndices list in the BLS aggregate
+                effectiveSignatureCount = request.getBlsSig().getSignerIndicesCount();
+            } else {
+                effectiveSignatureCount = signatureCount;
+            }
 
             if (effectiveSignatureCount < parameters.threshold() &&
                 validationStatus == ValidationStatus.THRESHOLD_MET) {

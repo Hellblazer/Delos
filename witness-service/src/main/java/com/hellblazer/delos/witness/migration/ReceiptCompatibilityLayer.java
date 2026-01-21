@@ -7,6 +7,7 @@
  */
 package com.hellblazer.delos.witness.migration;
 
+import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.bls.BLSProvider;
 import com.hellblazer.delos.cryptography.bls.BLSPublicKey;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
@@ -313,7 +314,10 @@ public final class ReceiptCompatibilityLayer {
             }
 
             // Step 3: Extract message to verify (event digest)
-            byte[] message = receipt.getEventDigest().toByteArray();
+            // Convert Digeste proto back to Digest to get the original digest bytes (not proto bytes)
+            var digesteProto = receipt.getEventDigest();
+            var digest = new Digest(digesteProto);
+            byte[] message = digest.getBytes();
 
             // Step 4: Validate using AggregateValidator
             var validationResult = aggregateValidator.validate(

@@ -192,13 +192,13 @@ class BLSIntegrationFlowTest {
         // When: Validating through service
         var response = validateReceiptSync(receipt);
 
-        // Then: Validation should succeed
+        // Then: Validation should fail (insufficient signers)
         assertThat(response.getStatus())
             .as("Single signer BLS receipt should fail threshold (need 5, got 1)")
             .isEqualTo(ValidationStatus.INVALID);
         assertThat(response.getSignatureCount())
-            .as("Should report threshold count for BLS")
-            .isEqualTo(parameters.threshold());
+            .as("Should report actual signer count for BLS aggregate")
+            .isEqualTo(1);
     }
 
     @Test
@@ -216,8 +216,8 @@ class BLSIntegrationFlowTest {
             .as("All signers BLS receipt should pass validation and threshold")
             .isEqualTo(ValidationStatus.THRESHOLD_MET);
         assertThat(response.getSignatureCount())
-            .as("Should report threshold count (BLS uses threshold, not actual count)")
-            .isEqualTo(parameters.threshold());
+            .as("Should report actual signer count for BLS aggregate")
+            .isEqualTo(7);
     }
 
     @Test
@@ -277,8 +277,8 @@ class BLSIntegrationFlowTest {
             .as("Receipt with 2 signers should fail threshold check (need 5)")
             .isEqualTo(ValidationStatus.INVALID);
         assertThat(response.getSignatureCount())
-            .as("Should report threshold count for BLS aggregate")
-            .isEqualTo(parameters.threshold());
+            .as("Should report actual signer count for BLS aggregate")
+            .isEqualTo(2);
     }
 
     // ========== Fallback Tests ==========
@@ -490,6 +490,9 @@ class BLSIntegrationFlowTest {
             .setEventCoordinates(testEvent.toEventCoords())
             .setEventDigest(digest.toDigeste())
             .setEpoch(1L)
+            .setTimestamp(com.google.protobuf.Timestamp.newBuilder()
+                .setSeconds(System.currentTimeMillis() / 1000)
+                .build())
             .setBlsSig(BLSAggregateSignature.newBuilder()
                 .setSignature(ByteString.copyFrom(aggregate.aggregatedSignature().toBytes()))
                 .addAllSignerIndices(signers)
@@ -516,6 +519,9 @@ class BLSIntegrationFlowTest {
             .setEventCoordinates(testEvent.toEventCoords())
             .setEventDigest(digest.toDigeste())
             .setEpoch(1L)
+            .setTimestamp(com.google.protobuf.Timestamp.newBuilder()
+                .setSeconds(System.currentTimeMillis() / 1000)
+                .build())
             .setBlsSig(BLSAggregateSignature.newBuilder()
                 .setSignature(ByteString.copyFrom(corruptedSigBytes))
                 .addAllSignerIndices(signers)
@@ -534,9 +540,14 @@ class BLSIntegrationFlowTest {
         // Create individual signatures from each signer
         var signatures = new ArrayList<com.hellblazer.delos.cryptography.bls.BLSSignature>();
 
+        // IMPORTANT: Sign the digest bytes, not testMessage!
+        // The receipt stores eventDigest = digest(testMessage), so signatures must be of the digest bytes
+        var eventDigest = digestAlgorithm.digest(testMessage);
+        byte[] messageToSign = eventDigest.getBytes();
+
         for (var index : signers) {
             var keyPair = committeeKeys.get(index);
-            var signature = keyPair.sign(testMessage);
+            var signature = keyPair.sign(messageToSign);
             signatures.add(signature);
         }
 
