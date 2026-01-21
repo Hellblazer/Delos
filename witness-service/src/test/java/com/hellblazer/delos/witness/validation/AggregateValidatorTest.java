@@ -370,6 +370,216 @@ class AggregateValidatorTest {
         assertThat(failureCount.get()).isZero();
     }
 
+    // ========== Phase 1C-1-D-B: Parsed Key Verification Tests ==========
+
+    @Test
+    @DisplayName("verifyParsed with valid aggregate should validate")
+    void testVerifyParsedValid() {
+        // Create aggregate from 5 signers
+        var signers = List.of(0, 1, 2, 3, 4);
+        var aggregate = createAggregate(signers);
+
+        // Parse keys
+        var parsedKeys = committeePublicKeys.stream()
+                                           .map(key -> provider.parse(key.toBytesCompressed()))
+                                           .toList();
+
+        var result = validator.verifyParsed(aggregate, parsedKeys, testMessage);
+
+        assertThat(result).isInstanceOf(ValidationResult.Valid.class);
+        var valid = (ValidationResult.Valid) result;
+        assertThat(valid.aggregate()).isEqualTo(aggregate);
+    }
+
+    @Test
+    @DisplayName("verifyParsed with invalid signature should fail")
+    void testVerifyParsedInvalidSignature() {
+        var signers = List.of(0, 1, 2);
+        var aggregate = createAggregate(signers);
+
+        // Parse keys
+        var parsedKeys = committeePublicKeys.stream()
+                                           .map(key -> provider.parse(key.toBytesCompressed()))
+                                           .toList();
+
+        // Validate against wrong message
+        var wrongMessage = new byte[32];
+        entropy.nextBytes(wrongMessage);
+
+        var result = validator.verifyParsed(aggregate, parsedKeys, wrongMessage);
+
+        assertThat(result).isInstanceOf(ValidationResult.ValidationFailed.class);
+        var failed = (ValidationResult.ValidationFailed) result;
+        assertThat(failed.reason()).contains("signature verification failed");
+    }
+
+    @Test
+    @DisplayName("verifyParsed with null parameters should throw NPE")
+    void testVerifyParsedNullParameters() {
+        var signers = List.of(0, 1, 2);
+        var aggregate = createAggregate(signers);
+        var parsedKeys = committeePublicKeys.stream()
+                                           .map(key -> provider.parse(key.toBytesCompressed()))
+                                           .toList();
+
+        assertThatThrownBy(() -> validator.verifyParsed(null, parsedKeys, testMessage))
+            .isInstanceOf(NullPointerException.class);
+
+        assertThatThrownBy(() -> validator.verifyParsed(aggregate, null, testMessage))
+            .isInstanceOf(NullPointerException.class);
+
+        assertThatThrownBy(() -> validator.verifyParsed(aggregate, parsedKeys, null))
+            .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    @DisplayName("verifyParsed with empty parsed keys should fail")
+    void testVerifyParsedEmptyKeys() {
+        var signers = List.of(0, 1, 2);
+        var aggregate = createAggregate(signers);
+        var emptyKeys = List.<ParsedBLSKey>of();
+
+        var result = validator.verifyParsed(aggregate, emptyKeys, testMessage);
+
+        // Empty committee with non-empty bitmap is an invalid bitmap situation
+        assertThat(result).isInstanceOf(ValidationResult.InvalidBitmap.class);
+    }
+
+    @Test
+    @DisplayName("verifyBatchParsed with all valid aggregates should validate")
+    void testVerifyBatchParsedAllValid() {
+        // Create multiple valid aggregates
+        var receipts = List.of(
+            createAggregate(List.of(0, 1, 2)),
+            createAggregate(List.of(2, 3, 4)),
+            createAggregate(List.of(4, 5, 6))
+        );
+
+        var messages = new ArrayList<byte[]>();
+        for (int i = 0; i < receipts.size(); i++) {
+            var msg = new byte[32];
+            entropy.nextBytes(msg);
+            messages.add(msg);
+        }
+
+        // Re-create aggregates with correct messages
+        receipts = List.of(
+            createAggregateWithMessage(List.of(0, 1, 2), messages.get(0)),
+            createAggregateWithMessage(List.of(2, 3, 4), messages.get(1)),
+            createAggregateWithMessage(List.of(4, 5, 6), messages.get(2))
+        );
+
+        // Parse keys once
+        var parsedKeys = committeePublicKeys.stream()
+                                           .map(key -> provider.parse(key.toBytesCompressed()))
+                                           .toList();
+
+        // Use same parsed keys for all receipts
+        var parsedKeysPerReceipt = List.of(parsedKeys, parsedKeys, parsedKeys);
+
+        var results = validator.verifyBatchParsed(receipts, parsedKeysPerReceipt, messages);
+
+        assertThat(results).hasSize(3);
+        for (var result : results) {
+            assertThat(result).isInstanceOf(ValidationResult.Valid.class);
+        }
+    }
+
+    @Test
+    @DisplayName("verifyBatchParsed should identify failures")
+    void testVerifyBatchParsedIdentifyFailures() {
+        var messages = new ArrayList<byte[]>();
+        for (int i = 0; i < 3; i++) {
+            var msg = new byte[32];
+            entropy.nextBytes(msg);
+            messages.add(msg);
+        }
+
+        var receipts = List.of(
+            createAggregateWithMessage(List.of(0, 1, 2), messages.get(0)),  // Valid
+            createAggregateWithMessage(List.of(2, 3, 4), messages.get(1)),  // Valid
+            createAggregateWithMessage(List.of(4, 5, 6), messages.get(0))   // Invalid (wrong message)
+        );
+
+        var parsedKeys = committeePublicKeys.stream()
+                                           .map(key -> provider.parse(key.toBytesCompressed()))
+                                           .toList();
+        var parsedKeysPerReceipt = List.of(parsedKeys, parsedKeys, parsedKeys);
+
+        var results = validator.verifyBatchParsed(receipts, parsedKeysPerReceipt, messages);
+
+        assertThat(results).hasSize(3);
+        assertThat(results.get(0)).isInstanceOf(ValidationResult.Valid.class);
+        assertThat(results.get(1)).isInstanceOf(ValidationResult.Valid.class);
+        assertThat(results.get(2)).isInstanceOf(ValidationResult.ValidationFailed.class);
+    }
+
+    @Test
+    @DisplayName("verifyBatchParsed with empty lists should return empty")
+    void testVerifyBatchParsedEmpty() {
+        var results = validator.verifyBatchParsed(
+            List.of(),
+            List.of(),
+            List.of()
+        );
+
+        assertThat(results).isEmpty();
+    }
+
+    @Test
+    @DisplayName("verifyBatchParsed with mismatched sizes should throw")
+    void testVerifyBatchParsedMismatchedSizes() {
+        var receipts = List.of(createAggregate(List.of(0, 1, 2)));
+        var parsedKeys = committeePublicKeys.stream()
+                                           .map(key -> provider.parse(key.toBytesCompressed()))
+                                           .toList();
+        var parsedKeysPerReceipt = List.of(parsedKeys);
+        var messages = List.of(testMessage, testMessage); // Different size
+
+        assertThatThrownBy(() -> validator.verifyBatchParsed(receipts, parsedKeysPerReceipt, messages))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("must have same size");
+    }
+
+    @Test
+    @DisplayName("verifyBatchParsed with null parameters should throw NPE")
+    void testVerifyBatchParsedNullParameters() {
+        var receipts = List.of(createAggregate(List.of(0, 1, 2)));
+        var parsedKeys = committeePublicKeys.stream()
+                                           .map(key -> provider.parse(key.toBytesCompressed()))
+                                           .toList();
+        var parsedKeysPerReceipt = List.of(parsedKeys);
+        var messages = List.of(testMessage);
+
+        assertThatThrownBy(() -> validator.verifyBatchParsed(null, parsedKeysPerReceipt, messages))
+            .isInstanceOf(NullPointerException.class);
+
+        assertThatThrownBy(() -> validator.verifyBatchParsed(receipts, null, messages))
+            .isInstanceOf(NullPointerException.class);
+
+        assertThatThrownBy(() -> validator.verifyBatchParsed(receipts, parsedKeysPerReceipt, null))
+            .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    @DisplayName("verifyBatchParsed with partial committee via bitmap should work")
+    void testVerifyBatchParsedPartialCommittee() {
+        // Create aggregate with only 3 signers (indices 1, 3, 5)
+        var signers = List.of(1, 3, 5);
+        var messages = List.of(testMessage);
+        var receipts = List.of(createAggregate(signers));
+
+        var parsedKeys = committeePublicKeys.stream()
+                                           .map(key -> provider.parse(key.toBytesCompressed()))
+                                           .toList();
+        var parsedKeysPerReceipt = List.of(parsedKeys);
+
+        var results = validator.verifyBatchParsed(receipts, parsedKeysPerReceipt, messages);
+
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0)).isInstanceOf(ValidationResult.Valid.class);
+    }
+
     // ========== Helper Methods ==========
 
     /**
@@ -380,6 +590,19 @@ class AggregateValidatorTest {
         for (var index : signerIndices) {
             var keyPair = committeeKeys.get(index);
             var signature = keyPair.secretKey().sign(testMessage);
+            signatures.add(signature);
+        }
+        return BLSAggregate.aggregate(signatures, signerIndices);
+    }
+
+    /**
+     * Create a valid BLS aggregate from specified signer indices with custom message.
+     */
+    private BLSAggregate createAggregateWithMessage(List<Integer> signerIndices, byte[] message) {
+        var signatures = new ArrayList<BLSSignature>();
+        for (var index : signerIndices) {
+            var keyPair = committeeKeys.get(index);
+            var signature = keyPair.secretKey().sign(message);
             signatures.add(signature);
         }
         return BLSAggregate.aggregate(signatures, signerIndices);

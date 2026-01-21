@@ -19,6 +19,10 @@
         </dependency>
         <dependency>
             <groupId>com.hellblazer.delos</groupId>
+            <artifactId>cryptography</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.hellblazer.delos</groupId>
             <artifactId>memberships</artifactId>
         </dependency>
         <dependency>
@@ -44,6 +48,10 @@
         <dependency>
             <groupId>io.dropwizard.metrics</groupId>
             <artifactId>metrics-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
         </dependency>
 
         <!-- Test Only Dependencies Below This Line -->
