@@ -599,6 +599,13 @@ service WitnessService {
   rpc SubscribeReceipts(ReceiptFilter) returns (stream WitnessReceipt);
 
   /**
+   * Subscribe to aggregate receipt stream matching filter criteria.
+   * Streams BLS aggregate receipts as threshold met.
+   * Enables push-based aggregate receipt notification.
+   */
+  rpc SubscribeAggregateReceipts(ReceiptFilter) returns (stream WitnessReceipt);
+
+  /**
    * Poll receipt future for completion status.
    * Non-blocking check of async collection progress.
    */

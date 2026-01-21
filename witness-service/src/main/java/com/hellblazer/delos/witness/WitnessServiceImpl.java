@@ -63,6 +63,10 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
     private final Map<String, ReceiptSubscription> activeSubscriptions = new ConcurrentHashMap<>();
     private final ReadWriteLock subscriptionLock = new ReentrantReadWriteLock();
 
+    // Aggregate receipt subscription tracking
+    private final Map<String, AggregateReceiptSubscription> activeAggregateSubscriptions = new ConcurrentHashMap<>();
+    private final ReadWriteLock aggregateSubscriptionLock = new ReentrantReadWriteLock();
+
     // In-flight collection tracking for polling
     private final Map<String, CollectionPollingState> pollingStates = new ConcurrentHashMap<>();
 
@@ -335,6 +339,7 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
      * Helper method to return aggregate receipt in response.
      * <p>
      * Converts AggregateWitnessReceipt to proto format and builds ReceiptResponse.
+     * Also notifies aggregate receipt subscribers.
      *
      * @param aggregateReceipt The aggregate receipt to return
      * @param responseObserver Observer for response
@@ -342,6 +347,9 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
     private void returnAggregateReceipt(AggregateWitnessReceipt aggregateReceipt,
                                        StreamObserver<ReceiptResponse> responseObserver) {
         var protoReceipt = aggregateReceipt.toProto();
+
+        // Notify subscribers that aggregate receipt is ready
+        notifyAggregateSubscribers(aggregateReceipt);
 
         var response = ReceiptResponse.newBuilder()
             .setReceipt(protoReceipt)
@@ -491,6 +499,55 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
     }
 
     /**
+     * Subscribe to aggregate receipt stream matching filter criteria.
+     * <p>
+     * Streams BLS aggregate receipts as they complete threshold.
+     * Client receives receipts until disconnection or server shutdown.
+     * <p>
+     * Filtering criteria (all optional):
+     * - Controller identifiers (specific event controllers)
+     * - Sequence number range (minSequence - maxSequence)
+     * - Event ilk types (icp, rot, ixn, etc.)
+     * - Epoch (specific epoch only)
+     *
+     * @param filter Filter criteria for receipt selection
+     * @param responseObserver Observer for streaming aggregate receipts
+     */
+    @Override
+    public void subscribeAggregateReceipts(ReceiptFilter filter,
+                                          StreamObserver<WitnessReceipt> responseObserver) {
+        try {
+            log.debug("SubscribeAggregateReceipts: filter=[controllers={}, sequences={}-{}, ilks={}, epoch={}]",
+                     filter.getControllersCount(),
+                     filter.getMinSequence(), filter.getMaxSequence(),
+                     filter.getIlksList().size(),
+                     filter.getEpoch());
+
+            // Create subscription record
+            String subscriptionId = UUID.randomUUID().toString();
+            var subscription = new AggregateReceiptSubscription(filter, responseObserver);
+
+            // Add to subscription tracking (thread-safe)
+            aggregateSubscriptionLock.writeLock().lock();
+            try {
+                activeAggregateSubscriptions.put(subscriptionId, subscription);
+                log.debug("Aggregate receipt subscription added: id={}, total_subscriptions={}",
+                         subscriptionId, activeAggregateSubscriptions.size());
+            } finally {
+                aggregateSubscriptionLock.writeLock().unlock();
+            }
+
+            // Note: Stream stays open until client disconnects or server calls onCompleted()/onError()
+            // Don't call onCompleted() here - only on shutdown
+
+        } catch (Exception e) {
+            log.error("Error in subscribeAggregateReceipts", e);
+            lastErrorMessage = "SubscribeAggregateReceipts error: " + e.getMessage();
+            responseObserver.onError(e);
+        }
+    }
+
+    /**
      * Poll receipt future for completion status.
      * Non-blocking check of async collection progress without streaming.
      * Returns immediately with current collection state.
@@ -606,9 +663,128 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
     }
 
     /**
+     * Notify aggregate receipt subscribers when threshold met.
+     * <p>
+     * Called when BLS aggregate signature threshold reached.
+     * Pushes receipt to all matching subscribers with filtering.
+     *
+     * @param aggregateReceipt Completed aggregate receipt
+     */
+    private void notifyAggregateSubscribers(AggregateWitnessReceipt aggregateReceipt) {
+        aggregateSubscriptionLock.readLock().lock();
+        try {
+            if (activeAggregateSubscriptions.isEmpty()) {
+                return;  // No subscribers - skip
+            }
+
+            // Convert to proto format once
+            var protoReceipt = aggregateReceipt.toProto();
+
+            log.debug("Notifying aggregate receipt subscribers: event={}, subscribers={}",
+                     aggregateReceipt.event(), activeAggregateSubscriptions.size());
+
+            // Notify matching subscribers
+            var toRemove = new ArrayList<String>();
+
+            activeAggregateSubscriptions.forEach((subscriptionId, subscription) -> {
+                try {
+                    // Apply filter
+                    if (matchesAggregateFilter(subscription.filter(), aggregateReceipt)) {
+                        subscription.observer().onNext(protoReceipt);
+                        log.trace("Notified subscription: id={}, event={}",
+                                 subscriptionId, aggregateReceipt.event());
+                    }
+                } catch (Exception e) {
+                    log.warn("Error notifying aggregate subscription (removing): id={}, error={}",
+                            subscriptionId, e.getMessage());
+                    toRemove.add(subscriptionId);  // Mark for removal (likely disconnected)
+                }
+            });
+
+            // Remove failed subscriptions (upgrade to write lock)
+            if (!toRemove.isEmpty()) {
+                aggregateSubscriptionLock.readLock().unlock();
+                aggregateSubscriptionLock.writeLock().lock();
+                try {
+                    toRemove.forEach(activeAggregateSubscriptions::remove);
+                    log.debug("Removed {} failed aggregate subscriptions", toRemove.size());
+                } finally {
+                    aggregateSubscriptionLock.writeLock().unlock();
+                    aggregateSubscriptionLock.readLock().lock();  // Downgrade back to read
+                }
+            }
+
+        } catch (Exception e) {
+            log.error("Error in notifyAggregateSubscribers", e);
+        } finally {
+            aggregateSubscriptionLock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Check if aggregate receipt matches subscription filter.
+     *
+     * @param filter Filter criteria
+     * @param receipt Aggregate receipt to check
+     * @return true if receipt matches filter
+     */
+    private boolean matchesAggregateFilter(ReceiptFilter filter, AggregateWitnessReceipt receipt) {
+        var event = receipt.event();
+
+        // Filter by controller (identifier)
+        if (filter.getControllersCount() > 0) {
+            boolean matchesController = false;
+            var eventIdentProto = event.getIdentifier().toIdent();
+            for (var filterIdent : filter.getControllersList()) {
+                if (eventIdentProto.equals(filterIdent)) {
+                    matchesController = true;
+                    break;
+                }
+            }
+            if (!matchesController) {
+                return false;
+            }
+        }
+
+        // Filter by sequence range
+        long sequence = event.getSequenceNumber().longValue();
+        if (filter.getMinSequence() > 0 && sequence < filter.getMinSequence()) {
+            return false;
+        }
+        if (filter.getMaxSequence() > 0 && sequence > filter.getMaxSequence()) {
+            return false;
+        }
+
+        // Filter by ilk (event type)
+        if (filter.getIlksCount() > 0) {
+            String eventIlk = event.getIlk();
+            boolean matchesIlk = filter.getIlksList().contains(eventIlk);
+            if (!matchesIlk) {
+                return false;
+            }
+        }
+
+        // Filter by epoch
+        if (filter.getEpoch() > 0 && receipt.epoch() != filter.getEpoch()) {
+            return false;
+        }
+
+        return true;  // Matches all criteria
+    }
+
+    /**
      * Subscription record for tracking active receipt subscriptions.
      */
     private record ReceiptSubscription(
+        ReceiptFilter filter,
+        StreamObserver<WitnessReceipt> observer
+    ) {}
+
+    /**
+     * Aggregate receipt subscription record.
+     * Tracks filter criteria and observer for streaming aggregate receipts.
+     */
+    private record AggregateReceiptSubscription(
         ReceiptFilter filter,
         StreamObserver<WitnessReceipt> observer
     ) {}
@@ -1023,6 +1199,22 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
         } finally {
             subscriptionLock.writeLock().unlock();
         }
+
+        // Cleanup aggregate subscriptions
+        aggregateSubscriptionLock.writeLock().lock();
+        try {
+            activeAggregateSubscriptions.values().forEach(sub -> {
+                try {
+                    sub.observer().onCompleted();
+                } catch (Exception e) {
+                    log.debug("Error completing aggregate subscription during shutdown", e);
+                }
+            });
+            activeAggregateSubscriptions.clear();
+        } finally {
+            aggregateSubscriptionLock.writeLock().unlock();
+        }
+
         pollingStates.clear();
         log.info("WitnessServiceImpl shutdown complete");
     }
