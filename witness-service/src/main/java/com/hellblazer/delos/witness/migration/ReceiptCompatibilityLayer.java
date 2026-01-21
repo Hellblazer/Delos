@@ -400,13 +400,29 @@ public final class ReceiptCompatibilityLayer {
      * @return List of BLS public keys for committee
      */
     private List<BLSPublicKey> getCommitteeBLSPublicKeys(java.util.Set<com.hellblazer.delos.stereotomy.identifier.Identifier> committee) {
-        // TODO: Implement actual key retrieval from CommitteeBLSKeyStore
-        // For now, return empty list to fail gracefully
-        // This will be implemented in Phase 1B-3 (Committee Key Management)
         if (committee == null || committee.isEmpty()) {
             return List.of();
         }
-        return List.of();
+
+        // Retrieve BLS public keys from CommitteeBLSKeyStore via WitnessContext
+        try {
+            var keyStore = witnessContext.getCommitteeBLSKeys();
+            if (keyStore == null) {
+                log.warn("CommitteeBLSKeyStore not available - cannot retrieve BLS keys");
+                return List.of();
+            }
+
+            var keys = keyStore.getPublicKeys(committee);
+            if (keys == null || keys.isEmpty()) {
+                log.debug("No BLS keys available for committee members");
+                return List.of();
+            }
+
+            return keys;
+        } catch (Exception e) {
+            log.error("Error retrieving committee BLS keys", e);
+            return List.of();
+        }
     }
 
     /**
