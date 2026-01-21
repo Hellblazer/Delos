@@ -11,6 +11,7 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import com.hellblazer.delos.cryptography.bls.BLSProvider;
+import com.hellblazer.delos.cryptography.bls.ParsedBLSKey;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.bytes.Bytes48;
@@ -415,6 +416,33 @@ public class TekuBLSProvider implements BLSProvider {
         } catch (Exception e) {
             // Invalid format or verification failure
             return false;
+        }
+    }
+
+    @Override
+    public ParsedBLSKey parse(byte[] publicKey) {
+        if (publicKey == null) {
+            throw new NullPointerException("publicKey cannot be null");
+        }
+        if (publicKey.length != 48) {
+            throw new IllegalArgumentException(
+                "Public key must be 48 bytes, got: " + publicKey.length
+            );
+        }
+
+        try {
+            // Parse the compressed public key to Teku BLSPublicKey
+            // This internally uses the publicKeyCache to avoid duplicate parsing
+            var parsedKey = parsePublicKey(publicKey);
+
+            // Wrap in opaque ParsedBLSKey record
+            return new ParsedBLSKey(parsedKey);
+
+        } catch (Exception e) {
+            throw new IllegalArgumentException(
+                "Failed to parse public key: " + e.getMessage(),
+                e
+            );
         }
     }
 }

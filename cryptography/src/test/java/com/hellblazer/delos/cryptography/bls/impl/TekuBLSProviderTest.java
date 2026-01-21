@@ -8,6 +8,7 @@
 package com.hellblazer.delos.cryptography.bls.impl;
 
 import com.hellblazer.delos.cryptography.bls.BLSProvider;
+import com.hellblazer.delos.cryptography.bls.ParsedBLSKey;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -683,5 +684,67 @@ class TekuBLSProviderTest {
 
         assertThatThrownBy(() -> provider.batchVerifyAggregatesImpl(List.of(), List.of(), null))
             .isInstanceOf(NullPointerException.class);
+    }
+
+    // ===== parse() Tests (Phase 1C-1-D) =====
+
+    @Test
+    @DisplayName("parse with valid public key returns ParsedBLSKey")
+    void parseWithValidPublicKeyReturnsParsedBLSKey() {
+        var random = new Random(42L);
+        var keyPair = provider.generateKeyPair(random);
+        var publicKey = keyPair.publicKey();
+
+        var parsed = provider.parse(publicKey);
+
+        assertThat(parsed)
+            .isNotNull()
+            .isInstanceOf(ParsedBLSKey.class);
+        assertThat(parsed.parsedKey()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("parse rejects null public key")
+    void parseRejectsNullPublicKey() {
+        assertThatThrownBy(() -> provider.parse(null))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessageContaining("publicKey");
+    }
+
+    @Test
+    @DisplayName("parse rejects wrong-length public key")
+    void parseRejectsWrongLengthPublicKey() {
+        var invalidKey = new byte[32]; // Wrong: should be 48 bytes
+
+        assertThatThrownBy(() -> provider.parse(invalidKey))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("48 bytes");
+    }
+
+    @Test
+    @DisplayName("parse with multiple valid keys creates distinct ParsedBLSKey instances")
+    void parseWithMultipleValidKeysCreateDistinctInstances() {
+        var random = new Random(123L);
+        var key1 = provider.generateKeyPair(random).publicKey();
+        var key2 = provider.generateKeyPair(random).publicKey();
+
+        var parsed1 = provider.parse(key1);
+        var parsed2 = provider.parse(key2);
+
+        assertThat(parsed1).isNotEqualTo(parsed2);
+        assertThat(parsed1.parsedKey()).isNotEqualTo(parsed2.parsedKey());
+    }
+
+    @Test
+    @DisplayName("parse with same public key returns equivalent ParsedBLSKey (due to LRU cache)")
+    void parseWithSamePublicKeyReturnsCachedInstance() {
+        var random = new Random(456L);
+        var publicKey = provider.generateKeyPair(random).publicKey();
+
+        var parsed1 = provider.parse(publicKey);
+        var parsed2 = provider.parse(publicKey);
+
+        // Due to LRU cache in parsePublicKey, the same Teku BLSPublicKey instance is returned
+        assertThat(parsed1.parsedKey()).isSameAs(parsed2.parsedKey());
     }
 }

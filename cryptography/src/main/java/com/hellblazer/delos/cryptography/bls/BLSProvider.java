@@ -267,4 +267,25 @@ public interface BLSProvider {
 
         return filtered;
     }
+
+    /**
+     * Parse a raw BLS public key into a provider-specific parsed representation.
+     * <p>
+     * This method pre-parses a compressed public key (48 bytes) into the provider's internal
+     * format, eliminating parsing overhead during verification. The parsed key is wrapped in
+     * an opaque ParsedBLSKey record for type safety.
+     * <p>
+     * Used for key pre-computation during view changes to cache parsed representations.
+     * <p>
+     * Phase 1C-1-D: Committee Key Pre-computation support.
+     *
+     * @param publicKey BLS public key (48 bytes compressed G1 point)
+     * @return Opaque ParsedBLSKey wrapper containing provider-specific parsed representation
+     * @throws NullPointerException     if publicKey is null
+     * @throws IllegalArgumentException if publicKey is not 48 bytes or invalid format
+     * @throws UnsupportedOperationException if provider does not implement parse()
+     */
+    default ParsedBLSKey parse(byte[] publicKey) {
+        throw new UnsupportedOperationException("parse() must be implemented by provider");
+    }
 }
