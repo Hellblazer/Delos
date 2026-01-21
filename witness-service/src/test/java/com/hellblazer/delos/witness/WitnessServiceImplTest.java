@@ -1433,4 +1433,118 @@ class WitnessServiceImplTest {
         // Mixed format will be rejected outright, so no fallback should be attempted
         assertEquals(0, compatibilityLayer.getFormatFallbackAttempts());
     }
+
+    // ========== GetAggregateReceipt Tests ==========
+
+    @Test
+    void testGetAggregateReceiptWhenReady() {
+        // Given: Manager in DUAL phase with threshold BLS signatures met
+        migrationStateTracker.manualAdvance(MigrationPhase.DUAL);
+        var event = createEventCoordinates("get-agg-receipt", 300L);
+
+        // Simulate threshold BLS signatures collected
+        var threshold = parameters.threshold();
+        var signerIndices = new java.util.ArrayList<Integer>();
+        for (int i = 0; i < threshold; i++) {
+            signerIndices.add(i);
+        }
+
+        // Create mock aggregate receipt using real BLSAggregate record
+        var mockSignature = new com.hellblazer.delos.cryptography.bls.BLSSignature(new byte[96]);
+        var mockBitmap = new byte[1];  // At least 1 byte required
+        var mockAggregate = new com.hellblazer.delos.cryptography.bls.BLSAggregate(mockSignature, mockBitmap);
+
+        var aggregateReceipt = new com.hellblazer.delos.witness.receipt.AggregateWitnessReceipt(
+            event,
+            mockAggregate,
+            signerIndices,
+            com.hellblazer.delos.witness.aggregation.SignatureFormat.BLS_12_381,
+            System.currentTimeMillis(),
+            0
+        );
+
+        // Mock the receiptManager to return the aggregate
+        var originalReceiptManager = receiptManager;
+        var mockReceiptManager = mock(com.hellblazer.delos.witness.WitnessReceiptManager.class);
+        when(mockReceiptManager.getAggregateReceipt(any(EventCoordinates.class)))
+            .thenReturn(java.util.Optional.of(aggregateReceipt));
+
+        // Recreate service with mock receipt manager
+        witnessService = new WitnessServiceImpl(witnessCHOAM, witnessContext, mockReceiptManager, parameters, ALGORITHM,
+                                                migrationStateTracker, compatibilityLayer);
+
+        // When: GetAggregateReceipt is called
+        var request = ReceiptRequest.newBuilder()
+            .setEventCoordinates(event.toEventCoords())
+            .setTimeoutMs(5000)
+            .build();
+
+        var responseRef = new AtomicReference<ReceiptResponse>();
+        witnessService.getAggregateReceipt(request, new StreamObserver<ReceiptResponse>() {
+            @Override
+            public void onNext(ReceiptResponse value) {
+                responseRef.set(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                fail("Should not error: " + t.getMessage());
+            }
+
+            @Override
+            public void onCompleted() {}
+        });
+
+        // Then: Response contains aggregate receipt
+        assertNotNull(responseRef.get());
+        assertEquals(ValidationStatus.THRESHOLD_MET, responseRef.get().getStatus());
+        assertTrue(responseRef.get().hasReceipt());
+        assertEquals(threshold, responseRef.get().getSignatureCount());
+        assertEquals(parameters.threshold(), responseRef.get().getRequiredThreshold());
+    }
+
+    @Test
+    void testGetAggregateReceiptTimeout() {
+        // Given: Manager in DUAL phase with NO threshold met
+        migrationStateTracker.manualAdvance(MigrationPhase.DUAL);
+        var event = createEventCoordinates("timeout-test", 301L);
+
+        // Mock receiptManager to return empty (threshold not met)
+        var mockReceiptManager = mock(com.hellblazer.delos.witness.WitnessReceiptManager.class);
+        when(mockReceiptManager.getAggregateReceipt(any(EventCoordinates.class)))
+            .thenReturn(java.util.Optional.empty());
+
+        // Recreate service with mock receipt manager
+        witnessService = new WitnessServiceImpl(witnessCHOAM, witnessContext, mockReceiptManager, parameters, ALGORITHM,
+                                                migrationStateTracker, compatibilityLayer);
+
+        // When: GetAggregateReceipt is called with short timeout
+        var request = ReceiptRequest.newBuilder()
+            .setEventCoordinates(event.toEventCoords())
+            .setTimeoutMs(200)  // Short timeout for fast test
+            .build();
+
+        var responseRef = new AtomicReference<ReceiptResponse>();
+        witnessService.getAggregateReceipt(request, new StreamObserver<ReceiptResponse>() {
+            @Override
+            public void onNext(ReceiptResponse value) {
+                responseRef.set(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                fail("Should not error: " + t.getMessage());
+            }
+
+            @Override
+            public void onCompleted() {}
+        });
+
+        // Then: TIMEOUT status returned
+        assertNotNull(responseRef.get());
+        assertEquals(ValidationStatus.TIMEOUT, responseRef.get().getStatus());
+        assertFalse(responseRef.get().hasReceipt());
+        assertEquals(0, responseRef.get().getSignatureCount());
+        assertEquals(parameters.threshold(), responseRef.get().getRequiredThreshold());
+    }
 }

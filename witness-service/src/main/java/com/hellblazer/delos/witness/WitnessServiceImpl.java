@@ -20,6 +20,7 @@ import com.hellblazer.delos.witness.migration.MigrationPhase;
 import com.hellblazer.delos.witness.migration.MigrationStateTracker;
 import com.hellblazer.delos.witness.migration.ReceiptCompatibilityLayer;
 import com.hellblazer.delos.witness.proto.*;
+import com.hellblazer.delos.witness.receipt.AggregateWitnessReceipt;
 import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -257,6 +258,103 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
             lastErrorMessage = "GetReceipt error: " + e.getMessage();
             responseObserver.onError(e);
         }
+    }
+
+    /**
+     * Get BLS aggregate receipt for event.
+     * Polls with timeout if not immediately available.
+     * <p>
+     * Returns aggregate receipt when threshold signatures have been collected.
+     * Polls at 100ms intervals until timeout or threshold achieved.
+     *
+     * @param request Request with event coordinates and timeout
+     * @param responseObserver Observer for streaming response
+     */
+    @Override
+    public void getAggregateReceipt(ReceiptRequest request,
+                                   StreamObserver<ReceiptResponse> responseObserver) {
+        try {
+            // Convert proto to internal types
+            var eventCoordinates = EventCoordinates.from(request.getEventCoordinates());
+            long timeoutMs = request.getTimeoutMs() > 0 ? request.getTimeoutMs() : 5000;
+
+            log.debug("GetAggregateReceipt: event={}, timeout={}ms", eventCoordinates, timeoutMs);
+
+            // Try immediate retrieval
+            var aggregateReceiptOpt = receiptManager.getAggregateReceipt(eventCoordinates);
+
+            if (aggregateReceiptOpt.isPresent()) {
+                // Found immediately - return
+                returnAggregateReceipt(aggregateReceiptOpt.get(), responseObserver);
+                return;
+            }
+
+            // Poll with timeout (100ms intervals)
+            long startTime = System.currentTimeMillis();
+            boolean found = false;
+
+            while (System.currentTimeMillis() - startTime < timeoutMs) {
+                Thread.sleep(100);
+
+                aggregateReceiptOpt = receiptManager.getAggregateReceipt(eventCoordinates);
+                if (aggregateReceiptOpt.isPresent()) {
+                    found = true;
+                    break;
+                }
+            }
+
+            if (found) {
+                returnAggregateReceipt(aggregateReceiptOpt.get(), responseObserver);
+            } else {
+                // Timeout
+                var response = ReceiptResponse.newBuilder()
+                    .setStatus(ValidationStatus.TIMEOUT)
+                    .setSignatureCount(0)
+                    .setRequiredThreshold(parameters.threshold())
+                    .build();
+
+                responseObserver.onNext(response);
+                responseObserver.onCompleted();
+
+                log.warn("GetAggregateReceipt: timeout, event={}", eventCoordinates);
+            }
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("GetAggregateReceipt interrupted", e);
+            lastErrorMessage = "GetAggregateReceipt interrupted: " + e.getMessage();
+            responseObserver.onError(e);
+        } catch (Exception e) {
+            log.error("Error in getAggregateReceipt", e);
+            lastErrorMessage = "GetAggregateReceipt error: " + e.getMessage();
+            responseObserver.onError(e);
+        }
+    }
+
+    /**
+     * Helper method to return aggregate receipt in response.
+     * <p>
+     * Converts AggregateWitnessReceipt to proto format and builds ReceiptResponse.
+     *
+     * @param aggregateReceipt The aggregate receipt to return
+     * @param responseObserver Observer for response
+     */
+    private void returnAggregateReceipt(AggregateWitnessReceipt aggregateReceipt,
+                                       StreamObserver<ReceiptResponse> responseObserver) {
+        var protoReceipt = aggregateReceipt.toProto();
+
+        var response = ReceiptResponse.newBuilder()
+            .setReceipt(protoReceipt)
+            .setStatus(ValidationStatus.THRESHOLD_MET)
+            .setSignatureCount(aggregateReceipt.signerIndices().size())
+            .setRequiredThreshold(parameters.threshold())
+            .build();
+
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
+
+        log.debug("GetAggregateReceipt: returned aggregate for event={}",
+                 aggregateReceipt.event());
     }
 
     /**

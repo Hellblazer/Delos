@@ -580,6 +580,13 @@ service WitnessService {
   rpc GetReceipt(ReceiptRequest) returns (ReceiptResponse);
 
   /**
+   * Retrieve BLS aggregate receipt by event coordinates.
+   * Blocks until aggregate available or timeout.
+   * Returns TIMEOUT status if BLS threshold not yet met.
+   */
+  rpc GetAggregateReceipt(ReceiptRequest) returns (ReceiptResponse);
+
+  /**
    * Validate receipt signature threshold.
    * Verifies M-of-N signatures and epoch/view consistency.
    */
