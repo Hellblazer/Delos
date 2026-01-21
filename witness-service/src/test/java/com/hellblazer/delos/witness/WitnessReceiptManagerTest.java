@@ -907,7 +907,7 @@ class WitnessReceiptManagerTest {
 
     private BLSKeyPair createBLSKeyPair(int seed) {
         var random = BLSTestFixtures.deterministicRandom(seed);
-        return BLSKeyPair.generate(random, new TekuBLSProvider());
+        return BLSKeyPair.generate(random, TekuBLSProvider.getInstance());
     }
 
     private byte[] createEventMessage(EventCoordinates event) {

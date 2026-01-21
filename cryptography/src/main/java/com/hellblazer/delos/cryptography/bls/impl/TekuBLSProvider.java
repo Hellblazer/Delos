@@ -345,4 +345,76 @@ public class TekuBLSProvider implements BLSProvider {
             return false;
         }
     }
+
+    // ===== Phase 1C-1-C: Batch Aggregate Verification =====
+
+    @Override
+    public boolean batchVerifyAggregatesImpl(
+        List<List<byte[]>> filteredKeyLists,
+        List<byte[]> messages,
+        List<byte[]> signatures
+    ) {
+        if (filteredKeyLists == null || messages == null || signatures == null) {
+            throw new NullPointerException("Parameters cannot be null");
+        }
+
+        if (filteredKeyLists.isEmpty()) {
+            return true; // No aggregates to verify
+        }
+
+        if (filteredKeyLists.size() != messages.size() || messages.size() != signatures.size()) {
+            throw new IllegalArgumentException(
+                "List sizes must match: keyLists=" + filteredKeyLists.size() +
+                ", messages=" + messages.size() +
+                ", signatures=" + signatures.size()
+            );
+        }
+
+        try {
+            var blsPublicKeyLists = new ArrayList<List<BLSPublicKey>>();
+            var blsMessages = new ArrayList<Bytes>();
+            var blsSignatures = new ArrayList<BLSSignature>();
+
+            for (int i = 0; i < signatures.size(); i++) {
+                var keyBytes = filteredKeyLists.get(i);
+                var message = messages.get(i);
+                var signature = signatures.get(i);
+
+                if (keyBytes == null || message == null || signature == null) {
+                    throw new NullPointerException("List elements cannot be null at index " + i);
+                }
+
+                if (keyBytes.isEmpty()) {
+                    throw new IllegalArgumentException("keyBytes at index " + i + " cannot be empty");
+                }
+
+                if (signature.length != 96) {
+                    throw new IllegalArgumentException("Signature at index " + i + " must be 96 bytes, got: " + signature.length);
+                }
+
+                // Parse public keys for this aggregate (multiple keys per entry for aggregates)
+                var blsKeys = new ArrayList<BLSPublicKey>();
+                for (var keyByte : keyBytes) {
+                    if (keyByte == null) {
+                        throw new NullPointerException("Public key in list at index " + i + " cannot be null");
+                    }
+                    if (keyByte.length != 48) {
+                        throw new IllegalArgumentException("Public key must be 48 bytes, got: " + keyByte.length);
+                    }
+                    blsKeys.add(parsePublicKey(keyByte));
+                }
+
+                blsPublicKeyLists.add(blsKeys);                                         // Multiple keys per aggregate
+                blsMessages.add(Bytes.wrap(message));
+                blsSignatures.add(BLSSignature.fromBytesCompressed(Bytes.wrap(signature)));
+            }
+
+            // Native Teku batch verification with aggregate support
+            return BLS.batchVerify(blsPublicKeyLists, blsMessages, blsSignatures);
+
+        } catch (Exception e) {
+            // Invalid format or verification failure
+            return false;
+        }
+    }
 }

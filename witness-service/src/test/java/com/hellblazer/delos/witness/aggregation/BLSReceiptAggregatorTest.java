@@ -47,7 +47,7 @@ class BLSReceiptAggregatorTest {
     void setUp() {
         digestAlgorithm = DigestAlgorithm.BLAKE3_256;
         aggregator = new BLSReceiptAggregator();
-        blsProvider = new TekuBLSProvider();
+        blsProvider = TekuBLSProvider.getInstance();
 
         // Generate a committee of 20 key pairs for testing using our wrapper
         var random = BLSTestFixtures.deterministicRandom(0x123456);

@@ -540,4 +540,148 @@ class TekuBLSProviderTest {
             .as("Second verifyAggregate call should have cache hits for keys")
             .isGreaterThan(0);
     }
+
+    // ===== Phase 1C-1-C: Batch Aggregate Verification Tests =====
+
+    @Test
+    @DisplayName("batchVerifyAggregatesImpl with valid aggregates returns true")
+    void batchVerifyAggregatesImplWithValidAggregatesReturnsTrue() {
+        var singletonProvider = TekuBLSProvider.getInstance();
+        var random = new Random(888);
+
+        // Create committee of 10 keys
+        var committee = new ArrayList<byte[]>();
+        var secretKeys = new ArrayList<byte[]>();
+        for (int i = 0; i < 10; i++) {
+            var keyPair = singletonProvider.generateKeyPair(random);
+            committee.add(keyPair.publicKey());
+            secretKeys.add(keyPair.secretKey());
+        }
+
+        // Create 3 aggregates with different messages and signer subsets
+        var message1 = "Block 100".getBytes();
+        var message2 = "Block 101".getBytes();
+        var message3 = "Block 102".getBytes();
+
+        // Aggregate 1: Signers 0, 1, 2
+        var sigs1 = new ArrayList<byte[]>();
+        for (int i = 0; i <= 2; i++) {
+            sigs1.add(singletonProvider.sign(secretKeys.get(i), message1));
+        }
+        var agg1 = singletonProvider.aggregateSignatures(sigs1);
+
+        // Aggregate 2: Signers 3, 4, 5, 6
+        var sigs2 = new ArrayList<byte[]>();
+        for (int i = 3; i <= 6; i++) {
+            sigs2.add(singletonProvider.sign(secretKeys.get(i), message2));
+        }
+        var agg2 = singletonProvider.aggregateSignatures(sigs2);
+
+        // Aggregate 3: Signers 7, 8, 9
+        var sigs3 = new ArrayList<byte[]>();
+        for (int i = 7; i <= 9; i++) {
+            sigs3.add(singletonProvider.sign(secretKeys.get(i), message3));
+        }
+        var agg3 = singletonProvider.aggregateSignatures(sigs3);
+
+        // Prepare batch verification inputs
+        var filteredKeyLists = List.of(
+            List.of(committee.get(0), committee.get(1), committee.get(2)),
+            List.of(committee.get(3), committee.get(4), committee.get(5), committee.get(6)),
+            List.of(committee.get(7), committee.get(8), committee.get(9))
+        );
+        var messages = List.of(message1, message2, message3);
+        var signatures = List.of(agg1, agg2, agg3);
+
+        // WHEN: Batch verify aggregates
+        var result = provider.batchVerifyAggregatesImpl(filteredKeyLists, messages, signatures);
+
+        // THEN: Should verify successfully
+        assertThat(result)
+            .as("Valid aggregates should batch-verify")
+            .isTrue();
+    }
+
+    @Test
+    @DisplayName("batchVerifyAggregatesImpl with invalid signature returns false")
+    void batchVerifyAggregatesImplWithInvalidSignatureReturnsFalse() {
+        var singletonProvider = TekuBLSProvider.getInstance();
+        var random = new Random(999);
+
+        var committee = new ArrayList<byte[]>();
+        var secretKeys = new ArrayList<byte[]>();
+        for (int i = 0; i < 5; i++) {
+            var keyPair = singletonProvider.generateKeyPair(random);
+            committee.add(keyPair.publicKey());
+            secretKeys.add(keyPair.secretKey());
+        }
+
+        var message1 = "Valid message".getBytes();
+        var message2 = "Invalid message".getBytes();
+
+        // Create valid aggregate for message1
+        var sigs1 = new ArrayList<byte[]>();
+        for (int i = 0; i < 3; i++) {
+            sigs1.add(singletonProvider.sign(secretKeys.get(i), message1));
+        }
+        var agg1 = singletonProvider.aggregateSignatures(sigs1);
+
+        // Create valid aggregate for message2, but use wrong message for verification
+        var sigs2 = new ArrayList<byte[]>();
+        for (int i = 3; i < 5; i++) {
+            sigs2.add(singletonProvider.sign(secretKeys.get(i), message2));
+        }
+        var agg2 = singletonProvider.aggregateSignatures(sigs2);
+
+        var filteredKeyLists = List.of(
+            List.of(committee.get(0), committee.get(1), committee.get(2)),
+            List.of(committee.get(3), committee.get(4))
+        );
+        // Use wrong message for the second aggregate - verification should fail
+        var messages = List.of(message1, message1);
+        var signatures = List.of(agg1, agg2);
+
+        // WHEN: Batch verify with one invalid
+        var result = provider.batchVerifyAggregatesImpl(filteredKeyLists, messages, signatures);
+
+        // THEN: Should return false
+        assertThat(result)
+            .as("One invalid aggregate should cause batch verification to fail")
+            .isFalse();
+    }
+
+    @Test
+    @DisplayName("batchVerifyAggregatesImpl with empty list returns true")
+    void batchVerifyAggregatesImplWithEmptyListReturnsTrue() {
+        var result = provider.batchVerifyAggregatesImpl(List.of(), List.of(), List.of());
+
+        assertThat(result)
+            .as("Empty batch should verify successfully")
+            .isTrue();
+    }
+
+    @Test
+    @DisplayName("batchVerifyAggregatesImpl rejects mismatched list sizes")
+    void batchVerifyAggregatesImplRejectsMismatchedListSizes() {
+        assertThatThrownBy(() -> provider.batchVerifyAggregatesImpl(
+            List.of(List.of()),
+            List.of(),
+            List.of()
+        ))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("List sizes must match");
+    }
+
+    @Test
+    @DisplayName("batchVerifyAggregatesImpl rejects null parameters")
+    void batchVerifyAggregatesImplRejectsNullParameters() {
+        assertThatThrownBy(() -> provider.batchVerifyAggregatesImpl(null, List.of(), List.of()))
+            .isInstanceOf(NullPointerException.class);
+
+        assertThatThrownBy(() -> provider.batchVerifyAggregatesImpl(List.of(), null, List.of()))
+            .isInstanceOf(NullPointerException.class);
+
+        assertThatThrownBy(() -> provider.batchVerifyAggregatesImpl(List.of(), List.of(), null))
+            .isInstanceOf(NullPointerException.class);
+    }
 }
