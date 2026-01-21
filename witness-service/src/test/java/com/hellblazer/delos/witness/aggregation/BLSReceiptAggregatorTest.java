@@ -17,6 +17,7 @@ import com.hellblazer.delos.stereotomy.identifier.Identifier;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
 import org.joou.ULong;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -473,6 +474,51 @@ class BLSReceiptAggregatorTest {
         assertThatThrownBy(() -> {
             aggregator.accumulate(createTestEvent(1), createMember(0), 0, createSignature(0), 5, -1);
         }).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("removeAccumulation: Explicitly removes event resources")
+    void testRemoveAccumulation() {
+        // Given: Aggregator with completed accumulation
+        var event = createTestEvent(1);
+        var threshold = 3;
+
+        // Accumulate threshold signatures
+        for (int i = 0; i < threshold; i++) {
+            aggregator.accumulate(event, createMember(i), i, createSignature(i), threshold, 1);
+        }
+
+        // Verify present
+        assertThat(aggregator.metrics().activeAccumulators()).isEqualTo(1);
+        assertThat(aggregator.getAggregate(event)).isPresent();
+
+        // When: Explicitly remove
+        var removed = aggregator.removeAccumulation(event);
+
+        // Then: Removed successfully
+        assertThat(removed).isTrue();
+        assertThat(aggregator.metrics().activeAccumulators()).isZero();
+        assertThat(aggregator.getAggregate(event)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("removeAccumulation: Returns false for unknown event")
+    void testRemoveAccumulationUnknown() {
+        var unknownEvent = createTestEvent(999);
+
+        // When: Try to remove unknown event
+        var removed = aggregator.removeAccumulation(unknownEvent);
+
+        // Then: Returns false
+        assertThat(removed).isFalse();
+    }
+
+    @Test
+    @DisplayName("removeAccumulation: Rejects null event")
+    void testRemoveAccumulationNullEvent() {
+        assertThatThrownBy(() -> {
+            aggregator.removeAccumulation(null);
+        }).isInstanceOf(NullPointerException.class);
     }
 
     // ========== Test Utilities ==========

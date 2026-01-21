@@ -17,6 +17,7 @@ import com.hellblazer.delos.witness.aggregation.BLSReceiptAggregator;
 import com.hellblazer.delos.witness.aggregation.SignatureFormat;
 import com.hellblazer.delos.witness.aggregation.SignatureAccumulator;
 import com.hellblazer.delos.witness.migration.MigrationPhase;
+import com.hellblazer.delos.witness.receipt.AggregateWitnessReceipt;
 
 import java.time.Duration;
 import java.util.*;
@@ -229,6 +230,61 @@ public class WitnessReceiptManager {
     }
 
     /**
+     * Get aggregate witness receipt for an event if threshold met.
+     * <p>
+     * Combines BLS aggregate signature with metadata for network transmission.
+     * Returns empty if threshold not met, event unknown, or BLS not supported.
+     *
+     * @param event Event coordinates
+     * @return Optional containing aggregate receipt if available
+     * @throws NullPointerException if event is null
+     */
+    public Optional<AggregateWitnessReceipt> getAggregateReceipt(EventCoordinates event) {
+        Objects.requireNonNull(event, "event required");
+
+        // Return empty if BLS not supported in current phase
+        if (blsAggregator == null) {
+            return Optional.empty();
+        }
+
+        // Get BLS aggregate
+        var aggregateOpt = blsAggregator.getAggregate(event);
+        if (aggregateOpt.isEmpty()) {
+            return Optional.empty();
+        }
+
+        // Get collection state for snapshot
+        lock.readLock().lock();
+        try {
+            var key = eventKey(event);
+            var state = collections.get(key);
+            if (state == null) {
+                return Optional.empty();
+            }
+
+            // Get BLS snapshot for signer indices
+            var snapshotOpt = state.getBLSSnapshot();
+            if (snapshotOpt.isEmpty()) {
+                return Optional.empty();
+            }
+
+            var snapshot = snapshotOpt.get();
+
+            // Create AggregateWitnessReceipt
+            return Optional.of(new AggregateWitnessReceipt(
+                event,
+                aggregateOpt.get(),
+                snapshot.signerIndices(),
+                SignatureFormat.BLS_12_381,
+                System.currentTimeMillis(),
+                (int) parameters.epoch()
+            ));
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
      * Get current collection state for event.
      *
      * @param event Event coordinates
@@ -258,6 +314,33 @@ public class WitnessReceiptManager {
             collections.remove(key);
         } finally {
             lock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Complete BLS collection with proper resource cleanup.
+     * <p>
+     * Removes both CollectionState and BLSReceiptAggregator entries.
+     * Use this instead of completeCollection() for BLS collections to ensure
+     * immediate cleanup instead of waiting for time-based expiration.
+     *
+     * @param event Event coordinates
+     */
+    public void completeBLSCollection(EventCoordinates event) {
+        Objects.requireNonNull(event, "event required");
+
+        // Remove CollectionState (same as completeCollection)
+        lock.writeLock().lock();
+        try {
+            var key = eventKey(event);
+            collections.remove(key);
+        } finally {
+            lock.writeLock().unlock();
+        }
+
+        // Remove BLS aggregator resources if aggregator exists
+        if (blsAggregator != null) {
+            blsAggregator.removeAccumulation(event);
         }
     }
 

@@ -242,6 +242,24 @@ public final class BLSReceiptAggregator {
     }
 
     /**
+     * Remove accumulation for a specific event (explicit cleanup).
+     * <p>
+     * Used when a collection completes successfully to immediately free resources
+     * instead of waiting for time-based expiration.
+     *
+     * @param event Event coordinates to clean up
+     * @return true if entry was removed, false if not found
+     */
+    public boolean removeAccumulation(EventCoordinates event) {
+        Objects.requireNonNull(event, "event cannot be null");
+
+        var accumulatorRemoved = accumulators.remove(event) != null;
+        var aggregateRemoved = aggregates.remove(event) != null;
+
+        return accumulatorRemoved || aggregateRemoved;
+    }
+
+    /**
      * Clear all accumulators and aggregates.
      * <p>
      * For testing and reset scenarios.

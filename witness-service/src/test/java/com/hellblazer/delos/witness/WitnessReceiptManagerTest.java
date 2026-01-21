@@ -697,6 +697,191 @@ class WitnessReceiptManagerTest {
         assertThat(receiptManager.getBLSInFlightCount()).isZero();
     }
 
+    @Test
+    @DisplayName("getAggregateReceipt: Returns receipt when threshold met")
+    void testGetAggregateReceipt() {
+        // Given: Manager in DUAL phase with threshold met
+        var k = 5;
+        var threshold = 4;
+        var epoch = 42L;
+        var dualParams = WitnessParameters.newBuilder()
+            .k(k)
+            .threshold(threshold)
+            .epoch(epoch)
+            .drainPeriod(Duration.ofMillis(500))
+            .signatureFormat(SignatureFormat.BLS_12_381)
+            .migrationPhase(MigrationPhase.DUAL)
+            .build();
+
+        var manager = new WitnessReceiptManager(dualParams);
+        var event = createEventCoordinates("agg-receipt", 200L);
+        var message = createEventMessage(event);
+
+        // When: Accumulate threshold BLS signatures
+        for (int i = 0; i < threshold; i++) {
+            var keyPair = createBLSKeyPair(i);
+            manager.addBLSSignature(event, createTestMember(i), i, keyPair.sign(message));
+        }
+
+        // Then: Aggregate receipt available
+        var receiptOpt = manager.getAggregateReceipt(event);
+        assertThat(receiptOpt).isPresent();
+
+        var receipt = receiptOpt.get();
+        assertThat(receipt.event()).isEqualTo(event);
+        assertThat(receipt.aggregate()).isNotNull();
+        assertThat(receipt.signerIndices()).hasSize(threshold);
+        assertThat(receipt.format()).isEqualTo(SignatureFormat.BLS_12_381);
+        assertThat(receipt.timestamp()).isGreaterThan(0);
+        assertThat(receipt.epoch()).isEqualTo((int) epoch);
+    }
+
+    @Test
+    @DisplayName("getAggregateReceipt: Returns empty before threshold")
+    void testGetAggregateReceiptBeforeThreshold() {
+        // Given: Manager with threshold not met
+        var k = 5;
+        var threshold = 4;
+        var dualParams = WitnessParameters.newBuilder()
+            .k(k)
+            .threshold(threshold)
+            .epoch(0)
+            .drainPeriod(Duration.ofMillis(500))
+            .signatureFormat(SignatureFormat.BLS_12_381)
+            .migrationPhase(MigrationPhase.DUAL)
+            .build();
+
+        var manager = new WitnessReceiptManager(dualParams);
+        var event = createEventCoordinates("no-receipt", 201L);
+        var message = createEventMessage(event);
+
+        // When: Add only 2 signatures (below threshold)
+        for (int i = 0; i < 2; i++) {
+            var keyPair = createBLSKeyPair(i);
+            manager.addBLSSignature(event, createTestMember(i), i, keyPair.sign(message));
+        }
+
+        // Then: Receipt not available
+        var receiptOpt = manager.getAggregateReceipt(event);
+        assertThat(receiptOpt).isEmpty();
+    }
+
+    @Test
+    @DisplayName("getAggregateReceipt: Returns empty in INIT phase")
+    void testGetAggregateReceiptInInitPhase() {
+        // Given: Manager in INIT phase (BLS not supported)
+        var event = createEventCoordinates("init-receipt", 202L);
+
+        // When: Query for receipt
+        var receiptOpt = receiptManager.getAggregateReceipt(event);
+
+        // Then: Empty (BLS not supported)
+        assertThat(receiptOpt).isEmpty();
+    }
+
+    @Test
+    @DisplayName("getAggregateReceipt: Returns empty for unknown event")
+    void testGetAggregateReceiptUnknownEvent() {
+        // Given: Manager in DUAL phase
+        var dualParams = WitnessParameters.newBuilder()
+            .k(5)
+            .threshold(4)
+            .epoch(0)
+            .drainPeriod(Duration.ofMillis(500))
+            .signatureFormat(SignatureFormat.BLS_12_381)
+            .migrationPhase(MigrationPhase.DUAL)
+            .build();
+
+        var manager = new WitnessReceiptManager(dualParams);
+        var unknownEvent = createEventCoordinates("unknown", 999L);
+
+        // When: Query for receipt of unknown event
+        var receiptOpt = manager.getAggregateReceipt(unknownEvent);
+
+        // Then: Empty
+        assertThat(receiptOpt).isEmpty();
+    }
+
+    @Test
+    @DisplayName("completeBLSCollection: Cleans up both CollectionState and BLS aggregator")
+    void testCompleteBLSCollection() {
+        // Given: Manager with completed BLS collection
+        var k = 5;
+        var threshold = 4;
+        var dualParams = WitnessParameters.newBuilder()
+            .k(k)
+            .threshold(threshold)
+            .epoch(0)
+            .drainPeriod(Duration.ofMillis(500))
+            .signatureFormat(SignatureFormat.BLS_12_381)
+            .migrationPhase(MigrationPhase.DUAL)
+            .build();
+
+        var manager = new WitnessReceiptManager(dualParams);
+        var event = createEventCoordinates("complete-bls", 300L);
+        var message = createEventMessage(event);
+
+        // Accumulate threshold signatures
+        for (int i = 0; i < threshold; i++) {
+            var keyPair = createBLSKeyPair(i);
+            manager.addBLSSignature(event, createTestMember(i), i, keyPair.sign(message));
+        }
+
+        // Verify collection exists and threshold met
+        assertThat(manager.getInFlightCount()).isEqualTo(1);
+        assertThat(manager.getBLSInFlightCount()).isEqualTo(1);
+        assertThat(manager.getBLSAggregate(event)).isPresent();
+
+        // When: Complete BLS collection
+        manager.completeBLSCollection(event);
+
+        // Then: Both CollectionState and BLS aggregator cleaned up
+        assertThat(manager.getInFlightCount()).isZero();
+        assertThat(manager.getBLSInFlightCount()).isZero();
+        assertThat(manager.getBLSAggregate(event)).isEmpty();
+        assertThat(manager.getAggregateReceipt(event)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("completeCollection: Does NOT clean up BLS aggregator (old behavior)")
+    void testCompleteCollectionLeavesBlsData() {
+        // Given: Manager with completed BLS collection
+        var k = 5;
+        var threshold = 4;
+        var dualParams = WitnessParameters.newBuilder()
+            .k(k)
+            .threshold(threshold)
+            .epoch(0)
+            .drainPeriod(Duration.ofMillis(500))
+            .signatureFormat(SignatureFormat.BLS_12_381)
+            .migrationPhase(MigrationPhase.DUAL)
+            .build();
+
+        var manager = new WitnessReceiptManager(dualParams);
+        var event = createEventCoordinates("old-complete", 301L);
+        var message = createEventMessage(event);
+
+        // Accumulate threshold signatures
+        for (int i = 0; i < threshold; i++) {
+            var keyPair = createBLSKeyPair(i);
+            manager.addBLSSignature(event, createTestMember(i), i, keyPair.sign(message));
+        }
+
+        assertThat(manager.getInFlightCount()).isEqualTo(1);
+        assertThat(manager.getBLSInFlightCount()).isEqualTo(1);
+
+        // When: Use old completeCollection() (not completeBLSCollection)
+        manager.completeCollection(event);
+
+        // Then: CollectionState removed but BLS data remains
+        assertThat(manager.getInFlightCount()).isZero();
+        assertThat(manager.getBLSInFlightCount()).isEqualTo(1);  // Still there!
+        assertThat(manager.getBLSAggregate(event)).isPresent();  // Still accessible
+
+        // Cleanup for next test
+        manager.completeBLSCollection(event);
+    }
+
     // Helper methods
 
     private List<MockMember> createWitnessPool(int size) {
