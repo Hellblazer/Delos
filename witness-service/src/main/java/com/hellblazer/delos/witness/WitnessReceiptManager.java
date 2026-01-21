@@ -185,6 +185,12 @@ public class WitnessReceiptManager {
                         "ViewRef mismatch from " + member
                     );
                 }
+                // TODO: Phase 1C-3-C - Implement buffering logic for view change degradation
+                // Buffered case commented out until AccumulationResult.Buffered is properly implemented
+                // case AccumulationResult.Buffered buffered -> {
+                //     // For now, signatures are buffered but not yet persisted or processed
+                //     // Full buffering implementation will be added in subsequent phases
+                // }
             }
         } finally {
             lock.writeLock().unlock();
