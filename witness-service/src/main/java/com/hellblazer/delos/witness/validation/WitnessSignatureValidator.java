@@ -17,14 +17,24 @@ import com.hellblazer.delos.witness.integration.WitnessKerlIntegration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Instant;
+import java.util.Optional;
+
 /**
- * Validates witness signatures against KERI KeyState.
+ * Validates witness signatures against KERI KeyState with dual-key support during grace period.
  * <p>
  * Verification algorithm:
  * 1. Extract witness identifier from receipt
  * 2. Lookup KeyState via WitnessKerlIntegration at collection epoch
- * 3. Verify signature against KeyState public key
- * 4. Return verification result with diagnostic info
+ * 3. Verify signature against KeyState public key (ACTIVE key)
+ * 4. If verification fails and rotation manager present, try deprecated keys (grace period)
+ * 5. Return verification result with diagnostic info
+ * </p>
+ * <p>
+ * Dual-key support (Phase 1C-3-A):
+ * - During grace period, both old (DEPRECATED) and new (ACTIVE) keys accepted
+ * - Enables zero-downtime key rotation via BLSKeyRotationManager
+ * - Signature valid if verifies against any key in getValidKeys(now)
  * </p>
  * <p>
  * Error handling:
@@ -37,11 +47,33 @@ public class WitnessSignatureValidator {
 
     private static final Logger log = LoggerFactory.getLogger(WitnessSignatureValidator.class);
 
+    /**
+     * Function to verify witness signature against valid keys during grace period.
+     * Handles both ACTIVE and DEPRECATED keys if witness is in grace period.
+     */
+    @FunctionalInterface
+    public interface KeyLookup {
+        /**
+         * Attempt to verify signature against valid keys during grace period.
+         * Implementation should check if witness is in grace period and try both
+         * old (DEPRECATED) and new (ACTIVE) keys via BLSKeyRotationManager.getValidKeys().
+         *
+         * @param witnessId Witness identifier
+         * @param signature Signature to verify
+         * @param signedData Data that was signed
+         * @param now       Current timestamp
+         * @return true if signature verifies against any valid key, false otherwise
+         */
+        boolean verifyWithValidKeys(Identifier witnessId, JohnHancock signature, byte[] signedData, Instant now);
+    }
+
     private final WitnessKerlIntegration kerlIntegration;
+    private final Optional<KeyLookup> keyLookup;
     private final Counter validSignatures;
     private final Counter invalidSignatures;
     private final Counter identifierNotFound;
     private final Counter keyStateUnavailable;
+    private final Counter dualKeyValidations;
 
     /**
      * Create witness signature validator with metrics tracking.
@@ -50,21 +82,40 @@ public class WitnessSignatureValidator {
      * @param metricRegistry   Metrics registry for tracking
      */
     public WitnessSignatureValidator(WitnessKerlIntegration kerlIntegration, MetricRegistry metricRegistry) {
+        this(kerlIntegration, null, metricRegistry);
+    }
+
+    /**
+     * Create witness signature validator with optional dual-key support.
+     *
+     * @param kerlIntegration  KERL integration for KeyState lookup
+     * @param keyLookup        Optional function to get valid keys during grace period
+     * @param metricRegistry   Metrics registry for tracking
+     */
+    public WitnessSignatureValidator(WitnessKerlIntegration kerlIntegration,
+                                     KeyLookup keyLookup,
+                                     MetricRegistry metricRegistry) {
         this.kerlIntegration = kerlIntegration;
+        this.keyLookup = Optional.ofNullable(keyLookup);
         this.validSignatures = metricRegistry.counter("witness.signature.validation.valid");
         this.invalidSignatures = metricRegistry.counter("witness.signature.validation.invalid");
         this.identifierNotFound = metricRegistry.counter("witness.signature.validation.identifier_not_found");
         this.keyStateUnavailable = metricRegistry.counter("witness.signature.validation.keystate_unavailable");
+        this.dualKeyValidations = metricRegistry.counter("witness.signature.validation.dual_key");
     }
 
     /**
-     * Verify witness signature against KERL KeyState.
+     * Verify witness signature against KERL KeyState with optional dual-key fallback.
      * <p>
      * Returns sealed SignatureVerificationResult:
      * - Success(keyState): Signature valid
      * - InvalidSignature: Signature verification failed
      * - IdentifierNotFound: Identifier not in KERL
      * - KeyStateUnavailable: KERL lookup failed
+     * </p>
+     * <p>
+     * During grace period, will also try deprecated keys from KeyLookup if available.
+     * Enables zero-downtime key rotation via BLSKeyRotationManager integration.
      * </p>
      *
      * @param witnessIdentifier  Witness identifier to verify
@@ -88,18 +139,36 @@ public class WitnessSignatureValidator {
 
         var keyState = keyStateOpt.get();
 
-        // Verify signature against KeyState public keys
+        // Verify signature against KeyState public keys (ACTIVE key)
         var verified = verifyWithKeyState(keyState, signature, signedData);
 
         if (verified) {
             log.debug("Signature valid for witness={} at epoch={}", witnessIdentifier, collectionEpoch);
             validSignatures.inc();
             return new Success(keyState);
-        } else {
-            log.warn("Invalid signature for witness={} at epoch={}", witnessIdentifier, collectionEpoch);
-            invalidSignatures.inc();
-            return new InvalidSignature(witnessIdentifier, collectionEpoch);
         }
+
+        // If primary verification failed and key lookup available, try deprecated keys (grace period)
+        if (keyLookup.isPresent()) {
+            var now = Instant.now();
+            try {
+                if (keyLookup.get().verifyWithValidKeys(witnessIdentifier, signature, signedData, now)) {
+                    log.debug("Signature valid via dual-key validation (grace period) for witness={} at epoch={}",
+                        witnessIdentifier, collectionEpoch);
+                    validSignatures.inc();
+                    dualKeyValidations.inc();
+                    return new Success(keyState);
+                }
+            } catch (Exception e) {
+                log.debug("Error during grace period verification for witness={}: {}",
+                    witnessIdentifier, e.getMessage());
+            }
+        }
+
+        // All verification attempts failed
+        log.warn("Invalid signature for witness={} at epoch={}", witnessIdentifier, collectionEpoch);
+        invalidSignatures.inc();
+        return new InvalidSignature(witnessIdentifier, collectionEpoch);
     }
 
     /**
@@ -126,6 +195,7 @@ public class WitnessSignatureValidator {
         return verifier.verify(signature, signedData);
     }
 
+
     /**
      * Get validation statistics for monitoring.
      *
@@ -136,7 +206,8 @@ public class WitnessSignatureValidator {
             validSignatures.getCount(),
             invalidSignatures.getCount(),
             identifierNotFound.getCount(),
-            keyStateUnavailable.getCount()
+            keyStateUnavailable.getCount(),
+            dualKeyValidations.getCount()
         );
     }
 
@@ -179,6 +250,7 @@ public class WitnessSignatureValidator {
     public record ValidationStats(long validSignatures,
                                   long invalidSignatures,
                                   long identifierNotFound,
-                                  long keyStateUnavailable) {
+                                  long keyStateUnavailable,
+                                  long dualKeyValidations) {
     }
 }
