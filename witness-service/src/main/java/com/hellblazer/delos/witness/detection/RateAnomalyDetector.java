@@ -153,9 +153,11 @@ public class RateAnomalyDetector implements ByzantineDetector {
             return 0.0;
         }
 
-        // If window is nearly empty (< 3 receipts in last 5 seconds), rate is effectively low
-        if (stats.currentWindowSize() < 3) {
-            return 0.0;  // Too few recent receipts to indicate high rate
+        // If window has too few recent receipts (< 2 in last 5 seconds), rate is effectively low
+        // This prevents using stale EMA rates when the sliding window has cleared most entries
+        // Requires at least 2 receipts to ensure valid inter-arrival rate calculation
+        if (stats.currentWindowSize() < 2) {
+            return 0.0;  // Too few recent receipts to indicate current rate (avoid stale EMA)
         }
 
         // Use the EMA rate from stats (updated in recordValidationResult)
