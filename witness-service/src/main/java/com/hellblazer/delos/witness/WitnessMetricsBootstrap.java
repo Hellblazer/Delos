@@ -15,8 +15,6 @@ import com.hellblazer.delos.witness.detection.ResponseOrchestrationMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Objects;
-
 /**
  * WitnessMetricsBootstrap: Central metrics lifecycle manager for Phase 1C Byzantine detection.
  * <p>
@@ -125,7 +123,7 @@ public class WitnessMetricsBootstrap implements AutoCloseable {
      *
      * @return BLS metrics
      */
-    public BLSMetricsImpl getBLSMetrics() {
+    public BLSMetrics getBLSMetrics() {
         return blsMetrics;
     }
 

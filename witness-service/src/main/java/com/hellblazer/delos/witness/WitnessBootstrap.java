@@ -5,11 +5,6 @@
  * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
  * This file is part of the Delos Distributed Systems Framework.
  */
-/*
- * Portions copyright (c) 2025, Hal Hildebrand.
- * Modifications made under GNU Affero General Public License.
- * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
- */
 package com.hellblazer.delos.witness;
 
 import com.hellblazer.delos.context.Context;
@@ -58,7 +53,7 @@ public class WitnessBootstrap implements AutoCloseable {
     private WitnessCHOAM witnessCHOAM;
     private WitnessFirefliesIntegration firefliesIntegration;
     private ScheduledExecutorService scheduler;
-    private WitnessMetricsBootstrap metricsBootstrap;
+    private volatile WitnessMetricsBootstrap metricsBootstrap;
 
     /**
      * Create bootstrap with configuration.

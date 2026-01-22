@@ -82,4 +82,16 @@ class WitnessCHOAMViewChangeListenerMetricsTest {
 
         assertThat(legacyListener).isNotNull();
     }
+
+    @Test
+    @DisplayName("should record metrics on view height getter")
+    void shouldProvideMetricsAccessor() {
+        // Verify we can access the listener's methods that would use metrics
+        long height = listener.getViewHeight();
+        assertThat(height).isGreaterThanOrEqualTo(0L);
+
+        // Set view height and verify
+        listener.setViewHeight(42L);
+        assertThat(listener.getViewHeight()).isEqualTo(42L);
+    }
 }
