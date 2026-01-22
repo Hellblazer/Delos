@@ -774,6 +774,9 @@ class BLSMetricsTest {
         }
 
         @Override
+        public void recordThresholdRecalculationTime(long recalcTimeMicros) {}
+
+        @Override
         public void recordDegradationStateTransition(String transition) {}
 
         @Override
