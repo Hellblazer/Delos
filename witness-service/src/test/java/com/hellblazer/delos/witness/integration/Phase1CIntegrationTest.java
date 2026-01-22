@@ -85,7 +85,7 @@ class Phase1CIntegrationTest extends Phase1CTestBase {
             // Verify all events are distinct
             Set<Digest> digests = new HashSet<>();
             for (EventCoordinates event : events) {
-                digests.add(event.getEventDigest());
+                digests.add(event.getDigest());
             }
             assertEquals(10, digests.size(), "All events should have distinct digests");
         }
@@ -171,8 +171,8 @@ class Phase1CIntegrationTest extends Phase1CTestBase {
             Identifier byzantine = committeeList.get(0);
 
             // Simulate equivocation
-            Digest msg1 = createEquivocatingMessage(byzantine, 1).getEventDigest();
-            Digest msg2 = createEquivocatingMessage(byzantine, 2).getEventDigest();
+            Digest msg1 = createEquivocatingMessage(byzantine, 1);
+            Digest msg2 = createEquivocatingMessage(byzantine, 2);
 
             assertNotEquals(msg1, msg2, "Equivocation messages should differ");
         }
@@ -214,7 +214,7 @@ class Phase1CIntegrationTest extends Phase1CTestBase {
             EventCoordinates correctEvent = createEventCoordinates("correct", 1L);
             EventCoordinates wrongEvent = createEventCoordinates("wrong", 2L);
 
-            assertNotEquals(correctEvent.getEventDigest(), wrongEvent.getEventDigest());
+            assertNotEquals(correctEvent.getDigest(), wrongEvent.getDigest());
         }
 
         /**
@@ -541,8 +541,9 @@ class Phase1CIntegrationTest extends Phase1CTestBase {
             int iterations = 100;
 
             for (int i = 0; i < iterations; i++) {
-                long latencyNanos = measureLatencyNanos("event-" + i,
-                    () -> createEventCoordinates("latency-" + i, (long) i));
+                final int index = i;
+                long latencyNanos = measureLatencyNanos("event-" + index,
+                    () -> createEventCoordinates("latency-" + index, (long) index));
                 latencies.add(latencyNanos);
             }
 

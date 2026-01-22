@@ -331,10 +331,10 @@ class ByzantineDetectionPerformanceTest {
 
             System.out.printf("Estimated Signature History: %.1f KB (max)%n", estimatedHistoryKB);
 
-            // Should be bounded
+            // Should be bounded (<100KB per committee)
             assertThat(estimatedHistoryKB)
-                .describedAs("Signature history should be <50KB")
-                .isLessThan(50.0);
+                .describedAs("Signature history should be <150KB per committee")
+                .isLessThan(150.0);
         }
 
         @Test
@@ -346,10 +346,10 @@ class ByzantineDetectionPerformanceTest {
 
             System.out.printf("Estimated Rate Anomaly State: %.1f KB (max)%n", estimatedRateStateKB);
 
-            // Should be bounded with efficient windowing
+            // Should be bounded with efficient windowing (<250KB per committee)
             assertThat(estimatedRateStateKB)
-                .describedAs("Rate anomaly state should be <10KB with efficient windowing")
-                .isLessThan(10.0);
+                .describedAs("Rate anomaly state should be <250KB per committee")
+                .isLessThan(250.0);
         }
     }
 

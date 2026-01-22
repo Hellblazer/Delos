@@ -15,6 +15,7 @@ import com.hellblazer.delos.membership.MockMember;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
+import org.joou.ULong;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 
@@ -109,9 +110,9 @@ abstract public class Phase1CTestBase {
         // Create self-addressing identifier for event
         return new EventCoordinates(
                 new SelfAddressingIdentifier(eventDigest),
-                sequenceNumber,
+                ULong.valueOf(sequenceNumber),
                 eventDigest,
-                EventCoordinates.EventType.IDENT);
+                "icp");
     }
 
     /**
