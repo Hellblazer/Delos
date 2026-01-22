@@ -27,5 +27,25 @@ public enum DetectorType {
     /**
      * Rate anomaly detector (abnormal receipt rates, flooding).
      */
-    RATE
+    RATE,
+
+    /**
+     * Equivocation detector (conflicting signatures at same coordinates).
+     */
+    EQUIVOCATION,
+
+    /**
+     * Timing attack detector (cohort correlation based on timing patterns).
+     */
+    TIMING_ATTACK,
+
+    /**
+     * Replay detector (duplicate signature detection).
+     */
+    REPLAY,
+
+    /**
+     * Coalition detector (coordinated Byzantine attack patterns).
+     */
+    COALITION
 }

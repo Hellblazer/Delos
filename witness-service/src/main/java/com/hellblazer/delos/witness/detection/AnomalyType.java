@@ -39,6 +39,11 @@ public enum AnomalyType {
     RATE_ANOMALY,
 
     /**
+     * Replay attack detected (duplicate signatures on same event coordinate).
+     */
+    REPLAY,
+
+    /**
      * Coordinated attack pattern detected.
      */
     COORDINATED_ATTACK
