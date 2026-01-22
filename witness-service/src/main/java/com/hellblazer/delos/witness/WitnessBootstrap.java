@@ -10,6 +10,9 @@ package com.hellblazer.delos.witness;
 import com.hellblazer.delos.context.Context;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
+import com.hellblazer.delos.witness.detection.*;
+import com.hellblazer.delos.witness.validation.BLSKeyRotationLookup;
+import com.hellblazer.delos.witness.validation.WitnessSignatureValidator;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.netty.NettyServerBuilder;
@@ -17,9 +20,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.time.Duration;
+import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * WitnessBootstrap: Service lifecycle management for witness network.
@@ -54,6 +57,16 @@ public class WitnessBootstrap implements AutoCloseable {
     private WitnessFirefliesIntegration firefliesIntegration;
     private ScheduledExecutorService scheduler;
     private volatile WitnessMetricsBootstrap metricsBootstrap;
+
+    // Phase 1C-3-A: Key rotation and Byzantine detection
+    private KeyRotationOrchestrator keyRotationOrchestrator;
+    private KeyRotationTriggerImpl keyRotationTrigger;
+    private KeyRotationEscalation keyRotationEscalation;
+    private ViewChangeEscalation viewChangeEscalation;
+    private EscalationCoordinator escalationCoordinator;
+    private DefaultResponseOrchestrator responseOrchestrator;
+    private BLSKeyRotationLookup keyRotationLookup;
+    private WitnessSignatureValidator signatureValidator;
 
     /**
      * Create bootstrap with configuration.
@@ -132,6 +145,9 @@ public class WitnessBootstrap implements AutoCloseable {
         var compatibilityLayer = new com.hellblazer.delos.witness.migration.ReceiptCompatibilityLayer(
             migrationStateTracker
         );
+
+        // Initialize Phase 1C-3-A: Key rotation and Byzantine detection
+        initializeKeyRotation(scheduler, metricsBootstrap);
 
         // Create gRPC service implementation
         witnessService = new WitnessServiceImpl(
@@ -247,11 +263,116 @@ public class WitnessBootstrap implements AutoCloseable {
             }
         }
 
+        // Shutdown Byzantine response orchestrator
+        if (responseOrchestrator != null) {
+            responseOrchestrator.shutdown();
+        }
+
         if (metricsBootstrap != null) {
             metricsBootstrap.shutdown();
         }
 
         log.info("Witness service stopped");
+    }
+
+    /**
+     * Initialize Phase 1C-3-A key rotation and Byzantine detection components.
+     * <p>
+     * Creates the escalation and orchestration chain:
+     * - KeyRotationOrchestrator: Manages multi-phase key rotation ceremony
+     * - KeyRotationTriggerImpl: Implements rotation trigger interface
+     * - KeyRotationEscalation: Handles rotation requests (deduplication)
+     * - ViewChangeEscalation: Handles view change requests (placeholder)
+     * - EscalationCoordinator: Coordinates both escalations
+     * - DefaultResponseOrchestrator: Byzantine response orchestration
+     * - BLSKeyRotationLookup: Grace period signature verification
+     * - WitnessSignatureValidator: Validates witness signatures with grace period support
+     * </p>
+     *
+     * @param scheduler Scheduler for phase transitions
+     * @param metricsBootstrap Metrics bootstrap for recording events
+     */
+    private void initializeKeyRotation(ScheduledExecutorService scheduler,
+                                      WitnessMetricsBootstrap metricsBootstrap) {
+        // Phase durations (configurable in future)
+        var preRotationDelay = Duration.ofHours(24);  // 24h announcement phase
+        var gracePeriodDuration = Duration.ofHours(1);  // 1h dual-key acceptance
+
+        // Create key rotation orchestrator
+        keyRotationOrchestrator = new KeyRotationOrchestrator(
+            scheduler,
+            metricsBootstrap.getByzantineMetrics(),
+            preRotationDelay,
+            gracePeriodDuration
+        );
+        log.info("Key rotation orchestrator created: preRotationDelay={}, gracePeriodDuration={}",
+                 preRotationDelay, gracePeriodDuration);
+
+        // Create key rotation trigger that implements the escalation interface
+        keyRotationTrigger = new KeyRotationTriggerImpl(
+            keyRotationOrchestrator,
+            preRotationDelay,
+            gracePeriodDuration
+        );
+
+        // Create escalation handlers
+        keyRotationEscalation = new KeyRotationEscalation(keyRotationTrigger);
+        viewChangeEscalation = new ViewChangeEscalation(null);  // Placeholder: no view change trigger yet
+
+        // Create escalation coordinator to prevent concurrent escalations
+        escalationCoordinator = new EscalationCoordinator(
+            keyRotationEscalation,
+            viewChangeEscalation
+        );
+
+        // Create Byzantine response orchestrator for anomaly handling
+        var gracefulConfig = new com.hellblazer.delos.witness.validation.graceful.GracefulDegradationConfig(
+            0.33,                     // byzantineQuorumReductionFactor (1/3)
+            1000,                     // maxSignaturesToBuffer
+            5000,                     // signatureBufferTTLMs
+            10000,                    // viewChangeTimeoutMs
+            true,                     // enableAutoRecovery
+            100,                      // recoveryCheckIntervalMs
+            true,                     // dynamicThresholdRecalculation
+            0.667,                    // minThresholdPercentage (2/3 + 1)
+            true,                     // enableMetrics
+            10000                     // metricsHistorySize
+        );
+
+        var detectorConfig = new ByzantineDetectorConfig(
+            5,                        // invalidSignatureThreshold
+            5000,                     // maxReceiptLatencyMs
+            0.95,                     // timingAnomalyThreshold
+            0.5,                      // failureRateThreshold
+            50,                       // minSampleSize
+            0.9,                      // criticalAnomalyScore
+            0.7,                      // warningAnomalyScore
+            Duration.ofHours(1),      // scoreDecayPeriod
+            0.5,                      // scoreDecayRate
+            true,                     // enableAutomaticThresholdAdaptation
+            1000                      // historyWindowSize
+        );
+
+        responseOrchestrator = new DefaultResponseOrchestrator(
+            config.committeeSize(),
+            detectorConfig,
+            gracefulConfig,
+            escalationCoordinator,
+            metricsBootstrap.getByzantineMetrics()
+        );
+
+        // Create BLS key rotation lookup for grace period verification
+        keyRotationLookup = new BLSKeyRotationLookup(new ConcurrentHashMap<>());
+
+        // Create witness signature validator with grace period support
+        // Note: WitnessKerlIntegration will be injected later for KERI-based key lookup
+        signatureValidator = new WitnessSignatureValidator(
+            null,  // WitnessKerlIntegration (phase 1C-3-B integration)
+            keyRotationLookup,
+            metricsBootstrap.getRegistry()
+        );
+
+        log.info("Key rotation and Byzantine detection initialized");
     }
 
     /**
@@ -305,5 +426,70 @@ public class WitnessBootstrap implements AutoCloseable {
      */
     public WitnessCHOAM getWitnessCHOAM() {
         return witnessCHOAM;
+    }
+
+    /**
+     * Get escalation coordinator (Phase 1C-3-A Byzantine detection).
+     * <p>
+     * Coordinates key rotation and view change escalations.
+     * Available after start() completes.
+     * </p>
+     *
+     * @return EscalationCoordinator instance
+     */
+    public EscalationCoordinator getEscalationCoordinator() {
+        return escalationCoordinator;
+    }
+
+    /**
+     * Get response orchestrator (Phase 1C-3-A Byzantine detection).
+     * <p>
+     * Orchestrates Byzantine detection and response actions.
+     * Available after start() completes.
+     * </p>
+     *
+     * @return DefaultResponseOrchestrator instance
+     */
+    public DefaultResponseOrchestrator getResponseOrchestrator() {
+        return responseOrchestrator;
+    }
+
+    /**
+     * Get BLS key rotation lookup (Phase 1C-3-A).
+     * <p>
+     * Manages grace period verification for key rotation.
+     * Available after start() completes.
+     * </p>
+     *
+     * @return BLSKeyRotationLookup instance
+     */
+    public BLSKeyRotationLookup getKeyRotationLookup() {
+        return keyRotationLookup;
+    }
+
+    /**
+     * Get witness signature validator (Phase 1C-3-A).
+     * <p>
+     * Validates witness signatures with dual-key support during grace period.
+     * Available after start() completes.
+     * </p>
+     *
+     * @return WitnessSignatureValidator instance
+     */
+    public WitnessSignatureValidator getSignatureValidator() {
+        return signatureValidator;
+    }
+
+    /**
+     * Get key rotation orchestrator (Phase 1C-3-A).
+     * <p>
+     * Manages multi-phase key rotation ceremonies.
+     * Available after start() completes.
+     * </p>
+     *
+     * @return KeyRotationOrchestrator instance
+     */
+    public KeyRotationOrchestrator getKeyRotationOrchestrator() {
+        return keyRotationOrchestrator;
     }
 }
