@@ -96,7 +96,7 @@ class HierarchicalAggregateTest {
             100
         );
 
-        assertThat(aggregate.getTreeDepth()).isEqualTo(3);  // treeConfig maxDepth
+        assertThat(aggregate.getTreeDepth()).isEqualTo(4);  // TreeConfiguration.create(100, 8) returns maxDepth=4
         assertThat(aggregate.leafCommitteeCount()).isEqualTo(100);
     }
 
@@ -147,12 +147,13 @@ class HierarchicalAggregateTest {
     @DisplayName("should estimate verification cost")
     void shouldEstimateVerificationCost() {
         var treeConfig = TreeConfiguration.create(100, 8);
-        var leaf = new TreeNode.LeafNode(1L, testSignature, 8, testBitmap, 3, 0, Optional.empty());
+        var leaf = new TreeNode.LeafNode(1L, testSignature, 8, testBitmap, 4, 0, Optional.empty());
 
         var aggregate = new HierarchicalAggregate(leaf, treeConfig, testEvent, 8, 100);
 
         // Verification cost ≈ tree depth (one per level)
-        assertThat(aggregate.estimatedVerificationCost()).isEqualTo(3);
+        // TreeConfiguration.create(100, 8) returns maxDepth=4
+        assertThat(aggregate.estimatedVerificationCost()).isEqualTo(4);
     }
 
     @Test
@@ -197,12 +198,12 @@ class HierarchicalAggregateTest {
     @DisplayName("should handle large committee counts")
     void shouldHandleLargeCommitteeCounts() {
         var treeConfig = TreeConfiguration.create(512, 8);
-        var leaf = new TreeNode.LeafNode(1L, testSignature, 8, testBitmap, 3, 0, Optional.empty());
+        var leaf = new TreeNode.LeafNode(1L, testSignature, 8, testBitmap, 4, 0, Optional.empty());
 
         var aggregate = new HierarchicalAggregate(leaf, treeConfig, testEvent, 100, 512);
 
         assertThat(aggregate.leafCommitteeCount()).isEqualTo(512);
-        assertThat(aggregate.getTreeDepth()).isEqualTo(3);
+        assertThat(aggregate.getTreeDepth()).isEqualTo(4);  // TreeConfiguration.create(512, 8) returns maxDepth=4
     }
 
     @Test

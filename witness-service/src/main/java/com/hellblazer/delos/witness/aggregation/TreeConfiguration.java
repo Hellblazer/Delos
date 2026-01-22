@@ -81,13 +81,13 @@ public record TreeConfiguration(
             throw new IllegalArgumentException("branchingFactor must be >= 2, got: " + branchingFactor);
         }
 
-        // Compute max depth: ceil(log_k(committeeCount))
-        // Using logarithm: log_k(n) = log(n) / log(k)
-        // For integer ceiling: ceil(log_k(n)) = floor(log_k(n-1)) + 1
+        // Compute max depth: depth where leaves can hold committeeCount nodes
+        // Tree capacity at depth d (as leaves): k^(d-1) where k is branching factor
+        // Example: 100 committees with k=8 requires depth 4 since 8^3 = 512 >= 100
         int maxDepth = 1;
-        long capacity = branchingFactor;
+        long capacity = 1;  // k^0 = 1 for root at depth 1
         while (capacity < committeeCount) {
-            capacity *= branchingFactor;
+            capacity *= branchingFactor;  // Compute k^maxDepth
             maxDepth++;
         }
 
