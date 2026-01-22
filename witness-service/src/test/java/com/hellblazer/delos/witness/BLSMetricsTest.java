@@ -481,6 +481,7 @@ class BLSMetricsTest {
         private final Counter rejectedViewRef = new Counter();
         private final Counter rejectedLate = new Counter();
         private final Counter rejectedDuplicate = new Counter();
+        private final Counter rejectedInvalid = new Counter();
         private final AtomicInteger activeAccumulators = new AtomicInteger(0);
         private final Meter completedAccumulations = new Meter();
 
@@ -497,6 +498,7 @@ class BLSMetricsTest {
             registry.register("bls.signatures.rejected.viewRef", rejectedViewRef);
             registry.register("bls.signatures.rejected.late", rejectedLate);
             registry.register("bls.signatures.rejected.duplicate", rejectedDuplicate);
+            registry.register("bls.signatures.rejected.invalid", rejectedInvalid);
             registry.register("bls.accumulator.active", (Gauge<Integer>) activeAccumulators::get);
             registry.register("bls.accumulator.completed", completedAccumulations);
         }
@@ -511,6 +513,7 @@ class BLSMetricsTest {
             rejectedViewRef.dec(rejectedViewRef.getCount());
             rejectedLate.dec(rejectedLate.getCount());
             rejectedDuplicate.dec(rejectedDuplicate.getCount());
+            rejectedInvalid.dec(rejectedInvalid.getCount());
             activeAccumulators.set(0);
         }
 
@@ -578,6 +581,25 @@ class BLSMetricsTest {
         }
 
         @Override
+        public Timer bufferDrainTimer() {
+            return new Timer();
+        }
+
+        @Override
+        public void setBufferedSignatures(int count) {}
+
+        @Override
+        public int getBufferedSignatures() { return 0; }
+
+        @Override
+        public Histogram thresholdPercentageHistogram() {
+            return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+        }
+
+        @Override
+        public void recordThresholdPercentage(double percentage) {}
+
+        @Override
         public void incrementRejectedEpoch() {
             rejectedEpoch.inc();
         }
@@ -615,6 +637,16 @@ class BLSMetricsTest {
         @Override
         public Counter rejectedDuplicateCounter() {
             return rejectedDuplicate;
+        }
+
+        @Override
+        public void incrementRejectedInvalid() {
+            rejectedInvalid.inc();
+        }
+
+        @Override
+        public Counter rejectedInvalidCounter() {
+            return rejectedInvalid;
         }
 
         @Override
@@ -828,5 +860,76 @@ class BLSMetricsTest {
 
         @Override
         public void recordThresholdRecalculationTime(long recalcTimeMicros) {}
+
+        // Remaining histogram/meter/timer getter stubs
+        @Override
+        public Histogram aggregationBatchSizeHistogram() {
+            return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+        }
+
+        @Override
+        public Histogram aggregateSizeHistogram() {
+            return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+        }
+
+        @Override
+        public Histogram compressionRatioHistogram() {
+            return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+        }
+
+        @Override
+        public Histogram committeeParticipationHistogram() {
+            return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+        }
+
+        @Override
+        public Histogram signerBitmapOverheadHistogram() {
+            return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+        }
+
+        @Override
+        public Meter emptyAccumulatorCleanupMeter() {
+            return new Meter();
+        }
+
+        @Override
+        public Histogram thresholdCalculationDeltaHistogram() {
+            return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+        }
+
+        @Override
+        public Histogram timeInDegradationStateHistogram(String state) {
+            return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+        }
+
+        @Override
+        public Meter buffersCreatedMeter() {
+            return new Meter();
+        }
+
+        @Override
+        public Meter bufferedSignaturesDrainedMeter() {
+            return new Meter();
+        }
+
+        @Override
+        public Timer viewChangeDurationTimer() {
+            return new Timer();
+        }
+
+        @Override
+        public Timer receiptProcessingLatencyDuringDegradationTimer(String state) {
+            return new Timer();
+        }
+
+        @Override
+        public Meter committeeReconfigurationsMeter() {
+            return new Meter();
+        }
+
+        @Override
+        public Meter thresholdRecalculationsMeter() {
+            return new Meter();
+        }
     }
 }
