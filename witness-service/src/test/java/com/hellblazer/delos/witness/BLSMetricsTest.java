@@ -777,6 +777,11 @@ class BLSMetricsTest {
         public void recordThresholdRecalculationTime(long recalcTimeMicros) {}
 
         @Override
+        public Timer thresholdRecalculationTimer() {
+            return new Timer();
+        }
+
+        @Override
         public void recordDegradationStateTransition(String transition) {}
 
         @Override
@@ -790,6 +795,70 @@ class BLSMetricsTest {
         @Override
         public Histogram timeInDegradationStateHistogram(String state) {
             return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+        }
+
+        @Override
+        public void recordBufferCreated() {}
+
+        @Override
+        public Meter buffersCreatedMeter() {
+            return new Meter();
+        }
+
+        @Override
+        public int getBufferedSignatures() {
+            return 0;
+        }
+
+        @Override
+        public void recordBufferedSignaturesDrained(int count) {}
+
+        @Override
+        public Meter bufferedSignaturesDrainedMeter() {
+            return new Meter();
+        }
+
+        @Override
+        public void recordThresholdCalculationDelta(int delta) {}
+
+        @Override
+        public Histogram thresholdCalculationDeltaHistogram() {
+            return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+        }
+
+        @Override
+        public void incrementByzantineExclusions() {}
+
+        @Override
+        public long getByzantineExclusions() {
+            return 0;
+        }
+
+        @Override
+        public void incrementMemberRecoveries() {}
+
+        @Override
+        public long getMemberRecoveries() {
+            return 0;
+        }
+
+        @Override
+        public void recordReceiptProcessingLatencyDuringDegradation(String state, long latencyMicros) {}
+
+        @Override
+        public Timer receiptProcessingLatencyDuringDegradationTimer(String state) {
+            return new Timer();
+        }
+
+        @Override
+        public void recordBufferDrainTime(long drainTimeMicros) {}
+
+        @Override
+        public void recordSignatureReplayLatency(long replayLatencyMicros) {}
+
+        @Override
+        public Timer signatureReplayTimer() {
+            return new Timer();
         }
 
     }
