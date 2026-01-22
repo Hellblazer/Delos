@@ -18,12 +18,17 @@ import com.hellblazer.delos.witness.aggregation.SignatureFormat;
 import com.hellblazer.delos.witness.aggregation.SignatureAccumulator;
 import com.hellblazer.delos.witness.migration.MigrationPhase;
 import com.hellblazer.delos.witness.receipt.AggregateWitnessReceipt;
+import com.hellblazer.delos.witness.validation.graceful.DegradedThresholdCalculator;
+import com.hellblazer.delos.witness.validation.graceful.SignatureBuffer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Supplier;
 
 /**
  * Witness receipt manager for M-of-N threshold receipt collection.
@@ -40,21 +45,54 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  */
 public class WitnessReceiptManager {
 
+    private static final Logger log = LoggerFactory.getLogger(WitnessReceiptManager.class);
+
+    /**
+     * Buffer key for tracking buffered BLS signatures.
+     * Used to store committeeIndex for each buffered signature during view transitions.
+     */
+    private record BufferKey(EventCoordinates event, Identifier member) {}
+
     private final WitnessParameters parameters;
     private final SignatureFormat signatureFormat;
     private final MigrationPhase migrationPhase;
     private final BLSReceiptAggregator blsAggregator;
     private final ReadWriteLock lock;
 
+    // Graceful degradation support (nullable for backward compatibility)
+    private final SignatureBuffer signatureBuffer;
+    private final Supplier<Boolean> isViewChangeActive;
+    private final DegradedThresholdCalculator degradedCalculator;
+
     // Map: EventCoordinates -> CollectionState
     private final Map<String, CollectionState> collections = new ConcurrentHashMap<>();
 
+    // Map: BufferKey -> committeeIndex (for buffered BLS signatures)
+    private final Map<BufferKey, Integer> committeeIndexMap = new ConcurrentHashMap<>();
+
     /**
-     * Create receipt manager with parameters.
+     * Create receipt manager with parameters (backward compatible constructor).
      *
      * @param parameters Witness configuration (threshold, drain period, signature format, etc.)
      */
     public WitnessReceiptManager(WitnessParameters parameters) {
+        this(parameters, null, null, null);
+    }
+
+    /**
+     * Create receipt manager with graceful degradation support.
+     *
+     * @param parameters Witness configuration (threshold, drain period, signature format, etc.)
+     * @param signatureBuffer Signature buffer for buffering during view changes (nullable)
+     * @param isViewChangeActive Supplier to check if view change is active (nullable)
+     * @param degradedCalculator Calculator for degraded thresholds during Byzantine detection (nullable)
+     */
+    public WitnessReceiptManager(
+        WitnessParameters parameters,
+        SignatureBuffer signatureBuffer,
+        Supplier<Boolean> isViewChangeActive,
+        DegradedThresholdCalculator degradedCalculator
+    ) {
         this.parameters = Objects.requireNonNull(parameters, "parameters required");
         this.signatureFormat = parameters.signatureFormat();
         this.migrationPhase = parameters.migrationPhase();
@@ -65,6 +103,11 @@ public class WitnessReceiptManager {
             : null;
 
         this.lock = new ReentrantReadWriteLock();
+
+        // Graceful degradation support (nullable for feature flag pattern)
+        this.signatureBuffer = signatureBuffer;
+        this.isViewChangeActive = isViewChangeActive;
+        this.degradedCalculator = degradedCalculator;
     }
 
     /**
@@ -186,13 +229,30 @@ public class WitnessReceiptManager {
                     );
                 }
                 case AccumulationResult.Buffered buf -> {
-                    // TODO: Phase 1C-3-C (Delos-3961) - Implement full buffering logic
-                    // For now, buffering is not supported - signatures during view transitions are dropped
-                    throw new UnsupportedOperationException(
-                        "Signature buffering not yet implemented (member: " + member +
-                        ", buffer position: " + buf.bufferPosition() +
-                        ", expected replay epoch: " + buf.expectedReplayEpoch() + ")"
-                    );
+                    // Phase 1C-3-C (Delos-3961): Buffer signature during view change
+                    if (signatureBuffer != null && isViewChangeActive != null && isViewChangeActive.get()) {
+                        // Store signature in buffer
+                        var position = signatureBuffer.buffer(
+                            member,
+                            signature.toBytes(),
+                            new byte[0], // message placeholder (not needed for replay)
+                            event,
+                            parameters.epoch()
+                        );
+
+                        // Store committeeIndex for replay
+                        var bufferKey = new BufferKey(event, member);
+                        committeeIndexMap.put(bufferKey, committeeIndex);
+
+                        log.debug("Signature buffered for member {} at position {} during view change " +
+                                  "(epoch {}, expected replay epoch {})",
+                                  member, position, parameters.epoch(), buf.expectedReplayEpoch());
+                    } else {
+                        // Buffer feature not enabled or not during view change - signature will be dropped
+                        log.warn("Signature from {} cannot be buffered (buffer: {}, viewChange: {})",
+                                 member, signatureBuffer != null,
+                                 isViewChangeActive != null && isViewChangeActive.get());
+                    }
                 }
             }
         } finally {
@@ -385,6 +445,137 @@ public class WitnessReceiptManager {
      */
     public Duration getDrainPeriod() {
         return parameters.drainPeriod();
+    }
+
+    /**
+     * Drain buffered signatures after view change completes.
+     * <p>
+     * Replays buffered signatures from the previous epoch, excluding Byzantine members.
+     * Clears both the signature buffer and committee index map for the drained epoch.
+     * </p>
+     * <p>
+     * This method is called after a view change completes to replay signatures that
+     * were buffered during the transition period. Byzantine members detected during
+     * the view change are excluded from replay.
+     * </p>
+     *
+     * @param newEpoch New epoch number after view change
+     * @param byzantineMembers Set of members detected as Byzantine (excluded from replay)
+     */
+    public void drainBuffer(long newEpoch, Set<Identifier> byzantineMembers) {
+        if (signatureBuffer == null) {
+            // Buffer feature not enabled - no-op
+            return;
+        }
+
+        var previousEpoch = newEpoch - 1;
+        var bufferedSignatures = signatureBuffer.getForEpoch(previousEpoch);
+
+        if (bufferedSignatures.isEmpty()) {
+            log.debug("No buffered signatures to drain for epoch {}", previousEpoch);
+            return;
+        }
+
+        log.info("Draining {} buffered signatures from epoch {} to epoch {}",
+                 bufferedSignatures.size(), previousEpoch, newEpoch);
+
+        var replayedCount = 0;
+        var skippedCount = 0;
+
+        lock.writeLock().lock();
+        try {
+            for (var buffered : bufferedSignatures) {
+                var member = buffered.memberId();
+                var event = buffered.event();
+
+                // Check if member should be included (exclude Byzantine members)
+                if (degradedCalculator != null &&
+                    !degradedCalculator.shouldInclude(member, byzantineMembers)) {
+                    log.debug("Skipping buffered signature from Byzantine member {} for event {}",
+                              member, event);
+                    skippedCount++;
+                    continue;
+                }
+
+                // Retrieve committeeIndex from map
+                var bufferKey = new BufferKey(event, member);
+                var committeeIndex = committeeIndexMap.get(bufferKey);
+
+                if (committeeIndex == null) {
+                    log.warn("Missing committeeIndex for buffered signature from {} for event {} - skipping",
+                             member, event);
+                    skippedCount++;
+                    continue;
+                }
+
+                // Reconstruct BLSSignature from bytes
+                var signatureBytes = buffered.signature();
+                BLSSignature signature;
+                try {
+                    signature = BLSSignature.fromBytes(signatureBytes);
+                } catch (Exception e) {
+                    log.error("Failed to reconstruct BLSSignature from buffered bytes for member {} - skipping",
+                              member, e);
+                    skippedCount++;
+                    continue;
+                }
+
+                // Replay the buffered signature by re-accumulating
+                try {
+                    var result = blsAggregator.accumulate(
+                        event,
+                        member,
+                        committeeIndex,
+                        signature,
+                        parameters.threshold(),
+                        newEpoch  // Use new epoch for replay
+                    );
+
+                    // Handle replay result
+                    switch (result) {
+                        case AccumulationResult.Accumulated acc -> {
+                            replayedCount++;
+                            var state = collections.computeIfAbsent(eventKey(event), k ->
+                                new CollectionState(SignatureFormat.BLS_12_381, parameters.threshold())
+                            );
+                            state.recordSignature(member);
+                        }
+                        case AccumulationResult.ThresholdMet tm -> {
+                            replayedCount++;
+                            var state = collections.computeIfAbsent(eventKey(event), k ->
+                                new CollectionState(SignatureFormat.BLS_12_381, parameters.threshold())
+                            );
+                            state.recordSignature(member);
+                            state.markThresholdMet(tm.snapshot());
+                        }
+                        case AccumulationResult.AlreadyPresent ap -> {
+                            // Duplicate during replay - acceptable, just skip
+                            log.debug("Duplicate signature from {} during drain - already present", member);
+                        }
+                        default -> {
+                            // Other results (InvalidSignature, EpochMismatch, etc.) - log and skip
+                            log.warn("Unexpected result during buffered signature replay from {}: {}",
+                                     member, result.getClass().getSimpleName());
+                            skippedCount++;
+                        }
+                    }
+                } catch (Exception e) {
+                    log.error("Failed to replay buffered signature from {} for event {}",
+                              member, event, e);
+                    skippedCount++;
+                }
+
+                // Clean up committeeIndex map entry
+                committeeIndexMap.remove(bufferKey);
+            }
+        } finally {
+            lock.writeLock().unlock();
+        }
+
+        // Clear buffered signatures for drained epoch
+        signatureBuffer.clearEpoch(previousEpoch);
+
+        log.info("Drain complete: {} replayed, {} skipped", replayedCount, skippedCount);
     }
 
     /**
