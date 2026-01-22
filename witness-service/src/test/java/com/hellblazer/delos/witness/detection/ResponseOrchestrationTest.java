@@ -141,41 +141,44 @@ class ResponseOrchestrationTest {
 
     @Test
     void testResponseEscalationEngine() {
-        var engine = new ResponseEscalationEngine();
+        var metrics = new ByzantineDetectionMetricsImpl();
+        var engine = new ResponseEscalationEngine(metrics);
+
+        long detectionStartNanos = System.nanoTime();
 
         // Test below warning threshold (no action)
         var action = engine.evaluateEscalation(member1, 0.5, AnomalyType.TIMING_ANOMALY,
-                                                detectorConfig, gracefulConfig);
+                                                detectorConfig, gracefulConfig, detectionStartNanos);
         assertNull(action);
 
         // Test warning threshold
         action = engine.evaluateEscalation(member1, 0.75, AnomalyType.RATE_ANOMALY,
-                                            detectorConfig, gracefulConfig);
+                                            detectorConfig, gracefulConfig, detectionStartNanos);
         assertEquals(ResponseAction.ALERT, action);
 
         // Test quarantine threshold (needs to be above the calculated threshold)
         action = engine.evaluateEscalation(member1, 0.835, AnomalyType.SIGNATURE_INVALID,
-                                            detectorConfig, gracefulConfig);
+                                            detectorConfig, gracefulConfig, detectionStartNanos);
         assertEquals(ResponseAction.QUARANTINE, action);
 
         // Test key rotation threshold
         action = engine.evaluateEscalation(member1, 0.87, AnomalyType.COORDINATED_ATTACK,
-                                            detectorConfig, gracefulConfig);
+                                            detectorConfig, gracefulConfig, detectionStartNanos);
         assertEquals(ResponseAction.REQUEST_KEY_ROTATION, action);
 
         // Test view change threshold
         action = engine.evaluateEscalation(member1, 0.95, AnomalyType.COORDINATED_ATTACK,
-                                            detectorConfig, gracefulConfig);
+                                            detectorConfig, gracefulConfig, detectionStartNanos);
         assertEquals(ResponseAction.REQUEST_VIEW_CHANGE, action);
 
         // Test equivocation fast-path (immediate SHUN)
         action = engine.evaluateEscalation(member1, 0.5, AnomalyType.EQUIVOCATION,
-                                            detectorConfig, gracefulConfig);
+                                            detectorConfig, gracefulConfig, detectionStartNanos);
         assertEquals(ResponseAction.SHUN, action);
 
         // Test signature forgery fast-path (immediate SHUN)
         action = engine.evaluateEscalation(member1, 0.6, AnomalyType.SIGNATURE_FORGERY,
-                                            detectorConfig, gracefulConfig);
+                                            detectorConfig, gracefulConfig, detectionStartNanos);
         assertEquals(ResponseAction.SHUN, action);
     }
 

@@ -893,32 +893,12 @@ class BLSMetricsTest {
         }
 
         @Override
-        public Histogram thresholdCalculationDeltaHistogram() {
-            return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
-        }
-
-        @Override
         public Histogram timeInDegradationStateHistogram(String state) {
             return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
         }
 
         @Override
-        public Meter buffersCreatedMeter() {
-            return new Meter();
-        }
-
-        @Override
-        public Meter bufferedSignaturesDrainedMeter() {
-            return new Meter();
-        }
-
-        @Override
         public Timer viewChangeDurationTimer() {
-            return new Timer();
-        }
-
-        @Override
-        public Timer receiptProcessingLatencyDuringDegradationTimer(String state) {
             return new Timer();
         }
 

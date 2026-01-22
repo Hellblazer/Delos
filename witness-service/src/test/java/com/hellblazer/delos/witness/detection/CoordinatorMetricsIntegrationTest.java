@@ -48,7 +48,7 @@ class CoordinatorMetricsIntegrationTest {
 
         // Use default configs
         detectorConfig = ByzantineDetectorConfig.defaults();
-        gracefulConfig = GracefulDegradationConfig.defaults();
+        gracefulConfig = GracefulDegradationConfig.defaultConfig();
 
         testMemberId = Identifier.NONE;
         testReceiptCoordinates = Mockito.mock(EventCoordinates.class);
