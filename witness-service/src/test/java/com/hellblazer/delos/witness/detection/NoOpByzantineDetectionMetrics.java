@@ -187,4 +187,146 @@ public class NoOpByzantineDetectionMetrics implements ByzantineDetectionMetrics 
     public void reset() {
         // No-op
     }
+
+    @Override
+    public Histogram dualKeyValidationTimeHistogram() {
+        return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+    }
+
+    @Override
+    public Timer keriPublishLatency() {
+        return new Timer();
+    }
+
+    // Key rotation metrics (Phase 1C-3-A)
+
+    @Override
+    public void recordRotationInitiated(com.hellblazer.delos.cryptography.Digest memberId) {
+        // No-op
+    }
+
+    @Override
+    public void recordPhaseTransition(String rotationId, KeyRotationPhase from, KeyRotationPhase to) {
+        // No-op
+    }
+
+    @Override
+    public void recordGraceOldSignatureAccepted(String rotationId, long durationSinceGraceStart) {
+        // No-op
+    }
+
+    @Override
+    public void recordGraceNewSignatureAccepted(String rotationId) {
+        // No-op
+    }
+
+    @Override
+    public void recordRotationFailure(String rotationId, String reason) {
+        // No-op
+    }
+
+    @Override
+    public void recordRotationFailure(String rotationId, KeyRotationPhase phase, String reason) {
+        // No-op
+    }
+
+    @Override
+    public void recordRotationRecoveryAttempt(String rotationId) {
+        // No-op
+    }
+
+    @Override
+    public void recordRotationDuration(String rotationId, long totalDurationMs) {
+        // No-op
+    }
+
+    @Override
+    public void recordKeriPublishDuration(long durationMs) {
+        // No-op
+    }
+
+    @Override
+    public void recordDualKeyValidationTime(long durationNanos) {
+        // No-op
+    }
+
+    @Override
+    public Gauge<Integer> rotationsInProgressGauge() {
+        return () -> 0;
+    }
+
+    @Override
+    public Gauge<Double> graceOldNewSignatureRatioGauge(String rotationId) {
+        return () -> 0.0;
+    }
+
+    @Override
+    public Meter rotationInitiatedMeter() {
+        return new Meter();
+    }
+
+    @Override
+    public Meter rotationFailureMeter() {
+        return new Meter();
+    }
+
+    @Override
+    public Counter rotationInitiatedCounter() {
+        return new Counter();
+    }
+
+    @Override
+    public Counter rotationFailuresCounter() {
+        return new Counter();
+    }
+
+    @Override
+    public Counter rotationFailuresPreRotationCounter() {
+        return new Counter();
+    }
+
+    @Override
+    public Counter rotationFailuresGracePeriodCounter() {
+        return new Counter();
+    }
+
+    @Override
+    public Counter rotationFailuresActivationCounter() {
+        return new Counter();
+    }
+
+    @Override
+    public Counter rotationRecoveryAttemptsCounter() {
+        return new Counter();
+    }
+
+    @Override
+    public Counter graceOldSignaturesAcceptedCounter(String rotationId) {
+        return new Counter();
+    }
+
+    @Override
+    public Counter graceNewSignaturesAcceptedCounter(String rotationId) {
+        return new Counter();
+    }
+
+    @Override
+    public Histogram phasePreRotationDurationHistogram() {
+        return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+    }
+
+    @Override
+    public Histogram phaseGracePeriodDurationHistogram() {
+        return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+    }
+
+    @Override
+    public Histogram graceAcceptanceLatency() {
+        return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+    }
+
+    @Override
+    public Timer rotationOrchestrationLatency() {
+        return new Timer();
+    }
 }
