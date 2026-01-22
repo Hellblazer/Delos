@@ -806,11 +806,6 @@ class BLSMetricsTest {
         }
 
         @Override
-        public int getBufferedSignatures() {
-            return 0;
-        }
-
-        @Override
         public void recordBufferedSignaturesDrained(int count) {}
 
         @Override
