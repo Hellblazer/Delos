@@ -33,6 +33,17 @@ public class ResponseEscalationEngine {
     private static final double KEY_ROTATION_THRESHOLD = 0.85;
     private static final double VIEW_CHANGE_THRESHOLD = 0.9;
 
+    private final ByzantineDetectionMetrics metrics;
+
+    /**
+     * Create a new ResponseEscalationEngine.
+     *
+     * @param metrics Metrics to track escalation actions
+     */
+    public ResponseEscalationEngine(ByzantineDetectionMetrics metrics) {
+        this.metrics = Objects.requireNonNull(metrics, "metrics cannot be null");
+    }
+
     /**
      * Evaluate escalation for detected anomaly.
      * <p>
@@ -45,6 +56,7 @@ public class ResponseEscalationEngine {
      * @param anomalyType       Type of anomaly
      * @param detectorConfig    Byzantine detector configuration
      * @param gracefulConfig    Graceful degradation configuration
+     * @param detectionStartNanos Detection start time (nanoTime) for latency tracking
      * @return Response action to execute
      * @throws IllegalArgumentException if any parameter is null or score out of range
      */
@@ -53,7 +65,8 @@ public class ResponseEscalationEngine {
         double score,
         AnomalyType anomalyType,
         ByzantineDetectorConfig detectorConfig,
-        GracefulDegradationConfig gracefulConfig
+        GracefulDegradationConfig gracefulConfig,
+        long detectionStartNanos
     ) {
         Objects.requireNonNull(memberId, "memberId cannot be null");
         Objects.requireNonNull(anomalyType, "anomalyType cannot be null");
@@ -64,28 +77,42 @@ public class ResponseEscalationEngine {
             throw new IllegalArgumentException("score must be 0.0-1.0, got: " + score);
         }
 
+        ResponseAction action;
+
         // Fast-path: Immediate SHUN for equivocation or signature forgery
         if (anomalyType == AnomalyType.EQUIVOCATION || anomalyType == AnomalyType.SIGNATURE_FORGERY) {
-            return ResponseAction.SHUN;
+            action = ResponseAction.SHUN;
         }
-
         // Escalation ladder based on score
-        if (score < detectorConfig.warningAnomalyScore()) {
+        else if (score < detectorConfig.warningAnomalyScore()) {
             // Below warning threshold: no action
-            return null;
+            action = null;
         } else if (score >= detectorConfig.criticalAnomalyScore() || score >= VIEW_CHANGE_THRESHOLD) {
             // Critical score: request view change to remove member
-            return ResponseAction.REQUEST_VIEW_CHANGE;
+            action = ResponseAction.REQUEST_VIEW_CHANGE;
         } else if (score >= KEY_ROTATION_THRESHOLD) {
             // High score: request key rotation (member keys may be compromised)
-            return ResponseAction.REQUEST_KEY_ROTATION;
+            action = ResponseAction.REQUEST_KEY_ROTATION;
         } else if (score >= calculateQuarantineThreshold(detectorConfig, gracefulConfig)) {
             // Above quarantine threshold: isolate member
-            return ResponseAction.QUARANTINE;
+            action = ResponseAction.QUARANTINE;
         } else {
             // Above warning threshold: alert operators
-            return ResponseAction.ALERT;
+            action = ResponseAction.ALERT;
         }
+
+        // Record escalation action with latency if action taken
+        if (action != null) {
+            var latencyMicros = (System.nanoTime() - detectionStartNanos) / 1000;
+            metrics.recordEscalationAction(action, latencyMicros);
+
+            // Track quarantine-specific metrics
+            if (action == ResponseAction.QUARANTINE) {
+                metrics.recordQuarantineEvent();
+            }
+        }
+
+        return action;
     }
 
     /**

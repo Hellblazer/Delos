@@ -11,6 +11,7 @@ import com.hellblazer.delos.cryptography.bls.BLSAggregate;
 import com.hellblazer.delos.cryptography.bls.BLSSignature;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
+import com.hellblazer.delos.witness.metrics.BLSMetrics;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -69,12 +70,13 @@ public final class BLSReceiptAggregator {
 
     // Configuration
     private final Duration expirationDuration;
+    private final BLSMetrics metrics;  // nullable for backward compatibility
 
     /**
      * Create aggregator factory with default expiration (10 minutes).
      */
     public BLSReceiptAggregator() {
-        this(DEFAULT_EXPIRATION);
+        this(DEFAULT_EXPIRATION, null);
     }
 
     /**
@@ -83,7 +85,18 @@ public final class BLSReceiptAggregator {
      * @param expirationDuration Duration after which idle accumulators are cleaned up
      */
     public BLSReceiptAggregator(Duration expirationDuration) {
+        this(expirationDuration, null);
+    }
+
+    /**
+     * Create aggregator factory with custom expiration duration and metrics.
+     *
+     * @param expirationDuration Duration after which idle accumulators are cleaned up
+     * @param metrics BLS metrics collector (may be null)
+     */
+    public BLSReceiptAggregator(Duration expirationDuration, BLSMetrics metrics) {
         this.expirationDuration = Objects.requireNonNull(expirationDuration, "expirationDuration cannot be null");
+        this.metrics = metrics; // May be null
     }
 
     /**
@@ -119,7 +132,7 @@ public final class BLSReceiptAggregator {
 
         // Lazy accumulator creation (thread-safe via computeIfAbsent)
         var accumulator = accumulators.computeIfAbsent(event,
-                                                       k -> new SignatureAccumulator(event, threshold, epoch, null));
+                                                       k -> new SignatureAccumulator(event, threshold, epoch, null, metrics));
 
         // Delegate to accumulator (passing epoch and null viewRef for validation)
         var result = accumulator.accumulate(member, committeeIndex, signature, epoch, null);
@@ -220,6 +233,7 @@ public final class BLSReceiptAggregator {
         var threshold = now.minus(expirationDuration);
 
         var removed = 0;
+        var emptyRemoved = 0;
         var iterator = accumulators.entrySet().iterator();
         while (iterator.hasNext()) {
             var entry = iterator.next();
@@ -231,11 +245,30 @@ public final class BLSReceiptAggregator {
                 iterator.remove();
                 aggregates.remove(entry.getKey()); // Also remove any aggregate
                 removed++;
+
+                // Track empty accumulator cleanup (didn't reach threshold)
+                if (!snapshot.thresholdMet()) {
+                    emptyRemoved++;
+
+                    // Track as discarded accumulator and threshold percentage achieved
+                    if (metrics != null) {
+                        metrics.incrementAccumulatorDiscarded();
+                        var percentage = (double) snapshot.signerCount() / snapshot.threshold();
+                        metrics.recordThresholdPercentage(percentage);
+                    }
+                }
             }
         }
 
         if (removed > 0) {
             cleanupCount.incrementAndGet();
+        }
+
+        // Track empty accumulator cleanups
+        if (emptyRemoved > 0 && metrics != null) {
+            for (int i = 0; i < emptyRemoved; i++) {
+                metrics.recordEmptyAccumulatorCleanup();
+            }
         }
 
         return removed;
@@ -282,6 +315,38 @@ public final class BLSReceiptAggregator {
             throw new IllegalStateException("Cannot aggregate empty signature list");
         }
 
-        return BLSAggregate.aggregate(signatures, indices);
+        // Create the aggregate
+        var aggregate = BLSAggregate.aggregate(signatures, indices);
+
+        // Track aggregation metrics
+        if (metrics != null) {
+            // Increment aggregations performed
+            metrics.incrementAggregationsPerformed();
+
+            // Record batch size (number of signatures)
+            var batchSize = signatures.size();
+            metrics.recordAggregationBatchSize(batchSize);
+
+            // Record committee participation (signer count)
+            metrics.recordCommitteeParticipation(batchSize);
+
+            // Record aggregate size (BLS signature is typically 48 bytes)
+            var aggregateSize = 48; // BLS12-381 G1 point
+            metrics.recordAggregateSize(aggregateSize);
+
+            // Record signer bitmap overhead
+            var bitmapBytes = aggregate.signerBitmap().length;
+            metrics.recordSignerBitmapOverhead(bitmapBytes);
+
+            // Calculate and record compression ratio
+            // Individual signatures: batchSize * 48 bytes
+            // Aggregate: 48 bytes + bitmap overhead
+            var individualBytes = batchSize * 48;
+            var totalAggregateBytes = aggregateSize + bitmapBytes;
+            var compressionRatio = (double) individualBytes / totalAggregateBytes;
+            metrics.recordCompressionRatio(compressionRatio);
+        }
+
+        return aggregate;
     }
 }

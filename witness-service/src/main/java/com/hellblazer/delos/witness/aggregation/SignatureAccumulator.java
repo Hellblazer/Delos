@@ -11,7 +11,9 @@ import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.bls.BLSSignature;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
+import com.hellblazer.delos.witness.metrics.BLSMetrics;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -132,6 +134,7 @@ public final class SignatureAccumulator {
     private final long epoch;
     private final Digest viewRef;
     private final Instant createdAt;
+    private final BLSMetrics metrics;  // nullable for backward compatibility
 
     // Thread-safe state
     private final ConcurrentHashMap<Identifier, SignatureEntry> signatures = new ConcurrentHashMap<>();
@@ -145,16 +148,17 @@ public final class SignatureAccumulator {
     private final LongAdder lateSignerCount = new LongAdder();
 
     /**
-     * Create accumulator for an event with epoch and viewRef validation.
+     * Create accumulator for an event with epoch, viewRef validation, and metrics.
      *
      * @param event Event coordinates being witnessed
      * @param threshold Required signature count (M)
      * @param epoch Fireflies epoch
      * @param viewRef View reference for validation (may be null for backward compatibility)
+     * @param metrics BLS metrics collector (may be null)
      * @throws NullPointerException if event is null
      * @throws IllegalArgumentException if threshold < 1 or epoch < 0
      */
-    public SignatureAccumulator(EventCoordinates event, int threshold, long epoch, Digest viewRef) {
+    public SignatureAccumulator(EventCoordinates event, int threshold, long epoch, Digest viewRef, BLSMetrics metrics) {
         this.event = Objects.requireNonNull(event, "event cannot be null");
         if (threshold < 1) {
             throw new IllegalArgumentException("threshold must be >= 1, got: " + threshold);
@@ -166,6 +170,26 @@ public final class SignatureAccumulator {
         this.epoch = epoch;
         this.viewRef = viewRef; // May be null
         this.createdAt = Instant.now();
+        this.metrics = metrics; // May be null
+
+        // Track accumulator creation
+        if (metrics != null) {
+            metrics.incrementAccumulatorCreated();
+        }
+    }
+
+    /**
+     * Create accumulator for an event with epoch and viewRef validation (backward compatibility).
+     *
+     * @param event Event coordinates being witnessed
+     * @param threshold Required signature count (M)
+     * @param epoch Fireflies epoch
+     * @param viewRef View reference for validation (may be null for backward compatibility)
+     * @throws NullPointerException if event is null
+     * @throws IllegalArgumentException if threshold < 1 or epoch < 0
+     */
+    public SignatureAccumulator(EventCoordinates event, int threshold, long epoch, Digest viewRef) {
+        this(event, threshold, epoch, viewRef, null);
     }
 
     /**
@@ -250,6 +274,18 @@ public final class SignatureAccumulator {
             thresholdReachedAt.set(now);
             var snapshot = createSnapshot();
             thresholdSnapshot.set(snapshot);
+
+            // Track metrics for threshold achievement
+            if (metrics != null) {
+                // Record time to threshold (microseconds)
+                var durationMicros = Duration.between(createdAt, now).toNanos() / 1000;
+                metrics.recordTimeToThreshold(durationMicros);
+
+                // Record threshold percentage (should be 1.0 or slightly above)
+                var percentage = (double) count / threshold;
+                metrics.recordThresholdPercentage(Math.min(1.0, percentage));
+            }
+
             return new AccumulationResult.ThresholdMet(count, snapshot);
         }
 

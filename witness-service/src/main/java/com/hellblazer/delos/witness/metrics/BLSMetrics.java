@@ -54,4 +54,92 @@ public interface BLSMetrics {
      * Record completion of an accumulation (threshold met).
      */
     void recordCompletedAccumulation();
+
+    /**
+     * Increment counter for accumulators created.
+     */
+    void incrementAccumulatorCreated();
+
+    /**
+     * Increment counter for accumulators discarded before threshold.
+     */
+    void incrementAccumulatorDiscarded();
+
+    /**
+     * Record time to reach threshold (microseconds).
+     *
+     * @param durationMicros Time from first signature to threshold
+     */
+    void recordTimeToThreshold(long durationMicros);
+
+    /**
+     * Record threshold achievement percentage (0.0-1.0).
+     *
+     * @param percentage Achievement percentage
+     */
+    void recordThresholdPercentage(double percentage);
+
+    /**
+     * Set current number of buffered signatures.
+     *
+     * @param count Buffered signature count
+     */
+    void setBufferedSignatures(int count);
+
+    /**
+     * Record buffer drain latency (microseconds).
+     *
+     * @param latencyMicros Drain operation latency
+     */
+    void recordBufferDrainLatency(long latencyMicros);
+
+    /**
+     * Increment counter for aggregations performed.
+     */
+    void incrementAggregationsPerformed();
+
+    /**
+     * Record aggregation batch size (number of signatures).
+     *
+     * @param batchSize Batch size
+     */
+    void recordAggregationBatchSize(int batchSize);
+
+    /**
+     * Record aggregate size in bytes.
+     *
+     * @param sizeBytes Aggregate size
+     */
+    void recordAggregateSize(int sizeBytes);
+
+    /**
+     * Record compression ratio (individual bytes / aggregate bytes).
+     *
+     * @param ratio Compression ratio
+     */
+    void recordCompressionRatio(double ratio);
+
+    /**
+     * Increment counter for aggregation errors.
+     */
+    void incrementAggregationErrors();
+
+    /**
+     * Record committee participation (signer count).
+     *
+     * @param signerCount Number of signers
+     */
+    void recordCommitteeParticipation(int signerCount);
+
+    /**
+     * Record signer bitmap overhead in bytes.
+     *
+     * @param bitmapBytes Bitmap size
+     */
+    void recordSignerBitmapOverhead(int bitmapBytes);
+
+    /**
+     * Record empty accumulator cleanup.
+     */
+    void recordEmptyAccumulatorCleanup();
 }

@@ -58,6 +58,7 @@ public class RateAnomalyDetector implements ByzantineDetector {
 
     private final ConcurrentHashMap<Identifier, RateStats> memberStats = new ConcurrentHashMap<>();
     private final ByzantineDetectorConfig config;
+    private final ByzantineDetectionMetrics metrics;
 
     /**
      * Rate statistics for a member.
@@ -74,8 +75,9 @@ public class RateAnomalyDetector implements ByzantineDetector {
         Instant lastReceiptTime
     ) {}
 
-    public RateAnomalyDetector(ByzantineDetectorConfig config) {
+    public RateAnomalyDetector(ByzantineDetectorConfig config, ByzantineDetectionMetrics metrics) {
         this.config = Objects.requireNonNull(config, "config cannot be null");
+        this.metrics = Objects.requireNonNull(metrics, "metrics cannot be null");
     }
 
     @Override
@@ -148,8 +150,13 @@ public class RateAnomalyDetector implements ByzantineDetector {
     public double getAnomalyScore(Identifier memberId) {
         Objects.requireNonNull(memberId, "memberId cannot be null");
 
+        var startTime = System.nanoTime();
+
         var stats = memberStats.get(memberId);
         if (stats == null) {
+            // Record detection latency even for no-data case
+            var latencyMicros = (System.nanoTime() - startTime) / 1000;
+            metrics.recordDetectionLatency(DetectorType.RATE, latencyMicros);
             return 0.0;
         }
 
@@ -157,11 +164,24 @@ public class RateAnomalyDetector implements ByzantineDetector {
         // This prevents using stale EMA rates when the sliding window has cleared most entries
         // Requires at least 2 receipts to ensure valid inter-arrival rate calculation
         if (stats.currentWindowSize() < 2) {
+            var latencyMicros = (System.nanoTime() - startTime) / 1000;
+            metrics.recordDetectionLatency(DetectorType.RATE, latencyMicros);
             return 0.0;  // Too few recent receipts to indicate current rate (avoid stale EMA)
         }
 
         // Use the EMA rate from stats (updated in recordValidationResult)
-        return calculateScoreFromRate(stats.averageReceiptRatePerSec());
+        var score = calculateScoreFromRate(stats.averageReceiptRatePerSec());
+
+        // Record detection latency and anomaly detection if score above threshold
+        var latencyMicros = (System.nanoTime() - startTime) / 1000;
+        metrics.recordDetectionLatency(DetectorType.RATE, latencyMicros);
+
+        if (score >= config.warningAnomalyScore()) {
+            metrics.recordAnomalyDetection(DetectorType.RATE, score);
+            metrics.recordThresholdBreach(DetectorType.RATE);
+        }
+
+        return score;
     }
 
     @Override

@@ -37,7 +37,7 @@ class SignatureAnomalyDetectorTest {
     @BeforeEach
     void setUp() {
         config = ByzantineDetectorConfig.defaults();
-        detector = new SignatureAnomalyDetector(config);
+        detector = new SignatureAnomalyDetector(config, new NoOpByzantineDetectionMetrics());
 
         testMember1 = new SelfAddressingIdentifier(DigestAlgorithm.DEFAULT.digest("member1".getBytes()));
         testMember2 = new SelfAddressingIdentifier(DigestAlgorithm.DEFAULT.digest("member2".getBytes()));

@@ -38,7 +38,7 @@ class RateAnomalyDetectorTest {
     @BeforeEach
     void setUp() {
         config = ByzantineDetectorConfig.defaults();
-        detector = new RateAnomalyDetector(config);
+        detector = new RateAnomalyDetector(config, new NoOpByzantineDetectionMetrics());
         memberId = Identifier.NONE;
         coordinates = mock(EventCoordinates.class);
     }

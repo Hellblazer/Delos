@@ -52,6 +52,7 @@ public class TimingAnomalyDetector implements ByzantineDetector {
 
     private final ConcurrentHashMap<Identifier, TimingStats> memberStats = new ConcurrentHashMap<>();
     private final ByzantineDetectorConfig config;
+    private final ByzantineDetectionMetrics metrics;
 
     /**
      * Timing statistics for a member.
@@ -68,8 +69,9 @@ public class TimingAnomalyDetector implements ByzantineDetector {
         int sampleCount
     ) {}
 
-    public TimingAnomalyDetector(ByzantineDetectorConfig config) {
+    public TimingAnomalyDetector(ByzantineDetectorConfig config, ByzantineDetectionMetrics metrics) {
         this.config = Objects.requireNonNull(config, "config cannot be null");
+        this.metrics = Objects.requireNonNull(metrics, "metrics cannot be null");
     }
 
     @Override
@@ -109,13 +111,29 @@ public class TimingAnomalyDetector implements ByzantineDetector {
     public double getAnomalyScore(Identifier memberId) {
         Objects.requireNonNull(memberId, "memberId cannot be null");
 
+        var startTime = System.nanoTime();
+
         var stats = memberStats.get(memberId);
         if (stats == null) {
+            // Record detection latency even for no-data case
+            var latencyMicros = (System.nanoTime() - startTime) / 1000;
+            metrics.recordDetectionLatency(DetectorType.TIMING, latencyMicros);
             return 0.0;
         }
 
         var avgLatency = stats.averageLatencyMs();
-        return calculateScoreFromLatency(avgLatency);
+        var score = calculateScoreFromLatency(avgLatency);
+
+        // Record detection latency and anomaly detection if score above threshold
+        var latencyMicros = (System.nanoTime() - startTime) / 1000;
+        metrics.recordDetectionLatency(DetectorType.TIMING, latencyMicros);
+
+        if (score >= config.warningAnomalyScore()) {
+            metrics.recordAnomalyDetection(DetectorType.TIMING, score);
+            metrics.recordThresholdBreach(DetectorType.TIMING);
+        }
+
+        return score;
     }
 
     @Override

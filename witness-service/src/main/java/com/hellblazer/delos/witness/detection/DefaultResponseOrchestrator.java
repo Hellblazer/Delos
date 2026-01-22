@@ -50,6 +50,7 @@ public class DefaultResponseOrchestrator implements ResponseOrchestrator {
     private final Map<Identifier, MemberResponseState> memberStates;
     private final ResponseEscalationEngine escalationEngine;
     private final ResponseOrchestrationMetrics metrics;
+    private final ByzantineDetectionMetrics byzantineMetrics;
     private final ThresholdAdaptationPolicy thresholdPolicy;
     private final SignatureBufferingOrchestrator bufferingOrchestrator;
     private final EscalationCoordinator escalationCoordinator;
@@ -59,15 +60,17 @@ public class DefaultResponseOrchestrator implements ResponseOrchestrator {
         int totalMembers,
         ByzantineDetectorConfig detectorConfig,
         GracefulDegradationConfig gracefulConfig,
-        EscalationCoordinator escalationCoordinator
+        EscalationCoordinator escalationCoordinator,
+        ByzantineDetectionMetrics byzantineMetrics
     ) {
         this.detectorConfig = Objects.requireNonNull(detectorConfig, "detectorConfig cannot be null");
         this.gracefulConfig = Objects.requireNonNull(gracefulConfig, "gracefulConfig cannot be null");
         this.escalationCoordinator = Objects.requireNonNull(escalationCoordinator,
                                                              "escalationCoordinator cannot be null");
+        this.byzantineMetrics = Objects.requireNonNull(byzantineMetrics, "byzantineMetrics cannot be null");
 
         this.memberStates = new ConcurrentHashMap<>();
-        this.escalationEngine = new ResponseEscalationEngine();
+        this.escalationEngine = new ResponseEscalationEngine(byzantineMetrics);
         this.metrics = new ResponseOrchestrationMetrics();
         this.thresholdPolicy = new ThresholdAdaptationPolicy(totalMembers, gracefulConfig);
         this.bufferingOrchestrator = new SignatureBufferingOrchestrator(gracefulConfig);
@@ -112,7 +115,8 @@ public class DefaultResponseOrchestrator implements ResponseOrchestrator {
         Objects.requireNonNull(memberId, "memberId cannot be null");
         Objects.requireNonNull(type, "type cannot be null");
 
-        return escalationEngine.evaluateEscalation(memberId, score, type, detectorConfig, gracefulConfig);
+        return escalationEngine.evaluateEscalation(memberId, score, type, detectorConfig, gracefulConfig,
+                                                    System.nanoTime());
     }
 
     @Override

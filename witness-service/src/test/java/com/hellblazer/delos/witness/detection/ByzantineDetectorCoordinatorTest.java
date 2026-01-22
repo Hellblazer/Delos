@@ -38,7 +38,7 @@ class ByzantineDetectorCoordinatorTest {
     void setUp() {
         responseOrchestrator = mock(ResponseOrchestrator.class);
         config = ByzantineDetectorConfig.defaults();
-        coordinator = new ByzantineDetectorCoordinator(config, responseOrchestrator);
+        coordinator = new ByzantineDetectorCoordinator(config, responseOrchestrator, new NoOpByzantineDetectionMetrics());
 
         memberId = Identifier.NONE;
         receiptCoords = mock(EventCoordinates.class);
@@ -214,13 +214,13 @@ class ByzantineDetectorCoordinatorTest {
 
     @Test
     void shouldRequireNonNullConfig() {
-        assertThatThrownBy(() -> new ByzantineDetectorCoordinator(null, responseOrchestrator))
+        assertThatThrownBy(() -> new ByzantineDetectorCoordinator(null, responseOrchestrator, new NoOpByzantineDetectionMetrics()))
             .isInstanceOf(NullPointerException.class);
     }
 
     @Test
     void shouldRequireNonNullResponseOrchestrator() {
-        assertThatThrownBy(() -> new ByzantineDetectorCoordinator(config, null))
+        assertThatThrownBy(() -> new ByzantineDetectorCoordinator(config, null, new NoOpByzantineDetectionMetrics()))
             .isInstanceOf(NullPointerException.class);
     }
 

@@ -41,7 +41,7 @@ class TimingAnomalyDetectorTest {
     @BeforeEach
     void setUp() {
         config = ByzantineDetectorConfig.defaults();
-        detector = new TimingAnomalyDetector(config);
+        detector = new TimingAnomalyDetector(config, new NoOpByzantineDetectionMetrics());
         memberId = Identifier.NONE;
         receiptCoords = mock(EventCoordinates.class);
 
@@ -470,7 +470,7 @@ class TimingAnomalyDetectorTest {
 
     @Test
     void testRequireNonNullConfig() {
-        assertThatThrownBy(() -> new TimingAnomalyDetector(null))
+        assertThatThrownBy(() -> new TimingAnomalyDetector(null, new NoOpByzantineDetectionMetrics()))
             .isInstanceOf(NullPointerException.class);
     }
 

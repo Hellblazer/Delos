@@ -48,6 +48,7 @@ public class SignatureAnomalyDetector implements ByzantineDetector {
 
     private final ConcurrentHashMap<Identifier, SignatureStats> memberStats = new ConcurrentHashMap<>();
     private final ByzantineDetectorConfig config;
+    private final ByzantineDetectionMetrics metrics;
 
     /**
      * Signature statistics for a member.
@@ -66,8 +67,9 @@ public class SignatureAnomalyDetector implements ByzantineDetector {
         Instant lastFailureTime
     ) {}
 
-    public SignatureAnomalyDetector(ByzantineDetectorConfig config) {
+    public SignatureAnomalyDetector(ByzantineDetectorConfig config, ByzantineDetectionMetrics metrics) {
         this.config = Objects.requireNonNull(config, "config cannot be null");
+        this.metrics = Objects.requireNonNull(metrics, "metrics cannot be null");
     }
 
     @Override
@@ -148,8 +150,13 @@ public class SignatureAnomalyDetector implements ByzantineDetector {
     public double getAnomalyScore(Identifier memberId) {
         Objects.requireNonNull(memberId, "memberId cannot be null");
 
+        var startTime = System.nanoTime();
+
         var stats = memberStats.get(memberId);
         if (stats == null || stats.totalValidations() == 0) {
+            // Record detection latency even for no-data case
+            var latencyMicros = (System.nanoTime() - startTime) / 1000;
+            metrics.recordDetectionLatency(DetectorType.SIGNATURE, latencyMicros);
             return 0.0;
         }
 
@@ -167,7 +174,18 @@ public class SignatureAnomalyDetector implements ByzantineDetector {
         var boostedScore = baseScore * consecutiveBoost;
 
         // Clamp to [0.0, 1.0]
-        return Math.min(1.0, Math.max(0.0, boostedScore));
+        var score = Math.min(1.0, Math.max(0.0, boostedScore));
+
+        // Record detection latency and anomaly detection if score above threshold
+        var latencyMicros = (System.nanoTime() - startTime) / 1000;
+        metrics.recordDetectionLatency(DetectorType.SIGNATURE, latencyMicros);
+
+        if (score >= config.warningAnomalyScore()) {
+            metrics.recordAnomalyDetection(DetectorType.SIGNATURE, score);
+            metrics.recordThresholdBreach(DetectorType.SIGNATURE);
+        }
+
+        return score;
     }
 
     @Override

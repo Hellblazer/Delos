@@ -36,15 +36,18 @@ public class ByzantineDetectorCoordinator {
     private final Map<Identifier, AnomalyScore> memberScores;
     private final List<ByzantineDetector> detectors;
     private final ResponseOrchestrator responseOrchestrator;
+    private final ByzantineDetectionMetrics metrics;
     private final ScheduledExecutorService scheduler;
     private final Object lock = new Object();
 
     public ByzantineDetectorCoordinator(
         ByzantineDetectorConfig config,
-        ResponseOrchestrator responseOrchestrator
+        ResponseOrchestrator responseOrchestrator,
+        ByzantineDetectionMetrics metrics
     ) {
         this.config = Objects.requireNonNull(config, "config cannot be null");
         this.responseOrchestrator = Objects.requireNonNull(responseOrchestrator, "responseOrchestrator cannot be null");
+        this.metrics = Objects.requireNonNull(metrics, "metrics cannot be null");
         this.memberScores = new ConcurrentHashMap<>();
         this.detectors = Collections.synchronizedList(new ArrayList<>());
         this.scheduler = Executors.newScheduledThreadPool(1);
@@ -153,10 +156,25 @@ public class ByzantineDetectorCoordinator {
     // Private helper methods
 
     private void updateMemberScore(Identifier memberId) {
-        // Aggregate scores from all detectors
+        // Count how many detectors vote for anomaly (score >= warning threshold)
+        int voteCount = 0;
         double aggregatedScore = 0.0;
+
         for (var detector : detectors) {
-            aggregatedScore += detector.getAnomalyScore(memberId);
+            var detectorScore = detector.getAnomalyScore(memberId);
+            aggregatedScore += detectorScore;
+
+            if (detectorScore >= config.warningAnomalyScore()) {
+                voteCount++;
+            }
+        }
+
+        // Record ensemble vote count (0-3)
+        metrics.recordEnsembleVote(voteCount);
+
+        // Record quorum if 2+ detectors agree
+        if (voteCount >= 2) {
+            metrics.incrementQuorumReached();
         }
 
         // Average across detectors

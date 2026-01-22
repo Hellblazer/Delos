@@ -120,9 +120,9 @@ public class WitnessReceiptManager {
         this.signatureFormat = parameters.signatureFormat();
         this.migrationPhase = parameters.migrationPhase();
 
-        // Create BLS aggregator if BLS supported
+        // Create BLS aggregator if BLS supported (pass metrics for instrumentation)
         this.blsAggregator = (migrationPhase == MigrationPhase.DUAL || migrationPhase == MigrationPhase.BLS_ONLY)
-            ? new BLSReceiptAggregator()
+            ? new BLSReceiptAggregator(Duration.ofMinutes(10), metrics)
             : null;
 
         this.lock = new ReentrantReadWriteLock();
