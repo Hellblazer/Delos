@@ -337,6 +337,180 @@ DELOS_LOGS_DIR=/opt/delos/logs
 
 ---
 
+## 3.3 Phase 1C: BLS & Byzantine Configuration
+
+Phase 1C introduces Byzantine-resilient consensus with BLS signatures. Additional configuration is required for BLS key management and Byzantine detection.
+
+### BLS Key Store Configuration
+
+Add to `delos.yaml`:
+
+```yaml
+# BLS Key Management
+bls:
+  key_store_path: /opt/delos/bls/keystore
+  key_store_type: "PKCS12"
+  key_store_password: "${BLS_KEYSTORE_PASSWORD}"
+
+  # Key Rotation
+  rotation:
+    enabled: true
+    interval: 24h
+    grace_period: 5m      # Time to accept both old and new keys
+```
+
+**Setup BLS Keystore**:
+
+```bash
+#!/bin/bash
+# Generate BLS key pair
+openssl genrsa -out /opt/delos/bls/bls_key.pem 4096
+
+# Create PKCS12 keystore
+openssl pkcs12 -export \
+  -in /opt/delos/bls/bls_cert.pem \
+  -inkey /opt/delos/bls/bls_key.pem \
+  -out /opt/delos/bls/keystore.p12 \
+  -name delos-bls-key \
+  -passout env:BLS_KEYSTORE_PASSWORD
+
+# Set permissions
+chmod 600 /opt/delos/bls/keystore.p12
+```
+
+### Byzantine Detection Configuration
+
+Add to `delos.yaml`:
+
+```yaml
+# Byzantine Member Detection
+byzantine_detection:
+  enabled: true
+
+  # Rate Anomaly Detection
+  rate_anomaly:
+    window: 5m            # Detection window (5-60 minutes)
+    threshold: 0.10       # 10% rate deviation triggers investigation
+    enabled: true
+
+  # Invalid Signature Detection
+  invalid_signature:
+    enabled: true         # Synchronous, always on
+
+  # Member Exclusion
+  member_exclusion:
+    enabled: true
+    recovery_timeout: 1h  # Time before member can rejoin
+
+  # Monitoring
+  metrics:
+    enabled: true
+    export_interval: 30s
+```
+
+### Graceful Degradation Configuration
+
+Add to `delos.yaml`:
+
+```yaml
+# Graceful Degradation (Handles 1-2 Byzantine Members)
+graceful_degradation:
+  enabled: true
+
+  # Signature Buffering
+  buffer:
+    size: 10000           # Max buffered signatures
+    drain_rate: 2000/sec  # Drain rate on recovery
+
+  # Threshold Adjustment
+  degraded_threshold:
+    calculation: "LINEAR" # Adjust based on Byzantine count
+    safety_margin: 1      # Keep >1 extra sig for safety
+```
+
+### Performance Monitoring
+
+Add to `delos.yaml`:
+
+```yaml
+# Phase 1C Metrics
+metrics:
+  enabled: true
+  export_interval: 30s
+
+  # Key metrics to monitor
+  tracked_metrics:
+    - bls.signature.receipt.latency
+    - bls.signatures.rejected.*
+    - bls.accumulator.active
+    - bls.accumulator.completed
+    - byzantine.exclusions
+    - view.change.duration
+    - key.rotation.latency
+```
+
+### Environment Variables for Phase 1C
+
+```bash
+# BLS Key Management
+export BLS_KEYSTORE_PASSWORD="securepassword"
+export BLS_KEY_ROTATION_INTERVAL="24h"
+export BLS_KEY_ROTATION_GRACE_PERIOD="5m"
+
+# Byzantine Detection
+export BYZANTINE_DETECTION_WINDOW="5m"
+export BYZANTINE_DETECTION_THRESHOLD="0.10"
+export BYZANTINE_MEMBER_RECOVERY_TIMEOUT="1h"
+
+# Graceful Degradation
+export DEGRADATION_BUFFER_SIZE="10000"
+export DEGRADATION_BUFFER_DRAIN_RATE="2000/sec"
+
+# Monitoring
+export METRICS_EXPORT_INTERVAL="30s"
+```
+
+### Validation After Phase 1C Configuration
+
+```bash
+# 1. Verify BLS keystore is accessible
+java -cp /opt/delos/lib/delos.jar \
+  com.hellblazer.delos.bls.BLSKeyStoreValidator \
+  /opt/delos/bls/keystore.p12
+
+# 2. Check Byzantine detection is armed
+curl http://localhost:8080/metrics | grep byzantine_exclusions
+
+# 3. Verify metrics are flowing
+curl http://localhost:8080/metrics | grep bls_
+
+# 4. Monitor key rotation readiness
+curl http://localhost:8080/admin/bls/status
+```
+
+### Cluster-Level Phase 1C Configuration
+
+For a 7-member Byzantine-resilient committee:
+
+```yaml
+cluster:
+  committee_size: 7       # 3f+1, tolerates f=2 Byzantine members
+  threshold: 5            # M-of-N = 5 of 7 (71%)
+
+  # View change when > 2 members Byzantine
+  view_change:
+    trigger_threshold: 2  # Byzantine count
+    timeout: 200ms
+```
+
+### See Also
+
+- [Performance Tuning Guide](./PERFORMANCE_TUNING.md#phase-1c-bls-performance--operational-hardening)
+- [Phase 1C Performance Baselines](../witness-service/docs/PHASE_1C_PERFORMANCE_BASELINES.md)
+- [BLS Benchmark Methodology](../witness-service/src/test/java/com/hellblazer/delos/witness/benchmark/README.md)
+
+---
+
 ## 4. Systemd Service Setup
 
 Create `/etc/systemd/system/delos.service`:
