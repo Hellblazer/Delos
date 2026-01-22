@@ -29,8 +29,8 @@ class TreeConfigurationTest {
 
         assertThat(config.committeeCount()).isEqualTo(100);
         assertThat(config.branchingFactor()).isEqualTo(8);
-        // For 100 committees with k=8: 8^2=64, 8^3=512, so maxDepth=3
-        assertThat(config.maxDepth()).isEqualTo(3);
+        // For 100 committees with k=8: 8^3=512 >= 100, so maxDepth=4 (includes root)
+        assertThat(config.maxDepth()).isEqualTo(4);
         assertThat(config.maxCapacity()).isEqualTo(512);
     }
 
@@ -38,18 +38,19 @@ class TreeConfigurationTest {
     @DisplayName("should calculate depth for various committee counts")
     void shouldCalculateDepthForVariousCommitteeCounts() {
         // k=2 (binary) - deeper trees
-        assertThat(TreeConfiguration.create(1, 2).maxDepth()).isEqualTo(1);
-        assertThat(TreeConfiguration.create(2, 2).maxDepth()).isEqualTo(1);
-        assertThat(TreeConfiguration.create(3, 2).maxDepth()).isEqualTo(2);
-        assertThat(TreeConfiguration.create(4, 2).maxDepth()).isEqualTo(2);
-        assertThat(TreeConfiguration.create(5, 2).maxDepth()).isEqualTo(3);
+        // maxDepth where k^(maxDepth-1) >= committeeCount
+        assertThat(TreeConfiguration.create(1, 2).maxDepth()).isEqualTo(1);   // 2^0=1 >= 1
+        assertThat(TreeConfiguration.create(2, 2).maxDepth()).isEqualTo(2);   // 2^1=2 >= 2
+        assertThat(TreeConfiguration.create(3, 2).maxDepth()).isEqualTo(3);   // 2^2=4 >= 3
+        assertThat(TreeConfiguration.create(4, 2).maxDepth()).isEqualTo(3);   // 2^2=4 >= 4
+        assertThat(TreeConfiguration.create(5, 2).maxDepth()).isEqualTo(4);   // 2^3=8 >= 5
 
         // k=8 (octal) - shallower trees
-        assertThat(TreeConfiguration.create(8, 8).maxDepth()).isEqualTo(1);
-        assertThat(TreeConfiguration.create(9, 8).maxDepth()).isEqualTo(2);
-        assertThat(TreeConfiguration.create(64, 8).maxDepth()).isEqualTo(2);
-        assertThat(TreeConfiguration.create(65, 8).maxDepth()).isEqualTo(3);
-        assertThat(TreeConfiguration.create(512, 8).maxDepth()).isEqualTo(3);
+        assertThat(TreeConfiguration.create(8, 8).maxDepth()).isEqualTo(2);   // 8^1=8 >= 8
+        assertThat(TreeConfiguration.create(9, 8).maxDepth()).isEqualTo(3);   // 8^2=64 >= 9
+        assertThat(TreeConfiguration.create(64, 8).maxDepth()).isEqualTo(3);  // 8^2=64 >= 64
+        assertThat(TreeConfiguration.create(65, 8).maxDepth()).isEqualTo(4);  // 8^3=512 >= 65
+        assertThat(TreeConfiguration.create(512, 8).maxDepth()).isEqualTo(4); // 8^3=512 >= 512
     }
 
     @Test
@@ -79,10 +80,11 @@ class TreeConfigurationTest {
     @Test
     @DisplayName("should calculate max capacity correctly")
     void shouldCalculateMaxCapacity() {
-        assertThat(TreeConfiguration.create(1, 2).maxCapacity()).isEqualTo(2);
-        assertThat(TreeConfiguration.create(4, 2).maxCapacity()).isEqualTo(4);
-        assertThat(TreeConfiguration.create(8, 2).maxCapacity()).isEqualTo(8);
-        assertThat(TreeConfiguration.create(100, 8).maxCapacity()).isEqualTo(512);
+        // maxCapacity = k^(maxDepth-1)
+        assertThat(TreeConfiguration.create(1, 2).maxCapacity()).isEqualTo(1);     // 2^0 = 1
+        assertThat(TreeConfiguration.create(4, 2).maxCapacity()).isEqualTo(4);     // 2^2 = 4
+        assertThat(TreeConfiguration.create(8, 2).maxCapacity()).isEqualTo(8);     // 2^3 = 8
+        assertThat(TreeConfiguration.create(100, 8).maxCapacity()).isEqualTo(512); // 8^3 = 512
     }
 
     @Test
@@ -114,9 +116,9 @@ class TreeConfigurationTest {
         var str = config.toString();
 
         assertThat(str).contains("k=8");
-        assertThat(str).contains("maxDepth=3");
+        assertThat(str).contains("maxDepth=4");  // 8^3 = 512 >= 100
         assertThat(str).contains("committees=100");
-        assertThat(str).contains("capacity=512");
+        assertThat(str).contains("capacity=512");  // 8^(4-1) = 8^3 = 512
     }
 
     @ParameterizedTest
@@ -137,9 +139,12 @@ class TreeConfigurationTest {
         var config = TreeConfiguration.create(1000000, 8);
 
         assertThat(config.committeeCount()).isEqualTo(1000000);
-        // 8^6 = 262144, 8^7 = 2097152
-        assertThat(config.maxDepth()).isEqualTo(7);
-        assertThat(config.maxCapacity()).isGreaterThanOrEqualTo(1000000);
+        // maxDepth where 8^(maxDepth-1) >= 1000000
+        // 8^6 = 262144 < 1000000
+        // 8^7 = 2097152 >= 1000000
+        // So maxDepth = 8
+        assertThat(config.maxDepth()).isEqualTo(8);
+        assertThat(config.maxCapacity()).isGreaterThanOrEqualTo(1000000);  // Should be 8^7 = 2097152
     }
 
     @Test
@@ -150,7 +155,7 @@ class TreeConfigurationTest {
         assertThat(config.committeeCount()).isEqualTo(1);
         assertThat(config.maxDepth()).isEqualTo(1);
         assertThat(config.leafDepth()).isEqualTo(1);
-        assertThat(config.maxCapacity()).isEqualTo(8);
+        assertThat(config.maxCapacity()).isEqualTo(1);  // 8^(1-1) = 8^0 = 1
     }
 
     @Test

@@ -128,13 +128,13 @@ public record TreeConfiguration(
      * Get the maximum number of committees this tree can hold at full capacity.
      * <p>
      * For a tree with depth D and branching factor k:
-     * Capacity = k^D
+     * Capacity = k^(D-1) (number of leaves at depth D)
      *
      * @return Maximum committee capacity
      */
     public long maxCapacity() {
         long capacity = 1;
-        for (int i = 0; i < maxDepth; i++) {
+        for (int i = 0; i < maxDepth - 1; i++) {  // Leaves at depth d have k^(d-1) capacity
             capacity *= branchingFactor;
         }
         return capacity;
