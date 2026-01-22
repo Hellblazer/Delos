@@ -11,6 +11,7 @@ package com.hellblazer.delos.witness.validation.graceful;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -285,6 +286,25 @@ public class DegradedThresholdCalculator {
      */
     public int getTotalMembers() {
         return totalMembers;
+    }
+
+    /**
+     * Determine if a member signature should be included in receipt validation.
+     *
+     * A member is excluded if they are Byzantine detected or in a non-active state.
+     * This method is used during buffer drain to filter which buffered signatures
+     * should be replayed for aggregation.
+     *
+     * @param member Member identifier
+     * @param byzantineMembers Set of members detected as Byzantine
+     * @return true if member should be included, false if excluded
+     */
+    public boolean shouldInclude(Identifier member, Set<Identifier> byzantineMembers) {
+        if (byzantineMembers != null && byzantineMembers.contains(member)) {
+            return false;
+        }
+        var status = memberStatus.get(member);
+        return status == null || status == MemberStatus.ACTIVE;
     }
 
     @Override

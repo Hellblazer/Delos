@@ -21,6 +21,7 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -31,15 +32,19 @@ import java.util.stream.IntStream;
  * Test suite for DegradedThresholdCalculator.
  *
  * Coverage:
- * - Construction validation (5+ tests)
- * - Threshold calculation (12+ tests)
- * - Member state management (10+ tests)
- * - Query methods (8+ tests)
- * - Edge cases (8+ tests)
- * - Thread safety (5+ tests)
- * - Integration scenarios (5+ tests)
+ * - Construction validation (7 tests)
+ * - Threshold calculation (13 tests)
+ * - Member state management (11 tests)
+ * - Query methods (9 tests)
+ * - Edge cases (8 tests)
+ * - Thread safety (5 tests)
+ * - Integration scenarios (5 tests)
+ * - shouldInclude filtering (11 tests)
+ * - toString (1 test)
  *
- * Phase 1C-3-C: Graceful Degradation (Delos-3959)
+ * Total: 69 tests
+ *
+ * Phase 1C-3-C: Graceful Degradation (Delos-3960)
  */
 class DegradedThresholdCalculatorTest {
 
@@ -996,6 +1001,166 @@ class DegradedThresholdCalculatorTest {
 
         // Verify stable
         assertTrue(calculator.countActive() >= 6);
+    }
+
+    // ========== shouldInclude Tests (6+ tests) ==========
+
+    @Test
+    void shouldExcludeMemberInByzantineSet() {
+        var calculator = new DegradedThresholdCalculator(3, 4, 0.667);
+        var member = randomId();
+
+        // Member is in Byzantine set
+        var byzantineSet = Set.of(member);
+
+        assertFalse(calculator.shouldInclude(member, byzantineSet),
+                   "Member in Byzantine set should be excluded");
+    }
+
+    @Test
+    void shouldIncludeActiveMemberNotInByzantineSet() {
+        var calculator = new DegradedThresholdCalculator(3, 4, 0.667);
+        var member = randomId();
+        calculator.markActive(member);
+
+        var byzantineSet = Set.of(randomId()); // Different member
+
+        assertTrue(calculator.shouldInclude(member, byzantineSet),
+                  "Active member not in Byzantine set should be included");
+    }
+
+    @Test
+    void shouldIncludeUntrackedMemberNotInByzantineSet() {
+        var calculator = new DegradedThresholdCalculator(3, 4, 0.667);
+        var member = randomId();
+
+        // Member has no status (null)
+        var byzantineSet = Set.of(randomId());
+
+        assertTrue(calculator.shouldInclude(member, byzantineSet),
+                  "Untracked member not in Byzantine set should be included (default accept)");
+    }
+
+    @Test
+    void shouldExcludeUnreachableMemberEvenIfNotByzantine() {
+        var calculator = new DegradedThresholdCalculator(3, 4, 0.667);
+        var member = randomId();
+        calculator.markUnreachable(member);
+
+        var byzantineSet = Set.of(randomId()); // Different member
+
+        assertFalse(calculator.shouldInclude(member, byzantineSet),
+                   "Unreachable member should be excluded");
+    }
+
+    @Test
+    void shouldExcludeRecoveringMember() {
+        var calculator = new DegradedThresholdCalculator(3, 4, 0.667);
+        var member = randomId();
+        calculator.markRecovering(member);
+
+        var byzantineSet = Set.of(randomId());
+
+        assertFalse(calculator.shouldInclude(member, byzantineSet),
+                   "Recovering member should be excluded");
+    }
+
+    @Test
+    void shouldExcludeSuspendedMember() {
+        var calculator = new DegradedThresholdCalculator(3, 4, 0.667);
+        var member = randomId();
+        calculator.suspend(member);
+
+        var byzantineSet = Set.of(randomId());
+
+        assertFalse(calculator.shouldInclude(member, byzantineSet),
+                   "Suspended member should be excluded");
+    }
+
+    @Test
+    void shouldIncludeActiveMemberWithNullByzantineSet() {
+        var calculator = new DegradedThresholdCalculator(3, 4, 0.667);
+        var member = randomId();
+        calculator.markActive(member);
+
+        // Null Byzantine set (no Byzantine members detected)
+        assertTrue(calculator.shouldInclude(member, null),
+                  "Active member should be included when Byzantine set is null");
+    }
+
+    @Test
+    void shouldIncludeUntrackedMemberWithNullByzantineSet() {
+        var calculator = new DegradedThresholdCalculator(3, 4, 0.667);
+        var member = randomId();
+
+        // No status + null Byzantine set
+        assertTrue(calculator.shouldInclude(member, null),
+                  "Untracked member should be included when Byzantine set is null");
+    }
+
+    @Test
+    void shouldExcludeUntrackedMemberInByzantineSet() {
+        var calculator = new DegradedThresholdCalculator(3, 4, 0.667);
+        var member = randomId();
+
+        // Member has no status, but is in Byzantine set
+        var byzantineSet = Set.of(member);
+
+        assertFalse(calculator.shouldInclude(member, byzantineSet),
+                   "Untracked member in Byzantine set should be excluded");
+    }
+
+    @Test
+    void shouldHandleEmptyByzantineSet() {
+        var calculator = new DegradedThresholdCalculator(3, 4, 0.667);
+        var member = randomId();
+        calculator.markActive(member);
+
+        var emptyByzantineSet = Set.<Identifier>of();
+
+        assertTrue(calculator.shouldInclude(member, emptyByzantineSet),
+                  "Active member should be included when Byzantine set is empty");
+    }
+
+    @Test
+    void shouldHandleConcurrentShouldIncludeCalls() throws InterruptedException {
+        var calculator = new DegradedThresholdCalculator(50, 100, 0.667);
+
+        var member1 = randomId();
+        var member2 = randomId();
+        var byzantine = randomId();
+
+        calculator.markActive(member1);
+        calculator.markActive(member2);
+
+        var byzantineSet = Set.of(byzantine);
+
+        var executor = Executors.newFixedThreadPool(10);
+        var latch = new CountDownLatch(100);
+        var results = new ArrayList<Boolean>();
+
+        // Concurrent shouldInclude calls
+        for (int i = 0; i < 100; i++) {
+            final var member = (i % 2 == 0) ? member1 : member2;
+            executor.submit(() -> {
+                try {
+                    boolean result = calculator.shouldInclude(member, byzantineSet);
+                    synchronized (results) {
+                        results.add(result);
+                    }
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+
+        assertTrue(latch.await(5, TimeUnit.SECONDS));
+        executor.shutdown();
+
+        // All results should be true (neither member is Byzantine)
+        assertEquals(100, results.size());
+        assertTrue(results.stream().allMatch(r -> r),
+                  "All shouldInclude calls should return true for non-Byzantine members");
     }
 
     // ========== toString Tests ==========
