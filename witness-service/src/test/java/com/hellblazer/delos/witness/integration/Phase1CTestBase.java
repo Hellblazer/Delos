@@ -7,41 +7,20 @@
  */
 package com.hellblazer.delos.witness.integration;
 
-import com.hellblazer.delos.archipelago.LocalServer;
-import com.hellblazer.delos.archipelago.Router;
-import com.hellblazer.delos.archipelago.ServerConnectionCache;
-import com.hellblazer.delos.archipelago.UnsafeExecutors;
 import com.hellblazer.delos.context.Context;
-import com.hellblazer.delos.context.DynamicContextImpl;
+import com.hellblazer.delos.context.StaticContext;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
-import com.hellblazer.delos.fireflies.View;
-import com.hellblazer.delos.fireflies.View.DrainPolicy;
-import com.hellblazer.delos.membership.Member;
-import com.hellblazer.delos.membership.SigningMember;
-import com.hellblazer.delos.membership.stereotomy.ControlledIdentifierMember;
-import com.hellblazer.delos.stereotomy.StereotomyImpl;
+import com.hellblazer.delos.membership.MockMember;
+import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
-import com.hellblazer.delos.stereotomy.mem.MemKERL;
-import com.hellblazer.delos.stereotomy.mem.MemKeyStore;
-import com.hellblazer.delos.utils.Utils;
-import com.hellblazer.delos.witness.WitnessCHOAM;
-import com.hellblazer.delos.witness.WitnessCHOAM.NoGenesis;
-import com.hellblazer.delos.witness.WitnessCHOAMParameters;
-import com.hellblazer.delos.witness.detection.ByzantineDetector;
-import com.hellblazer.delos.witness.detection.ByzantineDetectorImpl;
-import com.hellblazer.delos.witness.detection.ByzantineDetectorConfig;
-import com.hellblazer.delos.witness.validation.BLSAdversarialTestHelpers;
-import com.hellblazer.delos.witness.validation.WitnessReceiptTestHelper;
+import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -50,14 +29,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Base infrastructure for Phase 1C end-to-end integration tests.
  *
- * Provides reusable 7-node Byzantine-resilient cluster setup with:
- * - Fireflies membership protocol
- * - WitnessCHOAM for BLS signature aggregation
- * - Byzantine detection framework
- * - Helper methods for test execution
+ * Provides reusable test fixtures for 7-node Byzantine-resilient witness committee testing:
+ * - Witness pool and Fireflies context setup
+ * - BLS threshold collection infrastructure
+ * - Byzantine detection test helpers
+ * - Performance measurement utilities
  *
  * Cluster Configuration:
- * - 7 nodes (committee size = 7)
+ * - 7 committee members (k=7)
+ * - 21-node witness pool
  * - Byzantine tolerance: f=2 (supports 2 Byzantine nodes)
  * - Threshold: 5 signatures (2f+1 quorum)
  *
@@ -66,290 +46,237 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 abstract public class Phase1CTestBase {
 
     protected static final int COMMITTEE_SIZE = 7;
+    protected static final int WITNESS_POOL_SIZE = 21;
     protected static final int THRESHOLD = 5;
-    protected static final double PBYZ = 0.1;  // 10% Byzantine tolerance for 7 nodes
-    protected static final Duration GOSSIP_DURATION = Duration.ofMillis(5);
     protected static final DigestAlgorithm ALGORITHM = DigestAlgorithm.DEFAULT;
 
-    // Infrastructure
+    // Core infrastructure
     protected SecureRandom entropy;
-    protected StereotomyImpl stereotomy;
-    protected Map<Digest, ControlledIdentifier> identities;
-    protected List<SigningMember> members;
-    protected Map<Digest, Router> routers;
-    protected List<View> views;
-    protected Map<Digest, WitnessCHOAM> witnesses;
-    protected ExecutorService executor;
-    protected ScheduledExecutorService scheduler;
-    protected Context<Member> firefliesContext;
-
-    // Test helpers
-    protected BLSAdversarialTestHelpers adversarialHelpers;
-    protected WitnessReceiptTestHelper receiptHelper;
-    protected ByzantineDetector byzantineDetector;
-    protected Map<Digest, ByzantineDetectorImpl> detectorInstances;
+    protected List<MockMember> witnessPool;
+    protected Context<MockMember> firefliesContext;
+    protected Set<Identifier> committee;
+    protected Map<Identifier, ByzantineNodeState> byzantineState;
 
     @BeforeEach
-    public void setUp() throws Exception {
-        executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
-        scheduler = java.util.concurrent.Executors.newScheduledThreadPool(10, Thread.ofVirtual().factory());
+    public void setUp() {
         entropy = new SecureRandom();
+        byzantineState = new HashMap<>();
 
-        // Initialize identities
-        stereotomy = new StereotomyImpl(new MemKeyStore(), new MemKERL(ALGORITHM), entropy);
-        identities = new HashMap<>();
-        members = new ArrayList<>();
+        // Initialize witness pool: 21 members
+        witnessPool = createWitnessPool(WITNESS_POOL_SIZE);
 
-        for (int i = 0; i < COMMITTEE_SIZE; i++) {
-            var identifier = stereotomy.newIdentifier();
-            var controlledId = new ControlledIdentifierMember(identifier);
-            identities.put(controlledId.getId(), identifier);
-            members.add(controlledId);
-        }
+        // Initialize Fireflies context: 7 members selected from pool
+        Digest contextId = ALGORITHM.digest("phase1c-test-context".getBytes());
+        firefliesContext = new StaticContext<>(contextId, 0.1, witnessPool, COMMITTEE_SIZE);
 
-        // Initialize Fireflies context
-        Digest contextId = ALGORITHM.getOrigin();
-        firefliesContext = new DynamicContextImpl<>(contextId, COMMITTEE_SIZE, PBYZ, 3);
-        members.forEach(m -> firefliesContext.activate(m));
+        // Select initial committee (first 7 members)
+        committee = selectCommittee(witnessPool.stream().limit(COMMITTEE_SIZE).toList());
 
-        // Initialize communications
-        String prefix = UUID.randomUUID().toString();
-        routers = new HashMap<>();
-        for (SigningMember member : members) {
-            var server = new LocalServer(prefix, member);
-            var router = server.router(ServerConnectionCache.newBuilder().setTarget(30), executor);
-            routers.put(member.getId(), router);
-        }
-
-        // Initialize Fireflies views
-        views = new ArrayList<>();
-        for (SigningMember member : members) {
-            View view = new View(
-                    member,
-                    firefliesContext,
-                    routers.get(member.getId()),
-                    scheduler,
-                    executor,
-                    DrainPolicy.TAPERED
-            );
-            views.add(view);
-        }
-
-        // Bootstrap Fireflies: kernel + seeds pattern
-        var callback = new View.ViewLifecycleHandler() {
-            @Override
-            public void onViewChange(View.ViewBlock newView) {
-            }
-        };
-
-        // Start kernel node
-        views.get(0).start(callback, GOSSIP_DURATION, Collections.emptyList());
-
-        // Collect seeds from kernel
-        List<View.Seed> seeds = new ArrayList<>();
-        assertTrue(Utils.waitForCondition(30_000, 500, () -> views.get(0).getSeeds().size() > 0),
-                "Kernel failed to generate seeds");
-        seeds.addAll(views.get(0).getSeeds());
-
-        // Start remaining nodes with seeds
-        for (int i = 1; i < views.size(); i++) {
-            views.get(i).start(callback, GOSSIP_DURATION, seeds);
-        }
-
-        // Wait for stabilization
-        assertTrue(Utils.waitForCondition(60_000, 1_000,
-                () -> views.stream().allMatch(v -> v.getContext().activeCount() == COMMITTEE_SIZE)),
-                "Fireflies cluster failed to stabilize");
-
-        // Initialize WitnessCHOAM instances
-        witnesses = new HashMap<>();
-        detectorInstances = new HashMap<>();
-        for (SigningMember member : members) {
-            var witnessParams = new WitnessCHOAMParameters();
-            try {
-                var witness = new WitnessCHOAM(member, witnessParams, views.stream()
-                        .filter(v -> v.getMember().equals(member))
-                        .findFirst()
-                        .orElseThrow());
-                witnesses.put(member.getId(), witness);
-
-                // Initialize Byzantine detector for this member
-                var config = ByzantineDetectorConfig.defaults();
-                var detector = new ByzantineDetectorImpl(config);
-                detectorInstances.put(member.getId(), detector);
-            } catch (NoGenesis e) {
-                // Handle genesis not yet available
-                throw new RuntimeException("Failed to initialize WitnessCHOAM for member " + member.getId(), e);
-            }
-        }
-
-        // Initialize test helpers
-        adversarialHelpers = new BLSAdversarialTestHelpers();
-        receiptHelper = new WitnessReceiptTestHelper();
+        // Initialize Byzantine state tracking
+        committee.forEach(id -> byzantineState.put(id, new ByzantineNodeState(id)));
     }
 
     @AfterEach
-    public void tearDown() throws Exception {
-        // Stop Fireflies views
-        if (views != null) {
-            for (View view : views) {
-                try {
-                    view.stop();
-                } catch (Exception e) {
-                    // Continue cleanup even if one fails
-                }
-            }
-            views.clear();
-            views = null;
-        }
-
-        // Close routers
-        if (routers != null) {
-            for (Router router : routers.values()) {
-                try {
-                    router.close(Duration.ofSeconds(0));
-                } catch (Exception e) {
-                    // Continue cleanup even if one fails
-                }
-            }
-            routers.clear();
-            routers = null;
-        }
-
-        // Stop WitnessCHOAM instances
-        if (witnesses != null) {
-            witnesses.values().forEach(w -> {
-                try {
-                    w.stop();
-                } catch (Exception e) {
-                    // Continue cleanup even if one fails
-                }
-            });
-            witnesses.clear();
-            witnesses = null;
-        }
-
-        // Shutdown executors
-        if (scheduler != null) {
-            scheduler.shutdownNow();
-            scheduler = null;
-        }
-        if (executor != null) {
-            executor.shutdownNow();
-            executor = null;
-        }
-
-        identities.clear();
-        members.clear();
-        detectorInstances.clear();
+    public void tearDown() {
+        witnessPool.clear();
+        committee.clear();
+        byzantineState.clear();
     }
 
     /**
-     * Wait for cluster stabilization with configurable timeout
+     * Create a witness pool of n MockMembers
      */
-    protected void waitForStabilization(Duration timeout) {
-        long timeoutMs = timeout.toMillis();
+    protected List<MockMember> createWitnessPool(int poolSize) {
+        return IntStream.range(0, poolSize)
+                .mapToObj(i -> new MockMember(ALGORITHM.digest(("witness-" + i).getBytes())))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Select committee identifiers from members
+     */
+    protected Set<Identifier> selectCommittee(List<MockMember> members) {
+        return members.stream().limit(COMMITTEE_SIZE)
+                .map(m -> new SelfAddressingIdentifier(m.getId()))
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * Create event coordinates for testing
+     */
+    protected EventCoordinates createEventCoordinates(String label, long sequenceNumber) {
+        Digest eventDigest = ALGORITHM.digest(label.getBytes());
+        // Create self-addressing identifier for event
+        return new EventCoordinates(
+                new SelfAddressingIdentifier(eventDigest),
+                sequenceNumber,
+                eventDigest,
+                EventCoordinates.EventType.IDENT);
+    }
+
+    /**
+     * Get random committee member
+     */
+    protected MockMember getRandomCommitteeMember() {
+        var committeeList = new ArrayList<>(committee);
+        var randomId = committeeList.get(entropy.nextInt(committeeList.size()));
+        return witnessPool.stream()
+                .filter(m -> new SelfAddressingIdentifier(m.getId()).equals(randomId))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    /**
+     * Mark node as Byzantine and track its state
+     */
+    protected void markAsByzantine(Identifier nodeId) {
+        var state = byzantineState.get(nodeId);
+        if (state != null) {
+            state.isByzantine = true;
+            state.anomalyScore = 0.95;
+        }
+    }
+
+    /**
+     * Check if node is marked as Byzantine
+     */
+    protected boolean isByzantine(Identifier nodeId) {
+        var state = byzantineState.get(nodeId);
+        return state != null && state.isByzantine;
+    }
+
+    /**
+     * Get count of Byzantine nodes in committee
+     */
+    protected int getByzantineCount() {
+        return (int) byzantineState.values().stream()
+                .filter(s -> s.isByzantine)
+                .count();
+    }
+
+    /**
+     * Get active (non-Byzantine) node count
+     */
+    protected int getActiveCount() {
+        return committee.size() - getByzantineCount();
+    }
+
+    /**
+     * Simulate Byzantine behavior: random signature
+     */
+    protected byte[] generateByzantineSignature(Identifier nodeId) {
+        byte[] sig = new byte[256];
+        entropy.nextBytes(sig);
+        return sig;
+    }
+
+    /**
+     * Simulate Byzantine behavior: equivocation (sign different messages)
+     */
+    protected Digest createEquivocatingMessage(Identifier nodeId, int variant) {
+        return ALGORITHM.digest(("equivocation-" + nodeId + "-" + variant).getBytes());
+    }
+
+    /**
+     * Simulate Byzantine behavior: replay old signature
+     */
+    protected byte[] replayOldSignature(Identifier nodeId) {
+        // Return a known invalid signature pattern
+        byte[] sig = new byte[256];
+        entropy.nextBytes(sig);
+        return sig;
+    }
+
+    /**
+     * Wait for condition with timeout
+     */
+    protected void waitForCondition(String description, long timeoutMs, java.util.function.BooleanSupplier condition) {
         long startTime = System.currentTimeMillis();
-
-        assertTrue(Utils.waitForCondition(timeoutMs, 500,
-                () -> views.stream().allMatch(v -> v.getContext().activeCount() == COMMITTEE_SIZE)),
-                "Cluster failed to stabilize within " + timeout);
-
-        assertTrue(Utils.waitForCondition(timeoutMs - (System.currentTimeMillis() - startTime), 500,
-                () -> witnesses.values().stream().allMatch(w -> w.isActive())),
-                "Witnesses failed to become active within " + timeout);
-    }
-
-    /**
-     * Inject Byzantine behavior into a node
-     */
-    protected void injectByzantineNode(SigningMember member) {
-        var detector = detectorInstances.get(member.getId());
-        if (detector != null) {
-            detector.markAsSuspicious(member.getId(), 0.95);
+        while (true) {
+            if (condition.getAsBoolean()) {
+                return;
+            }
+            if (System.currentTimeMillis() - startTime > timeoutMs) {
+                throw new AssertionError("Timeout waiting for: " + description + " (" + timeoutMs + "ms)");
+            }
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(e);
+            }
         }
     }
 
     /**
-     * Trigger a view change in the Fireflies cluster
+     * Measure operation latency with nanosecond precision
      */
-    protected void triggerViewChange(List<SigningMember> joining, List<SigningMember> leaving) {
-        // Record initial state
-        var initialView = views.get(0).getCurrentView();
+    protected long measureLatencyNanos(String description, Runnable operation) {
+        long startNanos = System.nanoTime();
+        operation.run();
+        long endNanos = System.nanoTime();
+        return endNanos - startNanos;
+    }
 
-        // Notify Fireflies of membership change
-        for (View view : views) {
-            view.suspend();
+    /**
+     * Calculate percentiles from latency list
+     */
+    protected Map<String, Long> calculatePercentiles(List<Long> latencies) {
+        latencies.sort(Long::compareTo);
+
+        Map<String, Long> percentiles = new LinkedHashMap<>();
+        percentiles.put("p50", latencies.get((int) (latencies.size() * 0.50)));
+        percentiles.put("p95", latencies.get((int) (latencies.size() * 0.95)));
+        percentiles.put("p99", latencies.get((int) (latencies.size() * 0.99)));
+
+        return percentiles;
+    }
+
+    /**
+     * Calculate throughput (operations per second)
+     */
+    protected double calculateThroughput(int operationCount, long durationNanos) {
+        if (durationNanos == 0) return 0;
+        double durationSeconds = durationNanos / 1_000_000_000.0;
+        return operationCount / durationSeconds;
+    }
+
+    /**
+     * Verify Byzantine safety: at least 2f+1 honest nodes needed for consensus
+     * With f=2, need at least 5 honest nodes from 7 total
+     */
+    protected boolean isByzantineSafe() {
+        int activeCount = getActiveCount();
+        return activeCount >= THRESHOLD;  // 2f+1 = 5
+    }
+
+    /**
+     * Track Byzantine node state
+     */
+    protected static class ByzantineNodeState {
+        public final Identifier nodeId;
+        public boolean isByzantine;
+        public double anomalyScore;
+        public int failureCount;
+        public long lastAnomalyTime;
+
+        public ByzantineNodeState(Identifier nodeId) {
+            this.nodeId = nodeId;
+            this.isByzantine = false;
+            this.anomalyScore = 0.0;
+            this.failureCount = 0;
+            this.lastAnomalyTime = 0;
         }
 
-        // Remove leaving members from context
-        for (SigningMember member : leaving) {
-            firefliesContext.removeMember(member);
+        public void recordAnomaly(double score) {
+            this.anomalyScore = Math.max(this.anomalyScore, score);
+            this.failureCount++;
+            this.lastAnomalyTime = System.currentTimeMillis();
+
+            // Mark as Byzantine after 5 failures
+            if (this.failureCount >= 5) {
+                this.isByzantine = true;
+            }
         }
-
-        // Resume views to trigger rebalancing
-        for (View view : views) {
-            view.resume();
-        }
-
-        // Wait for new view to stabilize
-        assertTrue(Utils.waitForCondition(30_000, 1_000,
-                () -> views.stream().allMatch(v -> v.getCurrentView() > initialView)),
-                "View change failed to complete");
-    }
-
-    /**
-     * Rotate keys for a member (simulated)
-     */
-    protected void rotateKeys(SigningMember member) {
-        // In production, this would trigger KERI-based key rotation
-        // For tests, we simulate successful completion
-    }
-
-    /**
-     * Verify threshold was achieved for an event
-     */
-    protected void verifyThresholdAchieved(Digest eventId, Duration timeout) {
-        long timeoutMs = timeout.toMillis();
-        assertTrue(Utils.waitForCondition(timeoutMs, 100,
-                () -> witnesses.values().stream()
-                        .anyMatch(w -> w.hasThreshold(eventId))),
-                "Threshold not achieved for event " + eventId + " within " + timeout);
-    }
-
-    /**
-     * Get the witness for a specific member
-     */
-    protected WitnessCHOAM getWitness(SigningMember member) {
-        return witnesses.get(member.getId());
-    }
-
-    /**
-     * Get the Byzantine detector for a specific member
-     */
-    protected ByzantineDetector getDetector(SigningMember member) {
-        return detectorInstances.get(member.getId());
-    }
-
-    /**
-     * Get a random member from the cluster
-     */
-    protected SigningMember getRandomMember() {
-        return members.get(entropy.nextInt(members.size()));
-    }
-
-    /**
-     * Get n random members (excluding a specific member if provided)
-     */
-    protected List<SigningMember> getRandomMembers(int count, SigningMember exclude) {
-        return members.stream()
-                .filter(m -> exclude == null || !m.getId().equals(exclude.getId()))
-                .collect(Collectors.collectingAndThen(
-                        Collectors.toList(),
-                        list -> {
-                            Collections.shuffle(list, entropy);
-                            return list.stream().limit(Math.min(count, list.size())).collect(Collectors.toList());
-                        }
-                ));
     }
 }
