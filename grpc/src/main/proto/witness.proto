@@ -26,6 +26,43 @@ message BLSAggregateSignature {
 }
 
 /**
+ * Per-committee contribution to multi-committee aggregate.
+ * Phase 1C: Tracks which members from each committee contributed.
+ */
+message CommitteeContribution {
+  // Committee epoch identifier
+  int64 epoch = 1;
+
+  // Bitmap of signers in this committee (compact representation)
+  bytes signer_bitmap = 2;
+
+  // Number of signers in this committee (for validation)
+  int32 signer_count = 3;
+}
+
+/**
+ * Multi-committee BLS aggregate receipt.
+ * Phase 1C: Aggregates signatures across multiple committees spanning view changes.
+ * Provides accountability through per-committee contribution tracking.
+ */
+message MultiCommitteeReceipt {
+  // 96-byte BLS12-381 aggregate signature across all committees
+  bytes aggregated_signature = 1;
+
+  // Per-committee contribution data (epoch, bitmap, count)
+  repeated CommitteeContribution contributions = 2;
+
+  // Bitmap indicating which committees contributed (compact committee set)
+  bytes committee_contribution_bitmap = 3;
+
+  // Total unique signers across all committees
+  int32 total_signer_count = 4;
+
+  // Event coordinates being witnessed
+  stereotomy.EventCoords event = 5;
+}
+
+/**
  * Witness receipt for KERI key events.
  * Includes event coordinates, digest, witness signatures, and Fireflies view reference.
  * Immutable once threshold achieved.
@@ -58,6 +95,11 @@ message WitnessReceipt {
   // Signer bitmap for BLS (bit array indicating which committee members signed)
   // Encoded as raw bytes for compact representation
   bytes signerBitmap = 12;
+
+  // Phase 1C: Multi-committee aggregate receipt (spans view changes)
+  // If present, supersedes blsSig/signerBitmap fields
+  // Provides accountability across committee epochs
+  MultiCommitteeReceipt multiCommitteeReceipt = 13;
 }
 
 /**
