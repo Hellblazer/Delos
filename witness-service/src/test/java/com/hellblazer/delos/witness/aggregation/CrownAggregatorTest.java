@@ -100,7 +100,7 @@ class CrownAggregatorTest {
             committee2Signatures.add(new BLSSignature(sig));
         }
 
-        var committeeSignatures = Map.of(
+        Map<Long, List<BLSSignature>> committeeSignatures = Map.of(
             100L, committee1Signatures,
             200L, committee2Signatures
         );
