@@ -636,5 +636,197 @@ class BLSMetricsTest {
         public Meter completedAccumulationsMeter() {
             return completedAccumulations;
         }
+
+        // Wave 3+ additions
+        @Override
+        public void incrementAccumulatorCreated() {}
+
+        @Override
+        public void incrementAccumulatorDiscarded() {}
+
+        @Override
+        public void incrementAggregationsPerformed() {}
+
+        @Override
+        public void recordAggregationBatchSize(int batchSize) {}
+
+        @Override
+        public Histogram aggregationBatchSizeHistogram() {
+            return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+        }
+
+        @Override
+        public void recordAggregateSize(int sizeBytes) {}
+
+        @Override
+        public Histogram aggregateSizeHistogram() {
+            return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+        }
+
+        @Override
+        public void recordCompressionRatio(double ratio) {}
+
+        @Override
+        public Histogram compressionRatioHistogram() {
+            return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+        }
+
+        @Override
+        public void incrementAggregationErrors() {}
+
+        @Override
+        public void recordCommitteeParticipation(int signerCount) {}
+
+        @Override
+        public Histogram committeeParticipationHistogram() {
+            return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+        }
+
+        @Override
+        public void recordSignerBitmapOverhead(int bitmapBytes) {}
+
+        @Override
+        public Histogram signerBitmapOverheadHistogram() {
+            return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+        }
+
+        @Override
+        public Meter emptyAccumulatorCleanupMeter() {
+            return new Meter();
+        }
+
+        // Wave 4 additions - View/Degradation metrics (Delos-3971)
+        @Override
+        public void incrementViewChangesInitiated() {}
+
+        @Override
+        public long getViewChangesInitiated() {
+            return 0;
+        }
+
+        @Override
+        public Timer viewChangeDurationTimer() {
+            return new Timer();
+        }
+
+        @Override
+        public void recordViewChangeDuration(long durationMicros) {}
+
+        @Override
+        public long getViewChangeDurationCount() {
+            return 0;
+        }
+
+        @Override
+        public void setActiveView(long viewNumber) {}
+
+        @Override
+        public long getActiveView() {
+            return 0;
+        }
+
+        @Override
+        public void recordCommitteeReconfiguration() {}
+
+        @Override
+        public Meter committeeReconfigurationsMeter() {
+            return new Meter();
+        }
+
+        @Override
+        public void recordThresholdRecalculation() {}
+
+        @Override
+        public Meter thresholdRecalculationsMeter() {
+            return new Meter();
+        }
+
+        @Override
+        public void recordDegradationStateTransition(String transition) {}
+
+        @Override
+        public long getDegradationStateTransitions(String transition) {
+            return 0;
+        }
+
+        @Override
+        public void recordTimeInDegradationState(String state, long timeMs) {}
+
+        @Override
+        public Histogram timeInDegradationStateHistogram(String state) {
+            return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+        }
+
+        @Override
+        public void recordBufferCreated() {}
+
+        @Override
+        public Meter buffersCreatedMeter() {
+            return new Meter();
+        }
+
+        @Override
+        public int getBufferedSignatures() {
+            return 0;
+        }
+
+        @Override
+        public void recordBufferedSignaturesDrained(int count) {}
+
+        @Override
+        public Meter bufferedSignaturesDrainedMeter() {
+            return new Meter();
+        }
+
+        @Override
+        public void recordThresholdCalculationDelta(int delta) {}
+
+        @Override
+        public Histogram thresholdCalculationDeltaHistogram() {
+            return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+        }
+
+        @Override
+        public void incrementByzantineExclusions() {}
+
+        @Override
+        public long getByzantineExclusions() {
+            return 0;
+        }
+
+        @Override
+        public void incrementMemberRecoveries() {}
+
+        @Override
+        public long getMemberRecoveries() {
+            return 0;
+        }
+
+        @Override
+        public void recordReceiptProcessingLatencyDuringDegradation(String state, long latencyMicros) {}
+
+        @Override
+        public Timer receiptProcessingLatencyDuringDegradationTimer(String state) {
+            return new Timer();
+        }
+
+        @Override
+        public void recordBufferDrainTime(long drainTimeMicros) {}
+
+        @Override
+        public void recordSignatureReplayLatency(long replayLatencyMicros) {}
+
+        @Override
+        public Timer signatureReplayTimer() {
+            return new Timer();
+        }
+
+        @Override
+        public Timer thresholdRecalculationTimer() {
+            return new Timer();
+        }
+
+        @Override
+        public void recordThresholdRecalculationTime(long recalcTimeMicros) {}
     }
 }

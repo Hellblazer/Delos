@@ -14,6 +14,7 @@ import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
 import com.hellblazer.delos.witness.metrics.BLSMetrics;
 import org.junit.jupiter.api.Test;
+import org.joou.ULong;
 
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -40,9 +41,9 @@ public class AggregatorInstrumentationTest {
         var aggregator = new BLSReceiptAggregator(java.time.Duration.ofMinutes(10), metrics);
 
         // When - reach threshold
-        aggregator.accumulate(event, createIdentifier("m1"), 0, createMockSignature(), 3, 0L);
-        aggregator.accumulate(event, createIdentifier("m2"), 1, createMockSignature(), 3, 0L);
-        aggregator.accumulate(event, createIdentifier("m3"), 2, createMockSignature(), 3, 0L);
+        aggregator.accumulate(event, Identifier.NONE, 0, createMockSignature(), 3, 0L);
+        aggregator.accumulate(event, Identifier.NONE, 1, createMockSignature(), 3, 0L);
+        aggregator.accumulate(event, Identifier.NONE, 2, createMockSignature(), 3, 0L);
 
         // Then
         assertEquals(1, aggregationsCount.get(), "Should track aggregation performed");
@@ -59,7 +60,7 @@ public class AggregatorInstrumentationTest {
 
         // When - aggregate 5 signatures
         for (int i = 0; i < 5; i++) {
-            aggregator.accumulate(event, createIdentifier("m" + i), i, createMockSignature(), 5, 0L);
+            aggregator.accumulate(event, Identifier.NONE,i, createMockSignature(), 5, 0L);
         }
 
         // Then
@@ -76,9 +77,9 @@ public class AggregatorInstrumentationTest {
         var aggregator = new BLSReceiptAggregator(java.time.Duration.ofMinutes(10), metrics);
 
         // When - reach threshold
-        aggregator.accumulate(event, createIdentifier("m1"), 0, createMockSignature(), 3, 0L);
-        aggregator.accumulate(event, createIdentifier("m2"), 1, createMockSignature(), 3, 0L);
-        aggregator.accumulate(event, createIdentifier("m3"), 2, createMockSignature(), 3, 0L);
+        aggregator.accumulate(event, Identifier.NONE, 0, createMockSignature(), 3, 0L);
+        aggregator.accumulate(event, Identifier.NONE, 1, createMockSignature(), 3, 0L);
+        aggregator.accumulate(event, Identifier.NONE, 2, createMockSignature(), 3, 0L);
 
         // Then
         assertEquals(48, aggregateSize.get(), "Should track aggregate size (48 bytes for BLS12-381)");
@@ -95,7 +96,7 @@ public class AggregatorInstrumentationTest {
 
         // When - aggregate 5 signatures
         for (int i = 0; i < 5; i++) {
-            aggregator.accumulate(event, createIdentifier("m" + i), i, createMockSignature(), 5, 0L);
+            aggregator.accumulate(event, Identifier.NONE,i, createMockSignature(), 5, 0L);
         }
 
         // Then
@@ -117,7 +118,7 @@ public class AggregatorInstrumentationTest {
 
         // When - 7 out of 10 members sign
         for (int i = 0; i < 7; i++) {
-            aggregator.accumulate(event, createIdentifier("m" + i), i, createMockSignature(), 10, 0L);
+            aggregator.accumulate(event, Identifier.NONE,i, createMockSignature(), 10, 0L);
         }
 
         // Then
@@ -134,9 +135,9 @@ public class AggregatorInstrumentationTest {
         var aggregator = new BLSReceiptAggregator(java.time.Duration.ofMinutes(10), metrics);
 
         // When - reach threshold
-        aggregator.accumulate(event, createIdentifier("m1"), 0, createMockSignature(), 3, 0L);
-        aggregator.accumulate(event, createIdentifier("m2"), 1, createMockSignature(), 3, 0L);
-        aggregator.accumulate(event, createIdentifier("m3"), 2, createMockSignature(), 3, 0L);
+        aggregator.accumulate(event, Identifier.NONE, 0, createMockSignature(), 3, 0L);
+        aggregator.accumulate(event, Identifier.NONE, 1, createMockSignature(), 3, 0L);
+        aggregator.accumulate(event, Identifier.NONE, 2, createMockSignature(), 3, 0L);
 
         // Then
         assertTrue(bitmapOverhead.get() > 0, "Should track bitmap overhead");
@@ -152,9 +153,9 @@ public class AggregatorInstrumentationTest {
 
         // When - create 3 aggregations for different events
         for (int i = 0; i < 3; i++) {
-            var event = new EventCoordinates(createTestDigest(), i);
-            aggregator.accumulate(event, createIdentifier("m1"), 0, createMockSignature(), 2, 0L);
-            aggregator.accumulate(event, createIdentifier("m2"), 1, createMockSignature(), 2, 0L);
+            var event = new EventCoordinates(Identifier.NONE, ULong.valueOf(i), createTestDigest(), "test");
+            aggregator.accumulate(event, Identifier.NONE, 0, createMockSignature(), 2, 0L);
+            aggregator.accumulate(event, Identifier.NONE, 1, createMockSignature(), 2, 0L);
         }
 
         // Then
@@ -174,7 +175,7 @@ public class AggregatorInstrumentationTest {
 
         // When - aggregate 20 signatures
         for (int i = 0; i < 20; i++) {
-            aggregator.accumulate(event, createIdentifier("m" + i), i, createMockSignature(), 20, 0L);
+            aggregator.accumulate(event, Identifier.NONE,i, createMockSignature(), 20, 0L);
         }
 
         // Then
@@ -198,7 +199,7 @@ public class AggregatorInstrumentationTest {
         var aggregator = new BLSReceiptAggregator(java.time.Duration.ofMinutes(10), metrics);
 
         // When - minimal committee (1 member)
-        aggregator.accumulate(event, createIdentifier("m1"), 0, createMockSignature(), 1, 0L);
+        aggregator.accumulate(event, Identifier.NONE,0, createMockSignature(), 1, 0L);
 
         // Then
         assertEquals(1, batchSize.get());
@@ -223,9 +224,9 @@ public class AggregatorInstrumentationTest {
         for (int i = 0; i < 10; i++) {
             final int eventIndex = i;
             threads[i] = new Thread(() -> {
-                var event = new EventCoordinates(createTestDigest(), eventIndex);
-                aggregator.accumulate(event, createIdentifier("m1"), 0, createMockSignature(), 2, 0L);
-                aggregator.accumulate(event, createIdentifier("m2"), 1, createMockSignature(), 2, 0L);
+                var event = new EventCoordinates(Identifier.NONE, ULong.valueOf(eventIndex), createTestDigest(), "test");
+                aggregator.accumulate(event, Identifier.NONE, 0, createMockSignature(), 2, 0L);
+                aggregator.accumulate(event, Identifier.NONE, 1, createMockSignature(), 2, 0L);
             });
         }
 
@@ -252,9 +253,9 @@ public class AggregatorInstrumentationTest {
         var aggregator = new BLSReceiptAggregator(java.time.Duration.ofMinutes(10), null);
 
         // When - aggregate without metrics
-        var result1 = aggregator.accumulate(event, createIdentifier("m1"), 0, createMockSignature(), 3, 0L);
-        var result2 = aggregator.accumulate(event, createIdentifier("m2"), 1, createMockSignature(), 3, 0L);
-        var result3 = aggregator.accumulate(event, createIdentifier("m3"), 2, createMockSignature(), 3, 0L);
+        var result1 = aggregator.accumulate(event, Identifier.NONE,0, createMockSignature(), 3, 0L);
+        var result2 = aggregator.accumulate(event, Identifier.NONE,1, createMockSignature(), 3, 0L);
+        var result3 = aggregator.accumulate(event, Identifier.NONE,2, createMockSignature(), 3, 0L);
 
         // Then - should work without NPE
         assertNotNull(result1);
@@ -275,9 +276,9 @@ public class AggregatorInstrumentationTest {
         var aggregator = new BLSReceiptAggregator(java.time.Duration.ofMinutes(10), metrics);
 
         // When - successful aggregation (no errors)
-        aggregator.accumulate(event, createIdentifier("m1"), 0, createMockSignature(), 3, 0L);
-        aggregator.accumulate(event, createIdentifier("m2"), 1, createMockSignature(), 3, 0L);
-        aggregator.accumulate(event, createIdentifier("m3"), 2, createMockSignature(), 3, 0L);
+        aggregator.accumulate(event, Identifier.NONE, 0, createMockSignature(), 3, 0L);
+        aggregator.accumulate(event, Identifier.NONE, 1, createMockSignature(), 3, 0L);
+        aggregator.accumulate(event, Identifier.NONE, 2, createMockSignature(), 3, 0L);
 
         // Then
         assertEquals(0, errors.get(), "Should not count errors for successful aggregation");
@@ -323,18 +324,6 @@ public class AggregatorInstrumentationTest {
             public void incrementAccumulatorDiscarded() {}
 
             @Override
-            public void recordTimeToThreshold(long durationMicros) {}
-
-            @Override
-            public void recordThresholdPercentage(double percentage) {}
-
-            @Override
-            public void setBufferedSignatures(int count) {}
-
-            @Override
-            public void recordBufferDrainLatency(long latencyMicros) {}
-
-            @Override
             public void incrementAggregationsPerformed() {
                 if (aggregationsPerformed != null) aggregationsPerformed.incrementAndGet();
             }
@@ -370,20 +359,288 @@ public class AggregatorInstrumentationTest {
             }
 
             @Override
-            public void recordEmptyAccumulatorCleanup() {}
+            public com.codahale.metrics.Histogram signerBitmapOverheadHistogram() {
+                return new com.codahale.metrics.Histogram(new com.codahale.metrics.SlidingTimeWindowArrayReservoir(60, java.util.concurrent.TimeUnit.SECONDS));
+            }
+
+            @Override
+            public com.codahale.metrics.Meter emptyAccumulatorCleanupMeter() {
+                return new com.codahale.metrics.Meter();
+            }
+
+            // Stub methods for all other BLSMetrics abstract methods
+            // These are implemented as no-ops since AggregatorInstrumentationTest
+            // only tests specific metrics via the targeted callbacks above
+            @Override
+            public void register(com.codahale.metrics.MetricRegistry registry) {}
+
+            @Override
+            public void reset() {}
+
+            @Override
+            public java.util.Map<String, com.codahale.metrics.Metric> getMetrics() {
+                return java.util.Map.of();
+            }
+
+            @Override
+            public void incrementSignaturesReceived() {}
+
+            @Override
+            public void incrementSignaturesAccepted() {}
+
+            @Override
+            public com.codahale.metrics.Timer signatureVerifyTimer() {
+                return new com.codahale.metrics.Timer();
+            }
+
+            @Override
+            public void recordVerifyLatency(long latencyMicros) {}
+
+            @Override
+            public long getVerifyCount() {
+                return 0;
+            }
+
+            @Override
+            public com.codahale.metrics.Timer aggregationTimer() {
+                return new com.codahale.metrics.Timer();
+            }
+
+            @Override
+            public void recordAggregationLatency(long latencyMicros) {}
+
+            @Override
+            public com.codahale.metrics.Timer thresholdTimer() {
+                return new com.codahale.metrics.Timer();
+            }
+
+            @Override
+            public void recordThresholdTime(long durationMicros) {}
+
+            @Override
+            public com.codahale.metrics.Counter rejectedEpochCounter() {
+                return new com.codahale.metrics.Counter();
+            }
+
+            @Override
+            public com.codahale.metrics.Counter rejectedViewRefCounter() {
+                return new com.codahale.metrics.Counter();
+            }
+
+            @Override
+            public com.codahale.metrics.Counter rejectedLateCounter() {
+                return new com.codahale.metrics.Counter();
+            }
+
+            @Override
+            public com.codahale.metrics.Counter rejectedDuplicateCounter() {
+                return new com.codahale.metrics.Counter();
+            }
+
+            @Override
+            public int getActiveAccumulators() {
+                return 0;
+            }
+
+            @Override
+            public com.codahale.metrics.Meter completedAccumulationsMeter() {
+                return new com.codahale.metrics.Meter();
+            }
+
+            @Override
+            public long getReceiptCount() {
+                return 0;
+            }
+
+            @Override
+            public com.codahale.metrics.Histogram thresholdPercentageHistogram() {
+                return new com.codahale.metrics.Histogram(new com.codahale.metrics.SlidingTimeWindowArrayReservoir(60, java.util.concurrent.TimeUnit.SECONDS));
+            }
+
+            @Override
+            public com.codahale.metrics.Timer bufferDrainTimer() {
+                return new com.codahale.metrics.Timer();
+            }
+
+            @Override
+            public void incrementRejectedInvalid() {}
+
+            @Override
+            public com.codahale.metrics.Counter rejectedInvalidCounter() {
+                return new com.codahale.metrics.Counter();
+            }
+
+            @Override
+            public com.codahale.metrics.Histogram aggregationBatchSizeHistogram() {
+                return new com.codahale.metrics.Histogram(new com.codahale.metrics.SlidingTimeWindowArrayReservoir(60, java.util.concurrent.TimeUnit.SECONDS));
+            }
+
+            @Override
+            public com.codahale.metrics.Histogram aggregateSizeHistogram() {
+                return new com.codahale.metrics.Histogram(new com.codahale.metrics.SlidingTimeWindowArrayReservoir(60, java.util.concurrent.TimeUnit.SECONDS));
+            }
+
+            @Override
+            public com.codahale.metrics.Histogram compressionRatioHistogram() {
+                return new com.codahale.metrics.Histogram(new com.codahale.metrics.SlidingTimeWindowArrayReservoir(60, java.util.concurrent.TimeUnit.SECONDS));
+            }
+
+            @Override
+            public com.codahale.metrics.Histogram committeeParticipationHistogram() {
+                return new com.codahale.metrics.Histogram(new com.codahale.metrics.SlidingTimeWindowArrayReservoir(60, java.util.concurrent.TimeUnit.SECONDS));
+            }
+
+            @Override
+            public com.codahale.metrics.Histogram signerBitmapOverheadHistogram() {
+                return new com.codahale.metrics.Histogram(new com.codahale.metrics.SlidingTimeWindowArrayReservoir(60, java.util.concurrent.TimeUnit.SECONDS));
+            }
+
+            @Override
+            public com.codahale.metrics.Meter emptyAccumulatorCleanupMeter() {
+                return new com.codahale.metrics.Meter();
+            }
+
+            @Override
+            public void incrementViewChangesInitiated() {}
+
+            @Override
+            public long getViewChangesInitiated() {
+                return 0;
+            }
+
+            @Override
+            public com.codahale.metrics.Timer viewChangeDurationTimer() {
+                return new com.codahale.metrics.Timer();
+            }
+
+            @Override
+            public void recordViewChangeDuration(long durationMicros) {}
+
+            @Override
+            public long getViewChangeDurationCount() {
+                return 0;
+            }
+
+            @Override
+            public void setActiveView(long viewNumber) {}
+
+            @Override
+            public long getActiveView() {
+                return 0;
+            }
+
+            @Override
+            public void recordCommitteeReconfiguration() {}
+
+            @Override
+            public com.codahale.metrics.Meter committeeReconfigurationsMeter() {
+                return new com.codahale.metrics.Meter();
+            }
+
+            @Override
+            public void recordThresholdRecalculation() {}
+
+            @Override
+            public com.codahale.metrics.Meter thresholdRecalculationsMeter() {
+                return new com.codahale.metrics.Meter();
+            }
+
+            @Override
+            public void recordDegradationStateTransition(String transition) {}
+
+            @Override
+            public long getDegradationStateTransitions(String transition) {
+                return 0;
+            }
+
+            @Override
+            public void recordTimeInDegradationState(String state, long timeMs) {}
+
+            @Override
+            public com.codahale.metrics.Histogram timeInDegradationStateHistogram(String state) {
+                return new com.codahale.metrics.Histogram(new com.codahale.metrics.SlidingTimeWindowArrayReservoir(60, java.util.concurrent.TimeUnit.SECONDS));
+            }
+
+            @Override
+            public void recordBufferCreated() {}
+
+            @Override
+            public com.codahale.metrics.Meter buffersCreatedMeter() {
+                return new com.codahale.metrics.Meter();
+            }
+
+            @Override
+            public int getBufferedSignatures() {
+                return 0;
+            }
+
+            @Override
+            public void recordBufferedSignaturesDrained(int count) {}
+
+            @Override
+            public com.codahale.metrics.Meter bufferedSignaturesDrainedMeter() {
+                return new com.codahale.metrics.Meter();
+            }
+
+            @Override
+            public void recordThresholdCalculationDelta(int delta) {}
+
+            @Override
+            public com.codahale.metrics.Histogram thresholdCalculationDeltaHistogram() {
+                return new com.codahale.metrics.Histogram(new com.codahale.metrics.SlidingTimeWindowArrayReservoir(60, java.util.concurrent.TimeUnit.SECONDS));
+            }
+
+            @Override
+            public void incrementByzantineExclusions() {}
+
+            @Override
+            public long getByzantineExclusions() {
+                return 0;
+            }
+
+            @Override
+            public void incrementMemberRecoveries() {}
+
+            @Override
+            public long getMemberRecoveries() {
+                return 0;
+            }
+
+            @Override
+            public void recordReceiptProcessingLatencyDuringDegradation(String state, long latencyMicros) {}
+
+            @Override
+            public com.codahale.metrics.Timer receiptProcessingLatencyDuringDegradationTimer(String state) {
+                return new com.codahale.metrics.Timer();
+            }
+
+            @Override
+            public void recordBufferDrainTime(long drainTimeMicros) {}
+
+            @Override
+            public void recordSignatureReplayLatency(long replayLatencyMicros) {}
+
+            @Override
+            public com.codahale.metrics.Timer signatureReplayTimer() {
+                return new com.codahale.metrics.Timer();
+            }
+
+            @Override
+            public com.codahale.metrics.Timer thresholdRecalculationTimer() {
+                return new com.codahale.metrics.Timer();
+            }
+
+            @Override
+            public void recordThresholdRecalculationTime(long recalcTimeMicros) {}
         };
     }
 
     private EventCoordinates createTestEvent() {
-        return new EventCoordinates(createTestDigest(), 1L);
+        return new EventCoordinates(Identifier.NONE, ULong.valueOf(1), createTestDigest(), "test");
     }
 
     private Digest createTestDigest() {
         return DIGEST_ALGO.digest(("test" + System.nanoTime()).getBytes());
-    }
-
-    private Identifier createIdentifier(String name) {
-        return new Identifier(DIGEST_ALGO.digest(name.getBytes()));
     }
 
     private BLSSignature createMockSignature() {
@@ -392,6 +649,6 @@ public class AggregatorInstrumentationTest {
         for (int i = 0; i < bytes.length; i++) {
             bytes[i] = (byte) i;
         }
-        return BLSSignature.from(bytes);
+        return new BLSSignature(bytes);
     }
 }

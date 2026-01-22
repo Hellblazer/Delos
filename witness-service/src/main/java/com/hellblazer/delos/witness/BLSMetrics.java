@@ -440,4 +440,455 @@ public interface BLSMetrics {
      * @return Meter for completed accumulations
      */
     Meter completedAccumulationsMeter();
+
+    // ===================================
+    // Accumulator Lifecycle Metrics
+    // ===================================
+
+    /**
+     * Increment counter for accumulators created.
+     * <p>
+     * Call when a new SignatureAccumulator is instantiated for an event.
+     */
+    void incrementAccumulatorCreated();
+
+    /**
+     * Increment counter for accumulators discarded before reaching threshold.
+     * <p>
+     * Call when an accumulator expires due to timeout or view change
+     * without reaching the required signature threshold.
+     */
+    void incrementAccumulatorDiscarded();
+
+    /**
+     * Record threshold achievement percentage when accumulator closes.
+     * <p>
+     * Value should be in range [0.0, 1.0] representing percentage of threshold achieved.
+     * For example, if threshold is 10 and 8 signatures were collected, value = 0.8.
+     *
+     * @param percentage threshold achievement percentage (0.0 to 1.0)
+     * @throws IllegalArgumentException if percentage is not in [0.0, 1.0]
+     */
+    void recordThresholdPercentage(double percentage);
+
+    /**
+     * Get histogram for threshold achievement percentages.
+     * <p>
+     * Tracks distribution of how close accumulators get to threshold before closing.
+     *
+     * @return Histogram for threshold percentages
+     */
+    Histogram thresholdPercentageHistogram();
+
+    /**
+     * Set current number of buffered signatures across all events.
+     * <p>
+     * Call this to update gauge tracking signatures held during view transitions.
+     *
+     * @param count number of buffered signatures (must be non-negative)
+     * @throws IllegalArgumentException if count is negative
+     */
+    void setBufferedSignatures(int count);
+
+    /**
+     * Get the timer for buffer drain operations.
+     * <p>
+     * Measures time to replay buffered signatures after view change completes.
+     *
+     * @return Timer for drain operations
+     */
+    Timer bufferDrainTimer();
+
+    /**
+     * Increment counter for signatures rejected due to invalid format.
+     * <p>
+     * Call when signature fails cryptographic validation or format checks.
+     */
+    void incrementRejectedInvalid();
+
+    /**
+     * Get the counter for invalid signature rejections.
+     *
+     * @return Counter for invalid rejections
+     */
+    Counter rejectedInvalidCounter();
+
+    // ===================================
+    // Aggregation Metrics
+    // ===================================
+
+    /**
+     * Increment counter for aggregation operations performed.
+     * <p>
+     * Call when BLSReceiptAggregator combines multiple signatures into aggregate.
+     */
+    void incrementAggregationsPerformed();
+
+    /**
+     * Record aggregation batch size (number of signatures combined).
+     * <p>
+     * Tracks distribution of how many individual signatures are combined
+     * into each aggregate.
+     *
+     * @param batchSize number of signatures in aggregate (must be positive)
+     * @throws IllegalArgumentException if batchSize <= 0
+     */
+    void recordAggregationBatchSize(int batchSize);
+
+    /**
+     * Get histogram for aggregation batch sizes.
+     *
+     * @return Histogram for batch sizes
+     */
+    Histogram aggregationBatchSizeHistogram();
+
+    /**
+     * Record aggregate size in bytes.
+     * <p>
+     * Tracks size of final BLS aggregate signature.
+     *
+     * @param sizeBytes size of aggregate in bytes (must be non-negative)
+     * @throws IllegalArgumentException if sizeBytes < 0
+     */
+    void recordAggregateSize(int sizeBytes);
+
+    /**
+     * Get histogram for aggregate sizes.
+     *
+     * @return Histogram for aggregate sizes in bytes
+     */
+    Histogram aggregateSizeHistogram();
+
+    /**
+     * Record compression ratio for aggregation.
+     * <p>
+     * Ratio = (individual_sig_bytes) / (aggregate_bytes).
+     * Higher values indicate better compression.
+     *
+     * @param ratio compression ratio (must be positive)
+     * @throws IllegalArgumentException if ratio <= 0
+     */
+    void recordCompressionRatio(double ratio);
+
+    /**
+     * Get histogram for compression ratios.
+     *
+     * @return Histogram for compression ratios
+     */
+    Histogram compressionRatioHistogram();
+
+    /**
+     * Increment counter for aggregation errors.
+     * <p>
+     * Call when aggregation operation fails (e.g., incompatible signatures).
+     */
+    void incrementAggregationErrors();
+
+    /**
+     * Record committee participation count (number of signers).
+     * <p>
+     * Tracks how many committee members contributed to each aggregate.
+     *
+     * @param signerCount number of signers (must be non-negative)
+     * @throws IllegalArgumentException if signerCount < 0
+     */
+    void recordCommitteeParticipation(int signerCount);
+
+    /**
+     * Get histogram for committee participation counts.
+     *
+     * @return Histogram for signer counts
+     */
+    Histogram committeeParticipationHistogram();
+
+    /**
+     * Record signer bitmap overhead in bytes.
+     * <p>
+     * Tracks size of bitmap used to indicate which members signed.
+     *
+     * @param bitmapBytes bitmap size in bytes (must be non-negative)
+     * @throws IllegalArgumentException if bitmapBytes < 0
+     */
+    void recordSignerBitmapOverhead(int bitmapBytes);
+
+    /**
+     * Get histogram for signer bitmap overhead.
+     *
+     * @return Histogram for bitmap sizes in bytes
+     */
+    Histogram signerBitmapOverheadHistogram();
+
+    /**
+     * Get the meter for empty accumulator cleanup operations.
+     * <p>
+     * Tracks rate at which expired empty accumulators are cleaned up.
+     *
+     * @return Meter for cleanup operations
+     */
+    Meter emptyAccumulatorCleanupMeter();
+
+    // ===================================
+    // View Change Metrics
+    // ===================================
+
+    /**
+     * Increment counter for view changes initiated.
+     * <p>
+     * Call when a view change operation begins.
+     */
+    void incrementViewChangesInitiated();
+
+    /**
+     * Get total count of view changes initiated.
+     *
+     * @return total number of view changes
+     */
+    long getViewChangesInitiated();
+
+    /**
+     * Get timer for view change duration tracking.
+     * <p>
+     * Measures time from view change initiation to completion.
+     *
+     * @return Timer for view change duration
+     */
+    Timer viewChangeDurationTimer();
+
+    /**
+     * Record view change duration manually.
+     *
+     * @param durationMicros duration in microseconds
+     * @throws IllegalArgumentException if durationMicros is negative
+     */
+    void recordViewChangeDuration(long durationMicros);
+
+    /**
+     * Get count of recorded view change durations.
+     *
+     * @return total count of view changes timed
+     */
+    long getViewChangeDurationCount();
+
+    /**
+     * Set the current active view number.
+     *
+     * @param viewNumber the active view number (must be non-negative)
+     * @throws IllegalArgumentException if viewNumber is negative
+     */
+    void setActiveView(long viewNumber);
+
+    /**
+     * Get the current active view number.
+     *
+     * @return active view number
+     */
+    long getActiveView();
+
+    /**
+     * Record a committee reconfiguration event.
+     * <p>
+     * Call when committee membership changes due to Byzantine exclusion or recovery.
+     */
+    void recordCommitteeReconfiguration();
+
+    /**
+     * Get the meter for committee reconfigurations.
+     *
+     * @return Meter for reconfigurations
+     */
+    Meter committeeReconfigurationsMeter();
+
+    /**
+     * Record a threshold recalculation event.
+     * <p>
+     * Call when consensus threshold is recalculated due to degradation.
+     */
+    void recordThresholdRecalculation();
+
+    /**
+     * Get the meter for threshold recalculations.
+     *
+     * @return Meter for threshold recalculations
+     */
+    Meter thresholdRecalculationsMeter();
+
+    // ===================================
+    // Graceful Degradation Metrics
+    // ===================================
+
+    /**
+     * Record a degradation state transition.
+     * <p>
+     * Valid transitions: STABLE_TO_DRAINING, DRAINING_TO_TRANSITIONING, TRANSITIONING_TO_STABLE
+     *
+     * @param transition transition type
+     */
+    void recordDegradationStateTransition(String transition);
+
+    /**
+     * Get count of specific degradation state transitions.
+     *
+     * @param transition transition type
+     * @return count of transitions
+     */
+    long getDegradationStateTransitions(String transition);
+
+    /**
+     * Record time spent in a degradation state.
+     *
+     * @param state     state name (STABLE, DRAINING, TRANSITIONING)
+     * @param timeMs    time in milliseconds
+     * @throws IllegalArgumentException if timeMs is negative
+     */
+    void recordTimeInDegradationState(String state, long timeMs);
+
+    /**
+     * Get histogram for time in degradation state.
+     *
+     * @param state state name
+     * @return Histogram for time in state
+     */
+    Histogram timeInDegradationStateHistogram(String state);
+
+    /**
+     * Record buffer creation event.
+     * <p>
+     * Call when a SignatureBuffer is created during degradation.
+     */
+    void recordBufferCreated();
+
+    /**
+     * Get the meter for buffers created.
+     *
+     * @return Meter for buffer creation
+     */
+    Meter buffersCreatedMeter();
+
+    /**
+     * Get current count of buffered signatures.
+     *
+     * @return current buffered signature count
+     */
+    int getBufferedSignatures();
+
+    /**
+     * Record buffered signatures drained.
+     * <p>
+     * Call when signatures are replayed from buffer during recovery.
+     *
+     * @param count number of signatures drained (must be non-negative)
+     * @throws IllegalArgumentException if count is negative
+     */
+    void recordBufferedSignaturesDrained(int count);
+
+    /**
+     * Get the meter for buffered signatures drained.
+     *
+     * @return Meter for drained signatures
+     */
+    Meter bufferedSignaturesDrainedMeter();
+
+    /**
+     * Record threshold calculation delta.
+     * <p>
+     * Delta = original_threshold - degraded_threshold.
+     * Positive values indicate threshold reduction, negative values indicate restoration.
+     *
+     * @param delta threshold difference
+     */
+    void recordThresholdCalculationDelta(int delta);
+
+    /**
+     * Get histogram for threshold calculation deltas.
+     *
+     * @return Histogram for threshold deltas
+     */
+    Histogram thresholdCalculationDeltaHistogram();
+
+    /**
+     * Increment counter for Byzantine member exclusions.
+     * <p>
+     * Call when a Byzantine member is excluded from consensus.
+     */
+    void incrementByzantineExclusions();
+
+    /**
+     * Get count of Byzantine exclusions.
+     *
+     * @return total Byzantine exclusions
+     */
+    long getByzantineExclusions();
+
+    /**
+     * Increment counter for member recovery events.
+     * <p>
+     * Call when a member is restored after exclusion.
+     */
+    void incrementMemberRecoveries();
+
+    /**
+     * Get count of member recoveries.
+     *
+     * @return total member recoveries
+     */
+    long getMemberRecoveries();
+
+    /**
+     * Record receipt processing latency during degradation.
+     * <p>
+     * Allows comparison of latency across STABLE, DRAINING, and TRANSITIONING states.
+     *
+     * @param state         degradation state
+     * @param latencyMicros latency in microseconds
+     * @throws IllegalArgumentException if latencyMicros is negative
+     */
+    void recordReceiptProcessingLatencyDuringDegradation(String state, long latencyMicros);
+
+    /**
+     * Get timer for receipt processing latency during degradation.
+     *
+     * @param state degradation state
+     * @return Timer for latency in specified state
+     */
+    Timer receiptProcessingLatencyDuringDegradationTimer(String state);
+
+    /**
+     * Record buffer drain time manually.
+     *
+     * @param drainTimeMicros drain time in microseconds
+     * @throws IllegalArgumentException if drainTimeMicros is negative
+     */
+    void recordBufferDrainTime(long drainTimeMicros);
+
+    /**
+     * Record signature replay latency.
+     * <p>
+     * Measures time to replay a buffered signature.
+     *
+     * @param replayLatencyMicros replay latency in microseconds
+     * @throws IllegalArgumentException if replayLatencyMicros is negative
+     */
+    void recordSignatureReplayLatency(long replayLatencyMicros);
+
+    /**
+     * Get timer for signature replay operations.
+     *
+     * @return Timer for replay latency
+     */
+    Timer signatureReplayTimer();
+
+    /**
+     * Get timer for threshold recalculation operations.
+     *
+     * @return Timer for threshold recalculation
+     */
+    Timer thresholdRecalculationTimer();
+
+    /**
+     * Record threshold recalculation time manually.
+     *
+     * @param recalcTimeMicros recalculation time in microseconds
+     * @throws IllegalArgumentException if recalcTimeMicros is negative
+     */
+    void recordThresholdRecalculationTime(long recalcTimeMicros);
 }
