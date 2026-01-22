@@ -58,6 +58,7 @@ public class WitnessBootstrap implements AutoCloseable {
     private WitnessCHOAM witnessCHOAM;
     private WitnessFirefliesIntegration firefliesIntegration;
     private ScheduledExecutorService scheduler;
+    private WitnessMetricsBootstrap metricsBootstrap;
 
     /**
      * Create bootstrap with configuration.
@@ -78,6 +79,11 @@ public class WitnessBootstrap implements AutoCloseable {
      */
     public void start(Context<?> firefliesContext,
                      WitnessReceiptManager witnessReceiptManager) throws IOException {
+        // Initialize metrics bootstrap (Phase 1C Byzantine detection metrics)
+        metricsBootstrap = new WitnessMetricsBootstrap();
+        metricsBootstrap.startReporters();
+        log.info("Witness metrics initialized");
+
         // Create scheduler for periodic tasks and drain periods
         scheduler = new ScheduledThreadPoolExecutor(2, r -> {
             var t = new Thread(r, "witness-scheduler");
@@ -246,6 +252,10 @@ public class WitnessBootstrap implements AutoCloseable {
             }
         }
 
+        if (metricsBootstrap != null) {
+            metricsBootstrap.shutdown();
+        }
+
         log.info("Witness service stopped");
     }
 
@@ -261,6 +271,18 @@ public class WitnessBootstrap implements AutoCloseable {
             log.warn("Interrupted during shutdown: {}", e.getMessage());
             Thread.currentThread().interrupt();
         }
+    }
+
+    /**
+     * Get metrics bootstrap instance for Phase 1C metrics.
+     * <p>
+     * Provides access to Byzantine detection, BLS, and orchestration metrics
+     * for wiring into detectors, orchestrators, and view change listeners.
+     *
+     * @return WitnessMetricsBootstrap instance (may be null if not yet started)
+     */
+    public WitnessMetricsBootstrap getMetricsBootstrap() {
+        return metricsBootstrap;
     }
 
     /**
