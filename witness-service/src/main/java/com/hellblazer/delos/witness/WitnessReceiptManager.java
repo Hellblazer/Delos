@@ -16,6 +16,7 @@ import com.hellblazer.delos.witness.aggregation.AccumulationResult;
 import com.hellblazer.delos.witness.aggregation.BLSReceiptAggregator;
 import com.hellblazer.delos.witness.aggregation.SignatureFormat;
 import com.hellblazer.delos.witness.aggregation.SignatureAccumulator;
+import com.hellblazer.delos.witness.metrics.BLSMetrics;
 import com.hellblazer.delos.witness.migration.MigrationPhase;
 import com.hellblazer.delos.witness.receipt.AggregateWitnessReceipt;
 import com.hellblazer.delos.witness.validation.graceful.DegradedThresholdCalculator;
@@ -64,6 +65,9 @@ public class WitnessReceiptManager {
     private final Supplier<Boolean> isViewChangeActive;
     private final DegradedThresholdCalculator degradedCalculator;
 
+    // Metrics support (nullable for backward compatibility)
+    private final BLSMetrics metrics;
+
     // Map: EventCoordinates -> CollectionState
     private final Map<String, CollectionState> collections = new ConcurrentHashMap<>();
 
@@ -93,6 +97,25 @@ public class WitnessReceiptManager {
         Supplier<Boolean> isViewChangeActive,
         DegradedThresholdCalculator degradedCalculator
     ) {
+        this(parameters, signatureBuffer, isViewChangeActive, degradedCalculator, null);
+    }
+
+    /**
+     * Create receipt manager with graceful degradation and metrics support.
+     *
+     * @param parameters Witness configuration (threshold, drain period, signature format, etc.)
+     * @param signatureBuffer Signature buffer for buffering during view changes (nullable)
+     * @param isViewChangeActive Supplier to check if view change is active (nullable)
+     * @param degradedCalculator Calculator for degraded thresholds during Byzantine detection (nullable)
+     * @param metrics BLS metrics collector (nullable)
+     */
+    public WitnessReceiptManager(
+        WitnessParameters parameters,
+        SignatureBuffer signatureBuffer,
+        Supplier<Boolean> isViewChangeActive,
+        DegradedThresholdCalculator degradedCalculator,
+        BLSMetrics metrics
+    ) {
         this.parameters = Objects.requireNonNull(parameters, "parameters required");
         this.signatureFormat = parameters.signatureFormat();
         this.migrationPhase = parameters.migrationPhase();
@@ -108,6 +131,9 @@ public class WitnessReceiptManager {
         this.signatureBuffer = signatureBuffer;
         this.isViewChangeActive = isViewChangeActive;
         this.degradedCalculator = degradedCalculator;
+
+        // Metrics support (nullable for backward compatibility)
+        this.metrics = metrics;
     }
 
     /**
@@ -178,6 +204,9 @@ public class WitnessReceiptManager {
             throw new IllegalArgumentException("committeeIndex must be >= 0, got: " + committeeIndex);
         }
 
+        // Start latency measurement
+        var startNanos = System.nanoTime();
+
         lock.writeLock().lock();
         try {
             // Get or create collection state for this event
@@ -200,16 +229,34 @@ public class WitnessReceiptManager {
             switch (result) {
                 case AccumulationResult.Accumulated acc -> {
                     state.recordSignature(member);
+                    // Record successful accumulation latency
+                    recordLatency(startNanos);
+                    // Update active accumulator count
+                    updateActiveAccumulators();
                 }
                 case AccumulationResult.ThresholdMet tm -> {
                     state.recordSignature(member);
                     state.markThresholdMet(tm.snapshot());
+                    // Record successful accumulation latency
+                    recordLatency(startNanos);
+                    // Record completion
+                    if (metrics != null) {
+                        metrics.recordCompletedAccumulation();
+                    }
+                    // Update active accumulator count
+                    updateActiveAccumulators();
                 }
                 case AccumulationResult.AlreadyPresent ap -> {
                     // Duplicate, ignore (idempotent)
+                    if (metrics != null) {
+                        metrics.incrementRejectedDuplicate();
+                    }
                 }
                 case AccumulationResult.LateSigner ls -> {
                     // Late signer, ignore (already met threshold)
+                    if (metrics != null) {
+                        metrics.incrementRejectedLate();
+                    }
                 }
                 case AccumulationResult.InvalidSignature is -> {
                     throw new IllegalArgumentException(
@@ -217,6 +264,9 @@ public class WitnessReceiptManager {
                     );
                 }
                 case AccumulationResult.EpochMismatch em -> {
+                    if (metrics != null) {
+                        metrics.incrementRejectedEpoch();
+                    }
                     throw new IllegalArgumentException(
                         "Epoch mismatch from " + member +
                         ": expected " + em.expectedEpoch() +
@@ -224,6 +274,9 @@ public class WitnessReceiptManager {
                     );
                 }
                 case AccumulationResult.ViewRefMismatch vm -> {
+                    if (metrics != null) {
+                        metrics.incrementRejectedViewRef();
+                    }
                     throw new IllegalArgumentException(
                         "ViewRef mismatch from " + member
                     );
@@ -257,6 +310,29 @@ public class WitnessReceiptManager {
             }
         } finally {
             lock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Record signature receipt latency in microseconds.
+     *
+     * @param startNanos Start time in nanoseconds
+     */
+    private void recordLatency(long startNanos) {
+        if (metrics != null) {
+            var endNanos = System.nanoTime();
+            var latencyMicros = (endNanos - startNanos) / 1000;
+            metrics.recordReceiptLatency(latencyMicros);
+        }
+    }
+
+    /**
+     * Update active accumulator count metric.
+     */
+    private void updateActiveAccumulators() {
+        if (metrics != null && blsAggregator != null) {
+            var activeCount = blsAggregator.metrics().activeAccumulators();
+            metrics.setActiveAccumulators(activeCount);
         }
     }
 
