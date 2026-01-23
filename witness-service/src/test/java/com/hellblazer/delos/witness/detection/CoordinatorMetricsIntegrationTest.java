@@ -8,6 +8,8 @@
 package com.hellblazer.delos.witness.detection;
 
 import com.codahale.metrics.MetricRegistry;
+import com.hellblazer.delos.cryptography.bls.BLSAggregate;
+import com.hellblazer.delos.cryptography.bls.BLSSignature;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
 import com.hellblazer.delos.witness.aggregation.ValidationResult;
@@ -54,6 +56,12 @@ class CoordinatorMetricsIntegrationTest {
         testReceiptCoordinates = Mockito.mock(EventCoordinates.class);
     }
 
+    private BLSAggregate createTestAggregate() {
+        var signature = new BLSSignature(new byte[96]);
+        var bitmap = new byte[]{1};
+        return new BLSAggregate(signature, bitmap);
+    }
+
     // ===========================
     // Detector Metrics Integration
     // ===========================
@@ -91,7 +99,7 @@ class CoordinatorMetricsIntegrationTest {
             detector.recordValidationResult(
                 testMemberId,
                 testReceiptCoordinates,
-                new ValidationResult.Valid(Mockito.mock(com.hellblazer.delos.cryptography.bls.BLSAggregate.class)),
+                new ValidationResult.Valid(createTestAggregate()),
                 1500  // 1.5 seconds - high latency
             );
         }
@@ -115,7 +123,7 @@ class CoordinatorMetricsIntegrationTest {
             detector.recordValidationResult(
                 testMemberId,
                 testReceiptCoordinates,
-                new ValidationResult.Valid(Mockito.mock(com.hellblazer.delos.cryptography.bls.BLSAggregate.class)),
+                new ValidationResult.Valid(createTestAggregate()),
                 10
             );
             try {
@@ -142,7 +150,7 @@ class CoordinatorMetricsIntegrationTest {
             detector.recordValidationResult(
                 testMemberId,
                 testReceiptCoordinates,
-                new ValidationResult.Valid(Mockito.mock(com.hellblazer.delos.cryptography.bls.BLSAggregate.class)),
+                new ValidationResult.Valid(createTestAggregate()),
                 10
             );
         }
@@ -225,7 +233,7 @@ class CoordinatorMetricsIntegrationTest {
         coordinator.recordValidationResult(
             testMemberId,
             testReceiptCoordinates,
-            new ValidationResult.Valid(Mockito.mock(com.hellblazer.delos.cryptography.bls.BLSAggregate.class)),
+            new ValidationResult.Valid(createTestAggregate()),
             10  // Low latency
         );
 

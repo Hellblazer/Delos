@@ -392,10 +392,10 @@ public class AccumulatorInstrumentationTest {
     }
 
     private BLSSignature createMockSignature() {
-        // Create a mock signature (48 bytes for BLS12-381 G1)
-        var bytes = new byte[48];
+        // Create a mock signature (96 bytes for aggregated BLS12-381 signatures)
+        var bytes = new byte[96];
         for (int i = 0; i < bytes.length; i++) {
-            bytes[i] = (byte) i;
+            bytes[i] = (byte) (i % 256);
         }
         return BLSSignature.fromBytes(bytes);
     }
