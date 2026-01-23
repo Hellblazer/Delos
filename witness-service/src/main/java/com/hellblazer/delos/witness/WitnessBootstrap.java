@@ -12,6 +12,7 @@ import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.witness.detection.*;
 import com.hellblazer.delos.witness.validation.BLSKeyRotationLookup;
+import com.hellblazer.delos.witness.validation.FirefliesShunningIntegration;
 import com.hellblazer.delos.witness.validation.WitnessSignatureValidator;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
@@ -67,6 +68,10 @@ public class WitnessBootstrap implements AutoCloseable {
     private DefaultResponseOrchestrator responseOrchestrator;
     private BLSKeyRotationLookup keyRotationLookup;
     private WitnessSignatureValidator signatureValidator;
+
+    // Phase 1C-3-B: Enhanced Byzantine detection with all detectors
+    private FirefliesShunningIntegration shunningIntegration;
+    private ByzantineDetectorCoordinator byzantineCoordinator;
 
     /**
      * Create bootstrap with configuration.
@@ -361,6 +366,56 @@ public class WitnessBootstrap implements AutoCloseable {
             metricsBootstrap.getByzantineMetrics()
         );
 
+        // Phase 1C-3-B: Create Fireflies shunning integration
+        var firefliesViewAdapter = createFirefliesViewAdapter();
+        shunningIntegration = new com.hellblazer.delos.witness.validation.FirefliesShunningIntegrationImpl(
+            firefliesViewAdapter
+        );
+        log.info("Fireflies shunning integration created");
+
+        // Phase 1C-3-B: Create Byzantine detector coordinator
+        byzantineCoordinator = new ByzantineDetectorCoordinator(
+            detectorConfig,
+            responseOrchestrator,
+            metricsBootstrap.getByzantineMetrics()
+        );
+        log.info("Byzantine detector coordinator created");
+
+        // Phase 1C-3-B: Create all 4 Byzantine detectors with uniform constructor
+        var equivocationDetector = new EquivocationDetector(
+            detectorConfig,
+            metricsBootstrap.getByzantineMetrics()
+        );
+        var timingAttackDetector = new TimingAttackDetector(
+            detectorConfig,
+            metricsBootstrap.getByzantineMetrics()
+        );
+        var replayProtectionDetector = new ReplayProtectionDetector(
+            detectorConfig,
+            metricsBootstrap.getByzantineMetrics()
+        );
+        var coalitionDetector = new CoalitionDetector(
+            detectorConfig,
+            metricsBootstrap.getByzantineMetrics()
+        );
+        log.info("Created 4 Byzantine detectors: Equivocation, TimingAttack, Replay, Coalition");
+
+        // Phase 1C-3-B: Inject setter dependencies BEFORE registration
+        equivocationDetector.setShunningIntegration(shunningIntegration);
+        coalitionDetector.setDetectorReferences(
+            equivocationDetector,
+            timingAttackDetector,
+            replayProtectionDetector
+        );
+        log.info("Setter dependencies injected into detectors");
+
+        // Phase 1C-3-B: Register all detectors in coordinator
+        byzantineCoordinator.registerDetector(equivocationDetector);
+        byzantineCoordinator.registerDetector(timingAttackDetector);
+        byzantineCoordinator.registerDetector(replayProtectionDetector);
+        byzantineCoordinator.registerDetector(coalitionDetector);
+        log.info("All 4 detectors registered in coordinator");
+
         // Create BLS key rotation lookup for grace period verification
         keyRotationLookup = new BLSKeyRotationLookup(new ConcurrentHashMap<>());
 
@@ -373,6 +428,26 @@ public class WitnessBootstrap implements AutoCloseable {
         );
 
         log.info("Key rotation and Byzantine detection initialized");
+    }
+
+    /**
+     * Create Fireflies view adapter for shunning integration.
+     * <p>
+     * This is a placeholder implementation that will be replaced with actual
+     * Fireflies View integration in future phases. For now, it provides a
+     * no-op adapter that logs shunning requests.
+     * </p>
+     *
+     * @return FirefliesViewAdapter for shunning operations
+     */
+    private com.hellblazer.delos.witness.validation.FirefliesShunningIntegrationImpl.FirefliesViewAdapter
+    createFirefliesViewAdapter() {
+        return memberId -> {
+            log.info("Shunning request (placeholder): {}", memberId);
+            // In full implementation, this would call actual Fireflies View.shunMember()
+            // For now, return a completed future
+            return CompletableFuture.completedFuture(null);
+        };
     }
 
     /**
@@ -491,5 +566,31 @@ public class WitnessBootstrap implements AutoCloseable {
      */
     public KeyRotationOrchestrator getKeyRotationOrchestrator() {
         return keyRotationOrchestrator;
+    }
+
+    /**
+     * Get Fireflies shunning integration (Phase 1C-3-B).
+     * <p>
+     * Provides Byzantine member shunning coordination with Fireflies gossip layer.
+     * Available after start() completes.
+     * </p>
+     *
+     * @return FirefliesShunningIntegration instance
+     */
+    public FirefliesShunningIntegration getFirefliesShunningIntegration() {
+        return shunningIntegration;
+    }
+
+    /**
+     * Get Byzantine detector coordinator (Phase 1C-3-B).
+     * <p>
+     * Coordinates all 4 Byzantine detectors (Equivocation, TimingAttack, Replay, Coalition).
+     * Available after start() completes.
+     * </p>
+     *
+     * @return ByzantineDetectorCoordinator instance
+     */
+    public ByzantineDetectorCoordinator getByzantineCoordinator() {
+        return byzantineCoordinator;
     }
 }
