@@ -318,7 +318,7 @@ class EpochLinkTest {
         var result = EpochLinkValidator.validateChain(List.of(epoch0, epoch2), rootHashes::get);
 
         assertThat(result.isValid()).isFalse();
-        assertThat(result.getFailureReason()).contains("Non-sequential epochs");
+        assertThat(result.getFailureReason().get()).contains("Non-sequential epochs");
     }
 
     @Test
@@ -330,7 +330,7 @@ class EpochLinkTest {
         var result = EpochLinkValidator.validateChain(List.of(epoch5), rootHashes::get);
 
         assertThat(result.isValid()).isFalse();
-        assertThat(result.getFailureReason()).contains("Non-genesis epoch");
+        assertThat(result.getFailureReason().get()).contains("Non-genesis epoch");
     }
 
     @Test
@@ -376,7 +376,7 @@ class EpochLinkTest {
         var result = EpochLinkValidator.validateContiguous(chain);
 
         assertThat(result.isValid()).isFalse();
-        assertThat(result.getFailureReason()).contains("Non-contiguous epochs");
+        assertThat(result.getFailureReason().get()).contains("Non-contiguous epochs");
     }
 
     @Test
@@ -401,7 +401,7 @@ class EpochLinkTest {
         var result = EpochLinkValidator.validateGenesisStart(chain);
 
         assertThat(result.isValid()).isFalse();
-        assertThat(result.getFailureReason()).contains("First epoch is not genesis");
+        assertThat(result.getFailureReason().get()).contains("First epoch is not genesis");
     }
 
     @Test

@@ -38,8 +38,11 @@ public sealed interface ValidationResult
      */
     record Invalid(String reason) implements ValidationResult {
         public Invalid {
-            if (reason == null || reason.isBlank()) {
-                throw new IllegalArgumentException("Reason cannot be null or blank");
+            if (reason == null) {
+                throw new NullPointerException("reason cannot be null");
+            }
+            if (reason.isBlank()) {
+                throw new IllegalArgumentException("reason cannot be blank");
             }
         }
     }
