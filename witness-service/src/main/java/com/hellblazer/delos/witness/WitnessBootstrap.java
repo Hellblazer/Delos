@@ -10,6 +10,8 @@ package com.hellblazer.delos.witness;
 import com.hellblazer.delos.context.Context;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
+import com.hellblazer.delos.witness.aggregation.storage.config.WitnessReceiptConfiguration;
+import com.hellblazer.delos.witness.aggregation.storage.factory.ReceiptStoreFactory;
 import com.hellblazer.delos.witness.detection.*;
 import com.hellblazer.delos.witness.validation.BLSKeyRotationLookup;
 import com.hellblazer.delos.witness.validation.FirefliesShunningIntegration;
@@ -20,8 +22,11 @@ import io.grpc.netty.NettyServerBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.sql.DataSource;
+
 import java.io.IOException;
 import java.time.Duration;
+import java.util.Objects;
 import java.util.concurrent.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -59,6 +64,10 @@ public class WitnessBootstrap implements AutoCloseable {
     private ScheduledExecutorService scheduler;
     private volatile WitnessMetricsBootstrap metricsBootstrap;
 
+    // Phase 3.4.5: Receipt storage configuration
+    private WitnessReceiptConfiguration receiptConfig;
+    private DataSource dataSource;
+
     // Phase 1C-3-A: Key rotation and Byzantine detection
     private KeyRotationOrchestrator keyRotationOrchestrator;
     private KeyRotationTriggerImpl keyRotationTrigger;
@@ -80,11 +89,101 @@ public class WitnessBootstrap implements AutoCloseable {
      */
     public WitnessBootstrap(WitnessServiceConfig config) {
         this.config = config;
+        this.receiptConfig = WitnessReceiptConfiguration.DEFAULT; // Default to in-memory
     }
 
     /**
-     * Start witness service.
-     * Initializes all components and starts gRPC server.
+     * Configure receipt storage (Phase 3.4.5).
+     * <p>
+     * Sets storage type, compression, and caching configuration for witness receipts.
+     * Must be called before start() to take effect.
+     *
+     * @param config Receipt storage configuration
+     * @return This bootstrap instance for fluent configuration
+     */
+    public WitnessBootstrap withReceiptConfiguration(WitnessReceiptConfiguration config) {
+        this.receiptConfig = Objects.requireNonNull(config, "receiptConfig cannot be null");
+        return this;
+    }
+
+    /**
+     * Configure JDBC data source for persistent storage (Phase 3.4.5).
+     * <p>
+     * Required if receiptConfig uses StoreType.JDBC.
+     * Must be called before start() to take effect.
+     *
+     * @param dataSource JDBC data source for receipt storage
+     * @return This bootstrap instance for fluent configuration
+     */
+    public WitnessBootstrap withDataSource(DataSource dataSource) {
+        this.dataSource = Objects.requireNonNull(dataSource, "dataSource cannot be null");
+        return this;
+    }
+
+    /**
+     * Get current receipt storage configuration (Phase 3.4.5).
+     *
+     * @return Receipt configuration instance
+     */
+    public WitnessReceiptConfiguration getReceiptConfiguration() {
+        return receiptConfig;
+    }
+
+    /**
+     * Start witness service with configured receipt storage (Phase 3.4.5).
+     * <p>
+     * Creates WitnessReceiptManager internally with configured stores
+     * (in-memory or JDBC based on receiptConfig). This is the preferred
+     * method for new code.
+     *
+     * @param firefliesContext Fireflies consensus context (for committee selection)
+     * @throws IOException If gRPC server fails to start
+     */
+    public void start(Context<?> firefliesContext) throws IOException {
+        // Create receipt stores using factory
+        var aggregateStore = ReceiptStoreFactory.createAggregateReceiptStore(
+            receiptConfig,
+            dataSource,
+            null  // metrics will be passed to WitnessReceiptManager
+        );
+
+        var recursiveStore = ReceiptStoreFactory.createRecursiveReceiptStore(
+            receiptConfig,
+            dataSource,
+            null  // metrics will be passed to WitnessReceiptManager
+        );
+
+        // Create WitnessReceiptManager with configured stores
+        var witnessReceiptManager = new WitnessReceiptManager(
+            WitnessParameters.newBuilder()
+                .k(config.committeeSize())
+                .threshold(config.threshold())
+                .epoch(0)
+                .drainPeriod(config.drainPeriod())
+                .build(),
+            null,  // SignatureBuffer (will be enhanced in future phases)
+            null,  // isViewChangeActive (will be enhanced in future phases)
+            null,  // DegradedThresholdCalculator (will be enhanced in future phases)
+            null,  // BLSMetrics (will be created in metricsBootstrap)
+            aggregateStore,
+            recursiveStore
+        );
+
+        log.info("Receipt storage configured: type={}, compression={}, cache={}",
+                 receiptConfig.storeType(),
+                 receiptConfig.compressionConfig().codec(),
+                 receiptConfig.cacheEnabled() ? "enabled" : "disabled");
+
+        // Delegate to original start() method
+        start(firefliesContext, witnessReceiptManager);
+    }
+
+    /**
+     * Start witness service with external receipt manager (backward compatible).
+     * <p>
+     * Use this method when you need full control over WitnessReceiptManager
+     * creation. For most cases, prefer {@link #start(Context)} which creates
+     * the manager automatically with configured storage.
      *
      * @param firefliesContext Fireflies consensus context (for committee selection)
      * @param witnessReceiptManager Receipt manager (Phase 1A-1 component)

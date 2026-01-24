@@ -16,6 +16,10 @@ import com.hellblazer.delos.witness.aggregation.AccumulationResult;
 import com.hellblazer.delos.witness.aggregation.BLSReceiptAggregator;
 import com.hellblazer.delos.witness.aggregation.SignatureFormat;
 import com.hellblazer.delos.witness.aggregation.SignatureAccumulator;
+import com.hellblazer.delos.witness.aggregation.storage.AggregateReceiptStore;
+import com.hellblazer.delos.witness.aggregation.storage.RecursiveReceiptStore;
+import com.hellblazer.delos.witness.aggregation.storage.memory.InMemoryAggregateReceiptStore;
+import com.hellblazer.delos.witness.aggregation.storage.memory.InMemoryRecursiveReceiptStore;
 import com.hellblazer.delos.witness.metrics.BLSMetrics;
 import com.hellblazer.delos.witness.migration.MigrationPhase;
 import com.hellblazer.delos.witness.receipt.AggregateWitnessReceipt;
@@ -68,6 +72,10 @@ public class WitnessReceiptManager {
     // Metrics support (nullable for backward compatibility)
     private final BLSMetrics metrics;
 
+    // Receipt storage (Phase 3.4.5 - storage integration)
+    private final AggregateReceiptStore aggregateReceiptStore;
+    private final RecursiveReceiptStore recursiveReceiptStore;
+
     // Map: EventCoordinates -> CollectionState
     private final Map<String, CollectionState> collections = new ConcurrentHashMap<>();
 
@@ -116,6 +124,29 @@ public class WitnessReceiptManager {
         DegradedThresholdCalculator degradedCalculator,
         BLSMetrics metrics
     ) {
+        this(parameters, signatureBuffer, isViewChangeActive, degradedCalculator, metrics, null, null);
+    }
+
+    /**
+     * Create receipt manager with storage integration (Phase 3.4.5).
+     *
+     * @param parameters Witness configuration (threshold, drain period, signature format, etc.)
+     * @param signatureBuffer Signature buffer for buffering during view changes (nullable)
+     * @param isViewChangeActive Supplier to check if view change is active (nullable)
+     * @param degradedCalculator Calculator for degraded thresholds during Byzantine detection (nullable)
+     * @param metrics BLS metrics collector (nullable)
+     * @param aggregateReceiptStore Storage for aggregate receipts (nullable, defaults to in-memory)
+     * @param recursiveReceiptStore Storage for recursive receipts (nullable, defaults to in-memory)
+     */
+    public WitnessReceiptManager(
+        WitnessParameters parameters,
+        SignatureBuffer signatureBuffer,
+        Supplier<Boolean> isViewChangeActive,
+        DegradedThresholdCalculator degradedCalculator,
+        BLSMetrics metrics,
+        AggregateReceiptStore aggregateReceiptStore,
+        RecursiveReceiptStore recursiveReceiptStore
+    ) {
         this.parameters = Objects.requireNonNull(parameters, "parameters required");
         this.signatureFormat = parameters.signatureFormat();
         this.migrationPhase = parameters.migrationPhase();
@@ -134,6 +165,14 @@ public class WitnessReceiptManager {
 
         // Metrics support (nullable for backward compatibility)
         this.metrics = metrics;
+
+        // Receipt storage (nullable, fallback to in-memory)
+        this.aggregateReceiptStore = aggregateReceiptStore != null
+            ? aggregateReceiptStore
+            : new InMemoryAggregateReceiptStore();
+        this.recursiveReceiptStore = recursiveReceiptStore != null
+            ? recursiveReceiptStore
+            : new InMemoryRecursiveReceiptStore();
     }
 
     /**
@@ -521,6 +560,30 @@ public class WitnessReceiptManager {
      */
     public Duration getDrainPeriod() {
         return parameters.drainPeriod();
+    }
+
+    /**
+     * Get aggregate receipt store (Phase 3.4.5).
+     * <p>
+     * Provides access to persistent storage for AggregateWitnessReceipt instances.
+     * Used for testing and direct storage access if needed.
+     *
+     * @return Aggregate receipt store instance (never null)
+     */
+    public AggregateReceiptStore getAggregateReceiptStore() {
+        return aggregateReceiptStore;
+    }
+
+    /**
+     * Get recursive receipt store (Phase 3.4.5).
+     * <p>
+     * Provides access to persistent storage for RecursiveAggregateReceipt instances.
+     * Used for testing and direct storage access if needed.
+     *
+     * @return Recursive receipt store instance (never null)
+     */
+    public RecursiveReceiptStore getRecursiveReceiptStore() {
+        return recursiveReceiptStore;
     }
 
     /**
