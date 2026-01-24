@@ -304,25 +304,21 @@ public record RecursiveAggregateReceipt(
     }
 
     /**
-     * Temporary converter to HierarchicalAggregate proto.
-     * TODO: Move to HierarchicalAggregate class once proto conversion is implemented there
+     * Converter to HierarchicalAggregate proto.
+     * Delegates to HierarchicalAggregate.toProto() which handles full serialization.
      */
     private static com.hellblazer.delos.witness.proto.HierarchicalAggregate toHierarchicalAggregateProto(
         HierarchicalAggregate aggregate) {
-        // TODO: This is a temporary stub - HierarchicalAggregate should have toProto()
-        throw new UnsupportedOperationException(
-            "HierarchicalAggregate.toProto() not yet implemented - Phase 1C-2-A followup");
+        return aggregate.toProto();
     }
 
     /**
-     * Temporary converter from HierarchicalAggregate proto.
-     * TODO: Move to HierarchicalAggregate class once proto conversion is implemented there
+     * Converter from HierarchicalAggregate proto.
+     * Delegates to HierarchicalAggregate.fromProto() which handles full deserialization.
      */
     private static HierarchicalAggregate fromHierarchicalAggregateProto(
         com.hellblazer.delos.witness.proto.HierarchicalAggregate proto) {
-        // TODO: This is a temporary stub - HierarchicalAggregate should have fromProto()
-        throw new UnsupportedOperationException(
-            "HierarchicalAggregate.fromProto() not yet implemented - Phase 1C-2-A followup");
+        return HierarchicalAggregate.fromProto(proto);
     }
 
     /**

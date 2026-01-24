@@ -452,8 +452,8 @@ class RecursiveAggregateReceiptTest {
     }
 
     @Test
-    @DisplayName("should throw UnsupportedOperationException on toProto")
-    void testProtoConversion_notYetImplemented() {
+    @DisplayName("should successfully convert RecursiveAggregateReceipt to and from proto")
+    void testProtoConversion_singleEpoch() {
         var receipt = RecursiveAggregateReceipt.builder()
             .baseAggregate(baseAggregate)
             .epochs(0, 0)
@@ -461,9 +461,19 @@ class RecursiveAggregateReceiptTest {
             .totalUniqueSigners(100)
             .build();
 
-        // toProto() should throw because HierarchicalAggregate.toProto() is not yet implemented
-        assertThatThrownBy(receipt::toProto)
-            .isInstanceOf(UnsupportedOperationException.class)
-            .hasMessageContaining("HierarchicalAggregate.toProto() not yet implemented");
+        // toProto() should now succeed with HierarchicalAggregate proto conversion implemented
+        var proto = receipt.toProto();
+        assertThat(proto).isNotNull();
+        assertThat(proto.getStartEpoch()).isEqualTo(0);
+        assertThat(proto.getEndEpoch()).isEqualTo(0);
+        assertThat(proto.getTotalUniqueSigners()).isEqualTo(100);
+
+        // fromProto() should restore the receipt
+        var restored = RecursiveAggregateReceipt.fromProto(proto);
+        assertThat(restored).isNotNull();
+        assertThat(restored.startEpoch()).isEqualTo(receipt.startEpoch());
+        assertThat(restored.endEpoch()).isEqualTo(receipt.endEpoch());
+        assertThat(restored.totalUniqueSigners()).isEqualTo(receipt.totalUniqueSigners());
+        assertThat(restored.epochCount()).isEqualTo(receipt.epochCount());
     }
 }

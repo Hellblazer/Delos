@@ -7,8 +7,11 @@
  */
 package com.hellblazer.delos.witness.aggregation;
 
+import com.google.protobuf.ByteString;
+import com.hellblazer.delos.cryptography.bls.BLSSignature;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * HierarchicalAggregate: N-level hierarchical BLS signature aggregation.
@@ -197,6 +200,151 @@ public record HierarchicalAggregate(
         // Conservative estimate: ~8 signers per committee average
         long estimatedUncompressed = (long) leafCommitteeCount * 96 * 8;
         return (double) storageBytes / estimatedUncompressed;
+    }
+
+    /**
+     * Convert to proto message for serialization.
+     *
+     * @return Proto HierarchicalAggregate message
+     */
+    public com.hellblazer.delos.witness.proto.HierarchicalAggregate toProto() {
+        return com.hellblazer.delos.witness.proto.HierarchicalAggregate.newBuilder()
+            .setRoot(treeNodeToProto(root))
+            .setConfig(treeConfigurationToProto(treeConfiguration))
+            .setEvent(event.toEventCoords())
+            .setTotalSignerCount(totalSignerCount)
+            .setLeafCommitteeCount(leafCommitteeCount)
+            .build();
+    }
+
+    /**
+     * Create from proto message.
+     *
+     * @param proto The proto HierarchicalAggregate to convert
+     * @return A new HierarchicalAggregate instance
+     * @throws NullPointerException if proto is null
+     * @throws IllegalArgumentException if proto fields are invalid
+     */
+    public static HierarchicalAggregate fromProto(
+        com.hellblazer.delos.witness.proto.HierarchicalAggregate proto) {
+        Objects.requireNonNull(proto, "proto cannot be null");
+
+        return new HierarchicalAggregate(
+            treeNodeFromProto(proto.getRoot()),
+            treeConfigurationFromProto(proto.getConfig()),
+            EventCoordinates.from(proto.getEvent()),
+            proto.getTotalSignerCount(),
+            proto.getLeafCommitteeCount()
+        );
+    }
+
+    /**
+     * Convert TreeNode to proto message (handles both leaf and intermediate).
+     */
+    private static com.hellblazer.delos.witness.proto.TreeNode treeNodeToProto(TreeNode node) {
+        Objects.requireNonNull(node, "TreeNode cannot be null");
+
+        var builder = com.hellblazer.delos.witness.proto.TreeNode.newBuilder();
+
+        return switch (node) {
+            case TreeNode.LeafNode leaf -> builder
+                .setLeaf(com.hellblazer.delos.witness.proto.LeafNode.newBuilder()
+                    .setCommitteeEpoch(leaf.committeeEpoch())
+                    .setAggregatedSignature(ByteString.copyFrom(
+                        leaf.aggregatedSignature().toBytes()))
+                    .setSignerCount(leaf.signerCount())
+                    .setSignerBitmap(ByteString.copyFrom(leaf.signerBitmap()))
+                    .setDepth(leaf.depth())
+                    .setIndex(leaf.index())
+                    .build())
+                .build();
+
+            case TreeNode.IntermediateNode intermediate -> {
+                var intBuilder = com.hellblazer.delos.witness.proto.IntermediateNode.newBuilder()
+                    .setAggregatedSignature(ByteString.copyFrom(
+                        intermediate.aggregatedSignature().toBytes()))
+                    .setTotalSignerCount(intermediate.totalSignerCount())
+                    .setDepth(intermediate.depth())
+                    .setIndex(intermediate.index());
+
+                for (TreeNode child : intermediate.children()) {
+                    intBuilder.addChildren(treeNodeToProto(child));
+                }
+
+                yield builder.setIntermediate(intBuilder.build()).build();
+            }
+        };
+    }
+
+    /**
+     * Convert proto TreeNode to TreeNode (handles both leaf and intermediate).
+     */
+    private static TreeNode treeNodeFromProto(com.hellblazer.delos.witness.proto.TreeNode proto) {
+        Objects.requireNonNull(proto, "proto TreeNode cannot be null");
+
+        return switch (proto.getNodeTypeCase()) {
+            case LEAF -> {
+                var leaf = proto.getLeaf();
+                var sig = new BLSSignature(leaf.getAggregatedSignature().toByteArray());
+                yield new TreeNode.LeafNode(
+                    leaf.getCommitteeEpoch(),
+                    sig,
+                    leaf.getSignerCount(),
+                    leaf.getSignerBitmap().toByteArray(),
+                    leaf.getDepth(),
+                    leaf.getIndex(),
+                    java.util.Optional.empty()  // Parent refs not serialized
+                );
+            }
+
+            case INTERMEDIATE -> {
+                var intermediate = proto.getIntermediate();
+                var sig = new BLSSignature(intermediate.getAggregatedSignature().toByteArray());
+                var children = intermediate.getChildrenList().stream()
+                    .map(HierarchicalAggregate::treeNodeFromProto)
+                    .toList();
+
+                yield new TreeNode.IntermediateNode(
+                    children,
+                    sig,
+                    intermediate.getTotalSignerCount(),
+                    intermediate.getDepth(),
+                    intermediate.getIndex(),
+                    java.util.Optional.empty()  // Parent refs not serialized
+                );
+            }
+
+            case NODETYPE_NOT_SET ->
+                throw new IllegalArgumentException("TreeNode type not set in proto");
+        };
+    }
+
+    /**
+     * Convert TreeConfiguration to proto.
+     */
+    private static com.hellblazer.delos.witness.proto.TreeConfiguration treeConfigurationToProto(
+        TreeConfiguration config) {
+        Objects.requireNonNull(config, "TreeConfiguration cannot be null");
+
+        return com.hellblazer.delos.witness.proto.TreeConfiguration.newBuilder()
+            .setBranchingFactor(config.branchingFactor())
+            .setMaxDepth(config.maxDepth())
+            .setCommitteeCount(config.committeeCount())
+            .build();
+    }
+
+    /**
+     * Convert proto TreeConfiguration to TreeConfiguration.
+     */
+    private static TreeConfiguration treeConfigurationFromProto(
+        com.hellblazer.delos.witness.proto.TreeConfiguration proto) {
+        Objects.requireNonNull(proto, "proto TreeConfiguration cannot be null");
+
+        return new TreeConfiguration(
+            proto.getBranchingFactor(),
+            proto.getMaxDepth(),
+            proto.getCommitteeCount()
+        );
     }
 
     @Override
