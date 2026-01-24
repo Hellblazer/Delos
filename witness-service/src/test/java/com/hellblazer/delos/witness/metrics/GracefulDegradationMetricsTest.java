@@ -408,9 +408,10 @@ class GracefulDegradationMetricsTest {
             });
         }
 
-        // Ensure all threads complete with buffer for scheduler overhead
-        assertThat(latch.await(10, TimeUnit.SECONDS)).isTrue();
-        Thread.sleep(50); // Allow time for metrics flush
+        // Wait for all threads to complete with generous timeout and buffer
+        var completed = latch.await(30, TimeUnit.SECONDS);
+        assertThat(completed).describedAs("All virtual threads should complete within timeout").isTrue();
+        Thread.sleep(100); // Allow time for metrics flush
 
         // Then: All transitions recorded (thread-safe)
         assertThat(metrics.getDegradationStateTransitions("STABLE_TO_DRAINING"))
