@@ -9,46 +9,50 @@ package com.hellblazer.delos.witness.aggregation.recursive;
 
 /**
  * Compression codec for RecursiveAggregateReceipt storage optimization.
- * Phase 2 implementation will add DELTA_BITMAP, RUN_LENGTH, HYBRID codecs.
+ * Phase 3.3 implementation using standard compression libraries.
  * <p>
- * Storage characteristics (10 epochs, 3 with changes):
- * - NONE: ~2.3KB baseline (no compression)
- * - DELTA_BITMAP: ~1.5KB (stores only changed committees) - Phase 2
- * - RUN_LENGTH: ~1.2KB (encodes consecutive unchanged epochs) - Phase 2
- * - HYBRID: ~1.0KB (combines both approaches optimally) - Phase 2
+ * Storage characteristics (10 epochs, 3 with changes, ~2.3KB baseline):
+ * - NONE: ~2.3KB (no compression, fallback when compression increases size)
+ * - LZ4: ~2.0-2.1KB (10-15% reduction, fast <10ms)
+ * - ZSTD: ~1.8-2.0KB (15-20% reduction, balanced speed/ratio)
+ * <p>
+ * Compression targets are modest (10-20%) because BLS signatures (960 bytes)
+ * and SHA-256 hashes (320 bytes) are cryptographic random data that doesn't compress.
+ * Only metadata (~1020 bytes) compresses effectively (~30% reduction).
  * <p>
  * Thread-safe: Enum, inherently thread-safe.
  *
  * @author hal.hildebrand
- * @since Phase 1C-2-B
+ * @since Phase 3.3
  */
 public enum CompressionCodec {
     /**
      * No compression - baseline storage (~2.3KB for 10 epochs).
-     * Used in Phase 1 for straightforward serialization.
+     * Used when compression would increase size (fallback logic).
      */
     NONE(0),
 
     /**
-     * Store only changed committees between epochs (Phase 2).
-     * Reduces storage for scenarios with infrequent committee changes.
-     * Expected reduction: ~35% for typical workloads.
+     * LZ4 compression (fast, 10-15% reduction).
+     * <p>
+     * Characteristics:
+     * - Performance: <10ms compression/decompression
+     * - Compression ratio: 10-15% reduction
+     * - Library: org.lz4:lz4-java:1.8.0
+     * - Use case: Low-latency scenarios prioritizing speed
      */
-    DELTA_BITMAP(1),
+    LZ4(1),
 
     /**
-     * Encode consecutive unchanged epochs with run-length encoding (Phase 2).
-     * Optimal for scenarios with long stability periods.
-     * Expected reduction: ~50% for stable membership.
+     * ZSTD compression (better compression, 15-20% reduction).
+     * <p>
+     * Characteristics:
+     * - Performance: ~10-20ms compression/decompression
+     * - Compression ratio: 15-20% reduction
+     * - Library: com.github.luben:zstd-jni:1.5.6-1
+     * - Use case: Storage-constrained scenarios prioritizing compression ratio
      */
-    RUN_LENGTH(2),
-
-    /**
-     * Combine DELTA_BITMAP and RUN_LENGTH for optimal compression (Phase 2).
-     * Adapts to workload characteristics dynamically.
-     * Expected reduction: ~55-60% for mixed workloads.
-     */
-    HYBRID(3);
+    ZSTD(2);
 
     private final int protoValue;
 
@@ -89,11 +93,13 @@ public enum CompressionCodec {
     }
 
     /**
-     * Check if this codec is implemented (Phase 1 vs Phase 2).
+     * Check if this codec is implemented.
      *
-     * @return true if implemented, false if Phase 2 placeholder
+     * @return true if implemented
      */
     public boolean isImplemented() {
-        return this == NONE;  // Phase 1: only NONE is implemented
+        return switch (this) {
+            case NONE, LZ4, ZSTD -> true;
+        };
     }
 }

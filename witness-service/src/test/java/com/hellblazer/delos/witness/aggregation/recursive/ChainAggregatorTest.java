@@ -215,15 +215,14 @@ class ChainAggregatorTest {
         var event = createEventCoords();
         var aggregator = new ChainAggregator(event, getTestExecutor());
 
-        // All Phase 2 codecs are not implemented - documented in isImplemented()
-        assertThat(CompressionCodec.DELTA_BITMAP.isImplemented()).isFalse();
-        assertThat(CompressionCodec.RUN_LENGTH.isImplemented()).isFalse();
-        assertThat(CompressionCodec.HYBRID.isImplemented()).isFalse();
+        // Phase 3.3 codecs are implemented
+        assertThat(CompressionCodec.NONE.isImplemented()).isTrue();
+        assertThat(CompressionCodec.LZ4.isImplemented()).isTrue();
+        assertThat(CompressionCodec.ZSTD.isImplemented()).isTrue();
 
-        // compressChain validates codec early (before async execution)
-        // Null receipt check happens first, but codec validation is documented
+        // compressChain validates receipt (null check)
         assertThatThrownBy(() ->
-            aggregator.compressChain(null, CompressionCodec.DELTA_BITMAP).join()
+            aggregator.compressChain(null, CompressionCodec.LZ4).join()
         )
             .isInstanceOf(CompletionException.class)
             .hasCauseInstanceOf(NullPointerException.class);  // Receipt check first
@@ -262,9 +261,9 @@ class ChainAggregatorTest {
     @DisplayName("should support CompressionCodec enum values")
     void shouldSupportCompressionCodecs() {
         assertThat(CompressionCodec.NONE).isNotNull();
-        assertThat(CompressionCodec.DELTA_BITMAP).isNotNull();
-        assertThat(CompressionCodec.RUN_LENGTH).isNotNull();
-        assertThat(CompressionCodec.HYBRID).isNotNull();
+        assertThat(CompressionCodec.NONE).isNotNull();
+        assertThat(CompressionCodec.LZ4).isNotNull();
+        assertThat(CompressionCodec.ZSTD).isNotNull();
     }
 
     @Test

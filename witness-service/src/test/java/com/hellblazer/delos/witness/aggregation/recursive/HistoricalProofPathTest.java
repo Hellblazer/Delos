@@ -238,10 +238,10 @@ class HistoricalProofPathTest {
             .targetEpoch(0)
             .addPathNode(boundary)
             .rootSignatureHash(rootHash)
-            .compressionCodec(CompressionCodec.DELTA_BITMAP)
+            .compressionCodec(CompressionCodec.LZ4)
             .build();
 
-        assertThat(path.compressionCodec()).isEqualTo(CompressionCodec.DELTA_BITMAP);
+        assertThat(path.compressionCodec()).isEqualTo(CompressionCodec.LZ4);
     }
 
     @Test

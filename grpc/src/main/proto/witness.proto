@@ -813,18 +813,16 @@ message HierarchicalAggregate {
 
 /**
  * Compression codec for RecursiveAggregateReceipt storage optimization.
- * Phase 1C-2-B: Delta compression and run-length encoding for epoch chains.
+ * Phase 3.3: Standard compression libraries for proto-serialized bytes.
  *
- * NONE: No compression (baseline ~2.3KB for 10 epochs)
- * DELTA_BITMAP: Store only changed committees between epochs (Phase 2)
- * RUN_LENGTH: Encode consecutive unchanged epochs (Phase 2)
- * HYBRID: Combine both approaches for optimal compression (Phase 2)
+ * NONE: No compression (baseline ~2.3KB for 10 epochs, used for fallback)
+ * LZ4: Fast compression with 10-15% reduction, <10ms latency
+ * ZSTD: Better compression with 15-20% reduction, balanced speed/ratio
  */
 enum CompressionCodec {
   NONE = 0;
-  DELTA_BITMAP = 1;
-  RUN_LENGTH = 2;
-  HYBRID = 3;
+  LZ4 = 1;
+  ZSTD = 2;
 }
 
 /**

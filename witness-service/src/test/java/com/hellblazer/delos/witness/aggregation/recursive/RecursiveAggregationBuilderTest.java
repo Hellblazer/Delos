@@ -151,18 +151,18 @@ class RecursiveAggregationBuilderTest {
     void shouldValidateCompressionCodecEnums() {
         // Verify that all expected codec values exist
         assertThat(CompressionCodec.NONE).isNotNull();
-        assertThat(CompressionCodec.DELTA_BITMAP).isNotNull();
-        assertThat(CompressionCodec.RUN_LENGTH).isNotNull();
-        assertThat(CompressionCodec.HYBRID).isNotNull();
+        assertThat(CompressionCodec.NONE).isNotNull();
+        assertThat(CompressionCodec.LZ4).isNotNull();
+        assertThat(CompressionCodec.ZSTD).isNotNull();
     }
 
     @Test
     @DisplayName("should verify NONE codec is implemented")
     void shouldVerifyCodecImplementation() {
         assertThat(CompressionCodec.NONE.isImplemented()).isTrue();
-        assertThat(CompressionCodec.DELTA_BITMAP.isImplemented()).isFalse();  // Phase 2
-        assertThat(CompressionCodec.RUN_LENGTH.isImplemented()).isFalse();    // Phase 2
-        assertThat(CompressionCodec.HYBRID.isImplemented()).isFalse();        // Phase 2
+        assertThat(CompressionCodec.NONE.isImplemented()).isTrue();   // Phase 3.3
+        assertThat(CompressionCodec.LZ4.isImplemented()).isTrue();    // Phase 3.3
+        assertThat(CompressionCodec.ZSTD.isImplemented()).isTrue();   // Phase 3.3
     }
 
     @Test
@@ -207,7 +207,7 @@ class RecursiveAggregationBuilderTest {
         assertThat(withCompression).isSameAs(builder);
 
         // Additional chaining test
-        var withCompression2 = builder.withCompressionLevel(CompressionCodec.DELTA_BITMAP);
+        var withCompression2 = builder.withCompressionLevel(CompressionCodec.LZ4);
         assertThat(withCompression2).isSameAs(builder);
     }
 
