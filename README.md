@@ -29,7 +29,7 @@ Delos is a **distributed multi-tenant database platform** providing Byzantine fa
   procedures, functions and triggers.
 * Google Zanzibar like functionality providing Relation Based Access Control hosted on SQL state machines.
 
-## Major Completion: Phase 1B → 3.4 Integration (245 commits, 2026-01-24)
+## Recent Work (2026-01-24)
 
 **Comprehensive Byzantine Consensus & Witness Infrastructure**: 245-commit integration spanning hierarchical aggregation, recursive proof validation, Byzantine detection (5 detectors), key rotation orchestration, and full receipt storage architecture. Production-ready with <1% Byzantine overhead and 3-4x CI speedup.
 
