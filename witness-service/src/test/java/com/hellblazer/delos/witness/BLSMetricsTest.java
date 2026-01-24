@@ -849,6 +849,11 @@ class BLSMetricsTest {
         public void recordBufferDrainTime(long drainTimeMicros) {}
 
         @Override
+        public Timer bufferDrainTimeTimer() {
+            return new Timer();
+        }
+
+        @Override
         public void recordSignatureReplayLatency(long replayLatencyMicros) {}
 
         @Override
