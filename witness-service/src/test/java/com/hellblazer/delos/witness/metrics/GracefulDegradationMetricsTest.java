@@ -396,21 +396,26 @@ class GracefulDegradationMetricsTest {
         // Given: Multiple threads recording state transitions
         var threadCount = 10;
         var iterationsPerThread = 100;
+        var latch = new CountDownLatch(threadCount);
 
         // When: Concurrent state transitions using virtual threads
-        var threads = new Thread[threadCount];
         for (int i = 0; i < threadCount; i++) {
-            threads[i] = Thread.ofVirtual().start(() -> {
-                for (int j = 0; j < iterationsPerThread; j++) {
-                    metrics.recordDegradationStateTransition("STABLE_TO_DRAINING");
+            Thread.ofVirtual().start(() -> {
+                try {
+                    for (int j = 0; j < iterationsPerThread; j++) {
+                        metrics.recordDegradationStateTransition("STABLE_TO_DRAINING");
+                    }
+                } finally {
+                    latch.countDown();
                 }
             });
         }
 
-        // Wait for all threads to complete
-        for (var thread : threads) {
-            thread.join();
-        }
+        // Wait for all threads to complete with timeout
+        var completed = latch.await(5, TimeUnit.SECONDS);
+        assertThat(completed)
+            .describedAs("All virtual threads should complete state transitions")
+            .isTrue();
 
         // Then: All transitions recorded (thread-safe)
         assertThat(metrics.getDegradationStateTransitions("STABLE_TO_DRAINING"))
