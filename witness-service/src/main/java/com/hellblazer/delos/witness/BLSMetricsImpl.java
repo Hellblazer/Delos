@@ -924,6 +924,11 @@ public class BLSMetricsImpl implements BLSMetrics {
     }
 
     @Override
+    public Timer bufferDrainTimeTimer() {
+        return bufferDrainTimeTimer != null ? bufferDrainTimeTimer : new Timer();
+    }
+
+    @Override
     public void recordSignatureReplayLatency(long replayLatencyMicros) {
         if (replayLatencyMicros < 0) {
             throw new IllegalArgumentException("Replay latency cannot be negative: " + replayLatencyMicros);

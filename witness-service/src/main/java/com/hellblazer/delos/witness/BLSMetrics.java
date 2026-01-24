@@ -861,6 +861,13 @@ public interface BLSMetrics {
     void recordBufferDrainTime(long drainTimeMicros);
 
     /**
+     * Get timer for buffer drain time operations.
+     *
+     * @return Timer for drain time
+     */
+    Timer bufferDrainTimeTimer();
+
+    /**
      * Record signature replay latency.
      * <p>
      * Measures time to replay a buffered signature.
