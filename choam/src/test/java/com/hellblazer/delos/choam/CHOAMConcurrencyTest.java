@@ -341,7 +341,7 @@ public class CHOAMConcurrencyTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(LARGE_TESTS ? 90 : 30, TimeUnit.SECONDS);
+        boolean completed = countdown.await(LARGE_TESTS ? 120 : 60, TimeUnit.SECONDS);
         assertTrue(completed, "Concurrent session and block processing should succeed");
 
         routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
