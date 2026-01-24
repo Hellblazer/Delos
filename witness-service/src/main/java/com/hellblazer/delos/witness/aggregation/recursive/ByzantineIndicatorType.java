@@ -8,16 +8,24 @@
 package com.hellblazer.delos.witness.aggregation.recursive;
 
 /**
- * Types of Byzantine behavior indicators detected across temporal epoch analysis.
+ * Types of Byzantine behavior indicators detected during temporal analysis.
  * <p>
- * These indicator types represent different classes of Byzantine anomalies that can be
- * detected by analyzing member behavior patterns across multiple epochs in a
- * RecursiveAggregateReceipt chain.
+ * <strong>Implementation Status</strong>:
+ * <ul>
+ *   <li>{@link #SIGNATURE_INCONSISTENCY}: ✅ Phase 3.2 - Cross-epoch signature changes</li>
+ *   <li>{@link #ABSTINENCE}: ✅ Phase 3.2 - Missing participation in epochs</li>
+ *   <li>{@link #TIMING_ATTACK}: ⏳ Phase 3.3 - Suspiciously timed signatures</li>
+ *   <li>{@link #FORK_ATTACK}: ⏳ Phase 3.3 - Different aggregate chains</li>
+ *   <li>{@link #LATE_JOINER}: ⏳ Phase 3.3 - Member joins partway through</li>
+ * </ul>
  * <p>
  * <strong>Detection Patterns</strong>:
  * <ul>
- *   <li><strong>EQUIVOCATION</strong>: Member signs contradictory messages in same or different epochs.
- *       Example: Member M signs both aggregate A1 and conflicting aggregate A2 in epoch 5.</li>
+ *   <li><strong>SIGNATURE_INCONSISTENCY</strong>: Member's signatures change across epochs.
+ *       This detects cross-epoch signature changes which may indicate legitimate state transitions
+ *       or Byzantine behavior. True intra-epoch equivocation (same member signs two different
+ *       aggregates for the same epoch) is reserved for Phase 3.3.
+ *       Example: Member M signs epoch 1 with signature S1, epoch 2 with signature S2.</li>
  *   <li><strong>ABSTINENCE</strong>: Member fails to sign when they should participate (missing from signer set).
  *       Example: Member M present in epochs 1,2,4,5 but missing in epoch 3 without rotation.</li>
  *   <li><strong>TIMING_ATTACK</strong>: Member signs at suspicious times relative to others.
@@ -35,31 +43,55 @@ package com.hellblazer.delos.witness.aggregation.recursive;
  */
 public enum ByzantineIndicatorType {
     /**
-     * Member signs contradictory messages in same or different epochs.
-     * Severity: CRITICAL - direct protocol violation.
+     * Cross-epoch signature inconsistency. May indicate state transitions or Byzantine behavior.
+     * <p>
+     * Phase 3.2: Detects when member's signatures change across epochs. This may be a legitimate
+     * state transition or indicate Byzantine behavior. May produce false positives during normal
+     * operation.
+     * <p>
+     * Phase 3.3: Will be enhanced to detect true intra-epoch equivocation (same member signs
+     * two different aggregates for the same epoch).
+     * <p>
+     * Severity: MODERATE - requires additional context to determine if malicious.
      */
-    EQUIVOCATION,
+    SIGNATURE_INCONSISTENCY,
 
     /**
-     * Member fails to sign when they should participate (missing from signer set).
+     * Missing or inconsistent participation across epochs.
+     * <p>
+     * Phase 3.2: Detects when member is present in some epochs but missing in others,
+     * indicating potential liveness attack or key compromise.
+     * <p>
      * Severity: MODERATE - potential liveness attack or key compromise.
      */
     ABSTINENCE,
 
     /**
-     * Member signs at suspicious times relative to others.
+     * Reserved for Phase 3.3: Timing analysis of signatures.
+     * <p>
+     * Will detect when members sign at suspicious times relative to others,
+     * suggesting strategic delay or timing-based attacks.
+     * <p>
      * Severity: MODERATE - potential timing-based attack.
      */
     TIMING_ATTACK,
 
     /**
-     * Member signs different aggregate chains in same epoch.
+     * Reserved for Phase 3.3: Detection of contradictory aggregate chains.
+     * <p>
+     * Will detect when member signs different aggregate chains in the same epoch,
+     * indicating a direct fork attempt.
+     * <p>
      * Severity: CRITICAL - direct fork attempt.
      */
     FORK_ATTACK,
 
     /**
-     * Member joins committee mid-stream without proper rotation.
+     * Reserved for Phase 3.3: Members joining committee mid-stream.
+     * <p>
+     * Will detect when member appears without proper rotation event,
+     * suggesting potential Sybil or infiltration attack.
+     * <p>
      * Severity: HIGH - potential Sybil or infiltration attack.
      */
     LATE_JOINER

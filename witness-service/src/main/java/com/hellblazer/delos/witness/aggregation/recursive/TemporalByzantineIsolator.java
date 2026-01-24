@@ -17,16 +17,25 @@ import java.util.stream.Collectors;
  * Detects Byzantine behavior across temporal epoch boundaries in RecursiveAggregateReceipts.
  * <p>
  * Analyzes member behavior patterns across multiple consensus epochs to identify:
- * - <strong>Equivocation</strong>: Member signs contradictory messages
+ * - <strong>Signature Inconsistency</strong>: Member's signatures change across epochs
  * - <strong>Abstinence</strong>: Member fails to participate when expected
- * - <strong>Timing attacks</strong>: Suspicious signature timing patterns
- * - <strong>Fork attacks</strong>: Member signs different chains
- * - <strong>Late joiners</strong>: Member appears without proper rotation
+ * - <strong>Timing attacks</strong>: Suspicious signature timing patterns (Phase 3.3)
+ * - <strong>Fork attacks</strong>: Member signs different chains (Phase 3.3)
+ * - <strong>Late joiners</strong>: Member appears without proper rotation (Phase 3.3)
  * <p>
  * <strong>Algorithm Complexity</strong>:
- * - isolateByzantine: O(M * n²) where M=epochs, n=committee_size
+ * - isolateByzantine: O(M² * n) where M=epochs, n=committee_size
  * - findFirstByzantineEpoch: O(M) linear scan
  * - getConsistentSigners: O(M * n) intersection
+ * <p>
+ * <strong>Current Limitations (Phase 3.2)</strong>:
+ * <ul>
+ *   <li>Intra-epoch equivocation (member signs two different aggregates for same epoch)
+ *       requires additional data structures and is reserved for Phase 3.3</li>
+ *   <li>Current signature inconsistency detection may produce false positives when epochs
+ *       represent legitimate state transitions</li>
+ *   <li>Timing attack, fork attack, and late joiner detection reserved for Phase 3.3</li>
+ * </ul>
  * <p>
  * <strong>Design Principles</strong>:
  * - Stateless: All methods are pure functions
@@ -69,12 +78,13 @@ public class TemporalByzantineIsolator {
      * Isolate Byzantine members by analyzing behavior across all epochs in receipt.
      * <p>
      * Detects:
-     * - Equivocation: Member signs different aggregates in same or different epochs
+     * - Signature Inconsistency: Member's signatures change across epochs (may indicate state transitions or Byzantine behavior)
      * - Abstinence: Member present in some epochs, missing in others
-     * - Timing attacks: Suspicious participation patterns (future enhancement)
-     * - Fork attacks: Member signs competing chains (future enhancement)
+     * - Timing attacks: Suspicious participation patterns (Phase 3.3)
+     * - Fork attacks: Member signs competing chains (Phase 3.3)
      * <p>
-     * Complexity: O(M * n²) where M=epoch_count, n=committee_size
+     * Complexity: O(M² * n) where M=epoch_count, n=committee_size
+     * The M² factor comes from detectAbstinence checking each member against all epochs.
      *
      * @param receipt RecursiveAggregateReceipt to analyze
      * @param memberResolver Resolver to map bitmap positions to member identifiers
@@ -94,8 +104,8 @@ public class TemporalByzantineIsolator {
         // Collect member signatures across all epochs
         collectMemberSignatures(receipt, memberResolver, memberSignatures);
 
-        // Detect equivocation: member signs with different signatures
-        detectEquivocation(memberSignatures, indicators);
+        // Detect signature inconsistency: member's signatures change across epochs
+        detectSignatureInconsistency(memberSignatures, indicators);
 
         // Detect abstinence: member present in some epochs, missing in others
         detectAbstinence(receipt, memberResolver, memberSignatures, indicators);
@@ -228,9 +238,15 @@ public class TemporalByzantineIsolator {
     }
 
     /**
-     * Detect equivocation: member signs with different signatures across epochs.
+     * Detect signature inconsistency: member's signatures change across epochs.
+     * <p>
+     * WARNING: This detects cross-epoch signature changes, which may be legitimate
+     * state transitions or Byzantine behavior. May produce false positives.
+     * <p>
+     * True intra-epoch equivocation (member signs two different aggregates for the
+     * same epoch) requires additional data structures and is reserved for Phase 3.3.
      */
-    private void detectEquivocation(
+    private void detectSignatureInconsistency(
         Map<Identifier, List<EpochSignature>> memberSignatures,
         List<ByzantineMemberIndicator> indicators
     ) {
@@ -238,13 +254,13 @@ public class TemporalByzantineIsolator {
             var member = entry.getKey();
             var signatures = entry.getValue();
 
-            // Check for different signatures
+            // Check for different signatures across epochs
             var uniqueSignatures = signatures.stream()
                 .map(EpochSignature::signature)
                 .collect(Collectors.toSet());
 
             if (uniqueSignatures.size() > 1) {
-                // Member signed with different signatures - equivocation detected
+                // Member signed with different signatures across epochs - signature inconsistency detected
                 var firstConflict = signatures.stream()
                     .skip(1)  // Skip first signature
                     .filter(es -> !es.signature().equals(signatures.get(0).signature()))
@@ -253,7 +269,7 @@ public class TemporalByzantineIsolator {
                 firstConflict.ifPresent(conflict -> {
                     indicators.add(new ByzantineMemberIndicator(
                         member,
-                        ByzantineIndicatorType.EQUIVOCATION,
+                        ByzantineIndicatorType.SIGNATURE_INCONSISTENCY,
                         conflict.epochNumber(),
                         String.format(
                             "Member signed contradictory aggregates: epoch %d signature differs from epoch %d",
