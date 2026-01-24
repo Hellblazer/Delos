@@ -31,7 +31,7 @@ Delos is a **distributed multi-tenant database platform** providing Byzantine fa
 
 ## Recent Work (2026-01-24)
 
-**Comprehensive Byzantine Consensus & Witness Infrastructure**: 245-commit integration spanning hierarchical aggregation, recursive proof validation, Byzantine detection (5 detectors), key rotation orchestration, and full receipt storage architecture. Production-ready with <1% Byzantine overhead and 3-4x CI speedup.
+**Comprehensive Byzantine Consensus & Witness Infrastructure**: 245-commit experimental implementation spanning hierarchical aggregation, recursive proof validation, Byzantine detection (5 detectors), key rotation orchestration, and full receipt storage architecture. Well-tested foundation with <1% Byzantine overhead, 3-4x CI speedup, and 60+ tests validating 20+ attack scenarios. Well along toward production—more work ahead.
 
 **Core Components Delivered**:
 - **Hierarchical BLS Aggregation**: 7-layer tree structure for signature verification and Byzantine isolation
@@ -56,7 +56,7 @@ Delos is a production-ready distributed platform:
 - **Fireflies** (membership service): Production-ready as of Jan 2026 — Critical ReservoirSampler bug eliminated, all canary tests passing at scale (100 nodes)
 - **Ethereal** (consensus): Well-tested and hardened, epoch termination race condition fixed
 - **CHOAM** (state machine replication): Production-ready with Byzantine concurrency improvements
-- **Witness-Service** (receipt management): Phase 3.4 complete — Full storage integration with multi-backend persistence, compression, and E2E testing
+- **Witness-Service** (receipt management): Experimental but well-tested — Full storage integration with multi-backend persistence, compression, Byzantine detection (5 detectors), and E2E testing. Foundation solid; production hardening in progress
 - **Stereotomy/KERI** (identity): Fully integrated
 - **SQL-State**: Mature with comprehensive testing
 - **Domain Sockets**: Pure Java NIO implementation (JEP 380) — No native dependencies, full GraalVM isolates compatibility

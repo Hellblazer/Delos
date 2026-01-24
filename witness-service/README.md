@@ -266,10 +266,11 @@ new WitnessReceiptConfiguration(
 
 ## Status
 
-Production-ready as of 2026-01-24:
+Experimental but well-tested foundation (2026-01-24):
 - ✅ Multi-backend storage with compression
 - ✅ Byzantine detection framework (5 detectors)
 - ✅ Key rotation orchestration
 - ✅ Thread-safe with comprehensive testing
 - ✅ 60+ tests, 20+ Byzantine scenarios
 - ✅ <1% Byzantine overhead on consensus
+- 🔄 Production hardening in progress (state persistence validation, failure recovery patterns, scale testing)
