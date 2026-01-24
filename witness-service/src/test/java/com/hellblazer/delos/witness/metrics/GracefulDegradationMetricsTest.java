@@ -417,6 +417,9 @@ class GracefulDegradationMetricsTest {
             .describedAs("All virtual threads should complete state transitions")
             .isTrue();
 
+        // Allow time for metrics to be fully processed after thread completion
+        Thread.sleep(200);
+
         // Then: All transitions recorded (thread-safe)
         assertThat(metrics.getDegradationStateTransitions("STABLE_TO_DRAINING"))
             .isEqualTo(threadCount * iterationsPerThread);
