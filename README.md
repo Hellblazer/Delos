@@ -52,20 +52,20 @@ Delos is a **distributed multi-tenant database platform** providing Byzantine fa
 
 ## Status
 
-Delos core platform is production-ready; witness service subsystem is experimental but well-tested:
+Delos is an experimental distributed platform—well-tested subsystems, solid architecture, but not yet production-deployed:
 
-**Production-Ready**:
-- **Fireflies** (membership service): Production-ready as of Jan 2026 — Critical ReservoirSampler bug eliminated, all canary tests passing at scale (100 nodes)
+**Well-Tested Subsystems**:
+- **Fireflies** (membership service): Extensively tested — Critical ReservoirSampler bug eliminated, all canary tests passing at scale (100 nodes)
 - **Ethereal** (consensus): Well-tested and hardened, epoch termination race condition fixed
-- **CHOAM** (state machine replication): Production-ready with Byzantine concurrency improvements
+- **CHOAM** (state machine replication): Comprehensive testing with Byzantine concurrency validation
 - **Stereotomy/KERI** (identity): Fully integrated
 - **SQL-State**: Mature with comprehensive testing
 - **Domain Sockets**: Pure Java NIO implementation (JEP 380) — No native dependencies, full GraalVM isolates compatibility
 
-**Experimental Foundation**:
-- **Witness-Service** (receipt management): Experimental but well-tested — Full storage integration with multi-backend persistence, compression, Byzantine detection (5 detectors), and E2E testing. Solid architecture; production hardening in progress
+**Experimental Components**:
+- **Witness-Service** (receipt management): Well-tested foundation — Full storage integration with multi-backend persistence, compression, Byzantine detection (5 detectors), and E2E testing. Solid architecture; production hardening in progress
 
-Core consensus layers are production-hardened and battle-tested.
+Platform is architecturally sound with excellent test coverage. Integration-level production deployment testing still needed.
 
 ## Recent Improvements (2026-01-24)
 
