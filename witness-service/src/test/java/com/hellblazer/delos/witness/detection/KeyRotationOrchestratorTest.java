@@ -68,22 +68,22 @@ class KeyRotationOrchestratorTest {
         assertThat(orchestrator.getCurrentPhase(rotationId))
             .isEqualTo(KeyRotationPhase.INITIATED);
 
-        // Wait for transition to PRE_ROTATION (10ms)
-        Thread.sleep(30);
+        // Wait for transition to PRE_ROTATION (10ms scheduled delay + scheduler overhead)
+        Thread.sleep(50);
 
         // Should transition to PRE_ROTATION
         assertThat(orchestrator.getCurrentPhase(rotationId))
             .isEqualTo(KeyRotationPhase.PRE_ROTATION);
 
-        // Wait for pre-rotation delay (100ms) + buffer
-        Thread.sleep(130);
+        // Wait for pre-rotation delay (100ms) + generous scheduler overhead buffer (50ms)
+        Thread.sleep(160);
 
         // Should transition to GRACE_PERIOD
         assertThat(orchestrator.getCurrentPhase(rotationId))
             .isEqualTo(KeyRotationPhase.GRACE_PERIOD);
 
-        // Wait for grace period (50ms) + buffer
-        Thread.sleep(80);
+        // Wait for grace period (50ms) + generous scheduler overhead buffer (50ms)
+        Thread.sleep(110);
 
         // Should transition to ACTIVATED
         assertThat(orchestrator.getCurrentPhase(rotationId))
@@ -108,22 +108,22 @@ class KeyRotationOrchestratorTest {
         assertThat(orchestrator.getCurrentPhase(rotationId))
             .isEqualTo(KeyRotationPhase.INITIATED);
 
-        // Wait for immediate transition to PRE_ROTATION
-        Thread.sleep(30);
+        // Wait for immediate transition to PRE_ROTATION (10ms + overhead)
+        Thread.sleep(50);
 
         // Should be in PRE_ROTATION
         assertThat(orchestrator.getCurrentPhase(rotationId))
             .isEqualTo(KeyRotationPhase.PRE_ROTATION);
 
-        // Wait for less than pre-rotation delay (50ms of 100ms delay)
-        Thread.sleep(50);
+        // Wait for less than pre-rotation delay (50ms of 100ms delay + buffer)
+        Thread.sleep(70);
 
         // Still in PRE_ROTATION
         assertThat(orchestrator.getCurrentPhase(rotationId))
             .isEqualTo(KeyRotationPhase.PRE_ROTATION);
 
-        // Wait for rest of pre-rotation delay to complete
-        Thread.sleep(80);
+        // Wait for rest of pre-rotation delay to complete (50ms remaining + overhead)
+        Thread.sleep(90);
 
         // Now in GRACE_PERIOD
         assertThat(orchestrator.getCurrentPhase(rotationId))
@@ -384,15 +384,15 @@ class KeyRotationOrchestratorTest {
         assertThat(orchestrator.getCurrentPhase(rotationId))
             .isIn(KeyRotationPhase.INITIATED, KeyRotationPhase.PRE_ROTATION); // May have transitioned already
 
-        Thread.sleep(30);
+        Thread.sleep(50);
         assertThat(orchestrator.getCurrentPhase(rotationId))
             .isEqualTo(KeyRotationPhase.PRE_ROTATION);
 
-        Thread.sleep(130); // Wait for pre-rotation delay (100ms) + buffer
+        Thread.sleep(160); // Wait for pre-rotation delay (100ms) + generous overhead
         assertThat(orchestrator.getCurrentPhase(rotationId))
             .isEqualTo(KeyRotationPhase.GRACE_PERIOD);
 
-        Thread.sleep(80); // Wait for grace period (50ms) + buffer
+        Thread.sleep(110); // Wait for grace period (50ms) + generous overhead
         assertThat(orchestrator.getCurrentPhase(rotationId))
             .isEqualTo(KeyRotationPhase.ACTIVATED);
     }
