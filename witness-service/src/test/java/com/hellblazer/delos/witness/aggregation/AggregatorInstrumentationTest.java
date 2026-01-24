@@ -40,10 +40,10 @@ public class AggregatorInstrumentationTest {
         var event = createTestEvent();
         var aggregator = new BLSReceiptAggregator(java.time.Duration.ofMinutes(10), metrics);
 
-        // When - reach threshold
-        aggregator.accumulate(event, Identifier.NONE, 0, createMockSignature(), 3, 0L);
-        aggregator.accumulate(event, Identifier.NONE, 1, createMockSignature(), 3, 0L);
-        aggregator.accumulate(event, Identifier.NONE, 2, createMockSignature(), 3, 0L);
+        // When - reach threshold with unique members
+        aggregator.accumulate(event, createTestMember(0), 0, createMockSignature(), 3, 0L);
+        aggregator.accumulate(event, createTestMember(1), 1, createMockSignature(), 3, 0L);
+        aggregator.accumulate(event, createTestMember(2), 2, createMockSignature(), 3, 0L);
 
         // Then
         assertEquals(1, aggregationsCount.get(), "Should track aggregation performed");
@@ -58,9 +58,9 @@ public class AggregatorInstrumentationTest {
         var event = createTestEvent();
         var aggregator = new BLSReceiptAggregator(java.time.Duration.ofMinutes(10), metrics);
 
-        // When - aggregate 5 signatures
+        // When - aggregate 5 signatures with unique members
         for (int i = 0; i < 5; i++) {
-            aggregator.accumulate(event, Identifier.NONE,i, createMockSignature(), 5, 0L);
+            aggregator.accumulate(event, createTestMember(i), i, createMockSignature(), 5, 0L);
         }
 
         // Then
@@ -76,10 +76,10 @@ public class AggregatorInstrumentationTest {
         var event = createTestEvent();
         var aggregator = new BLSReceiptAggregator(java.time.Duration.ofMinutes(10), metrics);
 
-        // When - reach threshold
-        aggregator.accumulate(event, Identifier.NONE, 0, createMockSignature(), 3, 0L);
-        aggregator.accumulate(event, Identifier.NONE, 1, createMockSignature(), 3, 0L);
-        aggregator.accumulate(event, Identifier.NONE, 2, createMockSignature(), 3, 0L);
+        // When - reach threshold with unique members
+        aggregator.accumulate(event, createTestMember(0), 0, createMockSignature(), 3, 0L);
+        aggregator.accumulate(event, createTestMember(1), 1, createMockSignature(), 3, 0L);
+        aggregator.accumulate(event, createTestMember(2), 2, createMockSignature(), 3, 0L);
 
         // Then
         assertEquals(48, aggregateSize.get(), "Should track aggregate size (48 bytes for BLS12-381)");
@@ -94,9 +94,9 @@ public class AggregatorInstrumentationTest {
         var event = createTestEvent();
         var aggregator = new BLSReceiptAggregator(java.time.Duration.ofMinutes(10), metrics);
 
-        // When - aggregate 5 signatures
+        // When - aggregate 5 signatures with unique members
         for (int i = 0; i < 5; i++) {
-            aggregator.accumulate(event, Identifier.NONE,i, createMockSignature(), 5, 0L);
+            aggregator.accumulate(event, createTestMember(i), i, createMockSignature(), 5, 0L);
         }
 
         // Then
@@ -118,7 +118,7 @@ public class AggregatorInstrumentationTest {
 
         // When - 7 out of 10 members sign
         for (int i = 0; i < 7; i++) {
-            aggregator.accumulate(event, Identifier.NONE,i, createMockSignature(), 10, 0L);
+            aggregator.aggregator.accumulate(event, createTestMember(i), i, createMockSignature(), 10, 0L);
         }
 
         // Then
@@ -134,10 +134,10 @@ public class AggregatorInstrumentationTest {
         var event = createTestEvent();
         var aggregator = new BLSReceiptAggregator(java.time.Duration.ofMinutes(10), metrics);
 
-        // When - reach threshold
-        aggregator.accumulate(event, Identifier.NONE, 0, createMockSignature(), 3, 0L);
-        aggregator.accumulate(event, Identifier.NONE, 1, createMockSignature(), 3, 0L);
-        aggregator.accumulate(event, Identifier.NONE, 2, createMockSignature(), 3, 0L);
+        // When - reach threshold with unique members
+        aggregator.accumulate(event, createTestMember(0), 0, createMockSignature(), 3, 0L);
+        aggregator.accumulate(event, createTestMember(1), 1, createMockSignature(), 3, 0L);
+        aggregator.accumulate(event, createTestMember(2), 2, createMockSignature(), 3, 0L);
 
         // Then
         assertTrue(bitmapOverhead.get() > 0, "Should track bitmap overhead");
@@ -154,8 +154,8 @@ public class AggregatorInstrumentationTest {
         // When - create 3 aggregations for different events
         for (int i = 0; i < 3; i++) {
             var event = new EventCoordinates(Identifier.NONE, ULong.valueOf(i), createTestDigest(), "test");
-            aggregator.accumulate(event, Identifier.NONE, 0, createMockSignature(), 2, 0L);
-            aggregator.accumulate(event, Identifier.NONE, 1, createMockSignature(), 2, 0L);
+            aggregator.accumulate(event, createTestMember(0), 0, createMockSignature(), 2, 0L);
+            aggregator.accumulate(event, createTestMember(1), 1, createMockSignature(), 2, 0L);
         }
 
         // Then
@@ -175,7 +175,7 @@ public class AggregatorInstrumentationTest {
 
         // When - aggregate 20 signatures
         for (int i = 0; i < 20; i++) {
-            aggregator.accumulate(event, Identifier.NONE,i, createMockSignature(), 20, 0L);
+            aggregator.aggregator.accumulate(event, createTestMember(i), i, createMockSignature(), 20, 0L);
         }
 
         // Then
@@ -199,7 +199,7 @@ public class AggregatorInstrumentationTest {
         var aggregator = new BLSReceiptAggregator(java.time.Duration.ofMinutes(10), metrics);
 
         // When - minimal committee (1 member)
-        aggregator.accumulate(event, Identifier.NONE,0, createMockSignature(), 1, 0L);
+        aggregator.accumulate(event, createTestMember(0), 0, createMockSignature(), 1, 0L);
 
         // Then
         assertEquals(1, batchSize.get());
@@ -225,8 +225,8 @@ public class AggregatorInstrumentationTest {
             final int eventIndex = i;
             threads[i] = new Thread(() -> {
                 var event = new EventCoordinates(Identifier.NONE, ULong.valueOf(eventIndex), createTestDigest(), "test");
-                aggregator.accumulate(event, Identifier.NONE, 0, createMockSignature(), 2, 0L);
-                aggregator.accumulate(event, Identifier.NONE, 1, createMockSignature(), 2, 0L);
+                aggregator.accumulate(event, createTestMember(0), 0, createMockSignature(), 2, 0L);
+                aggregator.accumulate(event, createTestMember(1), 1, createMockSignature(), 2, 0L);
             });
         }
 
@@ -253,9 +253,9 @@ public class AggregatorInstrumentationTest {
         var aggregator = new BLSReceiptAggregator(java.time.Duration.ofMinutes(10), null);
 
         // When - aggregate without metrics
-        var result1 = aggregator.accumulate(event, Identifier.NONE,0, createMockSignature(), 3, 0L);
-        var result2 = aggregator.accumulate(event, Identifier.NONE,1, createMockSignature(), 3, 0L);
-        var result3 = aggregator.accumulate(event, Identifier.NONE,2, createMockSignature(), 3, 0L);
+        var result1 = aggregator.accumulate(event, createTestMember(0), 0, createMockSignature(), 3, 0L);
+        var result2 = aggregator.accumulate(event, createTestMember(1), 1, createMockSignature(), 3, 0L);
+        var result3 = aggregator.accumulate(event, createTestMember(2), 2, createMockSignature(), 3, 0L);
 
         // Then - should work without NPE
         assertNotNull(result1);
@@ -276,9 +276,9 @@ public class AggregatorInstrumentationTest {
         var aggregator = new BLSReceiptAggregator(java.time.Duration.ofMinutes(10), metrics);
 
         // When - successful aggregation (no errors)
-        aggregator.accumulate(event, Identifier.NONE, 0, createMockSignature(), 3, 0L);
-        aggregator.accumulate(event, Identifier.NONE, 1, createMockSignature(), 3, 0L);
-        aggregator.accumulate(event, Identifier.NONE, 2, createMockSignature(), 3, 0L);
+        aggregator.accumulate(event, createTestMember(0), 0, createMockSignature(), 3, 0L);
+        aggregator.accumulate(event, createTestMember(1), 1, createMockSignature(), 3, 0L);
+        aggregator.accumulate(event, createTestMember(2), 2, createMockSignature(), 3, 0L);
 
         // Then
         assertEquals(0, errors.get(), "Should not count errors for successful aggregation");
@@ -390,5 +390,10 @@ public class AggregatorInstrumentationTest {
             bytes[i] = (byte) (i % 256);
         }
         return new BLSSignature(bytes);
+    }
+
+    private Identifier createTestMember(int index) {
+        // Create unique test identifier by including index in the digest
+        return Identifier.from(DIGEST_ALGO.digest(("member-" + index).getBytes()));
     }
 }
