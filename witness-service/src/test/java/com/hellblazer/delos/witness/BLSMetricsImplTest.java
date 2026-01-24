@@ -74,10 +74,10 @@ class BLSMetricsImplTest {
     void testGetMetricsReturnsAllBLSMetrics() {
         var metricMap = metrics.getMetrics();
 
-        // Should have exactly 12 core metrics
-        assertEquals(12, metricMap.size());
+        // Should have 39 metrics (core + aggregation + view change + degradation)
+        assertEquals(39, metricMap.size());
 
-        // Verify all expected metrics present
+        // Verify all core expected metrics present
         assertTrue(metricMap.containsKey("bls.signature.receipt.latency"));
         assertTrue(metricMap.containsKey("bls.signature.verify.latency"));
         assertTrue(metricMap.containsKey("bls.aggregation.create.latency"));

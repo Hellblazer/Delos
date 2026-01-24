@@ -253,14 +253,14 @@ class CoordinatorMetricsIntegrationTest {
         var startTime = System.nanoTime();
         var action = engine.evaluateEscalation(
             testMemberId,
-            0.8,
+            0.84,
             AnomalyType.SIGNATURE_INVALID,
             detectorConfig,
             gracefulConfig,
             startTime
         );
 
-        // Verify escalation action recorded
+        // Verify escalation action recorded (score 0.84 > calculateQuarantineThreshold ≈ 0.834)
         assertThat(action).isEqualTo(ResponseAction.QUARANTINE);
         assertThat(metrics.escalationActionCounter(ResponseAction.QUARANTINE).getCount()).isEqualTo(1);
         assertThat(metrics.escalationLatencyTimer().getCount()).isEqualTo(1);
