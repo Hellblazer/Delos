@@ -122,7 +122,8 @@ public class ReceiptStoreFactory {
                     dataSource,
                     compressor,
                     config.compressionConfig(),
-                    config.maxCacheSize()
+                    config.maxCacheSize(),
+                    config.cacheTTLMinutes()
                 );
             }
         };
@@ -173,7 +174,8 @@ public class ReceiptStoreFactory {
                     dataSource,
                     compressor,
                     config.compressionConfig(),
-                    config.maxCacheSize()
+                    config.maxCacheSize(),
+                    config.cacheTTLMinutes()
                 );
             }
         };

@@ -69,17 +69,22 @@ public class JdbcRecursiveReceiptStore implements RecursiveReceiptStore {
      * @param compressor        Receipt compressor
      * @param compressionConfig Compression configuration
      * @param cacheSize         Maximum cache entries
+     * @param cacheTTLMinutes   Cache time-to-live in minutes
      */
     public JdbcRecursiveReceiptStore(DataSource dataSource, RecursiveAggregateReceiptCompressor compressor,
-                                     CompressionConfig compressionConfig, int cacheSize) {
+                                     CompressionConfig compressionConfig, int cacheSize, int cacheTTLMinutes) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource cannot be null");
         this.compressor = Objects.requireNonNull(compressor, "compressor cannot be null");
         this.compressionConfig = Objects.requireNonNull(compressionConfig, "compressionConfig cannot be null");
 
-        // LRU cache with 1-hour TTL
+        if (cacheTTLMinutes < 1) {
+            throw new IllegalArgumentException("cacheTTLMinutes must be >= 1");
+        }
+
+        // LRU cache with configurable TTL
         this.cache = Caffeine.newBuilder()
                              .maximumSize(cacheSize)
-                             .expireAfterWrite(1, TimeUnit.HOURS)
+                             .expireAfterWrite(cacheTTLMinutes, TimeUnit.MINUTES)
                              .recordStats()
                              .build();
     }
