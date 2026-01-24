@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -146,10 +147,10 @@ public class BLSMetricsImpl implements BLSMetrics {
     private volatile Timer signatureReplayTimer;
     private volatile Timer thresholdRecalculationTimer;
 
-    // Dynamic metrics (keyed by state/transition)
-    private final Map<String, Counter> degradationStateTransitionCounters = new HashMap<>();
-    private final Map<String, Histogram> timeInDegradationStateHistograms = new HashMap<>();
-    private final Map<String, Timer> receiptProcessingDuringDegradationTimers = new HashMap<>();
+    // Dynamic metrics (keyed by state/transition) - use ConcurrentHashMap for thread-safe concurrent access
+    private final Map<String, Counter> degradationStateTransitionCounters = new ConcurrentHashMap<>();
+    private final Map<String, Histogram> timeInDegradationStateHistograms = new ConcurrentHashMap<>();
+    private final Map<String, Timer> receiptProcessingDuringDegradationTimers = new ConcurrentHashMap<>();
 
     /**
      * Create a new BLSMetricsImpl instance.
