@@ -34,15 +34,15 @@ Delos is a **distributed multi-tenant database platform** providing Byzantine fa
 **Comprehensive Byzantine Consensus & Witness Infrastructure**: 245-commit integration spanning hierarchical aggregation, recursive proof validation, Byzantine detection (5 detectors), key rotation orchestration, and full receipt storage architecture. Production-ready with <1% Byzantine overhead and 3-4x CI speedup.
 
 **Core Components Delivered**:
-- **Hierarchical BLS Aggregation** (Phase 1C-2-A): 7-layer tree structure for signature verification and Byzantine isolation
-- **Recursive Proof Validation** (Phase 1C-2-B): Cross-epoch proof verification with proto schema extensions
-- **Byzantine Detection Framework** (Phase 1C-3): 5 detectors (Equivocation, Timing, Coalition, Replay, Coordinated) with anomaly scoring
-- **Key Rotation** (Phase 1C-3-D/E): 3-phase lifecycle orchestration with dual-key grace periods and integration tests
-- **Recursive Aggregation** (Phase 2.1-2.3): Builder fluent API, ChainAggregator service, EpochTransitionValidator
-- **Cross-Epoch Support** (Phase 3.1-3.2): RecursiveProofValidator BLS integration, TemporalByzantineIsolator
-- **Compression Infrastructure** (Phase 3.3): ProofCompressionCodec with pluggable strategies (NONE/LZ4/ZSTD), 10-20% reduction
-- **Full Storage Integration** (Phase 3.4): 5-layer abstraction (interface→implementations→compression→cache→factory), multi-backend support, idempotent writes
-- **CI Hardening** (Phase 1B3): Timeout scaling (1.33-2x multiplier), 3-4x speedup (30min→8-10min), 99%+ reliability
+- **Hierarchical BLS Aggregation**: 7-layer tree structure for signature verification and Byzantine isolation
+- **Recursive Proof Validation**: Cross-epoch proof verification with proto schema extensions
+- **Byzantine Detection Framework**: 5 detectors (Equivocation, Timing, Coalition, Replay, Coordinated) with anomaly scoring
+- **Key Rotation**: 3-phase lifecycle orchestration with dual-key grace periods and integration tests
+- **Recursive Aggregation**: Builder fluent API, ChainAggregator service, EpochTransitionValidator
+- **Cross-Epoch Support**: RecursiveProofValidator BLS integration, TemporalByzantineIsolator
+- **Compression Infrastructure**: ProofCompressionCodec with pluggable strategies (NONE/LZ4/ZSTD), 10-20% reduction
+- **Full Storage Integration**: 5-layer abstraction (interface→implementations→compression→cache→factory), multi-backend support, idempotent writes
+- **CI Hardening**: Timeout scaling (1.33-2x multiplier), 3-4x speedup (30min→8-10min), 99%+ reliability
 
 **Test Coverage**: 60+ new tests | 18+ pre-existing failures fixed | 20+ Byzantine attack scenarios | <1% Byzantine overhead on consensus
 
