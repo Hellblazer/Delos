@@ -8,7 +8,9 @@
 package com.hellblazer.delos.witness.aggregation;
 
 import com.hellblazer.delos.cryptography.bls.BLSSignature;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -156,6 +158,35 @@ public sealed interface TreeNode permits TreeNode.LeafNode, TreeNode.Intermediat
                 + 96  // BLSSignature is 96 bytes (BLS 12-381 compressed)
                 + 4  // signerCount
                 + signerBitmap.length;
+        }
+
+        /**
+         * Equality based on all fields including defensive array comparison.
+         * Required because byte[] uses reference equality by default.
+         * This ensures round-trip serialization/deserialization produces
+         * equal objects despite creating new byte[] instances.
+         */
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) return true;
+            if (!(obj instanceof LeafNode other)) return false;
+            return committeeEpoch == other.committeeEpoch
+                   && Objects.equals(aggregatedSignature, other.aggregatedSignature)
+                   && signerCount == other.signerCount
+                   && Arrays.equals(signerBitmap, other.signerBitmap)
+                   && depth == other.depth
+                   && index == other.index;
+            // Note: parent intentionally excluded to avoid circular references
+        }
+
+        /**
+         * Hash code based on all fields including array content.
+         * Must be consistent with equals(): equal objects must have equal hashCode().
+         */
+        @Override
+        public int hashCode() {
+            return Objects.hash(committeeEpoch, aggregatedSignature, signerCount,
+                               Arrays.hashCode(signerBitmap), depth, index);
         }
     }
 
