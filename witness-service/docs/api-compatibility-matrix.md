@@ -20,14 +20,14 @@ This document captures the findings from the Phase 1A API Verification Sprint, w
 
 | Required API | Method/Field | Visibility | Status | Location |
 |-------------|--------------|------------|--------|----------|
-| `getCurrentBlockHeight()` | `CHOAM.currentHeight()` | PUBLIC | ✅ AVAILABLE | CHOAM.java:210 |
-| `getLatestCheckpoint()` | `CheckpointManager.lastCheckpoint()` | PRIVATE field | ❌ BLOCKED | CHOAM.java:83 |
-| `getBlocksSince(height)` | `BlockStore.blocksFrom()` | PRIVATE field | ❌ BLOCKED | CHOAM.java:99 |
-| `getCurrentBlockHash()` | `BlockStore.hash()` | PRIVATE field | ❌ BLOCKED | CHOAM.java:99 |
+| `getCurrentBlockHeight()` | `CHOAM.currentHeight()` | PUBLIC | ✅ AVAILABLE | CHOAM.java:289 |
+| `getLatestCheckpoint()` | `CHOAM.getCheckpointManager()` | PUBLIC | ✅ AVAILABLE | CHOAM.java:348 |
+| `getBlocksSince(height)` | `CHOAM.getBlockStore()` | PUBLIC | ✅ AVAILABLE | CHOAM.java:326 |
+| `getCurrentBlockHash()` | `CHOAM.getBlockStore()` | PUBLIC | ✅ AVAILABLE | CHOAM.java:326 |
 
-### Upstream Change Request
+### Upstream Change Request (✅ IMPLEMENTED)
 
-The following public accessor methods must be added to `CHOAM.java`:
+The following public accessor methods have been added to `CHOAM.java`:
 
 ```java
 /**
@@ -263,7 +263,7 @@ Delos-4044 (Production Hardening)
 
 ### Blocking Issues
 
-1. **CHOAM Public Accessors**: Must be added before Delos-4043 can proceed
+1. ~~**CHOAM Public Accessors**: Must be added before Delos-4043 can proceed~~ ✅ RESOLVED
 2. **Thoth Integration**: WitnessCHOAM constructor currently passes `null` for CHOAM instance
 
 ---

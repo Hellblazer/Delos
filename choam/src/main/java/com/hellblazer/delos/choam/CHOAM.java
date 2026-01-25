@@ -316,6 +316,39 @@ public class CHOAM implements ConsensusEngine {
                                                         : viewChange.block.getReconfigure().getId());
     }
 
+    /**
+     * Returns the BlockStore for block lookup and hash operations.
+     * <p>
+     * Required for witness service block binding and recovery.
+     *
+     * @return the block store instance
+     */
+    public BlockStore getBlockStore() {
+        return store;
+    }
+
+    /**
+     * Returns the BlockProcessor for block processing operations.
+     * <p>
+     * Required for witness service log replay during recovery.
+     *
+     * @return the block processor instance
+     */
+    public BlockProcessor getBlockProcessor() {
+        return blockProcessor;
+    }
+
+    /**
+     * Returns the CheckpointManager for checkpoint operations.
+     * <p>
+     * Required for witness service checkpoint-based recovery.
+     *
+     * @return the checkpoint manager instance
+     */
+    public CheckpointManager getCheckpointManager() {
+        return checkpointManager;
+    }
+
     public String logState() {
         final var c = current.get();
         HashedCertifiedBlock h = head.get();
