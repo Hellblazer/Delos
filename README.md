@@ -10,24 +10,14 @@ Delos is a **distributed multi-tenant database platform** providing Byzantine fa
 
 ## Features
 
-* Multi tenant isolation enclaves using GraalVM Isolates
-* Self-contained cryptography module — Self describing Digests, Signatures and Identifiers, solid Bloom Filters,
-  windows, etc
-* Decentralized Identifier-based foundation and key management infrastructure, based on
-  the [Key Event Receipt Infrastructure](https://github.com/decentralized-identity/keri) (KERI)
-* Secure and trusted attestation, identity bootstrapping and secrets provisioning
-* MTLS network communication — KERI for MTLS certificate authentication. Local communication simulation for simplified
-  multi-node simulation for single process (IDE) testing
-* Multi instance GRPC service routing - Context keyed services and routing framework
-* Byzantine intrusion tolerant secure membership and communications overlay providing virtually synchronous, stable
-  membership views.
-* Efficient and easy to reuse communication patterns for Fireflies ring style gossiping on membership contexts
-* Reliable Broadcast — garbage collected, context routed reliable broadcast
-* Efficient atomic broadcast in asynchronous networks with byzantine nodes - Consensus
-* Dynamic, committee-based, causal ordering service producing linear logs - Replicated State Machines
-* JDBC accessible, SQL store backed, materialized views maintained by an SQL state machine. Supports DDL, DML, stored
-  procedures, functions and triggers.
-* Google Zanzibar like functionality providing Relation Based Access Control hosted on SQL state machines.
+* **Multi-tenancy**: GraalVM isolates for secure tenant enclaves
+* **Cryptography**: Self-describing digests, signatures, identifiers; Bloom filters and windows
+* **Identity**: KERI-based decentralized identity, key management, attestation, bootstrapping
+* **Networking**: MTLS (KERI certificates), multi-instance GRPC routing, virtual synchrony overlay
+* **Consensus**: Byzantine fault-tolerant atomic broadcast (Ethereal) with reliable broadcast
+* **State Machines**: CHOAM — replicated SQL state machines with materialized views, DDL/DML/stored procedures
+* **Access Control**: Zanzibar-style relation-based access control (Delphinius)
+* **Witness Service**: Byzantine detection (5 detectors), receipt aggregation, multi-backend storage with compression
 
 ## Recent Work (2026-01-24)
 
