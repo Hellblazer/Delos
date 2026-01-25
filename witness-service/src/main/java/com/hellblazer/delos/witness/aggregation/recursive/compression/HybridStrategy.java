@@ -98,8 +98,52 @@ public class HybridStrategy implements CompressionStrategy {
 
     @Override
     public byte[] decode(byte[] compressed, CompressionConfig config) {
-        // TODO: Implement in Delos-4036
-        throw new UnsupportedOperationException("HybridStrategy.decode() not yet implemented (Delos-4036)");
+        Objects.requireNonNull(compressed, "compressed cannot be null");
+        Objects.requireNonNull(config, "config cannot be null");
+
+        if (compressed.length == 0) {
+            throw new CompressionException("Cannot decompress empty input");
+        }
+
+        try {
+            var buffer = java.nio.ByteBuffer.wrap(compressed);
+
+            // 1. Read receipt header
+            var baseProto = readBaseAggregate(buffer);
+            var startEpoch = VarIntUtils.decode(buffer);
+            var endEpoch = VarIntUtils.decode(buffer);
+            var totalSigners = VarIntUtils.decode(buffer);
+            var eventProto = readEventCoords(buffer);
+
+            // 2. Read segment table
+            var entries = SegmentTable.decode(buffer);
+
+            // 3. Decompress segments
+            var epochChain = new ArrayList<com.hellblazer.delos.witness.proto.EpochLink>();
+            for (var entry : entries) {
+                var segmentData = new byte[entry.dataLength()];
+                buffer.get(segmentData);
+                var epochs = decodeSegment(entry.type(), entry.epochCount(), segmentData);
+                epochChain.addAll(epochs);
+            }
+
+            // 4. Reconstruct receipt
+            return com.hellblazer.delos.witness.proto.RecursiveAggregateReceipt.newBuilder()
+                .setBaseAggregate(baseProto)
+                .setStartEpoch(startEpoch)
+                .setEndEpoch(endEpoch)
+                .setTotalUniqueSigners(totalSigners)
+                .setEvent(eventProto)
+                .setCompressionCodec(CompressionCodec.HYBRID)
+                .addAllEpochChain(epochChain)
+                .build()
+                .toByteArray();
+
+        } catch (InvalidProtocolBufferException e) {
+            throw new CompressionException("Failed to parse compressed data", e);
+        } catch (Exception e) {
+            throw new CompressionException("Decompression failed", e);
+        }
     }
 
     @Override
@@ -260,5 +304,183 @@ public class HybridStrategy implements CompressionStrategy {
         } catch (IOException e) {
             throw new CompressionException("Failed to encode DELTA_BITMAP segment", e);
         }
+    }
+
+    // ========== DECODE HELPER METHODS ==========
+
+    /**
+     * Read base aggregate from buffer.
+     */
+    private com.hellblazer.delos.witness.proto.HierarchicalAggregate readBaseAggregate(java.nio.ByteBuffer buffer)
+        throws InvalidProtocolBufferException {
+        var baseSize = VarIntUtils.decode(buffer);
+        var baseBytes = new byte[baseSize];
+        buffer.get(baseBytes);
+        return com.hellblazer.delos.witness.proto.HierarchicalAggregate.parseFrom(baseBytes);
+    }
+
+    /**
+     * Read event coordinates from buffer.
+     */
+    private com.hellblazer.delos.stereotomy.event.proto.EventCoords readEventCoords(java.nio.ByteBuffer buffer)
+        throws InvalidProtocolBufferException {
+        var eventSize = VarIntUtils.decode(buffer);
+        var eventBytes = new byte[eventSize];
+        buffer.get(eventBytes);
+        return com.hellblazer.delos.stereotomy.event.proto.EventCoords.parseFrom(eventBytes);
+    }
+
+    /**
+     * Decode a segment using the appropriate decompression strategy.
+     */
+    private List<com.hellblazer.delos.witness.proto.EpochLink> decodeSegment(
+        SegmentType type, int epochCount, byte[] data) throws InvalidProtocolBufferException {
+
+        return switch (type) {
+            case LITERAL -> decodeLiteralSegment(data, epochCount);
+            case RUN_LENGTH -> decodeRunLengthSegment(data, epochCount);
+            case DELTA_BITMAP -> decodeDeltaBitmapSegment(data, epochCount);
+        };
+    }
+
+    /**
+     * Decode LITERAL segment: Each epoch stored as marker + length + proto bytes.
+     */
+    private List<com.hellblazer.delos.witness.proto.EpochLink> decodeLiteralSegment(byte[] data, int epochCount)
+        throws InvalidProtocolBufferException {
+        var buffer = java.nio.ByteBuffer.wrap(data);
+        var epochs = new ArrayList<com.hellblazer.delos.witness.proto.EpochLink>();
+
+        for (int i = 0; i < epochCount; i++) {
+            var marker = buffer.get();
+            if (marker != LITERAL_MARKER) {
+                throw new CompressionException("Invalid LITERAL marker: " + marker);
+            }
+            var size = VarIntUtils.decode(buffer);
+            var epochBytes = new byte[size];
+            buffer.get(epochBytes);
+            epochs.add(com.hellblazer.delos.witness.proto.EpochLink.parseFrom(epochBytes));
+        }
+
+        return epochs;
+    }
+
+    /**
+     * Decode RUN_LENGTH segment: Run count + base epoch + timestamps for remaining epochs.
+     */
+    private List<com.hellblazer.delos.witness.proto.EpochLink> decodeRunLengthSegment(byte[] data, int epochCount)
+        throws InvalidProtocolBufferException {
+        var buffer = java.nio.ByteBuffer.wrap(data);
+        var epochs = new ArrayList<com.hellblazer.delos.witness.proto.EpochLink>();
+
+        // Read run length (should match epochCount)
+        var runLength = VarIntUtils.decode(buffer);
+        if (runLength != epochCount) {
+            throw new CompressionException(
+                "RUN_LENGTH mismatch: expected " + epochCount + " but segment declares " + runLength);
+        }
+
+        // Read base epoch (first)
+        var baseSize = VarIntUtils.decode(buffer);
+        var baseBytes = new byte[baseSize];
+        buffer.get(baseBytes);
+        var baseEpoch = com.hellblazer.delos.witness.proto.EpochLink.parseFrom(baseBytes);
+
+        // Read timestamps for all epochs
+        var timestamps = new com.google.protobuf.Timestamp[epochCount];
+        timestamps[0] = baseEpoch.getTimestamp();
+
+        for (int i = 1; i < epochCount; i++) {
+            var tsSize = VarIntUtils.decode(buffer);
+            var tsBytes = new byte[tsSize];
+            buffer.get(tsBytes);
+            timestamps[i] = com.google.protobuf.Timestamp.parseFrom(tsBytes);
+        }
+
+        // Expand run with proper timestamps
+        for (int i = 0; i < epochCount; i++) {
+            epochs.add(com.hellblazer.delos.witness.proto.EpochLink.newBuilder()
+                .mergeFrom(baseEpoch)
+                .setEpochNumber(baseEpoch.getEpochNumber() + i)
+                .setTimestamp(timestamps[i])
+                .build());
+        }
+
+        return epochs;
+    }
+
+    /**
+     * Decode DELTA_BITMAP segment: First epoch full + delta-encoded subsequent epochs.
+     */
+    private List<com.hellblazer.delos.witness.proto.EpochLink> decodeDeltaBitmapSegment(byte[] data, int epochCount)
+        throws InvalidProtocolBufferException {
+        var buffer = java.nio.ByteBuffer.wrap(data);
+        var epochs = new ArrayList<com.hellblazer.delos.witness.proto.EpochLink>();
+
+        // First epoch (full proto)
+        var firstSize = VarIntUtils.decode(buffer);
+        var firstBytes = new byte[firstSize];
+        buffer.get(firstBytes);
+        var firstEpoch = com.hellblazer.delos.witness.proto.EpochLink.parseFrom(firstBytes);
+        epochs.add(firstEpoch);
+
+        if (epochCount == 1) {
+            return epochs;
+        }
+
+        // Remaining epochs with delta encoding
+        var prevBitmap = firstEpoch.getCommitteeContributionBitmap().toByteArray();
+
+        for (int i = 1; i < epochCount; i++) {
+            // Read epoch metadata
+            var epochNum = VarIntUtils.decode(buffer);
+
+            // Read previous root hash
+            var prevHashSize = VarIntUtils.decode(buffer);
+            var prevHashBytes = new byte[prevHashSize];
+            buffer.get(prevHashBytes);
+            var prevHash = com.hellblazer.delos.cryptography.proto.Digeste.parseFrom(prevHashBytes);
+
+            // Read signature
+            var sigSize = VarIntUtils.decode(buffer);
+            var sigBytes = new byte[sigSize];
+            buffer.get(sigBytes);
+            var signature = com.google.protobuf.ByteString.copyFrom(sigBytes);
+
+            // Read signer count
+            var signerCount = VarIntUtils.decode(buffer);
+
+            // Read timestamp
+            var seconds = VarIntUtils.decode(buffer);
+            var nanos = VarIntUtils.decode(buffer);
+
+            // Reconstruct bitmap from sparse deltas
+            var deltaCount = VarIntUtils.decode(buffer);
+            var bitmap = prevBitmap.clone();
+            for (int d = 0; d < deltaCount; d++) {
+                var pos = VarIntUtils.decode(buffer);
+                var val = buffer.get();
+                bitmap[pos] ^= val;
+            }
+            prevBitmap = bitmap;
+
+            // Build epoch
+            var epoch = com.hellblazer.delos.witness.proto.EpochLink.newBuilder()
+                .setEpochNumber(epochNum)
+                .setPreviousRootHash(prevHash)
+                .setCommitteeContributionBitmap(com.google.protobuf.ByteString.copyFrom(bitmap))
+                .setAggregatedSignature(signature)
+                .setTotalSignerCount(signerCount)
+                .setHasCommitteeChanges(true)
+                .setTimestamp(com.google.protobuf.Timestamp.newBuilder()
+                    .setSeconds(seconds)
+                    .setNanos(nanos)
+                    .build())
+                .build();
+
+            epochs.add(epoch);
+        }
+
+        return epochs;
     }
 }
