@@ -85,35 +85,40 @@ See [Knowledge Consolidation](docs/KNOWLEDGE_CONSOLIDATION.md) for comprehensive
 
 ## Modules
 
-Delos is modularized largely for subsystem isolation and reuse. Each module is a Maven module
-under the source root and contains a README.md documenting the module.
+Each module is a Maven module under the source root with its own README.md.
 
-* [CHOAM](choam/README.md) - Committee maintenance of replicated state machines
-* [Delphinius](delphinius/README.md) - Bare bones Google Zanzibar clone
-* [Ethereal](ethereal/README.md) - Aleph asynchronous BFT atomic broadcast (consensus block production)
-* [Fireflies](fireflies/README.md) - Byzantine intrusion tolerant, virtually synchronous membership service and secure
-  communications overlay
-* [Deterministic H2](h2-deterministic) - Deterministic H2 SQL Database
-* [Deterministic Liquibase](liquibase-deterministic) - Deterministic Liquibase
+**Core Infrastructure**
+* [Cryptography](cryptography/README.md) - Self-describing digests, signatures, identifiers; Bloom filters; utilities
+* [Protocols](protocols/README.md) - GRPC MTLS fundamentals, rate limiters, service routing
+* [Memberships](memberships/README.md) - Membership model, Context abstraction, GRPC routers, gossip patterns
+
+**Identity & Security**
+* [Stereotomy](stereotomy/README.md) - KERI implementation; KEL, KERL, key and identity management
+* [Stereotomy Services](stereotomy-services) - GRPC services and Protobuf interfaces for KERI
+* [Thoth](thoth/README.md) - Distributed hash table for KERI key management
 * [Gorgoneion](gorgoneion/README.md) - Identity bootstrapping
 * [Gorgoneion Client](gorgoneion-client/README.md) - Identity bootstrap client
-* [Isolates](isolates/README.md) - GraalVM shared library construction of Delos subdomain enclaves.
-* [Isolate Functional Testing](isolate-ftesting/README.md) - Functional testing of Delos domain enclaves.
-* [Memberships](memberships/README.md) - Fundamental membership and Context model. Local and MTLS GRPC _Routers_. Ring
-  communication and gossip patterns.
-* [Model](model/README.md) - Replicated domains. Process and multi-tenant sharding domains and enclaves.
-* [Protocols](protocols/README.md) - GRPC MTLS service fundamentals, Netflix GRPC and other rate limiters.
-* [Schemas](schemas/README.md) - Liquibase SQL definitions for other modules
-* [Sql-State](sql-state/README.md) - Replicated SQL state machines running on CHOAM linear logs. JDBC interface.
-* [Stereotomy](stereotomy/README.md) - Key Event Receipt Infrastructure. KEL, KERL and other fundamental identity, key
-  and trust management
-* [Stereotomy Services](stereotomy-services) - GRPC services and protobuf interfaces for KERI services
-* [Thoth](thoth/README.md) - Decentralized Stereotomy. Distributed hash table storage, protocols and API for managing
-  KERI decentralized identity
-* [Tron](tron/README.md) - Compact, sophisticated Finite State Machine model using Java Enums.
-* [Witness-Service](witness-service) - Distributed witness receipt collection, aggregation, and cryptographic proof validation
-* [Cryptography](cryptography/README.md) - Base cryptography primitives. Bloom filters (of several varieties). Some
-  general utility stuff.
+
+**Consensus & State**
+* [Fireflies](fireflies/README.md) - Byzantine membership service; virtually synchronous views; secure overlay
+* [Ethereal](ethereal/README.md) - Aleph BFT; asynchronous atomic broadcast (consensus)
+* [CHOAM](choam/README.md) - Committee-based replicated state machines; causal ordering on linear logs
+* [Sql-State](sql-state/README.md) - JDBC-accessible SQL state machines on CHOAM
+
+**Application Layer**
+* [Delphinius](delphinius/README.md) - Zanzibar-style relation-based access control
+* [Model](model/README.md) - Replicated domains; multi-tenant sharding enclaves
+* [Tron](tron/README.md) - Finite state machine framework using Java Enums
+
+**Specialized Services**
+* [Witness-Service](witness-service) - Byzantine detection, receipt aggregation, proof validation
+
+**Platform & Storage**
+* [Schemas](schemas/README.md) - Liquibase SQL definitions
+* [Deterministic H2](h2-deterministic) - Deterministic H2 SQL database
+* [Deterministic Liquibase](liquibase-deterministic) - Deterministic Liquibase
+* [Isolates](isolates/README.md) - GraalVM isolate-based multi-tenant enclaves
+* [Isolate Functional Testing](isolate-ftesting/README.md) - Enclave functional testing
 
 ## Documentation
 
