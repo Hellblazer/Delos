@@ -7,11 +7,21 @@
  */
 package com.hellblazer.delos.witness.migration;
 
+import com.hellblazer.delos.cryptography.Digest;
+import com.hellblazer.delos.cryptography.bls.BLSProvider;
+import com.hellblazer.delos.cryptography.bls.BLSPublicKey;
+import com.hellblazer.delos.stereotomy.EventCoordinates;
+import com.hellblazer.delos.witness.WitnessContext;
+import com.hellblazer.delos.witness.WitnessParameters;
 import com.hellblazer.delos.witness.aggregation.SignatureFormat;
+import com.hellblazer.delos.witness.aggregation.ValidationResult;
 import com.hellblazer.delos.witness.proto.WitnessReceipt;
+import com.hellblazer.delos.witness.receipt.AggregateWitnessReceipt;
+import com.hellblazer.delos.witness.validation.AggregateValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -114,6 +124,9 @@ public final class ReceiptCompatibilityLayer {
 
     // Dependencies
     private final MigrationStateTracker migrationTracker;
+    private final AggregateValidator aggregateValidator;
+    private final WitnessContext witnessContext;
+    private final WitnessParameters parameters;
 
     // Metrics (lock-free counters)
     private final AtomicLong blsReceiptsValidated = new AtomicLong(0);
@@ -128,14 +141,40 @@ public final class ReceiptCompatibilityLayer {
     private volatile FallbackPolicy fallbackPolicy = FallbackPolicy.MONITORED;
 
     /**
-     * Create compatibility layer with migration state tracker.
+     * Create compatibility layer with migration state tracker and BLS validation.
+     * <p>
+     * Full constructor for Phase 1B-2 with complete BLS support.
      *
      * @param migrationTracker Migration state tracker for phase information
-     * @throws NullPointerException if migrationTracker is null
+     * @param aggregateValidator Validator for BLS aggregate signatures (can be null only if BLS validation not needed)
+     * @param witnessContext Witness context for committee selection and key retrieval (can be null only if BLS validation not needed)
+     * @param parameters Witness parameters for threshold information (can be null only if BLS validation not needed)
+     * @throws NullPointerException if migrationTracker is null and BLS validation will be used
      */
-    public ReceiptCompatibilityLayer(MigrationStateTracker migrationTracker) {
+    public ReceiptCompatibilityLayer(MigrationStateTracker migrationTracker,
+                                     AggregateValidator aggregateValidator,
+                                     WitnessContext witnessContext,
+                                     WitnessParameters parameters) {
         this.migrationTracker = Objects.requireNonNull(migrationTracker, "migrationTracker cannot be null");
+        this.aggregateValidator = aggregateValidator;  // Nullable for backward compatibility
+        this.witnessContext = witnessContext;          // Nullable for backward compatibility
+        this.parameters = parameters;                  // Nullable for backward compatibility
         log.debug("Initialized ReceiptCompatibilityLayer with policy: {}", fallbackPolicy);
+    }
+
+    /**
+     * Legacy constructor for backward compatibility (no BLS validation).
+     * Used in tests where BLS validation not needed.
+     * <p>
+     * In this mode, BLS receipt validation will fail with "BLS validation error: Validator not initialized".
+     *
+     * @param migrationTracker Migration state tracker
+     * @deprecated Use four-argument constructor for full BLS support
+     */
+    @Deprecated(forRemoval = false)
+    public ReceiptCompatibilityLayer(MigrationStateTracker migrationTracker) {
+        this(migrationTracker, null, null, null);
+        log.warn("Using deprecated single-argument constructor - BLS validation disabled");
     }
 
     /**
@@ -236,31 +275,168 @@ public final class ReceiptCompatibilityLayer {
      * @return Validation result
      */
     private CompatibilityResult validateBlsReceipt(WitnessReceipt receipt, MigrationPhase phase) {
-        // Placeholder: In real implementation, would call BLSAggregateValidator
-        // For now, simulate validation failure to test metrics and fallback
-
-        blsValidationFailures.incrementAndGet();
-
-        // Check if fallback is available (Ed25519 signature present)
-        var hasFallback = phase == MigrationPhase.DUAL && receipt.getSignaturesCount() > 0;
-
-        if (hasFallback && fallbackPolicy != FallbackPolicy.STRICT) {
-            formatFallbackAttempts.incrementAndGet();
-            log.debug("BLS validation failed, attempting Ed25519 fallback");
-
-            // Attempt fallback
-            var fallbackResult = validateEd25519Receipt(receipt, phase);
-            if (fallbackResult instanceof CompatibilityResult.Valid) {
-                formatFallbackSuccesses.incrementAndGet();
-                checkFallbackRate();
-                return fallbackResult;
+        try {
+            // Check if validator is initialized (backward compatibility check)
+            if (aggregateValidator == null || witnessContext == null || parameters == null) {
+                blsValidationFailures.incrementAndGet();
+                var hasFallback = phase == MigrationPhase.DUAL && receipt.getSignaturesCount() > 0;
+                return new CompatibilityResult.BlsValidationFailed(
+                    "BLS validation error: Validator not initialized",
+                    hasFallback && fallbackPolicy != FallbackPolicy.STRICT
+                );
             }
+
+            // Step 1: Deserialize aggregate receipt from proto
+            AggregateWitnessReceipt aggregateReceipt;
+            try {
+                aggregateReceipt = AggregateWitnessReceipt.fromProto(receipt);
+            } catch (IllegalArgumentException e) {
+                blsValidationFailures.incrementAndGet();
+                var hasFallback = phase == MigrationPhase.DUAL && receipt.getSignaturesCount() > 0;
+                return new CompatibilityResult.BlsValidationFailed(
+                    "Failed to parse BLS aggregate: " + e.getMessage(),
+                    hasFallback && fallbackPolicy != FallbackPolicy.STRICT
+                );
+            }
+
+            // Step 2: Get committee public keys for verification
+            var event = EventCoordinates.from(receipt.getEventCoordinates());
+            var committee = witnessContext.selectCommittee(event);
+            var committeePublicKeys = getCommitteeBLSPublicKeys(committee);
+
+            if (committeePublicKeys.isEmpty()) {
+                blsValidationFailures.incrementAndGet();
+                var hasFallback = phase == MigrationPhase.DUAL && receipt.getSignaturesCount() > 0;
+                return new CompatibilityResult.BlsValidationFailed(
+                    "Committee BLS public keys not available for epoch " + receipt.getEpoch(),
+                    hasFallback && fallbackPolicy != FallbackPolicy.STRICT
+                );
+            }
+
+            // Step 3: Extract message to verify (event digest)
+            // Convert Digeste proto back to Digest to get the original digest bytes (not proto bytes)
+            var digesteProto = receipt.getEventDigest();
+            var digest = new Digest(digesteProto);
+            byte[] message = digest.getBytes();
+
+            // Step 4: Validate using AggregateValidator
+            var validationResult = aggregateValidator.validate(
+                aggregateReceipt.aggregate(),
+                committeePublicKeys,
+                message
+            );
+
+            // Step 5: Map ValidationResult to CompatibilityResult
+            return mapValidationResultToCompatibility(validationResult, phase, aggregateReceipt);
+
+        } catch (Exception e) {
+            blsValidationFailures.incrementAndGet();
+            var hasFallback = phase == MigrationPhase.DUAL && receipt.getSignaturesCount() > 0;
+            return new CompatibilityResult.BlsValidationFailed(
+                "BLS validation error: " + e.getMessage(),
+                hasFallback && fallbackPolicy != FallbackPolicy.STRICT
+            );
+        }
+    }
+
+    /**
+     * Map AggregateValidator.ValidationResult to CompatibilityResult.
+     * Uses pattern matching on sealed ValidationResult type.
+     *
+     * @param result ValidationResult from AggregateValidator
+     * @param phase Current migration phase
+     * @param receipt Aggregate receipt being validated
+     * @return CompatibilityResult for service layer
+     */
+    private CompatibilityResult mapValidationResultToCompatibility(
+            ValidationResult result,
+            MigrationPhase phase,
+            AggregateWitnessReceipt receipt) {
+
+        return switch (result) {
+            case ValidationResult.Valid(var aggregate) -> {
+                blsReceiptsValidated.incrementAndGet();
+                yield new CompatibilityResult.Valid(
+                    SignatureFormat.BLS_12_381,
+                    receipt.signerIndices().size(),
+                    parameters.threshold()
+                );
+            }
+
+            case ValidationResult.InvalidSignature(var member, var reason) -> {
+                blsValidationFailures.incrementAndGet();
+                yield new CompatibilityResult.BlsValidationFailed(
+                    String.format("Invalid BLS signature from %s: %s", member, reason),
+                    shouldAttemptFallback(phase)
+                );
+            }
+
+            case ValidationResult.InvalidBitmap(var reason) -> {
+                blsValidationFailures.incrementAndGet();
+                yield new CompatibilityResult.BlsValidationFailed(
+                    "Invalid signer bitmap: " + reason,
+                    shouldAttemptFallback(phase)
+                );
+            }
+
+            case ValidationResult.InvalidThreshold(var expected, var actual) -> {
+                blsValidationFailures.incrementAndGet();
+                yield new CompatibilityResult.BlsValidationFailed(
+                    String.format("Insufficient BLS signers: expected %d, got %d", expected, actual),
+                    shouldAttemptFallback(phase)
+                );
+            }
+
+            case ValidationResult.ValidationFailed(var reason) -> {
+                blsValidationFailures.incrementAndGet();
+                yield new CompatibilityResult.BlsValidationFailed(
+                    "BLS crypto validation failed: " + reason,
+                    shouldAttemptFallback(phase)
+                );
+            }
+        };
+    }
+
+    /**
+     * Get BLS public keys for committee members.
+     *
+     * @param committee Committee identifier set
+     * @return List of BLS public keys for committee
+     */
+    private List<BLSPublicKey> getCommitteeBLSPublicKeys(java.util.Set<com.hellblazer.delos.stereotomy.identifier.Identifier> committee) {
+        if (committee == null || committee.isEmpty()) {
+            return List.of();
         }
 
-        return new CompatibilityResult.BlsValidationFailed(
-            "BLS validation failed (placeholder)",
-            hasFallback && fallbackPolicy != FallbackPolicy.STRICT
-        );
+        // Retrieve BLS public keys from CommitteeBLSKeyStore via WitnessContext
+        try {
+            var keyStore = witnessContext.getCommitteeBLSKeys();
+            if (keyStore == null) {
+                log.warn("CommitteeBLSKeyStore not available - cannot retrieve BLS keys");
+                return List.of();
+            }
+
+            var keys = keyStore.getPublicKeys(committee);
+            if (keys == null || keys.isEmpty()) {
+                log.debug("No BLS keys available for committee members");
+                return List.of();
+            }
+
+            return keys;
+        } catch (Exception e) {
+            log.error("Error retrieving committee BLS keys", e);
+            return List.of();
+        }
+    }
+
+    /**
+     * Check if BLS → Ed25519 fallback should be attempted.
+     *
+     * @param phase Current migration phase
+     * @return true if fallback allowed
+     */
+    private boolean shouldAttemptFallback(MigrationPhase phase) {
+        return phase == MigrationPhase.DUAL && fallbackPolicy != FallbackPolicy.STRICT;
     }
 
     /**

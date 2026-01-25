@@ -1,0 +1,101 @@
+databaseChangeLog:
+  - changeSet:
+      id: 1
+      author: hal
+      comment: Create aggregate_receipts table for witness receipt storage
+      changes:
+        - createTable:
+            tableName: aggregate_receipts
+            columns:
+              - column:
+                  name: receipt_key
+                  type: VARCHAR(255)
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: receipt_data
+                  type: BLOB
+                  constraints:
+                    nullable: false
+              - column:
+                  name: epoch
+                  type: INT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: compressed
+                  type: BOOLEAN
+                  defaultValueBoolean: false
+                  constraints:
+                    nullable: false
+              - column:
+                  name: compression_codec
+                  type: TINYINT
+                  defaultValueNumeric: 0
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+        - createIndex:
+            indexName: idx_aggregate_epoch
+            tableName: aggregate_receipts
+            columns:
+              - column:
+                  name: epoch
+
+  - changeSet:
+      id: 2
+      author: hal
+      comment: Create recursive_receipts table for cross-epoch proof storage
+      changes:
+        - createTable:
+            tableName: recursive_receipts
+            columns:
+              - column:
+                  name: receipt_key
+                  type: VARCHAR(255)
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: receipt_data
+                  type: BLOB
+                  constraints:
+                    nullable: false
+              - column:
+                  name: start_epoch
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: end_epoch
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: compressed
+                  type: BOOLEAN
+                  defaultValueBoolean: false
+                  constraints:
+                    nullable: false
+              - column:
+                  name: compression_codec
+                  type: TINYINT
+                  defaultValueNumeric: 0
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP
+                  constraints:
+                    nullable: false
+        - createIndex:
+            indexName: idx_recursive_epoch_range
+            tableName: recursive_receipts
+            columns:
+              - column:
+                  name: start_epoch
+              - column:
+                  name: end_epoch

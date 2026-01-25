@@ -43,6 +43,7 @@ public class WitnessCHOAMViewChangeListener {
     private final DigestAlgorithm digestAlgorithm;
     private final Consumer<ViewChange> viewChangeHandler;
     private final CHOAM choam;  // Phase 1A-3: Reference to CHOAM consensus for real block heights
+    private final BLSMetrics blsMetrics;  // Phase 1C: Metrics for view change tracking (nullable)
 
     // Simplified height tracking (used when CHOAM is null - for Phase 1A-2 backwards compatibility)
     private final AtomicLong viewHeight = new AtomicLong(0L);
@@ -59,7 +60,7 @@ public class WitnessCHOAMViewChangeListener {
                                          WitnessContext witnessContext,
                                          DigestAlgorithm digestAlgorithm,
                                          String listenerId) {
-        this(witnessCHOAM, witnessContext, digestAlgorithm, listenerId, null);
+        this(witnessCHOAM, witnessContext, digestAlgorithm, listenerId, null, null);
     }
 
     /**
@@ -76,11 +77,31 @@ public class WitnessCHOAMViewChangeListener {
                                          DigestAlgorithm digestAlgorithm,
                                          String listenerId,
                                          CHOAM choam) {
+        this(witnessCHOAM, witnessContext, digestAlgorithm, listenerId, choam, null);
+    }
+
+    /**
+     * Create listener with CHOAM integration and metrics (Phase 1C).
+     *
+     * @param witnessCHOAM      CHOAM state machine to update on view changes
+     * @param witnessContext    Epoch and member tracking
+     * @param digestAlgorithm   Algorithm for digest operations
+     * @param listenerId        Unique listener ID for Fireflies registration
+     * @param choam             CHOAM consensus reference for real block heights (null for Phase 1A-2 mode)
+     * @param blsMetrics        BLS metrics for view change tracking (nullable for Phase 1A-2 backwards compatibility)
+     */
+    public WitnessCHOAMViewChangeListener(WitnessCHOAM witnessCHOAM,
+                                         WitnessContext witnessContext,
+                                         DigestAlgorithm digestAlgorithm,
+                                         String listenerId,
+                                         CHOAM choam,
+                                         BLSMetrics blsMetrics) {
         this.witnessCHOAM = witnessCHOAM;
         this.witnessContext = witnessContext;
         this.digestAlgorithm = digestAlgorithm;
         this.listenerId = listenerId;
         this.choam = choam;
+        this.blsMetrics = blsMetrics;
         this.viewChangeHandler = createViewChangeHandler();
     }
 
@@ -132,6 +153,13 @@ public class WitnessCHOAMViewChangeListener {
      * @param viewChange Fireflies notification with membership changes
      */
     private void handleViewChange(ViewChange viewChange) {
+        // Phase 1C: Record view change initiation metrics
+        if (blsMetrics != null) {
+            blsMetrics.incrementViewChangesInitiated();
+        }
+
+        long startNanos = System.nanoTime();
+
         // Phase 1A-3: Use CHOAM consensus height if available
         final long newHeight;
         if (choam != null) {
@@ -171,6 +199,14 @@ public class WitnessCHOAMViewChangeListener {
 
         // Notify WitnessCHOAM of view change (starts drain period, updates view height)
         witnessCHOAM.onViewChange(viewBlock);
+
+        // Phase 1C: Record view change duration and active view
+        if (blsMetrics != null) {
+            long durationNanos = System.nanoTime() - startNanos;
+            long durationMicros = durationNanos / 1000; // Convert nanoseconds to microseconds
+            blsMetrics.recordViewChangeDuration(durationMicros);
+            blsMetrics.setActiveView(newHeight);
+        }
 
         log.debug("View change coordinated: height={}, members={}", newHeight, memberCount);
     }

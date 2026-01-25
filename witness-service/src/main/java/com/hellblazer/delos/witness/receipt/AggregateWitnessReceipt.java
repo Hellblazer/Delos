@@ -108,6 +108,7 @@ public record AggregateWitnessReceipt(
     public WitnessReceipt toProto() {
         var builder = WitnessReceipt.newBuilder()
                                      .setEventCoordinates(event.toEventCoords())
+                                     .setEventDigest(event.getDigest().toDigeste())
                                      .setEpoch(epoch)
                                      .setTimestamp(Timestamp.newBuilder()
                                                             .setSeconds(timestamp / 1000)

@@ -19,6 +19,7 @@ import com.hellblazer.delos.choam.support.HashedCertifiedBlock;
 import com.hellblazer.delos.context.Context;
 import com.hellblazer.delos.context.StaticContext;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
+import com.hellblazer.delos.cryptography.bls.BLSProvider;
 import com.hellblazer.delos.membership.MockMember;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
@@ -27,6 +28,7 @@ import com.hellblazer.delos.witness.migration.MigrationPhase;
 import com.hellblazer.delos.witness.migration.MigrationStateTracker;
 import com.hellblazer.delos.witness.migration.ReceiptCompatibilityLayer;
 import com.hellblazer.delos.witness.proto.*;
+import com.hellblazer.delos.witness.validation.AggregateValidator;
 import io.grpc.stub.StreamObserver;
 import org.joou.ULong;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,6 +40,7 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -117,7 +120,12 @@ class WitnessServiceImplTest {
         witnessCHOAM.onViewChange(genesisBlock);
 
         migrationStateTracker = new MigrationStateTracker(MigrationPhase.INIT, 0L);
-        compatibilityLayer = new ReceiptCompatibilityLayer(migrationStateTracker);
+
+        // Create BLS provider and validator for compatibility layer
+        var blsProvider = BLSProvider.getDefault();
+        var aggregateValidator = new AggregateValidator(blsProvider);
+
+        compatibilityLayer = new ReceiptCompatibilityLayer(migrationStateTracker, aggregateValidator, witnessContext, parameters);
 
         witnessService = new WitnessServiceImpl(witnessCHOAM, witnessContext, receiptManager, parameters, ALGORITHM,
                                                 migrationStateTracker, compatibilityLayer);
@@ -1432,5 +1440,449 @@ class WitnessServiceImplTest {
         assertNotNull(responseRef.get());
         // Mixed format will be rejected outright, so no fallback should be attempted
         assertEquals(0, compatibilityLayer.getFormatFallbackAttempts());
+    }
+
+    // ========== GetAggregateReceipt Tests ==========
+
+    @Test
+    void testGetAggregateReceiptWhenReady() {
+        // Given: Manager in DUAL phase with threshold BLS signatures met
+        migrationStateTracker.manualAdvance(MigrationPhase.DUAL);
+        var event = createEventCoordinates("get-agg-receipt", 300L);
+
+        // Simulate threshold BLS signatures collected
+        var threshold = parameters.threshold();
+        var signerIndices = new java.util.ArrayList<Integer>();
+        for (int i = 0; i < threshold; i++) {
+            signerIndices.add(i);
+        }
+
+        // Create mock aggregate receipt using real BLSAggregate record
+        var mockSignature = new com.hellblazer.delos.cryptography.bls.BLSSignature(new byte[96]);
+        var mockBitmap = new byte[1];  // At least 1 byte required
+        var mockAggregate = new com.hellblazer.delos.cryptography.bls.BLSAggregate(mockSignature, mockBitmap);
+
+        var aggregateReceipt = new com.hellblazer.delos.witness.receipt.AggregateWitnessReceipt(
+            event,
+            mockAggregate,
+            signerIndices,
+            com.hellblazer.delos.witness.aggregation.SignatureFormat.BLS_12_381,
+            System.currentTimeMillis(),
+            0
+        );
+
+        // Mock the receiptManager to return the aggregate
+        var originalReceiptManager = receiptManager;
+        var mockReceiptManager = mock(com.hellblazer.delos.witness.WitnessReceiptManager.class);
+        when(mockReceiptManager.getAggregateReceipt(any(EventCoordinates.class)))
+            .thenReturn(java.util.Optional.of(aggregateReceipt));
+
+        // Recreate service with mock receipt manager
+        witnessService = new WitnessServiceImpl(witnessCHOAM, witnessContext, mockReceiptManager, parameters, ALGORITHM,
+                                                migrationStateTracker, compatibilityLayer);
+
+        // When: GetAggregateReceipt is called
+        var request = ReceiptRequest.newBuilder()
+            .setEventCoordinates(event.toEventCoords())
+            .setTimeoutMs(5000)
+            .build();
+
+        var responseRef = new AtomicReference<ReceiptResponse>();
+        witnessService.getAggregateReceipt(request, new StreamObserver<ReceiptResponse>() {
+            @Override
+            public void onNext(ReceiptResponse value) {
+                responseRef.set(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                fail("Should not error: " + t.getMessage());
+            }
+
+            @Override
+            public void onCompleted() {}
+        });
+
+        // Then: Response contains aggregate receipt
+        assertNotNull(responseRef.get());
+        assertEquals(ValidationStatus.THRESHOLD_MET, responseRef.get().getStatus());
+        assertTrue(responseRef.get().hasReceipt());
+        assertEquals(threshold, responseRef.get().getSignatureCount());
+        assertEquals(parameters.threshold(), responseRef.get().getRequiredThreshold());
+    }
+
+    @Test
+    void testGetAggregateReceiptTimeout() {
+        // Given: Manager in DUAL phase with NO threshold met
+        migrationStateTracker.manualAdvance(MigrationPhase.DUAL);
+        var event = createEventCoordinates("timeout-test", 301L);
+
+        // Mock receiptManager to return empty (threshold not met)
+        var mockReceiptManager = mock(com.hellblazer.delos.witness.WitnessReceiptManager.class);
+        when(mockReceiptManager.getAggregateReceipt(any(EventCoordinates.class)))
+            .thenReturn(java.util.Optional.empty());
+
+        // Recreate service with mock receipt manager
+        witnessService = new WitnessServiceImpl(witnessCHOAM, witnessContext, mockReceiptManager, parameters, ALGORITHM,
+                                                migrationStateTracker, compatibilityLayer);
+
+        // When: GetAggregateReceipt is called with short timeout
+        var request = ReceiptRequest.newBuilder()
+            .setEventCoordinates(event.toEventCoords())
+            .setTimeoutMs(200)  // Short timeout for fast test
+            .build();
+
+        var responseRef = new AtomicReference<ReceiptResponse>();
+        witnessService.getAggregateReceipt(request, new StreamObserver<ReceiptResponse>() {
+            @Override
+            public void onNext(ReceiptResponse value) {
+                responseRef.set(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                fail("Should not error: " + t.getMessage());
+            }
+
+            @Override
+            public void onCompleted() {}
+        });
+
+        // Then: TIMEOUT status returned
+        assertNotNull(responseRef.get());
+        assertEquals(ValidationStatus.TIMEOUT, responseRef.get().getStatus());
+        assertFalse(responseRef.get().hasReceipt());
+        assertEquals(0, responseRef.get().getSignatureCount());
+        assertEquals(parameters.threshold(), responseRef.get().getRequiredThreshold());
+    }
+
+    // ========== SubscribeAggregateReceipts Tests ==========
+
+    @Test
+    void testSubscribeAggregateReceipts() {
+        // Given: Service in DUAL phase with subscription
+        migrationStateTracker.manualAdvance(MigrationPhase.DUAL);
+        var event = createEventCoordinates("subscribe-agg", 400L);
+
+        // Subscribe to aggregate receipts (no filter - receive all)
+        var filter = ReceiptFilter.newBuilder().build();
+        var receivedReceipts = Collections.synchronizedList(new ArrayList<WitnessReceipt>());
+        var latch = new CountDownLatch(1);
+
+        witnessService.subscribeAggregateReceipts(filter, new StreamObserver<WitnessReceipt>() {
+            @Override
+            public void onNext(WitnessReceipt value) {
+                receivedReceipts.add(value);
+                latch.countDown();
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                fail("Should not error: " + t.getMessage());
+            }
+
+            @Override
+            public void onCompleted() {}
+        });
+
+        // Create mock aggregate receipt with threshold BLS signatures
+        var threshold = parameters.threshold();
+        var signerIndices = new ArrayList<Integer>();
+        for (int i = 0; i < threshold; i++) {
+            signerIndices.add(i);
+        }
+
+        var mockSignature = new com.hellblazer.delos.cryptography.bls.BLSSignature(new byte[96]);
+        var mockBitmap = new byte[1];
+        var mockAggregate = new com.hellblazer.delos.cryptography.bls.BLSAggregate(mockSignature, mockBitmap);
+
+        var aggregateReceipt = new com.hellblazer.delos.witness.receipt.AggregateWitnessReceipt(
+            event,
+            mockAggregate,
+            signerIndices,
+            com.hellblazer.delos.witness.aggregation.SignatureFormat.BLS_12_381,
+            System.currentTimeMillis(),
+            0
+        );
+
+        // Mock the receiptManager to return the aggregate
+        var mockReceiptManager = mock(com.hellblazer.delos.witness.WitnessReceiptManager.class);
+        when(mockReceiptManager.getAggregateReceipt(any(EventCoordinates.class)))
+            .thenReturn(java.util.Optional.of(aggregateReceipt));
+
+        // Recreate service with mock receipt manager
+        witnessService = new WitnessServiceImpl(witnessCHOAM, witnessContext, mockReceiptManager, parameters, ALGORITHM,
+                                                migrationStateTracker, compatibilityLayer);
+
+        // Subscribe again with mock service
+        var latch2 = new CountDownLatch(1);
+        var receivedReceipts2 = Collections.synchronizedList(new ArrayList<WitnessReceipt>());
+        witnessService.subscribeAggregateReceipts(filter, new StreamObserver<WitnessReceipt>() {
+            @Override
+            public void onNext(WitnessReceipt value) {
+                receivedReceipts2.add(value);
+                latch2.countDown();
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                fail("Should not error: " + t.getMessage());
+            }
+
+            @Override
+            public void onCompleted() {}
+        });
+
+        // When: GetAggregateReceipt is called, which notifies subscribers
+        var request = ReceiptRequest.newBuilder()
+            .setEventCoordinates(event.toEventCoords())
+            .setTimeoutMs(5000)
+            .build();
+
+        var responseRef = new AtomicReference<ReceiptResponse>();
+        witnessService.getAggregateReceipt(request, new StreamObserver<ReceiptResponse>() {
+            @Override
+            public void onNext(ReceiptResponse value) {
+                responseRef.set(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {}
+
+            @Override
+            public void onCompleted() {}
+        });
+
+        // Then: Subscriber receives aggregate receipt
+        try {
+            assertTrue(latch2.await(2, TimeUnit.SECONDS), "Should receive aggregate receipt");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            fail("Test interrupted");
+        }
+        assertEquals(1, receivedReceipts2.size());
+
+        var received = receivedReceipts2.get(0);
+        assertTrue(received.hasBlsSig(), "Should have BLS signature");
+        assertEquals(event.toEventCoords(), received.getEventCoordinates());
+    }
+
+    private void sleepUninterruptibly(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    @Test
+    void testSubscriptionFiltering() {
+        // Given: Subscription with specific filter
+        migrationStateTracker.manualAdvance(MigrationPhase.DUAL);
+
+        var targetController = new SelfAddressingIdentifier(
+            ALGORITHM.digest("target-controller".getBytes())
+        );
+        var otherController = new SelfAddressingIdentifier(
+            ALGORITHM.digest("other-controller".getBytes())
+        );
+
+        // Filter: only target controller, sequence 100-200
+        var filter = ReceiptFilter.newBuilder()
+            .addControllers(targetController.toIdent())
+            .setMinSequence(100)
+            .setMaxSequence(200)
+            .build();
+
+        var receivedReceipts = Collections.synchronizedList(new ArrayList<WitnessReceipt>());
+        var subscriptionLatch = new CountDownLatch(1);
+
+        witnessService.subscribeAggregateReceipts(filter, new StreamObserver<WitnessReceipt>() {
+            @Override
+            public void onNext(WitnessReceipt value) {
+                receivedReceipts.add(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                fail("Should not error: " + t.getMessage());
+            }
+
+            @Override
+            public void onCompleted() {}
+        });
+
+        // Helper to create and complete aggregate receipt
+        var mockReceiptManager = mock(com.hellblazer.delos.witness.WitnessReceiptManager.class);
+
+        witnessService = new WitnessServiceImpl(witnessCHOAM, witnessContext, mockReceiptManager, parameters, ALGORITHM,
+                                                migrationStateTracker, compatibilityLayer);
+
+        // Subscribe with new service
+        var subscriptionReceipts = Collections.synchronizedList(new ArrayList<WitnessReceipt>());
+        witnessService.subscribeAggregateReceipts(filter, new StreamObserver<WitnessReceipt>() {
+            @Override
+            public void onNext(WitnessReceipt value) {
+                subscriptionReceipts.add(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {}
+
+            @Override
+            public void onCompleted() {}
+        });
+
+        // When: Multiple aggregate receipts complete
+        var threshold = parameters.threshold();
+        var signerIndices = new ArrayList<Integer>();
+        for (int i = 0; i < threshold; i++) {
+            signerIndices.add(i);
+        }
+
+        var mockSignature = new com.hellblazer.delos.cryptography.bls.BLSSignature(new byte[96]);
+        var mockBitmap = new byte[1];
+        var mockAggregate = new com.hellblazer.delos.cryptography.bls.BLSAggregate(mockSignature, mockBitmap);
+
+        // 1. Matching: target controller, sequence 150
+        var matchingEvent = new EventCoordinates(targetController, ULong.valueOf(150),
+                                                ALGORITHM.digest("matching".getBytes()), "icp");
+        var matchingReceipt = new com.hellblazer.delos.witness.receipt.AggregateWitnessReceipt(
+            matchingEvent,
+            mockAggregate,
+            signerIndices,
+            com.hellblazer.delos.witness.aggregation.SignatureFormat.BLS_12_381,
+            System.currentTimeMillis(),
+            0
+        );
+
+        when(mockReceiptManager.getAggregateReceipt(eq(matchingEvent)))
+            .thenReturn(java.util.Optional.of(matchingReceipt));
+
+        var request1 = ReceiptRequest.newBuilder()
+            .setEventCoordinates(matchingEvent.toEventCoords())
+            .setTimeoutMs(5000)
+            .build();
+
+        witnessService.getAggregateReceipt(request1, new StreamObserver<ReceiptResponse>() {
+            @Override
+            public void onNext(ReceiptResponse value) {}
+
+            @Override
+            public void onError(Throwable t) {}
+
+            @Override
+            public void onCompleted() {}
+        });
+
+        // 2. Non-matching: other controller, sequence 150
+        var wrongController = new EventCoordinates(otherController, ULong.valueOf(150),
+                                                   ALGORITHM.digest("wrong-controller".getBytes()), "icp");
+        var wrongControllerReceipt = new com.hellblazer.delos.witness.receipt.AggregateWitnessReceipt(
+            wrongController,
+            mockAggregate,
+            signerIndices,
+            com.hellblazer.delos.witness.aggregation.SignatureFormat.BLS_12_381,
+            System.currentTimeMillis(),
+            0
+        );
+
+        when(mockReceiptManager.getAggregateReceipt(eq(wrongController)))
+            .thenReturn(java.util.Optional.of(wrongControllerReceipt));
+
+        var request2 = ReceiptRequest.newBuilder()
+            .setEventCoordinates(wrongController.toEventCoords())
+            .setTimeoutMs(5000)
+            .build();
+
+        witnessService.getAggregateReceipt(request2, new StreamObserver<ReceiptResponse>() {
+            @Override
+            public void onNext(ReceiptResponse value) {}
+
+            @Override
+            public void onError(Throwable t) {}
+
+            @Override
+            public void onCompleted() {}
+        });
+
+        // 3. Non-matching: target controller, sequence 50 (out of range)
+        var wrongSequence = new EventCoordinates(targetController, ULong.valueOf(50),
+                                                ALGORITHM.digest("wrong-seq".getBytes()), "icp");
+        var wrongSequenceReceipt = new com.hellblazer.delos.witness.receipt.AggregateWitnessReceipt(
+            wrongSequence,
+            mockAggregate,
+            signerIndices,
+            com.hellblazer.delos.witness.aggregation.SignatureFormat.BLS_12_381,
+            System.currentTimeMillis(),
+            0
+        );
+
+        when(mockReceiptManager.getAggregateReceipt(eq(wrongSequence)))
+            .thenReturn(java.util.Optional.of(wrongSequenceReceipt));
+
+        var request3 = ReceiptRequest.newBuilder()
+            .setEventCoordinates(wrongSequence.toEventCoords())
+            .setTimeoutMs(5000)
+            .build();
+
+        witnessService.getAggregateReceipt(request3, new StreamObserver<ReceiptResponse>() {
+            @Override
+            public void onNext(ReceiptResponse value) {}
+
+            @Override
+            public void onError(Throwable t) {}
+
+            @Override
+            public void onCompleted() {}
+        });
+
+        // 4. Matching: target controller, sequence 200 (edge of range)
+        var edgeCase = new EventCoordinates(targetController, ULong.valueOf(200),
+                                           ALGORITHM.digest("edge".getBytes()), "icp");
+        var edgeCaseReceipt = new com.hellblazer.delos.witness.receipt.AggregateWitnessReceipt(
+            edgeCase,
+            mockAggregate,
+            signerIndices,
+            com.hellblazer.delos.witness.aggregation.SignatureFormat.BLS_12_381,
+            System.currentTimeMillis(),
+            0
+        );
+
+        when(mockReceiptManager.getAggregateReceipt(eq(edgeCase)))
+            .thenReturn(java.util.Optional.of(edgeCaseReceipt));
+
+        var request4 = ReceiptRequest.newBuilder()
+            .setEventCoordinates(edgeCase.toEventCoords())
+            .setTimeoutMs(5000)
+            .build();
+
+        witnessService.getAggregateReceipt(request4, new StreamObserver<ReceiptResponse>() {
+            @Override
+            public void onNext(ReceiptResponse value) {}
+
+            @Override
+            public void onError(Throwable t) {}
+
+            @Override
+            public void onCompleted() {}
+        });
+
+        // Then: Only matching receipts received
+        // Wait for receipts to arrive
+        long startTime = System.currentTimeMillis();
+        while (subscriptionReceipts.size() < 2 && System.currentTimeMillis() - startTime < 2000) {
+            sleepUninterruptibly(50);
+        }
+
+        assertEquals(2, subscriptionReceipts.size(), "Should receive only 2 matching receipts");
+
+        // Verify matching receipts
+        var sequences = subscriptionReceipts.stream()
+            .map(r -> r.getEventCoordinates().getSequenceNumber())
+            .collect(Collectors.toSet());
+
+        assertTrue(sequences.contains(150L));
+        assertTrue(sequences.contains(200L));
     }
 }

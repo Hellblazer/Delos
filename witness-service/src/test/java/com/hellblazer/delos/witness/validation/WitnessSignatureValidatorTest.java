@@ -318,4 +318,292 @@ class WitnessSignatureValidatorTest {
         assertThat(stats.invalidSignatures()).isEqualTo(1);
         assertThat(stats.keyStateUnavailable()).isEqualTo(1);
     }
+
+    /**
+     * Test 1: Dual-key validation during grace period accepts both keys.
+     * <p>
+     * Verifies:
+     * - Primary key verification fails (signature with different key)
+     * - Dual-key validation succeeds via KeyLookup during grace period
+     * - dualKeyValidations metric incremented
+     * </p>
+     */
+    @Test
+    void testDualKeyValidation_GracePeriod_AcceptsBothKeys() throws Exception {
+        // Arrange - Create validator with KeyLookup
+        var mockKeyLookup = mock(KeyLookup.class);
+        var validatorWithKeyLookup = new WitnessSignatureValidator(
+            mockKerlIntegration, mockKeyLookup, metricRegistry);
+
+        var collectionEpoch = 1L;
+        var differentKeyPair = SignatureAlgorithm.ED_25519.generateKeyPair(); // Different key for primary failure
+        var signature = signData(testData);
+
+        when(mockKerlIntegration.verifyIdentifier(mockWitnessIdentifier, collectionEpoch))
+            .thenReturn(Optional.of(mockKeyState));
+        when(mockKeyState.getKeys()).thenReturn(List.of(differentKeyPair.getPublic())); // Primary verification will fail
+        when(mockKeyState.getIdentifier()).thenReturn(mockWitnessIdentifier);
+
+        // Configure KeyLookup to succeed (old key validates during grace period)
+        when(mockKeyLookup.verifyWithValidKeys(eq(mockWitnessIdentifier), eq(signature), eq(testData), any()))
+            .thenReturn(true);
+
+        // Act
+        var result = validatorWithKeyLookup.verifySignature(mockWitnessIdentifier, signature, testData, collectionEpoch);
+
+        // Assert
+        assertThat(result).isInstanceOf(Success.class);
+        var success = (Success) result;
+        assertThat(success.keyState()).isEqualTo(mockKeyState);
+
+        // Verify metrics
+        var stats = validatorWithKeyLookup.getStats();
+        assertThat(stats.dualKeyValidations()).isEqualTo(1);
+        assertThat(stats.validSignatures()).isEqualTo(1);
+        assertThat(stats.invalidSignatures()).isEqualTo(0);
+
+        // Verify KeyLookup was called
+        verify(mockKeyLookup, times(1)).verifyWithValidKeys(eq(mockWitnessIdentifier), eq(signature), eq(testData), any());
+    }
+
+    /**
+     * Test 2: Dual-key validation during grace period with old key only.
+     * <p>
+     * Verifies:
+     * - Grace period active, only old key in valid set
+     * - Old key signature accepted via dual-key validation
+     * - Metric recorded
+     * </p>
+     */
+    @Test
+    void testDualKeyValidation_GracePeriod_OldKeyOnly_Succeeds() throws Exception {
+        // Arrange
+        var mockKeyLookup = mock(KeyLookup.class);
+        var validatorWithKeyLookup = new WitnessSignatureValidator(
+            mockKerlIntegration, mockKeyLookup, metricRegistry);
+
+        var collectionEpoch = 1L;
+        var newKeyPair = SignatureAlgorithm.ED_25519.generateKeyPair(); // New key in KeyState
+        var signature = signData(testData); // Signed with test key (old key)
+
+        when(mockKerlIntegration.verifyIdentifier(mockWitnessIdentifier, collectionEpoch))
+            .thenReturn(Optional.of(mockKeyState));
+        when(mockKeyState.getKeys()).thenReturn(List.of(newKeyPair.getPublic())); // New key only
+        when(mockKeyState.getIdentifier()).thenReturn(mockWitnessIdentifier);
+
+        // Old key validates via KeyLookup
+        when(mockKeyLookup.verifyWithValidKeys(eq(mockWitnessIdentifier), eq(signature), eq(testData), any()))
+            .thenReturn(true);
+
+        // Act
+        var result = validatorWithKeyLookup.verifySignature(mockWitnessIdentifier, signature, testData, collectionEpoch);
+
+        // Assert
+        assertThat(result).isInstanceOf(Success.class);
+        var stats = validatorWithKeyLookup.getStats();
+        assertThat(stats.dualKeyValidations()).isEqualTo(1);
+    }
+
+    /**
+     * Test 3: Dual-key validation during grace period with new key only.
+     * <p>
+     * Verifies:
+     * - Grace period active, only new key in valid set
+     * - New key signature accepted
+     * - Metric recorded
+     * </p>
+     */
+    @Test
+    void testDualKeyValidation_GracePeriod_NewKeyOnly_Succeeds() throws Exception {
+        // Arrange
+        var mockKeyLookup = mock(KeyLookup.class);
+        var validatorWithKeyLookup = new WitnessSignatureValidator(
+            mockKerlIntegration, mockKeyLookup, metricRegistry);
+
+        var collectionEpoch = 1L;
+        var signature = signData(testData);
+
+        when(mockKerlIntegration.verifyIdentifier(mockWitnessIdentifier, collectionEpoch))
+            .thenReturn(Optional.of(mockKeyState));
+        when(mockKeyState.getKeys()).thenReturn(List.of(keyPair.getPublic())); // Primary verification succeeds
+        when(mockKeyState.getIdentifier()).thenReturn(mockWitnessIdentifier);
+
+        // Act - Primary verification should succeed, no dual-key needed
+        var result = validatorWithKeyLookup.verifySignature(mockWitnessIdentifier, signature, testData, collectionEpoch);
+
+        // Assert
+        assertThat(result).isInstanceOf(Success.class);
+        var stats = validatorWithKeyLookup.getStats();
+        assertThat(stats.validSignatures()).isEqualTo(1);
+
+        // KeyLookup should NOT be called since primary verification succeeded
+        verify(mockKeyLookup, never()).verifyWithValidKeys(any(), any(), any(), any());
+    }
+
+    /**
+     * Test 4: After grace period, old key rejected.
+     * <p>
+     * Verifies:
+     * - Grace period expired (KeyLookup returns false)
+     * - Old key signature rejected even if in stored keys
+     * - InvalidSignature result returned
+     * </p>
+     */
+    @Test
+    void testDualKeyValidation_AfterGracePeriod_OldKeyRejected() throws Exception {
+        // Arrange
+        var mockKeyLookup = mock(KeyLookup.class);
+        var validatorWithKeyLookup = new WitnessSignatureValidator(
+            mockKerlIntegration, mockKeyLookup, metricRegistry);
+
+        var collectionEpoch = 1L;
+        var newKeyPair = SignatureAlgorithm.ED_25519.generateKeyPair();
+        var signature = signData(testData); // Signed with old key
+
+        when(mockKerlIntegration.verifyIdentifier(mockWitnessIdentifier, collectionEpoch))
+            .thenReturn(Optional.of(mockKeyState));
+        when(mockKeyState.getKeys()).thenReturn(List.of(newKeyPair.getPublic()));
+        when(mockKeyState.getIdentifier()).thenReturn(mockWitnessIdentifier);
+
+        // Grace period expired - KeyLookup returns false
+        when(mockKeyLookup.verifyWithValidKeys(eq(mockWitnessIdentifier), eq(signature), eq(testData), any()))
+            .thenReturn(false);
+
+        // Act
+        var result = validatorWithKeyLookup.verifySignature(mockWitnessIdentifier, signature, testData, collectionEpoch);
+
+        // Assert
+        assertThat(result).isInstanceOf(InvalidSignature.class);
+        var invalid = (InvalidSignature) result;
+        assertThat(invalid.witnessIdentifier()).isEqualTo(mockWitnessIdentifier);
+        assertThat(invalid.collectionEpoch()).isEqualTo(collectionEpoch);
+
+        // Verify metrics
+        var stats = validatorWithKeyLookup.getStats();
+        assertThat(stats.invalidSignatures()).isEqualTo(1);
+        assertThat(stats.dualKeyValidations()).isEqualTo(0); // Not incremented on failure
+    }
+
+    /**
+     * Test 5: KeyLookup exception handled gracefully.
+     * <p>
+     * Verifies:
+     * - KeyLookup.verifyWithValidKeys() throws exception
+     * - Validator continues gracefully without dual-key validation
+     * - Verification fails safely (no exception propagation)
+     * </p>
+     */
+    @Test
+    void testKeyLookup_ExceptionHandled_FallsBackSafely() throws Exception {
+        // Arrange
+        var mockKeyLookup = mock(KeyLookup.class);
+        var validatorWithKeyLookup = new WitnessSignatureValidator(
+            mockKerlIntegration, mockKeyLookup, metricRegistry);
+
+        var collectionEpoch = 1L;
+        var differentKeyPair = SignatureAlgorithm.ED_25519.generateKeyPair();
+        var signature = signData(testData);
+
+        when(mockKerlIntegration.verifyIdentifier(mockWitnessIdentifier, collectionEpoch))
+            .thenReturn(Optional.of(mockKeyState));
+        when(mockKeyState.getKeys()).thenReturn(List.of(differentKeyPair.getPublic()));
+        when(mockKeyState.getIdentifier()).thenReturn(mockWitnessIdentifier);
+
+        // KeyLookup throws exception
+        when(mockKeyLookup.verifyWithValidKeys(any(), any(), any(), any()))
+            .thenThrow(new RuntimeException("KeyLookup failure"));
+
+        // Act - Should not throw exception
+        var result = validatorWithKeyLookup.verifySignature(mockWitnessIdentifier, signature, testData, collectionEpoch);
+
+        // Assert
+        assertThat(result).isInstanceOf(InvalidSignature.class);
+
+        // Verify metrics
+        var stats = validatorWithKeyLookup.getStats();
+        assertThat(stats.invalidSignatures()).isEqualTo(1);
+        assertThat(stats.dualKeyValidations()).isEqualTo(0);
+    }
+
+    /**
+     * Test 6: KeyLookup returns true counts dual-key validation.
+     * <p>
+     * Verifies:
+     * - KeyLookup.verifyWithValidKeys() returns true
+     * - Signature accepted via dual-key path
+     * - Dual-key metric incremented
+     * </p>
+     */
+    @Test
+    void testKeyLookup_ReturnsTrue_CountsDualKeyValidation() throws Exception {
+        // Arrange
+        var mockKeyLookup = mock(KeyLookup.class);
+        var validatorWithKeyLookup = new WitnessSignatureValidator(
+            mockKerlIntegration, mockKeyLookup, metricRegistry);
+
+        var collectionEpoch = 1L;
+        var differentKeyPair = SignatureAlgorithm.ED_25519.generateKeyPair();
+        var signature = signData(testData);
+
+        when(mockKerlIntegration.verifyIdentifier(mockWitnessIdentifier, collectionEpoch))
+            .thenReturn(Optional.of(mockKeyState));
+        when(mockKeyState.getKeys()).thenReturn(List.of(differentKeyPair.getPublic()));
+        when(mockKeyState.getIdentifier()).thenReturn(mockWitnessIdentifier);
+
+        // KeyLookup succeeds
+        when(mockKeyLookup.verifyWithValidKeys(eq(mockWitnessIdentifier), eq(signature), eq(testData), any()))
+            .thenReturn(true);
+
+        // Act
+        var result = validatorWithKeyLookup.verifySignature(mockWitnessIdentifier, signature, testData, collectionEpoch);
+
+        // Assert
+        assertThat(result).isInstanceOf(Success.class);
+
+        // Verify metrics - both counters incremented
+        var stats = validatorWithKeyLookup.getStats();
+        assertThat(stats.validSignatures()).isEqualTo(1);
+        assertThat(stats.dualKeyValidations()).isEqualTo(1);
+    }
+
+    /**
+     * Test 7: Dual-key validation records metric.
+     * <p>
+     * Verifies:
+     * - Validator with metrics registry
+     * - Dual-key validation successful
+     * - Metric counter incremented exactly once
+     * </p>
+     */
+    @Test
+    void testDualKeyValidation_RecordsDualKeyMetric() throws Exception {
+        // Arrange
+        var mockKeyLookup = mock(KeyLookup.class);
+        var testMetricRegistry = new MetricRegistry();
+        var validatorWithKeyLookup = new WitnessSignatureValidator(
+            mockKerlIntegration, mockKeyLookup, testMetricRegistry);
+
+        var collectionEpoch = 1L;
+        var differentKeyPair = SignatureAlgorithm.ED_25519.generateKeyPair();
+        var signature = signData(testData);
+
+        when(mockKerlIntegration.verifyIdentifier(mockWitnessIdentifier, collectionEpoch))
+            .thenReturn(Optional.of(mockKeyState));
+        when(mockKeyState.getKeys()).thenReturn(List.of(differentKeyPair.getPublic()));
+        when(mockKeyState.getIdentifier()).thenReturn(mockWitnessIdentifier);
+
+        when(mockKeyLookup.verifyWithValidKeys(eq(mockWitnessIdentifier), eq(signature), eq(testData), any()))
+            .thenReturn(true);
+
+        // Act
+        validatorWithKeyLookup.verifySignature(mockWitnessIdentifier, signature, testData, collectionEpoch);
+
+        // Assert - Check metric directly from registry
+        var dualKeyCounter = testMetricRegistry.counter("witness.signature.validation.dual_key");
+        assertThat(dualKeyCounter.getCount()).isEqualTo(1);
+
+        // Verify through stats as well
+        var stats = validatorWithKeyLookup.getStats();
+        assertThat(stats.dualKeyValidations()).isEqualTo(1);
+    }
 }

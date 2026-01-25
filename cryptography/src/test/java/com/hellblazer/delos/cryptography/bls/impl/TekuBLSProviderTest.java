@@ -8,6 +8,7 @@
 package com.hellblazer.delos.cryptography.bls.impl;
 
 import com.hellblazer.delos.cryptography.bls.BLSProvider;
+import com.hellblazer.delos.cryptography.bls.ParsedBLSKey;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -31,7 +32,7 @@ class TekuBLSProviderTest {
 
     @BeforeEach
     void setUp() {
-        provider = new TekuBLSProvider();
+        provider = TekuBLSProvider.getInstance();
     }
 
     // ===== Task 4.1: Key Generation Tests (RED phase) =====
@@ -377,5 +378,373 @@ class TekuBLSProviderTest {
         assertThat(aggregate.length)
             .as("Aggregate should be constant 96 bytes")
             .isEqualTo(96);
+    }
+
+    // ===== Task 1C-1-B: Caching and Singleton Tests =====
+
+    @Test
+    @DisplayName("singleton pattern returns same instance")
+    void singletonPatternReturnsSameInstance() {
+        var provider1 = TekuBLSProvider.getInstance();
+        var provider2 = TekuBLSProvider.getInstance();
+
+        assertThat(provider1)
+            .as("Should return same singleton instance")
+            .isSameAs(provider2);
+    }
+
+    @Test
+    @DisplayName("BLSProvider.getDefault returns singleton instance")
+    void blsProviderGetDefaultReturnsSingleton() {
+        var provider1 = BLSProvider.getDefault();
+        var provider2 = BLSProvider.getDefault();
+
+        assertThat(provider1)
+            .as("BLSProvider.getDefault() should return singleton")
+            .isSameAs(provider2);
+        assertThat(provider1)
+            .as("Should be instance of TekuBLSProvider")
+            .isInstanceOf(TekuBLSProvider.class);
+    }
+
+    @Test
+    @DisplayName("public key caching reduces repeated parsing overhead")
+    void publicKeyCachingReducesRepeatedParsingOverhead() {
+        var singletonProvider = TekuBLSProvider.getInstance();
+        singletonProvider.clearCache();
+
+        var random = new Random(12345);
+        var keyPair = singletonProvider.generateKeyPair(random);
+        var message = "cache test message".getBytes();
+        var signature = singletonProvider.sign(keyPair.secretKey(), message);
+
+        // First verification (cache miss)
+        var valid1 = singletonProvider.verify(keyPair.publicKey(), message, signature);
+        assertThat(valid1).as("First verification should succeed").isTrue();
+
+        var stats1 = singletonProvider.getCacheStats();
+        var initialMisses = stats1.missCount();
+        var initialHits = stats1.hitCount();
+
+        // Second verification with same key (cache hit)
+        var valid2 = singletonProvider.verify(keyPair.publicKey(), message, signature);
+        assertThat(valid2).as("Second verification should succeed").isTrue();
+
+        var stats2 = singletonProvider.getCacheStats();
+        var newHits = stats2.hitCount();
+
+        assertThat(newHits)
+            .as("Cache hit count should increase on second call with same key")
+            .isGreaterThan(initialHits);
+    }
+
+    @Test
+    @DisplayName("cache hit performance is significantly faster than cache miss")
+    void cacheHitPerformanceSignificantlyFasterThanCacheMiss() {
+        var singletonProvider = TekuBLSProvider.getInstance();
+        singletonProvider.clearCache();
+
+        var random = new Random(54321);
+        var keyPair = singletonProvider.generateKeyPair(random);
+        var message = "performance test".getBytes();
+        var signature = singletonProvider.sign(keyPair.secretKey(), message);
+
+        // Warmup to stabilize JIT
+        for (int i = 0; i < 100; i++) {
+            singletonProvider.verify(keyPair.publicKey(), message, signature);
+        }
+
+        // Measure cache miss latency (first call after clearing)
+        var missDurations = new ArrayList<Long>();
+        for (int i = 0; i < 10; i++) {
+            singletonProvider.clearCache();
+            var start = System.nanoTime();
+            singletonProvider.verify(keyPair.publicKey(), message, signature);
+            var duration = (System.nanoTime() - start) / 1000; // Convert to µs
+            missDurations.add(duration);
+        }
+        var avgMissDuration = missDurations.stream().mapToLong(Long::longValue).average().orElse(0);
+
+        // Measure cache hit latency (repeated calls with populated cache)
+        singletonProvider.clearCache();
+        singletonProvider.verify(keyPair.publicKey(), message, signature); // Populate cache
+        var hitDurations = new ArrayList<Long>();
+        for (int i = 0; i < 100; i++) {
+            var start = System.nanoTime();
+            singletonProvider.verify(keyPair.publicKey(), message, signature);
+            var duration = (System.nanoTime() - start) / 1000; // Convert to µs
+            hitDurations.add(duration);
+        }
+        var avgHitDuration = hitDurations.stream().mapToLong(Long::longValue).average().orElse(0);
+
+        // Cache hit should be faster than cache miss
+        assertThat(avgHitDuration)
+            .as("Cache hit latency should be less than cache miss latency")
+            .isLessThan(avgMissDuration);
+    }
+
+    @Test
+    @DisplayName("cache eviction when exceeding maximum size")
+    void cacheEvictionWhenExceedingMaximumSize() {
+        var singletonProvider = TekuBLSProvider.getInstance();
+        singletonProvider.clearCache();
+
+        var random = new Random(99999);
+        var message = "eviction test".getBytes();
+
+        // Generate more keys than cache size (10,000)
+        for (int i = 0; i < 10_100; i++) {
+            var keyPair = singletonProvider.generateKeyPair(random);
+            var signature = singletonProvider.sign(keyPair.secretKey(), message);
+            singletonProvider.verify(keyPair.publicKey(), message, signature);
+        }
+
+        var stats = singletonProvider.getCacheStats();
+
+        assertThat(stats.evictionCount())
+            .as("Should have evicted entries when cache exceeded max size")
+            .isGreaterThan(0);
+    }
+
+    @Test
+    @DisplayName("cache efficiency in verifyAggregate with repeated keys")
+    void cacheEfficiencyInVerifyAggregateWithRepeatedKeys() {
+        var singletonProvider = TekuBLSProvider.getInstance();
+        singletonProvider.clearCache();
+
+        var random = new Random(777);
+        var message = "aggregate cache test".getBytes();
+
+        // Generate 100 keys and signatures
+        var publicKeys = new ArrayList<byte[]>();
+        var signatures = new ArrayList<byte[]>();
+        for (int i = 0; i < 100; i++) {
+            var keyPair = singletonProvider.generateKeyPair(random);
+            publicKeys.add(keyPair.publicKey());
+            signatures.add(singletonProvider.sign(keyPair.secretKey(), message));
+        }
+
+        var aggregate = singletonProvider.aggregateSignatures(signatures);
+
+        // Get initial cache stats
+        singletonProvider.clearCache();
+        singletonProvider.verifyAggregate(publicKeys, message, aggregate);
+        var stats1 = singletonProvider.getCacheStats();
+        var misses1 = stats1.missCount();
+
+        // Verify again - should have cache hits
+        singletonProvider.verifyAggregate(publicKeys, message, aggregate);
+        var stats2 = singletonProvider.getCacheStats();
+        var hits2 = stats2.hitCount();
+
+        assertThat(hits2)
+            .as("Second verifyAggregate call should have cache hits for keys")
+            .isGreaterThan(0);
+    }
+
+    // ===== Phase 1C-1-C: Batch Aggregate Verification Tests =====
+
+    @Test
+    @DisplayName("batchVerifyAggregatesImpl with valid aggregates returns true")
+    void batchVerifyAggregatesImplWithValidAggregatesReturnsTrue() {
+        var singletonProvider = TekuBLSProvider.getInstance();
+        var random = new Random(888);
+
+        // Create committee of 10 keys
+        var committee = new ArrayList<byte[]>();
+        var secretKeys = new ArrayList<byte[]>();
+        for (int i = 0; i < 10; i++) {
+            var keyPair = singletonProvider.generateKeyPair(random);
+            committee.add(keyPair.publicKey());
+            secretKeys.add(keyPair.secretKey());
+        }
+
+        // Create 3 aggregates with different messages and signer subsets
+        var message1 = "Block 100".getBytes();
+        var message2 = "Block 101".getBytes();
+        var message3 = "Block 102".getBytes();
+
+        // Aggregate 1: Signers 0, 1, 2
+        var sigs1 = new ArrayList<byte[]>();
+        for (int i = 0; i <= 2; i++) {
+            sigs1.add(singletonProvider.sign(secretKeys.get(i), message1));
+        }
+        var agg1 = singletonProvider.aggregateSignatures(sigs1);
+
+        // Aggregate 2: Signers 3, 4, 5, 6
+        var sigs2 = new ArrayList<byte[]>();
+        for (int i = 3; i <= 6; i++) {
+            sigs2.add(singletonProvider.sign(secretKeys.get(i), message2));
+        }
+        var agg2 = singletonProvider.aggregateSignatures(sigs2);
+
+        // Aggregate 3: Signers 7, 8, 9
+        var sigs3 = new ArrayList<byte[]>();
+        for (int i = 7; i <= 9; i++) {
+            sigs3.add(singletonProvider.sign(secretKeys.get(i), message3));
+        }
+        var agg3 = singletonProvider.aggregateSignatures(sigs3);
+
+        // Prepare batch verification inputs
+        var filteredKeyLists = List.of(
+            List.of(committee.get(0), committee.get(1), committee.get(2)),
+            List.of(committee.get(3), committee.get(4), committee.get(5), committee.get(6)),
+            List.of(committee.get(7), committee.get(8), committee.get(9))
+        );
+        var messages = List.of(message1, message2, message3);
+        var signatures = List.of(agg1, agg2, agg3);
+
+        // WHEN: Batch verify aggregates
+        var result = provider.batchVerifyAggregatesImpl(filteredKeyLists, messages, signatures);
+
+        // THEN: Should verify successfully
+        assertThat(result)
+            .as("Valid aggregates should batch-verify")
+            .isTrue();
+    }
+
+    @Test
+    @DisplayName("batchVerifyAggregatesImpl with invalid signature returns false")
+    void batchVerifyAggregatesImplWithInvalidSignatureReturnsFalse() {
+        var singletonProvider = TekuBLSProvider.getInstance();
+        var random = new Random(999);
+
+        var committee = new ArrayList<byte[]>();
+        var secretKeys = new ArrayList<byte[]>();
+        for (int i = 0; i < 5; i++) {
+            var keyPair = singletonProvider.generateKeyPair(random);
+            committee.add(keyPair.publicKey());
+            secretKeys.add(keyPair.secretKey());
+        }
+
+        var message1 = "Valid message".getBytes();
+        var message2 = "Invalid message".getBytes();
+
+        // Create valid aggregate for message1
+        var sigs1 = new ArrayList<byte[]>();
+        for (int i = 0; i < 3; i++) {
+            sigs1.add(singletonProvider.sign(secretKeys.get(i), message1));
+        }
+        var agg1 = singletonProvider.aggregateSignatures(sigs1);
+
+        // Create valid aggregate for message2, but use wrong message for verification
+        var sigs2 = new ArrayList<byte[]>();
+        for (int i = 3; i < 5; i++) {
+            sigs2.add(singletonProvider.sign(secretKeys.get(i), message2));
+        }
+        var agg2 = singletonProvider.aggregateSignatures(sigs2);
+
+        var filteredKeyLists = List.of(
+            List.of(committee.get(0), committee.get(1), committee.get(2)),
+            List.of(committee.get(3), committee.get(4))
+        );
+        // Use wrong message for the second aggregate - verification should fail
+        var messages = List.of(message1, message1);
+        var signatures = List.of(agg1, agg2);
+
+        // WHEN: Batch verify with one invalid
+        var result = provider.batchVerifyAggregatesImpl(filteredKeyLists, messages, signatures);
+
+        // THEN: Should return false
+        assertThat(result)
+            .as("One invalid aggregate should cause batch verification to fail")
+            .isFalse();
+    }
+
+    @Test
+    @DisplayName("batchVerifyAggregatesImpl with empty list returns true")
+    void batchVerifyAggregatesImplWithEmptyListReturnsTrue() {
+        var result = provider.batchVerifyAggregatesImpl(List.of(), List.of(), List.of());
+
+        assertThat(result)
+            .as("Empty batch should verify successfully")
+            .isTrue();
+    }
+
+    @Test
+    @DisplayName("batchVerifyAggregatesImpl rejects mismatched list sizes")
+    void batchVerifyAggregatesImplRejectsMismatchedListSizes() {
+        assertThatThrownBy(() -> provider.batchVerifyAggregatesImpl(
+            List.of(List.of()),
+            List.of(),
+            List.of()
+        ))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("List sizes must match");
+    }
+
+    @Test
+    @DisplayName("batchVerifyAggregatesImpl rejects null parameters")
+    void batchVerifyAggregatesImplRejectsNullParameters() {
+        assertThatThrownBy(() -> provider.batchVerifyAggregatesImpl(null, List.of(), List.of()))
+            .isInstanceOf(NullPointerException.class);
+
+        assertThatThrownBy(() -> provider.batchVerifyAggregatesImpl(List.of(), null, List.of()))
+            .isInstanceOf(NullPointerException.class);
+
+        assertThatThrownBy(() -> provider.batchVerifyAggregatesImpl(List.of(), List.of(), null))
+            .isInstanceOf(NullPointerException.class);
+    }
+
+    // ===== parse() Tests (Phase 1C-1-D) =====
+
+    @Test
+    @DisplayName("parse with valid public key returns ParsedBLSKey")
+    void parseWithValidPublicKeyReturnsParsedBLSKey() {
+        var random = new Random(42L);
+        var keyPair = provider.generateKeyPair(random);
+        var publicKey = keyPair.publicKey();
+
+        var parsed = provider.parse(publicKey);
+
+        assertThat(parsed)
+            .isNotNull()
+            .isInstanceOf(ParsedBLSKey.class);
+        assertThat(parsed.parsedKey()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("parse rejects null public key")
+    void parseRejectsNullPublicKey() {
+        assertThatThrownBy(() -> provider.parse(null))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessageContaining("publicKey");
+    }
+
+    @Test
+    @DisplayName("parse rejects wrong-length public key")
+    void parseRejectsWrongLengthPublicKey() {
+        var invalidKey = new byte[32]; // Wrong: should be 48 bytes
+
+        assertThatThrownBy(() -> provider.parse(invalidKey))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("48 bytes");
+    }
+
+    @Test
+    @DisplayName("parse with multiple valid keys creates distinct ParsedBLSKey instances")
+    void parseWithMultipleValidKeysCreateDistinctInstances() {
+        var random = new Random(123L);
+        var key1 = provider.generateKeyPair(random).publicKey();
+        var key2 = provider.generateKeyPair(random).publicKey();
+
+        var parsed1 = provider.parse(key1);
+        var parsed2 = provider.parse(key2);
+
+        assertThat(parsed1).isNotEqualTo(parsed2);
+        assertThat(parsed1.parsedKey()).isNotEqualTo(parsed2.parsedKey());
+    }
+
+    @Test
+    @DisplayName("parse with same public key returns equivalent ParsedBLSKey (due to LRU cache)")
+    void parseWithSamePublicKeyReturnsCachedInstance() {
+        var random = new Random(456L);
+        var publicKey = provider.generateKeyPair(random).publicKey();
+
+        var parsed1 = provider.parse(publicKey);
+        var parsed2 = provider.parse(publicKey);
+
+        // Due to LRU cache in parsePublicKey, the same Teku BLSPublicKey instance is returned
+        assertThat(parsed1.parsedKey()).isSameAs(parsed2.parsedKey());
     }
 }

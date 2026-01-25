@@ -7,8 +7,10 @@
  */
 package com.hellblazer.delos.witness.aggregation;
 
+import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
 
+import java.time.Instant;
 import java.util.Objects;
 
 /**
@@ -21,7 +23,11 @@ public sealed interface AccumulationResult
     permits AccumulationResult.Accumulated,
             AccumulationResult.ThresholdMet,
             AccumulationResult.AlreadyPresent,
-            AccumulationResult.InvalidSignature {
+            AccumulationResult.InvalidSignature,
+            AccumulationResult.EpochMismatch,
+            AccumulationResult.ViewRefMismatch,
+            AccumulationResult.LateSigner,
+            AccumulationResult.Buffered {
 
     /**
      * Signature successfully accumulated, threshold not yet met.
@@ -91,6 +97,90 @@ public sealed interface AccumulationResult
         }
     }
 
+    /**
+     * Epoch mismatch detected.
+     * Signature provides a different epoch than the accumulator.
+     *
+     * @param member The member whose signature had epoch mismatch
+     * @param expectedEpoch Epoch expected by accumulator
+     * @param providedEpoch Epoch provided by member
+     */
+    record EpochMismatch(
+        Identifier member,
+        long expectedEpoch,
+        long providedEpoch
+    ) implements AccumulationResult {
+        public EpochMismatch {
+            Objects.requireNonNull(member, "member cannot be null");
+            if (expectedEpoch < 0 || providedEpoch < 0) {
+                throw new IllegalArgumentException("epochs must be >= 0");
+            }
+        }
+    }
+
+    /**
+     * ViewRef mismatch detected.
+     * Signature provides a different view reference than the accumulator.
+     *
+     * @param member The member whose signature had viewRef mismatch
+     * @param expectedViewRef ViewRef expected by accumulator
+     * @param providedViewRef ViewRef provided by member
+     */
+    record ViewRefMismatch(
+        Identifier member,
+        Digest expectedViewRef,
+        Digest providedViewRef
+    ) implements AccumulationResult {
+        public ViewRefMismatch {
+            Objects.requireNonNull(member, "member cannot be null");
+            Objects.requireNonNull(expectedViewRef, "expectedViewRef cannot be null");
+            Objects.requireNonNull(providedViewRef, "providedViewRef cannot be null");
+        }
+    }
+
+    /**
+     * Late signer detected.
+     * Signature arrived after threshold was already met.
+     *
+     * @param member The member whose signature arrived late
+     * @param thresholdReached Threshold value that was already met
+     * @param thresholdReachedAt When the threshold was met
+     */
+    record LateSigner(
+        Identifier member,
+        int thresholdReached,
+        Instant thresholdReachedAt
+    ) implements AccumulationResult {
+        public LateSigner {
+            Objects.requireNonNull(member, "member cannot be null");
+            Objects.requireNonNull(thresholdReachedAt, "thresholdReachedAt cannot be null");
+            if (thresholdReached < 1) {
+                throw new IllegalArgumentException("threshold must be >= 1");
+            }
+        }
+    }
+
+    /**
+     * Signature buffered during view transition.
+     * Will be replayed when new committee is active.
+     *
+     * @param member The member whose signature was buffered
+     * @param bufferPosition Position in buffer queue
+     * @param expectedReplayEpoch Epoch when signature will be replayed
+     */
+    record Buffered(
+        Identifier member,
+        int bufferPosition,
+        long expectedReplayEpoch
+    ) implements AccumulationResult {
+        public Buffered {
+            Objects.requireNonNull(member, "member cannot be null");
+            if (bufferPosition < 0) {
+                throw new IllegalArgumentException("bufferPosition must be >= 0");
+            }
+        }
+    }
+
     /** Check if accumulation was successful (Accumulated or ThresholdMet). */
     default boolean isSuccess() {
         return this instanceof Accumulated || this instanceof ThresholdMet;
@@ -99,5 +189,10 @@ public sealed interface AccumulationResult
     /** Check if threshold was reached. */
     default boolean isThresholdMet() {
         return this instanceof ThresholdMet;
+    }
+
+    /** Check if signature was buffered during view transition. */
+    default boolean isBuffered() {
+        return this instanceof Buffered;
     }
 }

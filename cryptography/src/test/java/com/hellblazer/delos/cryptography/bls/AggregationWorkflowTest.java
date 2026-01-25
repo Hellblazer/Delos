@@ -33,7 +33,7 @@ import static org.assertj.core.api.Assertions.*;
  */
 class AggregationWorkflowTest {
 
-    private static final TekuBLSProvider PROVIDER = new TekuBLSProvider();
+    private static final TekuBLSProvider PROVIDER = TekuBLSProvider.getInstance();
     private static final byte[] MESSAGE = BLSTestFixtures.randomMessage(32);
     private static int nextSignerSeed = 0x200;
 

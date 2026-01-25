@@ -272,4 +272,246 @@ class WitnessProtoTest {
         assertThat(receipt.getSignaturesCount()).isEqualTo(3);
         assertThat(receipt.getSignaturesList()).containsExactly(sig1, sig2, sig3);
     }
+
+    // Phase 1C: Multi-committee receipt tests
+
+    @Test
+    void shouldCreateCommitteeContribution() {
+        var contribution = CommitteeContribution.newBuilder()
+                                               .setEpoch(42)
+                                               .setSignerBitmap(com.google.protobuf.ByteString.copyFrom(new byte[]{0x0F, 0x7F}))
+                                               .setSignerCount(7)
+                                               .build();
+
+        assertThat(contribution.getEpoch()).isEqualTo(42);
+        assertThat(contribution.getSignerBitmap().toByteArray()).containsExactly(0x0F, 0x7F);
+        assertThat(contribution.getSignerCount()).isEqualTo(7);
+    }
+
+    @Test
+    void shouldSerializeAndDeserializeCommitteeContribution() throws Exception {
+        var contribution = CommitteeContribution.newBuilder()
+                                               .setEpoch(100)
+                                               .setSignerBitmap(com.google.protobuf.ByteString.copyFrom(new byte[]{(byte) 0xFF, 0x00, 0x0F}))
+                                               .setSignerCount(13)
+                                               .build();
+
+        // Serialize
+        var bytes = contribution.toByteArray();
+        assertThat(bytes).isNotEmpty();
+
+        // Deserialize
+        var deserialized = CommitteeContribution.parseFrom(bytes);
+
+        // Verify identical
+        assertThat(deserialized).isEqualTo(contribution);
+        assertThat(deserialized.getEpoch()).isEqualTo(100);
+        assertThat(deserialized.getSignerCount()).isEqualTo(13);
+        assertThat(deserialized.getSignerBitmap().toByteArray()).containsExactly((byte) 0xFF, 0x00, 0x0F);
+    }
+
+    @Test
+    void shouldCreateMultiCommitteeReceipt() {
+        var eventCoords = EventCoords.newBuilder()
+                                      .setIdentifier(Ident.newBuilder().setNONE(true).build())
+                                      .setSequenceNumber(5)
+                                      .setIlk("rot")
+                                      .setDigest(Digeste.newBuilder().setType(2).build())
+                                      .build();
+
+        var contribution1 = CommitteeContribution.newBuilder()
+                                                 .setEpoch(41)
+                                                 .setSignerBitmap(com.google.protobuf.ByteString.copyFrom(new byte[]{0x0F}))
+                                                 .setSignerCount(4)
+                                                 .build();
+
+        var contribution2 = CommitteeContribution.newBuilder()
+                                                 .setEpoch(42)
+                                                 .setSignerBitmap(com.google.protobuf.ByteString.copyFrom(new byte[]{0x07}))
+                                                 .setSignerCount(3)
+                                                 .build();
+
+        var aggregatedSig = new byte[96]; // 96-byte BLS signature
+        for (int i = 0; i < 96; i++) {
+            aggregatedSig[i] = (byte) (i % 256);
+        }
+
+        var receipt = MultiCommitteeReceipt.newBuilder()
+                                           .setAggregatedSignature(com.google.protobuf.ByteString.copyFrom(aggregatedSig))
+                                           .addContributions(contribution1)
+                                           .addContributions(contribution2)
+                                           .setCommitteeContributionBitmap(com.google.protobuf.ByteString.copyFrom(new byte[]{0x03}))
+                                           .setTotalSignerCount(7)
+                                           .setEvent(eventCoords)
+                                           .build();
+
+        assertThat(receipt.getAggregatedSignature().toByteArray()).hasSize(96);
+        assertThat(receipt.getContributionsCount()).isEqualTo(2);
+        assertThat(receipt.getContributions(0)).isEqualTo(contribution1);
+        assertThat(receipt.getContributions(1)).isEqualTo(contribution2);
+        assertThat(receipt.getTotalSignerCount()).isEqualTo(7);
+        assertThat(receipt.getEvent()).isEqualTo(eventCoords);
+    }
+
+    @Test
+    void shouldSerializeAndDeserializeMultiCommitteeReceipt() throws Exception {
+        var eventCoords = EventCoords.newBuilder()
+                                      .setIdentifier(Ident.newBuilder().setNONE(true).build())
+                                      .setSequenceNumber(10)
+                                      .setIlk("ixn")
+                                      .setDigest(Digeste.newBuilder().setType(3).build())
+                                      .build();
+
+        var contribution = CommitteeContribution.newBuilder()
+                                               .setEpoch(50)
+                                               .setSignerBitmap(com.google.protobuf.ByteString.copyFrom(new byte[]{0x1F}))
+                                               .setSignerCount(5)
+                                               .build();
+
+        var aggregatedSig = new byte[96];
+        for (int i = 0; i < 96; i++) {
+            aggregatedSig[i] = (byte) 0xAB;
+        }
+
+        var receipt = MultiCommitteeReceipt.newBuilder()
+                                           .setAggregatedSignature(com.google.protobuf.ByteString.copyFrom(aggregatedSig))
+                                           .addContributions(contribution)
+                                           .setCommitteeContributionBitmap(com.google.protobuf.ByteString.copyFrom(new byte[]{0x01}))
+                                           .setTotalSignerCount(5)
+                                           .setEvent(eventCoords)
+                                           .build();
+
+        // Serialize
+        var bytes = receipt.toByteArray();
+        assertThat(bytes).isNotEmpty();
+
+        // Deserialize
+        var deserialized = MultiCommitteeReceipt.parseFrom(bytes);
+
+        // Verify identical
+        assertThat(deserialized).isEqualTo(receipt);
+        assertThat(deserialized.getEvent().getSequenceNumber()).isEqualTo(10);
+        assertThat(deserialized.getTotalSignerCount()).isEqualTo(5);
+        assertThat(deserialized.getContributionsCount()).isEqualTo(1);
+        assertThat(deserialized.getContributions(0).getEpoch()).isEqualTo(50);
+    }
+
+    @Test
+    void shouldCreateWitnessReceiptWithMultiCommitteeReceipt() {
+        var eventCoords = EventCoords.newBuilder()
+                                      .setIdentifier(Ident.newBuilder().setNONE(true).build())
+                                      .setSequenceNumber(15)
+                                      .setIlk("rot")
+                                      .setDigest(Digeste.newBuilder().setType(2).build())
+                                      .build();
+
+        var contribution = CommitteeContribution.newBuilder()
+                                               .setEpoch(60)
+                                               .setSignerBitmap(com.google.protobuf.ByteString.copyFrom(new byte[]{0x3F}))
+                                               .setSignerCount(6)
+                                               .build();
+
+        var multiCommitteeReceipt = MultiCommitteeReceipt.newBuilder()
+                                                         .setAggregatedSignature(com.google.protobuf.ByteString.copyFrom(new byte[96]))
+                                                         .addContributions(contribution)
+                                                         .setCommitteeContributionBitmap(com.google.protobuf.ByteString.copyFrom(new byte[]{0x01}))
+                                                         .setTotalSignerCount(6)
+                                                         .setEvent(eventCoords)
+                                                         .build();
+
+        var receipt = WitnessReceipt.newBuilder()
+                                    .setEventCoordinates(eventCoords)
+                                    .setEventDigest(Digeste.newBuilder().setType(2).build())
+                                    .setEpoch(60)
+                                    .setViewRef(Digeste.newBuilder().setType(3).build())
+                                    .setTimestamp(Timestamp.newBuilder().setSeconds(1234567890).build())
+                                    .setMultiCommitteeReceipt(multiCommitteeReceipt)
+                                    .build();
+
+        assertThat(receipt.hasMultiCommitteeReceipt()).isTrue();
+        assertThat(receipt.getMultiCommitteeReceipt()).isEqualTo(multiCommitteeReceipt);
+        assertThat(receipt.getMultiCommitteeReceipt().getTotalSignerCount()).isEqualTo(6);
+    }
+
+    @Test
+    void shouldSerializeAndDeserializeWitnessReceiptWithMultiCommitteeReceipt() throws Exception {
+        var eventCoords = EventCoords.newBuilder()
+                                      .setIdentifier(Ident.newBuilder().setNONE(true).build())
+                                      .setSequenceNumber(20)
+                                      .setIlk("ixn")
+                                      .build();
+
+        var contribution1 = CommitteeContribution.newBuilder()
+                                                 .setEpoch(70)
+                                                 .setSignerBitmap(com.google.protobuf.ByteString.copyFrom(new byte[]{0x7F}))
+                                                 .setSignerCount(7)
+                                                 .build();
+
+        var contribution2 = CommitteeContribution.newBuilder()
+                                                 .setEpoch(71)
+                                                 .setSignerBitmap(com.google.protobuf.ByteString.copyFrom(new byte[]{0x1F}))
+                                                 .setSignerCount(5)
+                                                 .build();
+
+        var multiCommitteeReceipt = MultiCommitteeReceipt.newBuilder()
+                                                         .setAggregatedSignature(com.google.protobuf.ByteString.copyFrom(new byte[96]))
+                                                         .addContributions(contribution1)
+                                                         .addContributions(contribution2)
+                                                         .setCommitteeContributionBitmap(com.google.protobuf.ByteString.copyFrom(new byte[]{0x03}))
+                                                         .setTotalSignerCount(12)
+                                                         .setEvent(eventCoords)
+                                                         .build();
+
+        var receipt = WitnessReceipt.newBuilder()
+                                    .setEventCoordinates(eventCoords)
+                                    .setEventDigest(Digeste.newBuilder().setType(2).build())
+                                    .setEpoch(71)
+                                    .setViewRef(Digeste.newBuilder().setType(3).build())
+                                    .setTimestamp(Timestamp.newBuilder().setSeconds(1234567890).build())
+                                    .setMultiCommitteeReceipt(multiCommitteeReceipt)
+                                    .build();
+
+        // Serialize
+        var bytes = receipt.toByteArray();
+        assertThat(bytes).isNotEmpty();
+
+        // Deserialize
+        var deserialized = WitnessReceipt.parseFrom(bytes);
+
+        // Verify identical
+        assertThat(deserialized).isEqualTo(receipt);
+        assertThat(deserialized.hasMultiCommitteeReceipt()).isTrue();
+        assertThat(deserialized.getMultiCommitteeReceipt().getContributionsCount()).isEqualTo(2);
+        assertThat(deserialized.getMultiCommitteeReceipt().getTotalSignerCount()).isEqualTo(12);
+    }
+
+    @Test
+    void shouldHaveCorrectFieldNumbersForMultiCommitteeReceipt() {
+        var descriptor = MultiCommitteeReceipt.getDescriptor();
+
+        assertThat(descriptor.findFieldByName("aggregated_signature").getNumber()).isEqualTo(1);
+        assertThat(descriptor.findFieldByName("contributions").getNumber()).isEqualTo(2);
+        assertThat(descriptor.findFieldByName("committee_contribution_bitmap").getNumber()).isEqualTo(3);
+        assertThat(descriptor.findFieldByName("total_signer_count").getNumber()).isEqualTo(4);
+        assertThat(descriptor.findFieldByName("event").getNumber()).isEqualTo(5);
+    }
+
+    @Test
+    void shouldHaveCorrectFieldNumbersForCommitteeContribution() {
+        var descriptor = CommitteeContribution.getDescriptor();
+
+        assertThat(descriptor.findFieldByName("epoch").getNumber()).isEqualTo(1);
+        assertThat(descriptor.findFieldByName("signer_bitmap").getNumber()).isEqualTo(2);
+        assertThat(descriptor.findFieldByName("signer_count").getNumber()).isEqualTo(3);
+    }
+
+    @Test
+    void shouldHaveMultiCommitteeReceiptFieldInWitnessReceipt() {
+        var descriptor = WitnessReceipt.getDescriptor();
+        var field = descriptor.findFieldByName("multiCommitteeReceipt");
+
+        assertThat(field).isNotNull();
+        assertThat(field.getNumber()).isEqualTo(13);
+        assertThat(field.isOptional()).isTrue();
+    }
 }

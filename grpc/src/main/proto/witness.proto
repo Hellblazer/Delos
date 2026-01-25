@@ -26,6 +26,43 @@ message BLSAggregateSignature {
 }
 
 /**
+ * Per-committee contribution to multi-committee aggregate.
+ * Phase 1C: Tracks which members from each committee contributed.
+ */
+message CommitteeContribution {
+  // Committee epoch identifier
+  int64 epoch = 1;
+
+  // Bitmap of signers in this committee (compact representation)
+  bytes signer_bitmap = 2;
+
+  // Number of signers in this committee (for validation)
+  int32 signer_count = 3;
+}
+
+/**
+ * Multi-committee BLS aggregate receipt.
+ * Phase 1C: Aggregates signatures across multiple committees spanning view changes.
+ * Provides accountability through per-committee contribution tracking.
+ */
+message MultiCommitteeReceipt {
+  // 96-byte BLS12-381 aggregate signature across all committees
+  bytes aggregated_signature = 1;
+
+  // Per-committee contribution data (epoch, bitmap, count)
+  repeated CommitteeContribution contributions = 2;
+
+  // Bitmap indicating which committees contributed (compact committee set)
+  bytes committee_contribution_bitmap = 3;
+
+  // Total unique signers across all committees
+  int32 total_signer_count = 4;
+
+  // Event coordinates being witnessed
+  stereotomy.EventCoords event = 5;
+}
+
+/**
  * Witness receipt for KERI key events.
  * Includes event coordinates, digest, witness signatures, and Fireflies view reference.
  * Immutable once threshold achieved.
@@ -58,6 +95,11 @@ message WitnessReceipt {
   // Signer bitmap for BLS (bit array indicating which committee members signed)
   // Encoded as raw bytes for compact representation
   bytes signerBitmap = 12;
+
+  // Phase 1C: Multi-committee aggregate receipt (spans view changes)
+  // If present, supersedes blsSig/signerBitmap fields
+  // Provides accountability across committee epochs
+  MultiCommitteeReceipt multiCommitteeReceipt = 13;
 }
 
 /**
@@ -580,6 +622,13 @@ service WitnessService {
   rpc GetReceipt(ReceiptRequest) returns (ReceiptResponse);
 
   /**
+   * Retrieve BLS aggregate receipt by event coordinates.
+   * Blocks until aggregate available or timeout.
+   * Returns TIMEOUT status if BLS threshold not yet met.
+   */
+  rpc GetAggregateReceipt(ReceiptRequest) returns (ReceiptResponse);
+
+  /**
    * Validate receipt signature threshold.
    * Verifies M-of-N signatures and epoch/view consistency.
    */
@@ -590,6 +639,13 @@ service WitnessService {
    * Enables push-based receipt gossip and propagation.
    */
   rpc SubscribeReceipts(ReceiptFilter) returns (stream WitnessReceipt);
+
+  /**
+   * Subscribe to aggregate receipt stream matching filter criteria.
+   * Streams BLS aggregate receipts as threshold met.
+   * Enables push-based aggregate receipt notification.
+   */
+  rpc SubscribeAggregateReceipts(ReceiptFilter) returns (stream WitnessReceipt);
 
   /**
    * Poll receipt future for completion status.
@@ -685,4 +741,198 @@ service PhaseTransitionService {
    * Non-blocking query of BFT quorum status.
    */
   rpc GetTransitionReadiness(GetTransitionReadinessRequest) returns (GetTransitionReadinessResponse);
+}
+
+/**
+ * Tree shape configuration for hierarchical aggregation.
+ * Defines branching factor, maximum depth, and committee count.
+ * Used in HierarchicalAggregate and RecursiveAggregateReceipt.
+ */
+message TreeConfiguration {
+  int32 branching_factor = 1;  // Typical: 8
+  int32 max_depth = 2;          // Computed as ceil(log_k(committee_count))
+  int32 committee_count = 3;    // Total committees aggregated
+}
+
+/**
+ * Leaf node in hierarchical aggregation tree.
+ * Represents aggregated signatures from a single committee.
+ */
+message LeafNode {
+  int64 committee_epoch = 1;    // Epoch this committee aggregated for
+  bytes aggregated_signature = 2;  // 96 bytes BLS12-381 signature
+  int32 signer_count = 3;          // Number of signers in committee
+  bytes signer_bitmap = 4;         // Compact bitmap of signer positions
+  int32 depth = 5;                 // 0 for leaf nodes
+  int32 index = 6;                 // Position in parent's children array
+}
+
+/**
+ * Intermediate node in hierarchical aggregation tree.
+ * Recursively aggregates child node signatures.
+ */
+message IntermediateNode {
+  repeated TreeNode children = 1;      // Child nodes (leaves or intermediate)
+  bytes aggregated_signature = 2;      // 96 bytes BLS12-381 aggregate
+  int32 total_signer_count = 3;        // Sum of all descendant signers
+  int32 depth = 4;                     // Height in tree (leaves at 0)
+  int32 index = 5;                     // Position in parent's children array
+}
+
+/**
+ * Sealed variant representing tree node - either leaf or intermediate.
+ * Phase 1C-2-A: Hierarchical aggregation tree node.
+ */
+message TreeNode {
+  oneof node_type {
+    LeafNode leaf = 1;
+    IntermediateNode intermediate = 2;
+  }
+}
+
+/**
+ * Hierarchical aggregation result combining multi-level tree with configuration.
+ * Phase 1C-2-A: Complete aggregation tree for multi-committee signatures.
+ *
+ * Storage breakdown for typical 100-committee configuration (k=8):
+ * - Root signature: 96 bytes
+ * - Tree nodes: ~1KB
+ * - Configuration: ~12 bytes
+ * - Metadata: ~40 bytes
+ * - Total: ~1.2KB (78% reduction vs Ed25519 flat aggregation)
+ *
+ * Thread-safety: Immutable record, safe for sharing across threads/virtual threads.
+ */
+message HierarchicalAggregate {
+  TreeNode root = 1;
+  TreeConfiguration config = 2;
+  stereotomy.EventCoords event = 3;
+  int32 total_signer_count = 4;       // Across all committees
+  int32 leaf_committee_count = 5;     // Number of leaf nodes
+}
+
+/**
+ * Compression codec for RecursiveAggregateReceipt storage optimization.
+ * Phase 3.3: Standard compression libraries for proto-serialized bytes.
+ *
+ * NONE: No compression (baseline ~2.3KB for 10 epochs, used for fallback)
+ * LZ4: Fast compression with 10-15% reduction, <10ms latency
+ * ZSTD: Better compression with 15-20% reduction, balanced speed/ratio
+ */
+enum CompressionCodec {
+  NONE = 0;
+  LZ4 = 1;
+  ZSTD = 2;
+}
+
+/**
+ * Single epoch link in recursive aggregation chain.
+ * Cryptographically links consecutive epochs to prevent history rewriting.
+ * Phase 1C-2-B: Cross-epoch aggregation chaining.
+ *
+ * Cryptographic binding:
+ * previous_root_hash = Hash(previous_epoch_number || previous_aggregated_signature)
+ *
+ * This ensures:
+ * 1. History immutability: Cannot change past signatures
+ * 2. Order preservation: Cannot reorder epochs
+ * 3. Completeness: Cannot skip epochs
+ *
+ * Storage optimization:
+ * - Unchanged epoch: ~44 bytes (no new aggregated_signature)
+ * - Changed epoch: ~160 bytes (includes new signature + bitmap)
+ * - Example: 10 epochs with 3 changes = 3*160 + 7*44 = 788 bytes
+ */
+message EpochLink {
+  int64 epoch_number = 1;                    // Sequential epoch identifier
+  crypto.Digeste previous_root_hash = 2;     // 32-byte hash binding to previous epoch
+                                              // Includes epoch_number to prevent reordering
+  bytes aggregated_signature = 3;             // 96 bytes BLS12-381 (optional for unchanged)
+  bytes committee_contribution_bitmap = 4;   // Bitmap indicating committee changes
+  int32 total_signer_count = 5;              // Total signers in this epoch
+  google.protobuf.Timestamp timestamp = 6;   // Epoch completion time
+  bool has_committee_changes = 7;             // Indicates if aggregated_signature present
+}
+
+/**
+ * Recursive aggregate receipt for cross-epoch proofs.
+ * Phase 1C-2-B: Enables compact historical proofs with Byzantine isolation.
+ *
+ * Structure:
+ * - base_aggregate: Initial HierarchicalAggregate for first epoch
+ * - epoch_chain: Series of EpochLinks showing progression through time
+ * - event: Event these aggregates represent
+ *
+ * Storage characteristics:
+ * - Baseline: ~2.3KB for 10 epochs (3 with committee changes, 7 unchanged)
+ * - Compressed (Phase 2): ~1.0-1.5KB with HYBRID codec
+ *
+ * Verification:
+ * - O(log_k n) per epoch (where k=branching_factor, n=committee_count)
+ * - Total: O(M*(log n)) for M epochs with n committees
+ *
+ * Byzantine isolation:
+ * - Can identify which epoch is corrupt via chain validation
+ * - Can identify which committee is corrupt via tree traversal
+ * - Complexity: O(M + log n) where M=epochs, n=committees
+ *
+ * Usage:
+ * 1. Create base_aggregate for first epoch consensus
+ * 2. As epochs progress, append EpochLink entries
+ * 3. Serialize with compression_codec = NONE (baseline)
+ * 4. Phase 2: Compress using specified codec for storage
+ *
+ * Thread-safety: Immutable record, safe for concurrent access.
+ */
+message RecursiveAggregateReceipt {
+  HierarchicalAggregate base_aggregate = 1;  // Initial hierarchical tree
+  repeated EpochLink epoch_chain = 2;        // Progression through epochs
+  int64 start_epoch = 3;                     // First epoch in chain
+  int64 end_epoch = 4;                       // Last epoch in chain
+  stereotomy.EventCoords event = 5;          // Event being aggregated
+  int32 total_unique_signers = 6;            // Cumulative unique signers
+  CompressionCodec compression_codec = 7;    // Codec used for storage (PHASE 2)
+}
+
+/**
+ * Efficient path representation for cross-epoch proof verification.
+ * Phase 1C-2-B: Enables selective verification of historical consensus state.
+ *
+ * Usage pattern:
+ * 1. RecursiveAggregateReceipt contains full chain
+ * 2. HistoricalProofPath extracts minimal path for specific verification target
+ * 3. Verification checks: epoch boundaries + tree path to target member
+ *
+ * Storage: Much smaller than full receipt when verifying single target
+ */
+message HistoricalProofPath {
+  int64 target_epoch = 1;                    // Epoch to verify
+  repeated ProofPathNode path_nodes = 2;     // Nodes along verification path
+  crypto.Digeste root_signature_hash = 3;    // Expected root hash (target epoch)
+  CompressionCodec compression = 4;           // Codec applied
+}
+
+message ProofPathNode {
+  oneof node {
+    EpochBoundary epoch_boundary = 1;
+    CommitteeNode committee = 2;
+    IntermediateAgg intermediate = 3;
+  }
+}
+
+message EpochBoundary {
+  crypto.Digeste previous_hash = 1;
+  crypto.Digeste next_hash = 2;
+  int64 epoch_transition = 3;
+}
+
+message CommitteeNode {
+  int32 committee_index = 1;
+  bytes signature = 2;
+  bytes bitmap = 3;
+}
+
+message IntermediateAgg {
+  repeated crypto.Digeste child_hashes = 1;
+  bytes aggregated_signature = 2;
 }

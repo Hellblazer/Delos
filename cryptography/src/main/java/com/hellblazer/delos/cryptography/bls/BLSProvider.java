@@ -55,10 +55,10 @@ public interface BLSProvider {
     /**
      * Get the default BLS provider implementation.
      *
-     * @return Default provider (TekuBLSProvider)
+     * @return Default provider (TekuBLSProvider singleton)
      */
     static BLSProvider getDefault() {
-        return new com.hellblazer.delos.cryptography.bls.impl.TekuBLSProvider();
+        return com.hellblazer.delos.cryptography.bls.impl.TekuBLSProvider.getInstance();
     }
 
     /**
@@ -130,6 +130,81 @@ public interface BLSProvider {
     boolean batchVerify(List<byte[]> publicKeys, List<byte[]> messages, List<byte[]> signatures);
 
     /**
+     * Batch verify multiple BLS aggregates at once.
+     * <p>
+     * Each aggregate may have different messages and different committee members (via bitmaps).
+     * Provides 2-4x speedup vs sequential verification for batch sizes of 10+.
+     * <p>
+     * Phase 1C-1-C: Batch verification pipeline support.
+     *
+     * @param publicKeysPerAggregate List of committee public keys for each aggregate
+     * @param messages               List of messages (one per aggregate)
+     * @param aggregates             List of BLS aggregates to verify
+     * @return true if ALL aggregates verify successfully, false if ANY fail
+     * @throws NullPointerException     if any parameter is null
+     * @throws IllegalArgumentException if list sizes don't match
+     */
+    default boolean batchVerifyAggregates(
+        List<List<byte[]>> publicKeysPerAggregate,
+        List<byte[]> messages,
+        List<BLSAggregate> aggregates
+    ) {
+        if (publicKeysPerAggregate == null || messages == null || aggregates == null) {
+            throw new NullPointerException("Parameters cannot be null");
+        }
+
+        int size = aggregates.size();
+        if (publicKeysPerAggregate.size() != size || messages.size() != size) {
+            throw new IllegalArgumentException(
+                "List sizes must match: aggregates=" + size +
+                ", publicKeys=" + publicKeysPerAggregate.size() +
+                ", messages=" + messages.size()
+            );
+        }
+
+        // Filter keys by bitmap for each aggregate
+        var filteredKeyLists = new ArrayList<List<byte[]>>();
+        var aggregateSignatures = new ArrayList<byte[]>();
+
+        for (int i = 0; i < size; i++) {
+            var aggregate = aggregates.get(i);
+            var committeeKeys = publicKeysPerAggregate.get(i);
+
+            var filteredKeys = filterByBitmap(committeeKeys, aggregate.signerBitmap());
+            filteredKeyLists.add(filteredKeys);
+            aggregateSignatures.add(aggregate.aggregatedSignature().compressedBytes());
+        }
+
+        // Delegate to implementation-specific batch verification
+        return batchVerifyAggregatesImpl(filteredKeyLists, messages, aggregateSignatures);
+    }
+
+    /**
+     * Implementation-specific batch verification for aggregates.
+     * <p>
+     * Providers should override this to use their native batch verification.
+     * Default implementation falls back to sequential verification.
+     *
+     * @param filteredKeyLists List of filtered public key lists (parallel to messages/signatures)
+     * @param messages         List of messages
+     * @param signatures       List of aggregate signatures
+     * @return true if all verify successfully
+     */
+    default boolean batchVerifyAggregatesImpl(
+        List<List<byte[]>> filteredKeyLists,
+        List<byte[]> messages,
+        List<byte[]> signatures
+    ) {
+        // Default: sequential fallback
+        for (int i = 0; i < signatures.size(); i++) {
+            if (!verifyAggregate(filteredKeyLists.get(i), messages.get(i), signatures.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Verify a BLSAggregate signature against committee public keys using the signer bitmap.
      * <p>
      * This method filters the public keys based on the aggregate's signer bitmap,
@@ -191,5 +266,26 @@ public interface BLSProvider {
         }
 
         return filtered;
+    }
+
+    /**
+     * Parse a raw BLS public key into a provider-specific parsed representation.
+     * <p>
+     * This method pre-parses a compressed public key (48 bytes) into the provider's internal
+     * format, eliminating parsing overhead during verification. The parsed key is wrapped in
+     * an opaque ParsedBLSKey record for type safety.
+     * <p>
+     * Used for key pre-computation during view changes to cache parsed representations.
+     * <p>
+     * Phase 1C-1-D: Committee Key Pre-computation support.
+     *
+     * @param publicKey BLS public key (48 bytes compressed G1 point)
+     * @return Opaque ParsedBLSKey wrapper containing provider-specific parsed representation
+     * @throws NullPointerException     if publicKey is null
+     * @throws IllegalArgumentException if publicKey is not 48 bytes or invalid format
+     * @throws UnsupportedOperationException if provider does not implement parse()
+     */
+    default ParsedBLSKey parse(byte[] publicKey) {
+        throw new UnsupportedOperationException("parse() must be implemented by provider");
     }
 }

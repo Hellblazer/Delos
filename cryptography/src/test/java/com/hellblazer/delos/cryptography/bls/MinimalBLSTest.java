@@ -21,7 +21,7 @@ class MinimalBLSTest {
 
     @Test
     void testSimpleKeyGeneration() {
-        var provider = new TekuBLSProvider();
+        var provider = TekuBLSProvider.getInstance();
         var keyPair = BLSKeyPair.generate(provider);
 
         assertNotNull(keyPair);

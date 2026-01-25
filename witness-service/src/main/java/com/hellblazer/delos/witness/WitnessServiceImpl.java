@@ -20,6 +20,7 @@ import com.hellblazer.delos.witness.migration.MigrationPhase;
 import com.hellblazer.delos.witness.migration.MigrationStateTracker;
 import com.hellblazer.delos.witness.migration.ReceiptCompatibilityLayer;
 import com.hellblazer.delos.witness.proto.*;
+import com.hellblazer.delos.witness.receipt.AggregateWitnessReceipt;
 import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,6 +62,10 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
     // Subscription management for streaming endpoints
     private final Map<String, ReceiptSubscription> activeSubscriptions = new ConcurrentHashMap<>();
     private final ReadWriteLock subscriptionLock = new ReentrantReadWriteLock();
+
+    // Aggregate receipt subscription tracking
+    private final Map<String, AggregateReceiptSubscription> activeAggregateSubscriptions = new ConcurrentHashMap<>();
+    private final ReadWriteLock aggregateSubscriptionLock = new ReentrantReadWriteLock();
 
     // In-flight collection tracking for polling
     private final Map<String, CollectionPollingState> pollingStates = new ConcurrentHashMap<>();
@@ -260,6 +265,107 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
     }
 
     /**
+     * Get BLS aggregate receipt for event.
+     * Polls with timeout if not immediately available.
+     * <p>
+     * Returns aggregate receipt when threshold signatures have been collected.
+     * Polls at 100ms intervals until timeout or threshold achieved.
+     *
+     * @param request Request with event coordinates and timeout
+     * @param responseObserver Observer for streaming response
+     */
+    @Override
+    public void getAggregateReceipt(ReceiptRequest request,
+                                   StreamObserver<ReceiptResponse> responseObserver) {
+        try {
+            // Convert proto to internal types
+            var eventCoordinates = EventCoordinates.from(request.getEventCoordinates());
+            long timeoutMs = request.getTimeoutMs() > 0 ? request.getTimeoutMs() : 5000;
+
+            log.debug("GetAggregateReceipt: event={}, timeout={}ms", eventCoordinates, timeoutMs);
+
+            // Try immediate retrieval
+            var aggregateReceiptOpt = receiptManager.getAggregateReceipt(eventCoordinates);
+
+            if (aggregateReceiptOpt.isPresent()) {
+                // Found immediately - return
+                returnAggregateReceipt(aggregateReceiptOpt.get(), responseObserver);
+                return;
+            }
+
+            // Poll with timeout (100ms intervals)
+            long startTime = System.currentTimeMillis();
+            boolean found = false;
+
+            while (System.currentTimeMillis() - startTime < timeoutMs) {
+                Thread.sleep(100);
+
+                aggregateReceiptOpt = receiptManager.getAggregateReceipt(eventCoordinates);
+                if (aggregateReceiptOpt.isPresent()) {
+                    found = true;
+                    break;
+                }
+            }
+
+            if (found) {
+                returnAggregateReceipt(aggregateReceiptOpt.get(), responseObserver);
+            } else {
+                // Timeout
+                var response = ReceiptResponse.newBuilder()
+                    .setStatus(ValidationStatus.TIMEOUT)
+                    .setSignatureCount(0)
+                    .setRequiredThreshold(parameters.threshold())
+                    .build();
+
+                responseObserver.onNext(response);
+                responseObserver.onCompleted();
+
+                log.warn("GetAggregateReceipt: timeout, event={}", eventCoordinates);
+            }
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("GetAggregateReceipt interrupted", e);
+            lastErrorMessage = "GetAggregateReceipt interrupted: " + e.getMessage();
+            responseObserver.onError(e);
+        } catch (Exception e) {
+            log.error("Error in getAggregateReceipt", e);
+            lastErrorMessage = "GetAggregateReceipt error: " + e.getMessage();
+            responseObserver.onError(e);
+        }
+    }
+
+    /**
+     * Helper method to return aggregate receipt in response.
+     * <p>
+     * Converts AggregateWitnessReceipt to proto format and builds ReceiptResponse.
+     * Also notifies aggregate receipt subscribers.
+     *
+     * @param aggregateReceipt The aggregate receipt to return
+     * @param responseObserver Observer for response
+     */
+    private void returnAggregateReceipt(AggregateWitnessReceipt aggregateReceipt,
+                                       StreamObserver<ReceiptResponse> responseObserver) {
+        var protoReceipt = aggregateReceipt.toProto();
+
+        // Notify subscribers that aggregate receipt is ready
+        notifyAggregateSubscribers(aggregateReceipt);
+
+        var response = ReceiptResponse.newBuilder()
+            .setReceipt(protoReceipt)
+            .setStatus(ValidationStatus.THRESHOLD_MET)
+            .setSignatureCount(aggregateReceipt.signerIndices().size())
+            .setRequiredThreshold(parameters.threshold())
+            .build();
+
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
+
+        log.debug("GetAggregateReceipt: returned aggregate for event={}",
+                 aggregateReceipt.event());
+    }
+
+    /**
      * Validate receipt signature threshold with migration phase awareness.
      * <p>
      * Task 4: Integrates ReceiptCompatibilityLayer for format detection and validation.
@@ -294,8 +400,14 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
             // Map CompatibilityResult to ValidationStatus
             var validationStatus = mapCompatibilityResultToStatus(compatibilityResult);
 
-            // Check threshold achieved (for Ed25519, count from signatures; for BLS, assume threshold if valid)
-            var effectiveSignatureCount = request.hasBlsSig() ? parameters.threshold() : signatureCount;
+            // Check threshold achieved (for Ed25519, count from signatures; for BLS, count signers from aggregate)
+            int effectiveSignatureCount;
+            if (request.hasBlsSig()) {
+                // BLS: count signers from the signerIndices list in the BLS aggregate
+                effectiveSignatureCount = request.getBlsSig().getSignerIndicesCount();
+            } else {
+                effectiveSignatureCount = signatureCount;
+            }
 
             if (effectiveSignatureCount < parameters.threshold() &&
                 validationStatus == ValidationStatus.THRESHOLD_MET) {
@@ -388,6 +500,55 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
 
         } catch (Exception e) {
             log.error("Error in subscribeReceipts", e);
+            responseObserver.onError(e);
+        }
+    }
+
+    /**
+     * Subscribe to aggregate receipt stream matching filter criteria.
+     * <p>
+     * Streams BLS aggregate receipts as they complete threshold.
+     * Client receives receipts until disconnection or server shutdown.
+     * <p>
+     * Filtering criteria (all optional):
+     * - Controller identifiers (specific event controllers)
+     * - Sequence number range (minSequence - maxSequence)
+     * - Event ilk types (icp, rot, ixn, etc.)
+     * - Epoch (specific epoch only)
+     *
+     * @param filter Filter criteria for receipt selection
+     * @param responseObserver Observer for streaming aggregate receipts
+     */
+    @Override
+    public void subscribeAggregateReceipts(ReceiptFilter filter,
+                                          StreamObserver<WitnessReceipt> responseObserver) {
+        try {
+            log.debug("SubscribeAggregateReceipts: filter=[controllers={}, sequences={}-{}, ilks={}, epoch={}]",
+                     filter.getControllersCount(),
+                     filter.getMinSequence(), filter.getMaxSequence(),
+                     filter.getIlksList().size(),
+                     filter.getEpoch());
+
+            // Create subscription record
+            String subscriptionId = UUID.randomUUID().toString();
+            var subscription = new AggregateReceiptSubscription(filter, responseObserver);
+
+            // Add to subscription tracking (thread-safe)
+            aggregateSubscriptionLock.writeLock().lock();
+            try {
+                activeAggregateSubscriptions.put(subscriptionId, subscription);
+                log.debug("Aggregate receipt subscription added: id={}, total_subscriptions={}",
+                         subscriptionId, activeAggregateSubscriptions.size());
+            } finally {
+                aggregateSubscriptionLock.writeLock().unlock();
+            }
+
+            // Note: Stream stays open until client disconnects or server calls onCompleted()/onError()
+            // Don't call onCompleted() here - only on shutdown
+
+        } catch (Exception e) {
+            log.error("Error in subscribeAggregateReceipts", e);
+            lastErrorMessage = "SubscribeAggregateReceipts error: " + e.getMessage();
             responseObserver.onError(e);
         }
     }
@@ -508,9 +669,128 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
     }
 
     /**
+     * Notify aggregate receipt subscribers when threshold met.
+     * <p>
+     * Called when BLS aggregate signature threshold reached.
+     * Pushes receipt to all matching subscribers with filtering.
+     *
+     * @param aggregateReceipt Completed aggregate receipt
+     */
+    private void notifyAggregateSubscribers(AggregateWitnessReceipt aggregateReceipt) {
+        aggregateSubscriptionLock.readLock().lock();
+        try {
+            if (activeAggregateSubscriptions.isEmpty()) {
+                return;  // No subscribers - skip
+            }
+
+            // Convert to proto format once
+            var protoReceipt = aggregateReceipt.toProto();
+
+            log.debug("Notifying aggregate receipt subscribers: event={}, subscribers={}",
+                     aggregateReceipt.event(), activeAggregateSubscriptions.size());
+
+            // Notify matching subscribers
+            var toRemove = new ArrayList<String>();
+
+            activeAggregateSubscriptions.forEach((subscriptionId, subscription) -> {
+                try {
+                    // Apply filter
+                    if (matchesAggregateFilter(subscription.filter(), aggregateReceipt)) {
+                        subscription.observer().onNext(protoReceipt);
+                        log.trace("Notified subscription: id={}, event={}",
+                                 subscriptionId, aggregateReceipt.event());
+                    }
+                } catch (Exception e) {
+                    log.warn("Error notifying aggregate subscription (removing): id={}, error={}",
+                            subscriptionId, e.getMessage());
+                    toRemove.add(subscriptionId);  // Mark for removal (likely disconnected)
+                }
+            });
+
+            // Remove failed subscriptions (upgrade to write lock)
+            if (!toRemove.isEmpty()) {
+                aggregateSubscriptionLock.readLock().unlock();
+                aggregateSubscriptionLock.writeLock().lock();
+                try {
+                    toRemove.forEach(activeAggregateSubscriptions::remove);
+                    log.debug("Removed {} failed aggregate subscriptions", toRemove.size());
+                } finally {
+                    aggregateSubscriptionLock.writeLock().unlock();
+                    aggregateSubscriptionLock.readLock().lock();  // Downgrade back to read
+                }
+            }
+
+        } catch (Exception e) {
+            log.error("Error in notifyAggregateSubscribers", e);
+        } finally {
+            aggregateSubscriptionLock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Check if aggregate receipt matches subscription filter.
+     *
+     * @param filter Filter criteria
+     * @param receipt Aggregate receipt to check
+     * @return true if receipt matches filter
+     */
+    private boolean matchesAggregateFilter(ReceiptFilter filter, AggregateWitnessReceipt receipt) {
+        var event = receipt.event();
+
+        // Filter by controller (identifier)
+        if (filter.getControllersCount() > 0) {
+            boolean matchesController = false;
+            var eventIdentProto = event.getIdentifier().toIdent();
+            for (var filterIdent : filter.getControllersList()) {
+                if (eventIdentProto.equals(filterIdent)) {
+                    matchesController = true;
+                    break;
+                }
+            }
+            if (!matchesController) {
+                return false;
+            }
+        }
+
+        // Filter by sequence range
+        long sequence = event.getSequenceNumber().longValue();
+        if (filter.getMinSequence() > 0 && sequence < filter.getMinSequence()) {
+            return false;
+        }
+        if (filter.getMaxSequence() > 0 && sequence > filter.getMaxSequence()) {
+            return false;
+        }
+
+        // Filter by ilk (event type)
+        if (filter.getIlksCount() > 0) {
+            String eventIlk = event.getIlk();
+            boolean matchesIlk = filter.getIlksList().contains(eventIlk);
+            if (!matchesIlk) {
+                return false;
+            }
+        }
+
+        // Filter by epoch
+        if (filter.getEpoch() > 0 && receipt.epoch() != filter.getEpoch()) {
+            return false;
+        }
+
+        return true;  // Matches all criteria
+    }
+
+    /**
      * Subscription record for tracking active receipt subscriptions.
      */
     private record ReceiptSubscription(
+        ReceiptFilter filter,
+        StreamObserver<WitnessReceipt> observer
+    ) {}
+
+    /**
+     * Aggregate receipt subscription record.
+     * Tracks filter criteria and observer for streaming aggregate receipts.
+     */
+    private record AggregateReceiptSubscription(
         ReceiptFilter filter,
         StreamObserver<WitnessReceipt> observer
     ) {}
@@ -925,6 +1205,22 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
         } finally {
             subscriptionLock.writeLock().unlock();
         }
+
+        // Cleanup aggregate subscriptions
+        aggregateSubscriptionLock.writeLock().lock();
+        try {
+            activeAggregateSubscriptions.values().forEach(sub -> {
+                try {
+                    sub.observer().onCompleted();
+                } catch (Exception e) {
+                    log.debug("Error completing aggregate subscription during shutdown", e);
+                }
+            });
+            activeAggregateSubscriptions.clear();
+        } finally {
+            aggregateSubscriptionLock.writeLock().unlock();
+        }
+
         pollingStates.clear();
         log.info("WitnessServiceImpl shutdown complete");
     }

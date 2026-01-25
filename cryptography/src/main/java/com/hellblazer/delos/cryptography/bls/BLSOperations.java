@@ -30,7 +30,7 @@ import java.util.Random;
  */
 public final class BLSOperations {
 
-    private static final BLSProvider provider = new TekuBLSProvider();
+    private static final BLSProvider provider = TekuBLSProvider.getInstance();
     private static final SecureRandom secureRandom = new SecureRandom();
 
     // Utility class - no instances
