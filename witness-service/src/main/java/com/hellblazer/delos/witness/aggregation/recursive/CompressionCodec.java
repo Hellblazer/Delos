@@ -133,8 +133,7 @@ public enum CompressionCodec {
      */
     public boolean isImplemented() {
         return switch (this) {
-            case NONE, LZ4, ZSTD, RUN_LENGTH, DELTA_BITMAP -> true;
-            case HYBRID -> false; // Phase 3.3.4
+            case NONE, LZ4, ZSTD, RUN_LENGTH, DELTA_BITMAP, HYBRID -> true;
         };
     }
 }

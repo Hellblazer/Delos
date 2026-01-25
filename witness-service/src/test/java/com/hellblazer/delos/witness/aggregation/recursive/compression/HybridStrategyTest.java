@@ -285,6 +285,294 @@ class HybridStrategyTest {
     }
 
     // ========================================
+    // Benchmark & Validation Tests (Phase 3.3 Compression Targets)
+    // ========================================
+
+    /**
+     * Benchmark 1: Compression ratio for mixed workload.
+     * Target: 10-30% compression ratio.
+     */
+    @Test
+    void testCompressionRatioMixedWorkload() {
+        // GIVEN: Mixed realistic workload with larger pattern for better compression
+        // Pattern: 8U + 5C + 12U + 7C + 10U + 6C = 48 epochs
+        var pattern = new StringBuilder();
+        pattern.append("UUUUUUUU");     // 8 unchanged
+        pattern.append("CCCCC");        // 5 changed
+        pattern.append("UUUUUUUUUUUU"); // 12 unchanged
+        pattern.append("CCCCCCC");      // 7 changed
+        pattern.append("UUUUUUUUUU");   // 10 unchanged
+        pattern.append("CCCCCC");       // 6 changed
+
+        var receipt = createReceiptWithPattern(pattern.toString());
+        var original = receipt.toProto().toByteArray();
+        var strategy = new HybridStrategy();
+        var config = new CompressionConfig(
+            com.hellblazer.delos.witness.proto.CompressionCodec.HYBRID, 100, false, 0
+        );
+
+        // WHEN: Compress
+        var compressed = strategy.encode(original, config);
+
+        // THEN: Should achieve 10-30% compression
+        var ratio = 1.0 - (double) compressed.length / original.length;
+        System.out.println("testCompressionRatioMixedWorkload:");
+        System.out.println("  Original: " + original.length + " bytes");
+        System.out.println("  Compressed: " + compressed.length + " bytes");
+        System.out.println("  Ratio: " + String.format("%.1f%%", ratio * 100));
+
+        assertTrue(ratio >= 0.10 && ratio <= 0.30,
+            "Mixed workload should compress 10-30%, got: " + String.format("%.1f%%", ratio * 100) +
+            " (original: " + original.length + " bytes, compressed: " + compressed.length + " bytes)");
+    }
+
+    /**
+     * Benchmark 2: Compression ratio for pure unchanged epochs.
+     * Best case for RunLength encoding.
+     */
+    @Test
+    void testCompressionRatioPureUnchanged() {
+        // GIVEN: Pure unchanged epochs (best case for RunLength)
+        var receipt = createReceiptWithUnchangedEpochs(20);
+        var original = receipt.toProto().toByteArray();
+        var strategy = new HybridStrategy();
+        var config = new CompressionConfig(
+            com.hellblazer.delos.witness.proto.CompressionCodec.HYBRID, 100, false, 0
+        );
+
+        // WHEN: Compress
+        var compressed = strategy.encode(original, config);
+
+        // THEN: Should achieve significant compression
+        var ratio = 1.0 - (double) compressed.length / original.length;
+        System.out.println("testCompressionRatioPureUnchanged:");
+        System.out.println("  Original: " + original.length + " bytes");
+        System.out.println("  Compressed: " + compressed.length + " bytes");
+        System.out.println("  Ratio: " + String.format("%.1f%%", ratio * 100));
+
+        assertTrue(ratio > 0.20,
+            "Pure unchanged should compress >20%, got: " + String.format("%.1f%%", ratio * 100));
+    }
+
+    /**
+     * Benchmark 3: Compression ratio for pure changed epochs.
+     * Note: Changed epochs with varying signatures/bitmaps have limited compression potential.
+     * DeltaBitmap encoding helps when bitmaps have small deltas, but significant variation
+     * limits compression. This test validates correctness rather than aggressive compression.
+     */
+    @Test
+    void testCompressionRatioPureChanged() {
+        // GIVEN: Pure changed epochs
+        var receipt = createReceiptWithChangedEpochs(15);
+        var original = receipt.toProto().toByteArray();
+        var strategy = new HybridStrategy();
+        var config = new CompressionConfig(
+            com.hellblazer.delos.witness.proto.CompressionCodec.HYBRID, 100, false, 0
+        );
+
+        // WHEN: Compress
+        var compressed = strategy.encode(original, config);
+
+        // THEN: Should achieve some compression or at worst minimal expansion
+        var ratio = 1.0 - (double) compressed.length / original.length;
+        System.out.println("testCompressionRatioPureChanged:");
+        System.out.println("  Original: " + original.length + " bytes");
+        System.out.println("  Compressed: " + compressed.length + " bytes");
+        System.out.println("  Ratio: " + String.format("%.1f%%", ratio * 100));
+
+        // Realistic expectation: 0-5% compression for heavily varying changed epochs
+        // The key is it shouldn't expand significantly
+        assertTrue(ratio >= 0.0,
+            "Pure changed should not lose compression (negative ratio), got: " + String.format("%.1f%%", ratio * 100));
+        assertTrue(compressed.length <= original.length * 1.1,
+            "Pure changed should not expand >10%, got: " + ((double)compressed.length / original.length));
+    }
+
+    /**
+     * Benchmark 4: Encoding performance.
+     * Target: < 10ms for 50 epochs.
+     */
+    @Test
+    void testPerformanceEncoding() {
+        // GIVEN: Typical receipt with 50 epochs (mixed pattern)
+        var pattern = "UUUCCUUUUUCCCUUUUCCUUUCCCUUUUUCCUUUCCUUUUUCCCUUUCC";
+        var receipt = createReceiptWithPattern(pattern);
+        var original = receipt.toProto().toByteArray();
+        var strategy = new HybridStrategy();
+        var config = new CompressionConfig(
+            com.hellblazer.delos.witness.proto.CompressionCodec.HYBRID, 100, false, 0
+        );
+
+        // WHEN: Compress and time it
+        var startTime = System.nanoTime();
+        var compressed = strategy.encode(original, config);
+        var elapsedMs = (System.nanoTime() - startTime) / 1_000_000.0;
+
+        // THEN: Should complete in < 10ms
+        System.out.println("testPerformanceEncoding:");
+        System.out.println("  Time: " + String.format("%.2f", elapsedMs) + "ms");
+        System.out.println("  Original: " + original.length + " bytes");
+        System.out.println("  Compressed: " + compressed.length + " bytes");
+
+        assertTrue(elapsedMs < 10.0,
+            "Encoding 50 epochs should be < 10ms, took: " + String.format("%.2f", elapsedMs) + "ms");
+    }
+
+    /**
+     * Benchmark 5: Decoding performance.
+     * Target: < 10ms for 50 epochs.
+     */
+    @Test
+    void testPerformanceDecoding() {
+        // GIVEN: Pre-compressed receipt
+        var pattern = "UUUCCUUUUUCCCUUUUCCUUUCCCUUUUUCCUUUCCUUUUUCCCUUUCC";
+        var receipt = createReceiptWithPattern(pattern);
+        var original = receipt.toProto().toByteArray();
+        var strategy = new HybridStrategy();
+        var config = new CompressionConfig(
+            com.hellblazer.delos.witness.proto.CompressionCodec.HYBRID, 100, false, 0
+        );
+        var compressed = strategy.encode(original, config);
+
+        // WHEN: Decompress and time it
+        var startTime = System.nanoTime();
+        var decompressed = strategy.decode(compressed, config);
+        var elapsedMs = (System.nanoTime() - startTime) / 1_000_000.0;
+
+        // THEN: Should complete in < 10ms
+        System.out.println("testPerformanceDecoding:");
+        System.out.println("  Time: " + String.format("%.2f", elapsedMs) + "ms");
+        System.out.println("  Compressed: " + compressed.length + " bytes");
+        System.out.println("  Decompressed: " + decompressed.length + " bytes");
+
+        assertTrue(elapsedMs < 10.0,
+            "Decoding 50 epochs should be < 10ms, took: " + String.format("%.2f", elapsedMs) + "ms");
+    }
+
+    /**
+     * Benchmark 6: Edge case - 100 unchanged epochs.
+     * Tests large run-length handling.
+     */
+    @Test
+    void testEdgeCaseOneHundredUnchanged() {
+        // GIVEN: Extreme case - 100 unchanged epochs
+        var receipt = createReceiptWithUnchangedEpochs(100);
+        var original = receipt.toProto().toByteArray();
+        var strategy = new HybridStrategy();
+        var config = new CompressionConfig(
+            com.hellblazer.delos.witness.proto.CompressionCodec.HYBRID, 100, false, 0
+        );
+
+        // WHEN: Compress and decompress
+        var compressed = strategy.encode(original, config);
+        var decompressed = strategy.decode(compressed, config);
+
+        // THEN: Should handle large runs and preserve data
+        assertArrayEquals(original, decompressed,
+            "100 unchanged epochs should round-trip correctly");
+
+        var ratio = 1.0 - (double) compressed.length / original.length;
+        System.out.println("testEdgeCaseOneHundredUnchanged:");
+        System.out.println("  Original: " + original.length + " bytes");
+        System.out.println("  Compressed: " + compressed.length + " bytes");
+        System.out.println("  Ratio: " + String.format("%.1f%%", ratio * 100));
+        System.out.println("  Round-trip: Match ✓");
+
+        assertTrue(ratio > 0.30,
+            "100 unchanged should compress >30%, got: " + String.format("%.1f%%", ratio * 100));
+    }
+
+    /**
+     * Benchmark 7: Edge case - 100 changed epochs.
+     * Tests large delta-bitmap handling.
+     */
+    @Test
+    void testEdgeCaseOneHundredChanged() {
+        // GIVEN: Extreme case - 100 changed epochs
+        var receipt = createReceiptWithChangedEpochs(100);
+        var original = receipt.toProto().toByteArray();
+        var strategy = new HybridStrategy();
+        var config = new CompressionConfig(
+            com.hellblazer.delos.witness.proto.CompressionCodec.HYBRID, 100, false, 0
+        );
+
+        // WHEN: Compress and decompress
+        var compressed = strategy.encode(original, config);
+        var decompressed = strategy.decode(compressed, config);
+
+        // THEN: Should handle large changed sequences
+        assertArrayEquals(original, decompressed,
+            "100 changed epochs should round-trip correctly");
+
+        System.out.println("testEdgeCaseOneHundredChanged:");
+        System.out.println("  Original: " + original.length + " bytes");
+        System.out.println("  Compressed: " + compressed.length + " bytes");
+        System.out.println("  Round-trip: Match ✓");
+    }
+
+    /**
+     * Benchmark 8: Edge case - Alternating pattern.
+     * Worst case for compression (no runs).
+     */
+    @Test
+    void testEdgeCaseAlternating() {
+        // GIVEN: Worst case - alternating unchanged/changed
+        var receipt = createAlternatingReceipt(50); // U,C,U,C,... x50 = 100 epochs
+        var original = receipt.toProto().toByteArray();
+        var strategy = new HybridStrategy();
+        var config = new CompressionConfig(
+            com.hellblazer.delos.witness.proto.CompressionCodec.HYBRID, 100, false, 0
+        );
+
+        // WHEN: Compress and decompress
+        var compressed = strategy.encode(original, config);
+        var decompressed = strategy.decode(compressed, config);
+
+        // THEN: Should handle worst case gracefully
+        assertArrayEquals(original, decompressed,
+            "Alternating pattern should round-trip correctly");
+
+        // No compression benefit expected, but shouldn't expand significantly
+        var ratio = (double) compressed.length / original.length;
+        System.out.println("testEdgeCaseAlternating:");
+        System.out.println("  Original: " + original.length + " bytes");
+        System.out.println("  Compressed: " + compressed.length + " bytes");
+        System.out.println("  Expansion ratio: " + String.format("%.2f", ratio));
+        System.out.println("  Round-trip: Match ✓");
+
+        assertTrue(ratio < 1.5,
+            "Worst case should not expand >50%, ratio: " + String.format("%.2f", ratio));
+    }
+
+    /**
+     * Benchmark 9: Edge case - Zero epochs.
+     * Tests empty chain handling.
+     */
+    @Test
+    void testEdgeCaseZeroEpochs() {
+        // GIVEN: Empty receipt (zero epochs)
+        var receipt = createReceiptWithPattern("");
+        var original = receipt.toProto().toByteArray();
+        var strategy = new HybridStrategy();
+        var config = new CompressionConfig(
+            com.hellblazer.delos.witness.proto.CompressionCodec.HYBRID, 100, false, 0
+        );
+
+        // WHEN: Compress and decompress
+        var compressed = strategy.encode(original, config);
+        var decompressed = strategy.decode(compressed, config);
+
+        // THEN: Should handle empty chain gracefully
+        assertArrayEquals(original, decompressed,
+            "Zero epochs should round-trip correctly");
+
+        System.out.println("testEdgeCaseZeroEpochs:");
+        System.out.println("  Original: " + original.length + " bytes");
+        System.out.println("  Compressed: " + compressed.length + " bytes");
+        System.out.println("  Round-trip: Match ✓");
+    }
+
+    // ========================================
     // Helper Methods
     // ========================================
 
@@ -375,5 +663,39 @@ class HybridStrategyTest {
         // Skip event coordinates
         var eventSize = VarIntUtils.decode(buffer);
         buffer.position(buffer.position() + eventSize);
+    }
+
+    /**
+     * Create receipt with specified number of unchanged epochs.
+     */
+    private RecursiveAggregateReceipt createReceiptWithUnchangedEpochs(int count) {
+        var pattern = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            pattern.append('U');
+        }
+        return createReceiptWithPattern(pattern.toString());
+    }
+
+    /**
+     * Create receipt with specified number of changed epochs.
+     */
+    private RecursiveAggregateReceipt createReceiptWithChangedEpochs(int count) {
+        var pattern = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            pattern.append('C');
+        }
+        return createReceiptWithPattern(pattern.toString());
+    }
+
+    /**
+     * Create receipt with alternating unchanged/changed pattern.
+     * @param pairs Number of U,C pairs (total epochs = pairs * 2)
+     */
+    private RecursiveAggregateReceipt createAlternatingReceipt(int pairs) {
+        var pattern = new StringBuilder();
+        for (int i = 0; i < pairs; i++) {
+            pattern.append("UC");
+        }
+        return createReceiptWithPattern(pattern.toString());
     }
 }

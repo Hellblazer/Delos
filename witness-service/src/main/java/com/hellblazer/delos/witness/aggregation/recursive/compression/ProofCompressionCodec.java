@@ -48,14 +48,15 @@ public class ProofCompressionCodec {
     private final Map<CompressionCodec, CompressionStrategy> strategies;
 
     /**
-     * Create codec with default strategies (LZ4, ZSTD, RUN_LENGTH, DELTA_BITMAP).
+     * Create codec with default strategies (LZ4, ZSTD, RUN_LENGTH, DELTA_BITMAP, HYBRID).
      */
     public ProofCompressionCodec() {
         this.strategies = Map.of(
             CompressionCodec.LZ4, new LZ4CompressionStrategy(),
             CompressionCodec.ZSTD, new ZSTDCompressionStrategy(),
             CompressionCodec.RUN_LENGTH, new RunLengthStrategy(),
-            CompressionCodec.DELTA_BITMAP, new DeltaBitmapStrategy()
+            CompressionCodec.DELTA_BITMAP, new DeltaBitmapStrategy(),
+            CompressionCodec.HYBRID, new HybridStrategy()
         );
     }
 
@@ -182,6 +183,7 @@ public class ProofCompressionCodec {
             case 2 -> CompressionCodec.ZSTD;
             case 3 -> CompressionCodec.RUN_LENGTH;
             case 4 -> CompressionCodec.DELTA_BITMAP;
+            case 5 -> CompressionCodec.HYBRID;
             default -> throw new CompressionException("Invalid codec byte: " + codecByte);
         };
     }
