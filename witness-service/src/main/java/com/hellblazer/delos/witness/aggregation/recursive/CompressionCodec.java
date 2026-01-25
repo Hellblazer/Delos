@@ -52,7 +52,41 @@ public enum CompressionCodec {
      * - Library: com.github.luben:zstd-jni:1.5.6-1
      * - Use case: Storage-constrained scenarios prioritizing compression ratio
      */
-    ZSTD(2);
+    ZSTD(2),
+
+    /**
+     * RUN_LENGTH compression (optimized for consecutive unchanged epochs).
+     * <p>
+     * Characteristics:
+     * - Target: 10-20% reduction for 7+ consecutive unchanged epochs
+     * - Encoding: (count, base_epoch, hash_reference, signer_count, timestamp_delta)
+     * - Use case: Long periods of stable committee composition
+     * - Phase: 3.3.2
+     */
+    RUN_LENGTH(3),
+
+    /**
+     * DELTA_BITMAP compression (optimized for incremental committee changes).
+     * <p>
+     * Characteristics:
+     * - Target: 5-10% reduction per changed epoch with minimal bitmap differences
+     * - Encoding: XOR delta with sparse representation
+     * - First bitmap stored in full, subsequent as XOR differences
+     * - Use case: Gradual committee membership changes
+     * - Phase: 3.3.3
+     */
+    DELTA_BITMAP(4),
+
+    /**
+     * HYBRID compression (adaptive strategy selection).
+     * <p>
+     * Characteristics:
+     * - Combines RUN_LENGTH and DELTA_BITMAP dynamically
+     * - Target: 10-30% combined reduction for mixed workloads
+     * - Use case: Variable committee change patterns
+     * - Phase: 3.3.4
+     */
+    HYBRID(5);
 
     private final int protoValue;
 
@@ -99,7 +133,8 @@ public enum CompressionCodec {
      */
     public boolean isImplemented() {
         return switch (this) {
-            case NONE, LZ4, ZSTD -> true;
+            case NONE, LZ4, ZSTD, RUN_LENGTH, DELTA_BITMAP -> true;
+            case HYBRID -> false; // Phase 3.3.4
         };
     }
 }
