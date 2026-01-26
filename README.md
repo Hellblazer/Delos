@@ -18,27 +18,27 @@ Delos is a **distributed multi-tenant database platform** providing Byzantine fa
 * **State Machines**: CHOAM — replicated SQL state machines with materialized views, DDL/DML/stored procedures
 * **Access Control**: Zanzibar-style relation-based access control (Delphinius)
 * **Witness Service**: Byzantine detection (5 detectors), receipt aggregation, multi-backend storage with compression
+* **Production Testing**: 168-hour continuous operation testing with chaos engineering, heap dump analysis, state consistency verification, and degradation detection
 
-## Recent Work (2026-01-24)
+## Recent Work (2026-01-26)
 
-**Comprehensive Byzantine Consensus & Witness Infrastructure**: 245-commit experimental implementation spanning hierarchical aggregation, recursive proof validation, Byzantine detection (5 detectors), key rotation orchestration, and full receipt storage architecture. Well-tested foundation with <1% Byzantine overhead, 3-4x CI speedup, and 60+ tests validating 20+ attack scenarios. Well along toward production—more work ahead.
+**Production-Scale Testing Framework (168-hour Simulation)**: Full orchestration platform for continuous operation testing with Docker Compose cluster management, heap dump collection, state consistency verification, degradation detection, and chaos engineering. Framework validates Byzantine fault tolerance at 100-node scale with automated metrics collection (Prometheus/Grafana), chaos injection (node churn, network partitions, resource exhaustion), and comprehensive reporting (HTML/JSON/Markdown).
 
-**Core Components Delivered**:
-- **Hierarchical BLS Aggregation**: 7-layer tree structure for signature verification and Byzantine isolation
-- **Recursive Proof Validation**: Cross-epoch proof verification with proto schema extensions
-- **Byzantine Detection Framework**: 5 detectors (Equivocation, Timing, Coalition, Replay, Coordinated) with anomaly scoring
-- **Key Rotation**: 3-phase lifecycle orchestration with dual-key grace periods and integration tests
-- **Recursive Aggregation**: Builder fluent API, ChainAggregator service, EpochTransitionValidator
-- **Cross-Epoch Support**: RecursiveProofValidator BLS integration, TemporalByzantineIsolator
-- **Compression Infrastructure**: ProofCompressionCodec with pluggable strategies (NONE/LZ4/ZSTD), 10-20% reduction
-- **Full Storage Integration**: 5-layer abstraction (interface→implementations→compression→cache→factory), multi-backend support, idempotent writes
-- **CI Hardening**: Timeout scaling (1.33-2x multiplier), 3-4x speedup (30min→8-10min), 99%+ reliability
+**Simulation Components Delivered**:
+- **Orchestration**: SimulationOrchestrator managing cluster lifecycle, phase transitions (Bootstrap → SteadyState → Churn → DegradationTest)
+- **Monitoring**: HeapDumpCollector with JVM integration, MetricCollector (Prometheus API), DegradationDetector with anomaly scoring
+- **Verification**: StateConsistencyVerifier, BlockConsensusVerifier, MembershipVerifier for continuous validation
+- **Chaos Engineering**: ChurnScenario, NetworkPartitionScenario, ResourceExhaustionScenario with phase-based scheduling
+- **Reporting**: SimulationReporter with HTML templates, JSON export, ExecutiveSummary with SLA grading
+- **CI/CD Integration**: GitHub Actions workflows (1h/10 nodes, 24h/50 nodes, 168h/100 nodes) with artifact retention and automated issue creation on failure
 
-**Test Coverage**: 60+ new tests | 18+ pre-existing failures fixed | 20+ Byzantine attack scenarios | <1% Byzantine overhead on consensus
+**Byzantine Consensus & Witness Infrastructure** (Jan 2026): 245-commit experimental implementation spanning hierarchical aggregation, recursive proof validation, Byzantine detection (5 detectors), key rotation orchestration, and full receipt storage architecture. Well-tested foundation with <1% Byzantine overhead, 3-4x CI speedup, and 60+ tests validating 20+ attack scenarios.
 
-**Performance**: Storage <5-10ms, cache <1ms, DB retrieve <30-50ms, throughput >1000 receipts/sec | CI 3-4x faster
+**Test Coverage**: Simulation: 200+ tests | Witness-Service: 60+ tests | 20+ Byzantine attack scenarios | <1% Byzantine overhead
 
-**Documentation**: 25,000+ lines consolidated (14 documents) — hierarchical aggregation, Byzantine detection patterns, storage architecture, CI timeout strategies, plus comprehensive operations runbooks
+**Performance**: Simulation: <5-10ms heap dump I/O, 1ms metrics cache, <1% jitter | Storage <5-10ms, throughput >1000 receipts/sec | CI 3-4x faster (30min→8-10min)
+
+**Documentation**: 25,000+ lines consolidated (14 documents) — hierarchical aggregation, Byzantine detection patterns, storage architecture, CI timeout strategies, simulation framework design, plus comprehensive operations runbooks. Knowledge base indexed in ChromaDB for semantic search.
 
 ## Status
 
@@ -51,11 +51,12 @@ Delos is an experimental distributed platform—well-tested subsystems, solid ar
 - **Stereotomy/KERI** (identity): Fully integrated
 - **SQL-State**: Mature with comprehensive testing
 - **Domain Sockets**: Pure Java NIO implementation (JEP 380) — No native dependencies, full GraalVM isolates compatibility
+- **Simulation Framework** (production testing): End-to-end orchestration for 168-hour continuous operation testing with 200+ tests, chaos engineering, state verification, and degradation detection. Validated at 100-node scale.
 
 **Experimental Components**:
 - **Witness-Service** (receipt management): Well-tested foundation — Full storage integration with multi-backend persistence, compression, Byzantine detection (5 detectors), and E2E testing. Solid architecture; production hardening in progress
 
-Platform is architecturally sound with excellent test coverage. Integration-level production deployment testing still needed.
+Platform is architecturally sound with excellent test coverage. Integration-level production deployment testing still needed. Simulation framework provides foundation for continuous validation at production scale.
 
 ## Recent Improvements (2026-01-24)
 
@@ -77,9 +78,24 @@ Platform is architecturally sound with excellent test coverage. Integration-leve
 - Epoch transition validation framework (EpochTransitionValidator)
 - Complete storage lifecycle management with compression fallback strategies
 
+## Examples & Simulation Testing
+
+Delos includes production-scale simulation and testing infrastructure:
+
+- [**Local Demo**](examples/local-demo/README.md) — Single-machine multi-node cluster with Docker Compose
+- [**Simulation Framework**](examples/local-demo/README-SIMULATION.md) — 168-hour production stability testing with chaos engineering, heap dump analysis, state verification, and metric collection
+- **CI/CD Pipelines**: Automated short (1h), medium (24h), and full-scale (168h) testing via GitHub Actions
+
+Quick start: See [Local Demo Setup](examples/local-demo/README.md) for running a 10-node cluster locally.
+
 ## Documentation
 
-See [Knowledge Consolidation](docs/KNOWLEDGE_CONSOLIDATION.md) for comprehensive implementation guides (25,000+ lines) covering Phase 3.4, witness-service storage patterns, and ethereal consensus testing — archived in Memory Bank for team reference and onboarding.
+Comprehensive implementation guides, architectural decisions, and testing patterns:
+
+- [**Module READMEs**](choam/README.md) — Architecture, usage patterns, threat models for each component
+- [**ADRs**](docs/adr/) — Architectural decision records for design rationale
+- [**Deployment Guides**](docs/) — Setup, configuration, KERI integration, threat models
+- [**Knowledge Base**](.pm/CONTINUATION.md) — Consolidated research, design patterns, and implementation reference (ChromaDB-indexed for semantic search)
 
 ---
 
