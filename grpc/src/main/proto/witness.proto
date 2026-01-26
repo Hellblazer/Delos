@@ -100,6 +100,24 @@ message WitnessReceipt {
   // If present, supersedes blsSig/signerBitmap fields
   // Provides accountability across committee epochs
   MultiCommitteeReceipt multiCommitteeReceipt = 13;
+
+  // Phase 1A-3-C.2: Consensus Timestamp Attestation
+  // Binds receipt to CHOAM consensus block for temporal consistency.
+  // Version 1 (legacy): Fields 14-16 absent (backward compatible)
+  // Version 2 (with binding): Fields 14-16 present for CHOAM block binding
+
+  // CHOAM block height when receipt was created (consensus timestamp proxy)
+  // Provides deterministic ordering across witnesses
+  uint64 choam_block_height = 14;
+
+  // CHOAM block hash binding (cryptographically links receipt to specific block)
+  // Used for verification and non-repudiation
+  crypto.Digeste choam_block_hash = 15;
+
+  // Receipt format version for migration support
+  // Version 1: Legacy format (no CHOAM binding)
+  // Version 2: CHOAM block binding (fields 14-16 present)
+  int32 receipt_version = 16;
 }
 
 /**

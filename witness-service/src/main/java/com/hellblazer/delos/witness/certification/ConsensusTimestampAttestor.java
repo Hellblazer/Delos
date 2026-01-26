@@ -41,6 +41,28 @@ public class ConsensusTimestampAttestor {
     private static final long HEIGHT_TOLERANCE = 0L; // Require exact height match
 
     /**
+     * Wall-clock timestamp tolerance for validation (milliseconds).
+     * Witnesses must report timestamps within this window of each other.
+     * Default: 500ms allows for network latency while detecting manipulation.
+     */
+    public static final long WALL_CLOCK_TOLERANCE_MS = 500L;
+
+    /**
+     * Receipt version constants for migration support.
+     * <p>
+     * Version 1 (legacy): No CHOAM block binding (fields 14-16 absent)
+     * Version 2: CHOAM block binding (fields 14-16 present)
+     */
+    public static final class ReceiptVersion {
+        /** Legacy format without CHOAM binding */
+        public static final int LEGACY = 1;
+        /** Current format with CHOAM block height and hash binding */
+        public static final int CHOAM_BOUND = 2;
+
+        private ReceiptVersion() {}
+    }
+
+    /**
      * Extract consensus timestamp from CHOAM block.
      * <p>
      * Returns TimestampAttestation with:
@@ -144,6 +166,128 @@ public class ConsensusTimestampAttestor {
     }
 
     /**
+     * Verify wall-clock timestamp consistency within tolerance window.
+     * <p>
+     * Validates that all attestations have wall-clock timestamps within
+     * WALL_CLOCK_TOLERANCE_MS of each other. This detects Byzantine witnesses
+     * attempting to manipulate timestamps while allowing for network latency.
+     * </p>
+     *
+     * @param attestations Collection of timestamp attestations from witnesses
+     * @return Verification result (Consistent, TimestampSkewDetected, or EmptyCollection)
+     */
+    public static WallClockValidationResult verifyWallClockConsistency(
+        Collection<TimestampAttestation> attestations) {
+        return verifyWallClockConsistency(attestations, WALL_CLOCK_TOLERANCE_MS);
+    }
+
+    /**
+     * Verify wall-clock timestamp consistency with custom tolerance.
+     *
+     * @param attestations Collection of timestamp attestations from witnesses
+     * @param toleranceMs Custom tolerance in milliseconds
+     * @return Verification result
+     */
+    public static WallClockValidationResult verifyWallClockConsistency(
+        Collection<TimestampAttestation> attestations,
+        long toleranceMs) {
+
+        if (attestations.isEmpty()) {
+            return new WallClockValidationResult.EmptyCollection();
+        }
+
+        if (attestations.size() == 1) {
+            return new WallClockValidationResult.Consistent(attestations.iterator().next());
+        }
+
+        // Find min and max wall-clock times
+        Instant minTime = null;
+        Instant maxTime = null;
+        TimestampAttestation minAttestation = null;
+        TimestampAttestation maxAttestation = null;
+
+        for (var attestation : attestations) {
+            var wallClock = attestation.wallClockTime();
+            if (minTime == null || wallClock.isBefore(minTime)) {
+                minTime = wallClock;
+                minAttestation = attestation;
+            }
+            if (maxTime == null || wallClock.isAfter(maxTime)) {
+                maxTime = wallClock;
+                maxAttestation = attestation;
+            }
+        }
+
+        // Check if skew exceeds tolerance
+        var skewMs = java.time.Duration.between(minTime, maxTime).toMillis();
+        if (skewMs > toleranceMs) {
+            return new WallClockValidationResult.TimestampSkewDetected(
+                skewMs,
+                toleranceMs,
+                minAttestation,
+                maxAttestation
+            );
+        }
+
+        // All within tolerance
+        return new WallClockValidationResult.Consistent(minAttestation);
+    }
+
+    /**
+     * Verify both consensus height and wall-clock timestamp consistency.
+     * <p>
+     * Comprehensive validation for receipt timestamp attestations.
+     * Checks both consensus-level ordering and wall-clock bounds.
+     * </p>
+     *
+     * @param attestations Collection of timestamp attestations
+     * @return Combined verification result
+     */
+    public static CombinedValidationResult verifyComplete(
+        Collection<TimestampAttestation> attestations) {
+
+        // First verify consensus height consistency
+        var heightResult = verifyTimestampConsistency(attestations);
+        if (!(heightResult instanceof TimestampConsistencyResult.Consistent)) {
+            return new CombinedValidationResult.ConsensusHeightFailed(heightResult);
+        }
+
+        // Then verify wall-clock consistency
+        var wallClockResult = verifyWallClockConsistency(attestations);
+        if (!(wallClockResult instanceof WallClockValidationResult.Consistent)) {
+            return new CombinedValidationResult.WallClockFailed(wallClockResult);
+        }
+
+        // Both passed
+        var reference = ((TimestampConsistencyResult.Consistent) heightResult).reference();
+        return new CombinedValidationResult.Valid(reference);
+    }
+
+    /**
+     * Create attestation from individual components (for receipt building).
+     *
+     * @param height CHOAM block height
+     * @param blockHash CHOAM block hash
+     * @return New timestamp attestation
+     */
+    public static TimestampAttestation createAttestation(ULong height, Digest blockHash) {
+        return new TimestampAttestation(height, blockHash, Instant.now());
+    }
+
+    /**
+     * Determine receipt version based on attestation presence.
+     * <p>
+     * Returns LEGACY if no CHOAM binding, CHOAM_BOUND if binding present.
+     * </p>
+     *
+     * @param hasChoamBinding Whether CHOAM block binding is present
+     * @return Receipt version (1 for legacy, 2 for CHOAM-bound)
+     */
+    public static int determineReceiptVersion(boolean hasChoamBinding) {
+        return hasChoamBinding ? ReceiptVersion.CHOAM_BOUND : ReceiptVersion.LEGACY;
+    }
+
+    /**
      * Timestamp attestation record.
      * <p>
      * Binds witness receipt to CHOAM consensus block.
@@ -202,6 +346,65 @@ public class ConsensusTimestampAttestor {
          * Empty attestation collection (no receipts).
          */
         record EmptyCollection() implements TimestampConsistencyResult {
+        }
+    }
+
+    /**
+     * Sealed interface for wall-clock timestamp validation result.
+     */
+    public sealed interface WallClockValidationResult {
+
+        /**
+         * All wall-clock timestamps within tolerance window.
+         */
+        record Consistent(TimestampAttestation reference) implements WallClockValidationResult {
+        }
+
+        /**
+         * Timestamp skew detected between witnesses (exceeds tolerance).
+         * Indicates potential Byzantine manipulation or severe clock drift.
+         */
+        record TimestampSkewDetected(
+            long skewMs,
+            long toleranceMs,
+            TimestampAttestation earliest,
+            TimestampAttestation latest
+        ) implements WallClockValidationResult {
+        }
+
+        /**
+         * Empty attestation collection (no receipts).
+         */
+        record EmptyCollection() implements WallClockValidationResult {
+        }
+    }
+
+    /**
+     * Sealed interface for combined validation result.
+     * Verifies both consensus height and wall-clock consistency.
+     */
+    public sealed interface CombinedValidationResult {
+
+        /**
+         * Both consensus height and wall-clock validation passed.
+         */
+        record Valid(TimestampAttestation reference) implements CombinedValidationResult {
+        }
+
+        /**
+         * Consensus height validation failed.
+         */
+        record ConsensusHeightFailed(
+            TimestampConsistencyResult heightResult
+        ) implements CombinedValidationResult {
+        }
+
+        /**
+         * Wall-clock validation failed (but consensus height passed).
+         */
+        record WallClockFailed(
+            WallClockValidationResult wallClockResult
+        ) implements CombinedValidationResult {
         }
     }
 }
