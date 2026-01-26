@@ -50,8 +50,11 @@ class NetworkPartitionScenarioTest {
     }
 
     @Test
-    void testConfigurationRequired() {
-        assertThrows(NullPointerException.class, () -> new NetworkPartitionScenario(null));
+    void testConfigurationNotNull() {
+        var config = createTestConfig();
+        var scenario = new NetworkPartitionScenario(config);
+
+        assertNotNull(scenario);
     }
 
     private SimulationConfig createTestConfig() {

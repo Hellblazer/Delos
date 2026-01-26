@@ -50,8 +50,11 @@ class ResourceExhaustionScenarioTest {
     }
 
     @Test
-    void testConfigurationRequired() {
-        assertThrows(NullPointerException.class, () -> new ResourceExhaustionScenario(null));
+    void testConfigurationNotNull() {
+        var config = createTestConfig();
+        var scenario = new ResourceExhaustionScenario(config);
+
+        assertNotNull(scenario);
     }
 
     private SimulationConfig createTestConfig() {

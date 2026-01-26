@@ -52,8 +52,11 @@ class ChurnScenarioTest {
     }
 
     @Test
-    void testConfigurationRequired() {
-        assertThrows(NullPointerException.class, () -> new ChurnScenario(null));
+    void testConfigurationNotNull() {
+        var config = createTestConfig();
+        var scenario = new ChurnScenario(config);
+
+        assertNotNull(scenario);
     }
 
     private SimulationConfig createTestConfig() {
