@@ -242,6 +242,46 @@
                 </plugins>
             </build>
         </profile>
+
+        <!-- Simulation profile for running 168h orchestration -->
+        <profile>
+            <id>simulation</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.1.0</version>
+                        <configuration>
+                            <mainClass>com.hellblazer.delos.demo.simulation.SimulationOrchestrator</mainClass>
+                            <cleanupDaemonThreads>false</cleanupDaemonThreads>
+                            <systemProperties>
+                                <systemProperty>
+                                    <key>simulation.duration.hours</key>
+                                    <value>${simulation.duration.hours}</value>
+                                </systemProperty>
+                                <systemProperty>
+                                    <key>simulation.nodeCount</key>
+                                    <value>${simulation.nodeCount}</value>
+                                </systemProperty>
+                                <systemProperty>
+                                    <key>simulation.enableHeapDumps</key>
+                                    <value>${simulation.enableHeapDumps}</value>
+                                </systemProperty>
+                                <systemProperty>
+                                    <key>simulation.prometheusUrl</key>
+                                    <value>${simulation.prometheusUrl}</value>
+                                </systemProperty>
+                                <systemProperty>
+                                    <key>simulation.composeFile</key>
+                                    <value>${simulation.composeFile}</value>
+                                </systemProperty>
+                            </systemProperties>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
     </profiles>
 
 </project>

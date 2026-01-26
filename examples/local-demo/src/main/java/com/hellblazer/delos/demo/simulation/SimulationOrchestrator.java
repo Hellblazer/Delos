@@ -380,14 +380,40 @@ public class SimulationOrchestrator {
 
     /**
      * Main entry point for simulation.
+     * <p>
+     * Accepts system properties:
+     * <ul>
+     *   <li>-Dsimulation.duration.hours=168</li>
+     *   <li>-Dsimulation.nodeCount=100</li>
+     *   <li>-Dsimulation.enableHeapDumps=true</li>
+     *   <li>-Dsimulation.prometheusUrl=http://localhost:9090</li>
+     *   <li>-Dsimulation.composeFile=compose-simulation.yaml</li>
+     * </ul>
      */
     public static void main(String[] args) {
         log.info("=== Delos 168-Hour Simulation ===");
 
-        var config = SimulationConfig.builder()
-            .duration(Duration.ofHours(168))
-            .nodeCount(100)
-            .build();
+        // Read configuration from system properties with defaults
+        var builder = SimulationConfig.builder();
+
+        var durationHours = Integer.getInteger("simulation.duration.hours", 168);
+        builder.duration(Duration.ofHours(durationHours));
+
+        var nodeCount = Integer.getInteger("simulation.nodeCount", 100);
+        builder.nodeCount(nodeCount);
+
+        var enableHeapDumps = Boolean.getBoolean("simulation.enableHeapDumps");
+        builder.enableHeapDumps(enableHeapDumps);
+
+        var prometheusUrl = System.getProperty("simulation.prometheusUrl", "http://localhost:9090");
+        builder.prometheusUrl(prometheusUrl);
+
+        var composeFile = System.getProperty("simulation.composeFile", "compose-simulation.yaml");
+        builder.composeFile(composeFile);
+
+        var config = builder.build();
+        log.info("Configuration: duration={}h, nodeCount={}, heapDumps={}, prometheus={}",
+                 durationHours, nodeCount, enableHeapDumps, prometheusUrl);
 
         var orchestrator = new SimulationOrchestrator(config);
 
