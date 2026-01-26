@@ -40,8 +40,8 @@ WORKDIR /app
 # Copy the fat JAR from Maven build
 COPY --chown=delos:delos target/delos-node.jar /app/delos-node.jar
 
-# Copy logback configuration if present
-COPY --chown=delos:delos src/main/resources/logback*.xml /app/ 2>/dev/null || true
+# Copy logback configuration
+COPY --chown=delos:delos src/main/resources/logback.xml /app/logback.xml
 
 # Switch to non-root user
 USER delos
