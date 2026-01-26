@@ -106,6 +106,43 @@ The `h2-deterministic` and `liquibase-deterministic` modules provide determinist
 - Dropwizard Metrics
 - SLF4J/Logback logging
 
+## Knowledge Consolidation & ChromaDB (2026-01-26)
+
+The Delos project maintains a consolidated semantic knowledge base in ChromaDB with 264+ indexed documents across 5 specialized collections.
+
+### Collections
+
+| Collection | Focus | Examples |
+|-----------|-------|----------|
+| `delos_consensus-architecture` | Byzantine, Ethereal, CHOAM, test infrastructure | CHOAM replication patterns, Ethereal reliability |
+| `delos_cryptography-signatures` | BLS, aggregation, key rotation, performance | BLS-12-381 optimization, Crown aggregation |
+| `delos_system-architecture` | Witness network, KERI, monitoring, protocols | FIREFLIES-KERI mapping, witness design |
+| `delos_operational-decisions` | Audits, design reviews, risk assessment | Phase audits, design decisions, risk analysis |
+| `delos_operational-roadmap` | Future work, phases, priorities, strategy | Future work backlog (50 items), phase plans |
+
+### Search Tips
+
+```bash
+# Find consensus patterns
+mgrep search "Byzantine detection framework" --store delos -a
+
+# Find cryptographic design decisions
+mgrep search "BLS signature aggregation" --store delos -a
+
+# Find system integration patterns
+mgrep search "KERI integration witness network" --store delos -a
+
+# Find operational strategy
+mgrep search "implementation roadmap phases" --store delos -a
+
+# Cross-domain search
+mgrep search "performance SLA Byzantine tolerance" --store delos -a
+```
+
+### Archive Reference
+
+Historical documentation archived in `.pm-archives/Consolidation-20260126/` with manifest guide.
+
 ## Module Dependencies
 Modules depend on each other through the local Maven repository. Always run `install` (not just `compile`) when building. The parent POM enforces dependency convergence.
 
