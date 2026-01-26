@@ -219,7 +219,7 @@ public class DelosNode {
 
         log.info("Starting node: {}", config.nodeId());
 
-        // Start identity discovery server first (others may query us)
+        // Start discovery server (identity + health endpoints)
         startDiscoveryServer();
 
         // Start MTLS router
@@ -342,6 +342,7 @@ public class DelosNode {
 
     /**
      * Resolve bootstrap seeds based on node type.
+     * Uses HTTP endpoint to fetch bootstrap's KERI identity digest.
      */
     private List<Seed> resolveSeeds() {
         if (config.nodeType() == NodeConfig.NodeType.BOOTSTRAP) {
@@ -349,8 +350,11 @@ public class DelosNode {
             return Collections.emptyList();
         }
 
-        // Kernel and member nodes fetch bootstrap's identity
-        log.info("Resolving bootstrap identity from: {}", config.getBootstrapDiscoveryUrl());
+        // Kernel and member nodes fetch bootstrap's identity via HTTP
+        var discoveryUrl = "http://" + config.bootstrapHost() + ":" + config.discoveryPort() + "/identity";
+        var endpoint = config.getBootstrapEndpoint();
+
+        log.info("Resolving bootstrap identity from: {}", discoveryUrl);
 
         try {
             var client = HttpClient.newBuilder()
@@ -358,7 +362,7 @@ public class DelosNode {
                 .build();
 
             var request = HttpRequest.newBuilder()
-                .uri(URI.create(config.getBootstrapDiscoveryUrl()))
+                .uri(URI.create(discoveryUrl))
                 .timeout(Duration.ofSeconds(30))
                 .GET()
                 .build();
@@ -374,7 +378,7 @@ public class DelosNode {
                         var parts = body.split("\\|");
                         if (parts.length == 2) {
                             var digestBase64 = parts[0];
-                            var endpoint = parts[1];
+                            var bootstrapEndpoint = parts[1];
 
                             // Decode the digest and construct identifier
                             var digestBytes = Base64.getDecoder().decode(digestBase64);
@@ -382,10 +386,10 @@ public class DelosNode {
                             var identifier = new SelfAddressingIdentifier(digest);
 
                             // Register bootstrap endpoint
-                            endpointRegistry.put(digest, endpoint);
+                            endpointRegistry.put(digest, bootstrapEndpoint);
 
-                            log.info("Resolved bootstrap: {} at {}", digest, endpoint);
-                            return List.of(new Seed(identifier, endpoint));
+                            log.info("Resolved bootstrap: {} at {}", digest, bootstrapEndpoint);
+                            return List.of(new Seed(identifier, bootstrapEndpoint));
                         }
                     }
 
@@ -408,12 +412,13 @@ public class DelosNode {
     }
 
     /**
-     * Start the identity discovery HTTP server.
+     * Start the discovery HTTP server.
+     * Provides /identity endpoint for KERI identity discovery and /health for Docker.
      */
     private void startDiscoveryServer() throws IOException {
         discoveryServer = HttpServer.create(new InetSocketAddress(config.discoveryPort()), 0);
 
-        // GET /identity - returns this node's identifier and endpoint
+        // GET /identity - returns this node's KERI identifier digest and endpoint
         discoveryServer.createContext("/identity", exchange -> {
             if (!"GET".equals(exchange.getRequestMethod())) {
                 exchange.sendResponseHeaders(405, -1);
@@ -440,7 +445,7 @@ public class DelosNode {
             }
         });
 
-        // GET /health - simple health check
+        // GET /health - health check for Docker
         discoveryServer.createContext("/health", exchange -> {
             if (!"GET".equals(exchange.getRequestMethod())) {
                 exchange.sendResponseHeaders(405, -1);

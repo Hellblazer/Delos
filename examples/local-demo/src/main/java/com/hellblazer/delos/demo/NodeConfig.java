@@ -151,16 +151,10 @@ public record NodeConfig(
 
     /**
      * Get the bootstrap seed endpoint for joining (gRPC).
+     * Identity is extracted from the TLS certificate during handshake.
      */
     public String getBootstrapEndpoint() {
         return bootstrapHost + ":" + bootstrapPort;
-    }
-
-    /**
-     * Get the bootstrap discovery URL for fetching the bootstrap node's identity.
-     */
-    public String getBootstrapDiscoveryUrl() {
-        return "http://" + bootstrapHost + ":" + discoveryPort + "/identity";
     }
 
     /**
