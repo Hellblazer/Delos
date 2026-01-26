@@ -1,0 +1,140 @@
+# Delos Alerting Rules
+#
+# These rules define alerts for production monitoring of Delos clusters.
+# Based on Phase 1A-3-E requirements.
+
+groups:
+  - name: delos-byzantine
+    interval: 30s
+    rules:
+      # Byzantine detection rate alert
+      - alert: HighByzantineDetectionRate
+        expr: rate(ff_accusations_total[5m]) > 0.0167  # >1/min
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Byzantine detection rate on {{ $labels.instance }}"
+          description: "Node {{ $labels.instance }} is detecting Byzantine behavior at {{ $value | humanize }} detections/sec"
+
+      # Quorum achievement rate
+      - alert: LowQuorumAchievementRate
+        expr: |
+          (
+            sum(rate(choam_transactions_completed_total[5m])) /
+            sum(rate(choam_transactions_submitted_total[5m]))
+          ) < 0.99
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Quorum achievement rate below 99%"
+          description: "Cluster quorum achievement rate is {{ $value | humanizePercentage }}"
+
+  - name: delos-performance
+    interval: 30s
+    rules:
+      # Recovery time alert
+      - alert: SlowRecoveryTime
+        expr: histogram_quantile(0.99, rate(choam_recovery_duration_seconds_bucket[5m])) > 60
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow CHOAM recovery on {{ $labels.instance }}"
+          description: "P99 recovery time is {{ $value | humanizeDuration }}"
+
+      # Memory usage alert
+      - alert: HighMemoryUsage
+        expr: |
+          jvm_memory_used_bytes{area="heap"} /
+          jvm_memory_max_bytes{area="heap"} > 0.80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Heap usage is {{ $value | humanizePercentage }}"
+
+      # GC pause alert
+      - alert: HighGCPauseTime
+        expr: rate(jvm_gc_pause_seconds_sum[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High GC pause time on {{ $labels.instance }}"
+          description: "GC is consuming {{ $value | humanizePercentage }} of time"
+
+  - name: delos-availability
+    interval: 30s
+    rules:
+      # Node down alert
+      - alert: DelosNodeDown
+        expr: up{job=~"delos-.*"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Delos node {{ $labels.instance }} is down"
+          description: "Node {{ $labels.instance }} has been unreachable for >1 minute"
+
+      # Cluster size alert
+      - alert: InsufficientClusterSize
+        expr: count(up{job=~"delos-.*"} == 1) < 4
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Insufficient Delos cluster size"
+          description: "Only {{ $value }} nodes are up. Minimum 4 required for BFT consensus."
+
+  - name: delos-consensus
+    interval: 30s
+    rules:
+      # CHOAM inactive alert
+      - alert: CHOAMInactive
+        expr: |
+          count(choam_active{node_role="genesis"} == 0) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "CHOAM consensus inactive on genesis nodes"
+          description: "Genesis nodes have inactive CHOAM consensus"
+
+      # Block production stalled
+      - alert: BlockProductionStalled
+        expr: |
+          sum(increase(choam_blocks_produced_total[5m])) == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Block production has stalled"
+          description: "No blocks produced in the last 10 minutes"
+
+  - name: delos-fireflies
+    interval: 30s
+    rules:
+      # View change storm
+      - alert: ViewChangeStorm
+        expr: rate(ff_view_changes_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Frequent view changes on {{ $labels.instance }}"
+          description: "View changes occurring at {{ $value | humanize }}/sec"
+
+      # Gossip failure rate
+      - alert: HighGossipFailureRate
+        expr: |
+          rate(ff_gossip_failures_total[5m]) /
+          rate(ff_gossip_attempts_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High gossip failure rate on {{ $labels.instance }}"
+          description: "{{ $value | humanizePercentage }} of gossip attempts failing"

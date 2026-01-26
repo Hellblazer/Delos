@@ -210,6 +210,58 @@ services:
           memory: 384M
       replicas: 1  # Use --scale node=96 for 100-node cluster
 
+  # === Monitoring Stack ===
+  # Prometheus - metrics collection and alerting
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: delos-prometheus
+    hostname: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+      - '--storage.tsdb.retention.time=7d'
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9091:9090"   # Prometheus UI (9091 to avoid conflict with node metrics)
+    networks:
+      - delos-net
+    depends_on:
+      bootstrap:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # Grafana - visualization and dashboards
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: delos-grafana
+    hostname: grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: delos
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_SERVER_ROOT_URL: 'http://localhost:3000'
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"   # Grafana UI
+    networks:
+      - delos-net
+    depends_on:
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
 networks:
   delos-net:
     driver: bridge
@@ -222,3 +274,5 @@ volumes:
   kernel1-data:
   kernel2-data:
   kernel3-data:
+  prometheus-data:
+  grafana-data:

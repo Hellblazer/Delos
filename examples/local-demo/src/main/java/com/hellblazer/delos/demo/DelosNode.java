@@ -34,6 +34,8 @@ import com.hellblazer.delos.stereotomy.mem.MemKeyStore;
 import com.sun.net.httpserver.HttpServer;
 import io.netty.handler.ssl.ClientAuth;
 import io.netty.handler.ssl.SslContext;
+import io.prometheus.client.CollectorRegistry;
+import io.prometheus.client.dropwizard.DropwizardExports;
 import io.prometheus.client.exporter.HTTPServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -645,12 +647,18 @@ public class DelosNode {
 
     /**
      * Start the Prometheus metrics HTTP server.
+     * Bridges Dropwizard MetricRegistry to Prometheus CollectorRegistry.
      */
     private void startPrometheusServer() {
         try {
+            // Register Dropwizard metrics with Prometheus
+            // This bridges all metrics from the Dropwizard MetricRegistry to Prometheus
+            CollectorRegistry.defaultRegistry.register(new DropwizardExports(metrics));
+            log.info("Registered Dropwizard metrics with Prometheus");
+
             prometheusServer = new HTTPServer(
                 new InetSocketAddress(config.metricsPort()),
-                io.prometheus.client.CollectorRegistry.defaultRegistry
+                CollectorRegistry.defaultRegistry
             );
             log.info("Prometheus server started on port {}", config.metricsPort());
         } catch (IOException e) {
