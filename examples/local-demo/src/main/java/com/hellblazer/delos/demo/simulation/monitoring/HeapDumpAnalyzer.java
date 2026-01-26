@@ -40,6 +40,12 @@ public class HeapDumpAnalyzer {
     private static final long LEAK_THRESHOLD_BYTES_PER_HOUR = 100L * 1024 * 1024;
 
     /**
+     * Threshold for considering growth as stable noise vs actual growth (bytes/hour).
+     * Growth below this is considered stable. Default: 5 MB/hour
+     */
+    private static final long STABLE_THRESHOLD_BYTES_PER_HOUR = 5L * 1024 * 1024;
+
+    /**
      * Minimum number of dumps required for trend analysis.
      */
     private static final int MIN_DUMPS_FOR_TREND = 3;
@@ -121,18 +127,20 @@ public class HeapDumpAnalyzer {
      * Detect memory leak trend based on growth rate.
      */
     private HeapTrend detectMemoryLeakTrend(double growthRate) {
-        // Check for steady growth pattern
-        var isGrowing = growthRate > 0;
-        var isShrinking = growthRate < 0;
+        var absGrowthRate = Math.abs(growthRate);
 
-        if (isGrowing && Math.abs(growthRate) > LEAK_THRESHOLD_BYTES_PER_HOUR) {
-            return HeapTrend.LEAK_SUSPECTED;
-        } else if (isGrowing) {
-            return HeapTrend.GROWING;
-        } else if (isShrinking) {
-            return HeapTrend.SHRINKING;
-        } else {
+        // Check if growth rate is within stable threshold (noise)
+        if (absGrowthRate <= STABLE_THRESHOLD_BYTES_PER_HOUR) {
             return HeapTrend.STABLE;
+        }
+
+        // Significant growth or shrinkage
+        if (growthRate > 0 && absGrowthRate > LEAK_THRESHOLD_BYTES_PER_HOUR) {
+            return HeapTrend.LEAK_SUSPECTED;
+        } else if (growthRate > 0) {
+            return HeapTrend.GROWING;
+        } else {
+            return HeapTrend.SHRINKING;
         }
     }
 

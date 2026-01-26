@@ -138,10 +138,11 @@ class HeapDumpAnalyzerTest {
     void testGrowthRateCalculation() {
         var baseTime = Instant.now();
 
-        // Exact 50 MB/hour growth
+        // Exact 50 MB/hour growth over 4 hours (need 3+ dumps for analysis)
         var dumps = List.of(
             createDump(baseTime, 100_000_000L),
-            createDump(baseTime.plus(Duration.ofHours(2)), 200_000_000L)
+            createDump(baseTime.plus(Duration.ofHours(2)), 200_000_000L),
+            createDump(baseTime.plus(Duration.ofHours(4)), 300_000_000L)
         );
 
         var analyzer = new HeapDumpAnalyzer(dumps);
