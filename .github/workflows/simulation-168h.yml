@@ -104,7 +104,7 @@ jobs:
           curl -f http://localhost:9091/-/healthy || (docker compose -f compose-simulation.yaml logs prometheus && exit 1)
           echo "Cluster health check passed"
 
-      - name: Run 168-hour simulation
+      - name: Run 168-hour simulation with chaos testing
         working-directory: examples/local-demo
         run: |
           echo "Starting 168-hour simulation at $(date)"
@@ -113,6 +113,8 @@ jobs:
             -Dsimulation.duration.hours=168 \
             -Dsimulation.nodeCount=${{ steps.scaling.outputs.node_count }} \
             -Dsimulation.enableHeapDumps=${{ github.event.inputs.enable_heap_dumps }} \
+            -Dsimulation.enableChaos=${{ github.event.inputs.enable_chaos }} \
+            -Dsimulation.chaosStrategy=AGGRESSIVE \
             -Dsimulation.prometheusUrl=http://localhost:9091
           echo "Simulation completed at $(date)"
 
