@@ -36,18 +36,13 @@ import io.prometheus.client.exporter.HTTPServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.net.ssl.*;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.ByteBuffer;
+import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.util.Base64;
-import java.security.Provider;
-import java.security.SecureRandom;
+import java.security.*;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
@@ -71,7 +66,7 @@ import java.util.function.Function;
  * <ul>
  *   <li>KERI identity management via Stereotomy</li>
  *   <li>MTLS (mutual TLS) for secure gRPC communication</li>
- *   <li>Identity discovery via HTTP for seed resolution</li>
+ *   <li>MTLS-based identity discovery - extracts KERI identity from TLS certificates</li>
  *   <li>Three-tier bootstrap pattern support</li>
  *   <li>Prometheus metrics endpoint</li>
  * </ul>
@@ -219,7 +214,7 @@ public class DelosNode {
 
         log.info("Starting node: {}", config.nodeId());
 
-        // Start discovery server (identity + health endpoints)
+        // Start health check server for Docker
         startDiscoveryServer();
 
         // Start MTLS router
@@ -342,7 +337,7 @@ public class DelosNode {
 
     /**
      * Resolve bootstrap seeds based on node type.
-     * Uses HTTP endpoint to fetch bootstrap's KERI identity digest.
+     * Uses MTLS handshake to extract bootstrap's KERI identity from its X.509 certificate.
      */
     private List<Seed> resolveSeeds() {
         if (config.nodeType() == NodeConfig.NodeType.BOOTSTRAP) {
@@ -350,100 +345,102 @@ public class DelosNode {
             return Collections.emptyList();
         }
 
-        // Kernel and member nodes fetch bootstrap's identity via HTTP
-        var discoveryUrl = "http://" + config.bootstrapHost() + ":" + config.discoveryPort() + "/identity";
         var endpoint = config.getBootstrapEndpoint();
+        log.info("Resolving bootstrap identity via MTLS from: {}", endpoint);
 
-        log.info("Resolving bootstrap identity from: {}", discoveryUrl);
+        // Retry with backoff
+        for (int attempt = 1; attempt <= 10; attempt++) {
+            try {
+                var peerCert = extractPeerCertificateViaMtls(config.bootstrapHost(), config.bootstrapPort());
+                if (peerCert != null) {
+                    // Extract KERI identity from the certificate
+                    var boundId = Stereotomy.decode(peerCert);
+                    if (boundId.isPresent()) {
+                        var identifier = (SelfAddressingIdentifier) boundId.get().identifier();
+                        var digest = identifier.getDigest();
 
-        try {
-            var client = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .build();
+                        // Register bootstrap endpoint
+                        endpointRegistry.put(digest, endpoint);
 
-            var request = HttpRequest.newBuilder()
-                .uri(URI.create(discoveryUrl))
-                .timeout(Duration.ofSeconds(30))
-                .GET()
-                .build();
-
-            // Retry with backoff
-            for (int attempt = 1; attempt <= 10; attempt++) {
-                try {
-                    var response = client.send(request, HttpResponse.BodyHandlers.ofString());
-
-                    if (response.statusCode() == 200) {
-                        var body = response.body();
-                        // Parse response: "base64EncodedDigest|endpoint"
-                        var parts = body.split("\\|");
-                        if (parts.length == 2) {
-                            var digestBase64 = parts[0];
-                            var bootstrapEndpoint = parts[1];
-
-                            // Decode the digest and construct identifier
-                            var digestBytes = Base64.getDecoder().decode(digestBase64);
-                            var digest = new Digest(ByteBuffer.wrap(digestBytes));
-                            var identifier = new SelfAddressingIdentifier(digest);
-
-                            // Register bootstrap endpoint
-                            endpointRegistry.put(digest, bootstrapEndpoint);
-
-                            log.info("Resolved bootstrap: {} at {}", digest, bootstrapEndpoint);
-                            return List.of(new Seed(identifier, bootstrapEndpoint));
-                        }
+                        log.info("Resolved bootstrap via MTLS: {} at {}", digest, endpoint);
+                        return List.of(new Seed(identifier, endpoint));
+                    } else {
+                        log.warn("Bootstrap certificate does not contain KERI identity");
                     }
-
-                    log.warn("Bootstrap discovery attempt {} failed: HTTP {}", attempt, response.statusCode());
-                } catch (IOException e) {
-                    log.warn("Bootstrap discovery attempt {} failed: {}", attempt, e.getMessage());
                 }
-
-                // Exponential backoff
-                Thread.sleep(1000L * attempt);
+            } catch (Exception e) {
+                log.warn("Bootstrap MTLS discovery attempt {} failed: {}", attempt, e.getMessage());
             }
 
-            log.error("Failed to resolve bootstrap after 10 attempts");
-            return Collections.emptyList();
-
-        } catch (Exception e) {
-            log.error("Error resolving bootstrap identity", e);
-            return Collections.emptyList();
+            // Exponential backoff
+            try {
+                Thread.sleep(1000L * attempt);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                break;
+            }
         }
+
+        log.error("Failed to resolve bootstrap via MTLS after 10 attempts");
+        return Collections.emptyList();
     }
 
     /**
-     * Start the discovery HTTP server.
-     * Provides /identity endpoint for KERI identity discovery and /health for Docker.
+     * Connect to a peer using MTLS with our certificate and extract their certificate.
+     * This performs a proper mutual TLS handshake where we present our certificate
+     * and receive the peer's certificate.
+     */
+    private X509Certificate extractPeerCertificateViaMtls(String host, int port) throws Exception {
+        // Create a KeyStore containing our certificate and private key
+        var keyStore = KeyStore.getInstance("PKCS12");
+        keyStore.load(null, null);
+        keyStore.setKeyEntry("node",
+            certificate.getPrivateKey(),
+            "".toCharArray(),
+            new java.security.cert.Certificate[]{certificate.getX509Certificate()});
+
+        // Create KeyManager with our certificate
+        var kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+        kmf.init(keyStore, "".toCharArray());
+
+        // Create TrustManager that accepts all certificates (we validate via KERI)
+        var trustAllCerts = new TrustManager[]{
+            new X509TrustManager() {
+                public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+                public void checkClientTrusted(X509Certificate[] certs, String authType) { }
+                public void checkServerTrusted(X509Certificate[] certs, String authType) { }
+            }
+        };
+
+        // Create SSL context with our key manager and trust-all manager
+        var sslContext = SSLContext.getInstance("TLSv1.3");
+        sslContext.init(kmf.getKeyManagers(), trustAllCerts, new SecureRandom());
+
+        // Connect and perform handshake
+        var socketFactory = sslContext.getSocketFactory();
+        try (var socket = (SSLSocket) socketFactory.createSocket(new Socket(host, port), host, port, true)) {
+            socket.setUseClientMode(true);
+            socket.setSoTimeout(10000); // 10 second timeout
+
+            // Start the handshake - this exchanges certificates
+            socket.startHandshake();
+
+            // Get the peer's certificate from the session
+            var session = socket.getSession();
+            var peerCerts = session.getPeerCertificates();
+            if (peerCerts != null && peerCerts.length > 0) {
+                return (X509Certificate) peerCerts[0];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Start the HTTP server for health checks.
+     * Identity discovery now uses MTLS certificate extraction.
      */
     private void startDiscoveryServer() throws IOException {
         discoveryServer = HttpServer.create(new InetSocketAddress(config.discoveryPort()), 0);
-
-        // GET /identity - returns this node's KERI identifier digest and endpoint
-        discoveryServer.createContext("/identity", exchange -> {
-            if (!"GET".equals(exchange.getRequestMethod())) {
-                exchange.sendResponseHeaders(405, -1);
-                return;
-            }
-
-            // Serialize the digest: algorithm code + hash bytes
-            var identifier = member.getIdentifier().getIdentifier();
-            var digest = identifier.getDigest();
-            var digestBytes = digest.getBytes();
-            var serialized = ByteBuffer.allocate(1 + digestBytes.length);
-            serialized.put((byte) digest.getAlgorithm().digestCode());
-            serialized.put(digestBytes);
-
-            // Format: "base64EncodedDigest|endpoint"
-            var digestBase64 = Base64.getEncoder().encodeToString(serialized.array());
-            var response = digestBase64 + "|" + config.getEndpoint();
-            var bytes = response.getBytes(StandardCharsets.UTF_8);
-
-            exchange.getResponseHeaders().add("Content-Type", "text/plain");
-            exchange.sendResponseHeaders(200, bytes.length);
-            try (OutputStream os = exchange.getResponseBody()) {
-                os.write(bytes);
-            }
-        });
 
         // GET /health - health check for Docker
         discoveryServer.createContext("/health", exchange -> {
@@ -463,7 +460,7 @@ public class DelosNode {
 
         discoveryServer.setExecutor(executor);
         discoveryServer.start();
-        log.info("Discovery server started on port {}", config.discoveryPort());
+        log.info("Health check server started on port {}", config.discoveryPort());
     }
 
     /**
