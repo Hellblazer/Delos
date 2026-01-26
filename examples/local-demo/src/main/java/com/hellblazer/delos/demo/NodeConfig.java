@@ -32,6 +32,7 @@ public record NodeConfig(
     int bootstrapPort,
     int grpcPort,
     int metricsPort,
+    int discoveryPort,
 
     // Cluster configuration
     int cardinality,
@@ -71,6 +72,7 @@ public record NodeConfig(
             getEnvInt("DELOS_BOOTSTRAP_PORT", 9999),
             getEnvInt("DELOS_GRPC_PORT", 9999),
             getEnvInt("DELOS_METRICS_PORT", 9090),
+            getEnvInt("DELOS_DISCOVERY_PORT", 8080),
             getEnvInt("DELOS_CARDINALITY", 10),
             getEnvInt("DELOS_BIAS", 3),
             getEnvDouble("DELOS_PBYZ", 0.1),
@@ -148,16 +150,35 @@ public record NodeConfig(
     }
 
     /**
-     * Get the bootstrap seed endpoint for joining.
+     * Get the bootstrap seed endpoint for joining (gRPC).
      */
     public String getBootstrapEndpoint() {
         return bootstrapHost + ":" + bootstrapPort;
     }
 
+    /**
+     * Get the bootstrap discovery URL for fetching the bootstrap node's identity.
+     */
+    public String getBootstrapDiscoveryUrl() {
+        return "http://" + bootstrapHost + ":" + discoveryPort + "/identity";
+    }
+
+    /**
+     * Get this node's endpoint string for Fireflies.
+     */
+    public String getEndpoint() {
+        // In Docker, use the container's hostname
+        var hostname = System.getenv("HOSTNAME");
+        if (hostname != null && !hostname.isBlank()) {
+            return hostname + ":" + grpcPort;
+        }
+        return "localhost:" + grpcPort;
+    }
+
     @Override
     public String toString() {
         return String.format(
-            "NodeConfig{type=%s, id=%s, bootstrap=%s:%d, grpc=%d, metrics=%d, cardinality=%d}",
-            nodeType, nodeId, bootstrapHost, bootstrapPort, grpcPort, metricsPort, cardinality);
+            "NodeConfig{type=%s, id=%s, bootstrap=%s:%d, grpc=%d, metrics=%d, discovery=%d, cardinality=%d}",
+            nodeType, nodeId, bootstrapHost, bootstrapPort, grpcPort, metricsPort, discoveryPort, cardinality);
     }
 }

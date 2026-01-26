@@ -32,6 +32,7 @@ services:
       DELOS_NODE_ID: 'bootstrap-0'
       DELOS_GRPC_PORT: '9999'
       DELOS_METRICS_PORT: '9090'
+      DELOS_DISCOVERY_PORT: '8080'
       DELOS_CARDINALITY: '10'
       DELOS_BIAS: '3'
       DELOS_PBYZ: '0.1'
@@ -41,6 +42,7 @@ services:
     ports:
       - "9999:9999"   # gRPC endpoint
       - "9090:9090"   # Prometheus metrics
+      - "8080:8080"   # Identity discovery
     networks:
       delos-net:
         aliases:
@@ -49,7 +51,7 @@ services:
     volumes:
       - bootstrap-data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9090/metrics"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -73,6 +75,7 @@ services:
       DELOS_BOOTSTRAP_PORT: '9999'
       DELOS_GRPC_PORT: '9999'
       DELOS_METRICS_PORT: '9090'
+      DELOS_DISCOVERY_PORT: '8080'
       DELOS_CARDINALITY: '10'
       DELOS_GOSSIP_DURATION_MS: '100'
       JAVA_OPTS: '-Xmx512m -Xms256m'
@@ -84,7 +87,7 @@ services:
       bootstrap:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9090/metrics"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -105,6 +108,7 @@ services:
       DELOS_BOOTSTRAP_PORT: '9999'
       DELOS_GRPC_PORT: '9999'
       DELOS_METRICS_PORT: '9090'
+      DELOS_DISCOVERY_PORT: '8080'
       DELOS_CARDINALITY: '10'
       DELOS_GOSSIP_DURATION_MS: '100'
       JAVA_OPTS: '-Xmx512m -Xms256m'
@@ -116,7 +120,7 @@ services:
       bootstrap:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9090/metrics"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -137,6 +141,7 @@ services:
       DELOS_BOOTSTRAP_PORT: '9999'
       DELOS_GRPC_PORT: '9999'
       DELOS_METRICS_PORT: '9090'
+      DELOS_DISCOVERY_PORT: '8080'
       DELOS_CARDINALITY: '10'
       DELOS_GOSSIP_DURATION_MS: '100'
       JAVA_OPTS: '-Xmx512m -Xms256m'
@@ -148,7 +153,7 @@ services:
       bootstrap:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9090/metrics"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -167,6 +172,7 @@ services:
       DELOS_BOOTSTRAP_PORT: '9999'
       DELOS_GRPC_PORT: '9999'
       DELOS_METRICS_PORT: '9090'
+      DELOS_DISCOVERY_PORT: '8080'
       DELOS_CARDINALITY: '100'
       DELOS_GOSSIP_DURATION_MS: '100'
       DELOS_SEEDING_TIMEOUT_S: '120'
@@ -181,7 +187,7 @@ services:
       kernel3:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9090/metrics"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
       retries: 3

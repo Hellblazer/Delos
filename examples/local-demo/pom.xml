@@ -35,6 +35,10 @@
             <groupId>com.hellblazer.delos</groupId>
             <artifactId>cryptography</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.hellblazer.delos</groupId>
+            <artifactId>protocols</artifactId>
+        </dependency>
 
         <!-- Metrics - Dropwizard (used by Delos internally) -->
         <dependency>

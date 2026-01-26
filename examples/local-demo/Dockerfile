@@ -52,6 +52,7 @@ ENV DELOS_NODE_TYPE=member \
     DELOS_BOOTSTRAP_PORT=9999 \
     DELOS_GRPC_PORT=9999 \
     DELOS_METRICS_PORT=9090 \
+    DELOS_DISCOVERY_PORT=8080 \
     DELOS_CARDINALITY=10 \
     DELOS_BIAS=3 \
     DELOS_PBYZ=0.1 \
@@ -63,8 +64,8 @@ ENV DELOS_NODE_TYPE=member \
     DELOS_MAX_HEAP_MB=512 \
     JAVA_OPTS=""
 
-# Expose ports
-EXPOSE 9999 9090
+# Expose ports: gRPC, Prometheus metrics, Identity discovery
+EXPOSE 9999 9090 8080
 
 # Health check - verify node is responding
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
