@@ -27,7 +27,11 @@ public record SimulationConfig(
     boolean enableHeapDumps,
     Duration heapDumpInterval,
     Path resultsDir,
-    String composeFile
+    String composeFile,
+    String prometheusUrl,
+    Duration metricCollectionInterval,
+    Duration baselineWindow,
+    double anomalyThresholdSigma
 ) {
 
     /**
@@ -57,6 +61,10 @@ public record SimulationConfig(
         private Duration heapDumpInterval = Duration.ofHours(24);
         private Path resultsDir = Path.of("simulation-results");
         private String composeFile = "compose-simulation.yaml";
+        private String prometheusUrl = "http://localhost:9090";
+        private Duration metricCollectionInterval = Duration.ofMinutes(5);
+        private Duration baselineWindow = Duration.ofHours(2);
+        private double anomalyThresholdSigma = 2.0;
 
         private Builder() {
         }
@@ -106,6 +114,26 @@ public record SimulationConfig(
             return this;
         }
 
+        public Builder prometheusUrl(String prometheusUrl) {
+            this.prometheusUrl = prometheusUrl;
+            return this;
+        }
+
+        public Builder metricCollectionInterval(Duration metricCollectionInterval) {
+            this.metricCollectionInterval = metricCollectionInterval;
+            return this;
+        }
+
+        public Builder baselineWindow(Duration baselineWindow) {
+            this.baselineWindow = baselineWindow;
+            return this;
+        }
+
+        public Builder anomalyThresholdSigma(double anomalyThresholdSigma) {
+            this.anomalyThresholdSigma = anomalyThresholdSigma;
+            return this;
+        }
+
         public SimulationConfig build() {
             return new SimulationConfig(
                 duration,
@@ -116,7 +144,11 @@ public record SimulationConfig(
                 enableHeapDumps,
                 heapDumpInterval,
                 resultsDir,
-                composeFile
+                composeFile,
+                prometheusUrl,
+                metricCollectionInterval,
+                baselineWindow,
+                anomalyThresholdSigma
             );
         }
     }
@@ -179,6 +211,18 @@ public record SimulationConfig(
         }
         if (enableHeapDumps && (heapDumpInterval.isNegative() || heapDumpInterval.isZero())) {
             throw new IllegalArgumentException("Heap dump interval must be positive when enabled");
+        }
+        if (prometheusUrl == null || prometheusUrl.isBlank()) {
+            throw new IllegalArgumentException("Prometheus URL must not be blank");
+        }
+        if (metricCollectionInterval.isNegative() || metricCollectionInterval.isZero()) {
+            throw new IllegalArgumentException("Metric collection interval must be positive");
+        }
+        if (baselineWindow.isNegative() || baselineWindow.isZero()) {
+            throw new IllegalArgumentException("Baseline window must be positive");
+        }
+        if (anomalyThresholdSigma <= 0) {
+            throw new IllegalArgumentException("Anomaly threshold sigma must be positive");
         }
     }
 }
