@@ -178,10 +178,13 @@ public class DelosNode {
             .router(cacheBuilder, executor);
 
         // Create Fireflies parameters
+        // MaxReseedDepth increased from default 30 to handle rapid cluster formation
+        // MaximumTxfr set to cardinality for fast gossip propagation (from ChurnTest)
         var ffParams = Parameters.newBuilder()
             .setMaxPending(20)
-            .setMaximumTxfr(5)
+            .setMaximumTxfr(config.cardinality())
             .setSeedingTimout(config.seedingTimeout())
+            .setMaxReseedDepth(50)
             .build();
 
         // Create Fireflies metrics

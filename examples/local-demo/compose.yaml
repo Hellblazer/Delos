@@ -9,17 +9,25 @@
 #   # Build the Docker image first
 #   mvn package -Pdocker -pl examples/local-demo -am
 #
-#   # Start the complete cluster
+#   # Start the complete cluster (5 nodes default)
 #   docker compose up -d
 #
 #   # View logs
 #   docker compose logs -f
 #
-#   # Scale member nodes
-#   docker compose up -d --scale node=10
+#   # Scale to 100 nodes (96 members + 4 genesis)
+#   docker compose up -d --scale node=96
+#
+#   # Monitor cluster formation
+#   docker compose logs -f | grep "Status:"
 #
 #   # Stop and cleanup
 #   docker compose down -v
+#
+# Resource Requirements for 100-node cluster:
+#   - Memory: ~32GB (256MB per node + overhead)
+#   - CPU: 8+ cores recommended
+#   - Disk: Minimal (in-memory state)
 #
 services:
   # Bootstrap node - starts first, initializes cluster
@@ -33,16 +41,16 @@ services:
       DELOS_GRPC_PORT: '9999'
       DELOS_METRICS_PORT: '9090'
       DELOS_DISCOVERY_PORT: '8080'
-      DELOS_CARDINALITY: '10'
+      DELOS_CARDINALITY: '120'
       DELOS_BIAS: '3'
       DELOS_PBYZ: '0.1'
-      DELOS_GOSSIP_DURATION_MS: '100'
-      DELOS_SEEDING_TIMEOUT_S: '60'
-      JAVA_OPTS: '-Xmx512m -Xms256m'
+      DELOS_GOSSIP_DURATION_MS: '50'
+      DELOS_SEEDING_TIMEOUT_S: '180'
+      JAVA_OPTS: '-Xmx256m -Xms128m -XX:+UseZGC'
     ports:
       - "9999:9999"   # gRPC endpoint
       - "9090:9090"   # Prometheus metrics
-      - "8080:8080"   # Identity discovery
+      - "8080:8080"   # Health endpoint
     networks:
       delos-net:
         aliases:
@@ -54,14 +62,14 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
-      retries: 3
-      start_period: 30s
+      retries: 5
+      start_period: 60s
     deploy:
       resources:
         limits:
-          memory: 768M
+          memory: 384M
         reservations:
-          memory: 256M
+          memory: 128M
 
   # Kernel nodes - form BFT quorum with bootstrap
   kernel1:
@@ -76,9 +84,10 @@ services:
       DELOS_GRPC_PORT: '9999'
       DELOS_METRICS_PORT: '9090'
       DELOS_DISCOVERY_PORT: '8080'
-      DELOS_CARDINALITY: '10'
-      DELOS_GOSSIP_DURATION_MS: '100'
-      JAVA_OPTS: '-Xmx512m -Xms256m'
+      DELOS_CARDINALITY: '120'
+      DELOS_GOSSIP_DURATION_MS: '50'
+      DELOS_SEEDING_TIMEOUT_S: '180'
+      JAVA_OPTS: '-Xmx256m -Xms128m -XX:+UseZGC'
     networks:
       - delos-net
     volumes:
@@ -90,12 +99,12 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
-      retries: 3
-      start_period: 30s
+      retries: 5
+      start_period: 60s
     deploy:
       resources:
         limits:
-          memory: 768M
+          memory: 384M
 
   kernel2:
     image: delos-node:latest
@@ -109,9 +118,10 @@ services:
       DELOS_GRPC_PORT: '9999'
       DELOS_METRICS_PORT: '9090'
       DELOS_DISCOVERY_PORT: '8080'
-      DELOS_CARDINALITY: '10'
-      DELOS_GOSSIP_DURATION_MS: '100'
-      JAVA_OPTS: '-Xmx512m -Xms256m'
+      DELOS_CARDINALITY: '120'
+      DELOS_GOSSIP_DURATION_MS: '50'
+      DELOS_SEEDING_TIMEOUT_S: '180'
+      JAVA_OPTS: '-Xmx256m -Xms128m -XX:+UseZGC'
     networks:
       - delos-net
     volumes:
@@ -123,12 +133,12 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
-      retries: 3
-      start_period: 30s
+      retries: 5
+      start_period: 60s
     deploy:
       resources:
         limits:
-          memory: 768M
+          memory: 384M
 
   kernel3:
     image: delos-node:latest
@@ -142,9 +152,10 @@ services:
       DELOS_GRPC_PORT: '9999'
       DELOS_METRICS_PORT: '9090'
       DELOS_DISCOVERY_PORT: '8080'
-      DELOS_CARDINALITY: '10'
-      DELOS_GOSSIP_DURATION_MS: '100'
-      JAVA_OPTS: '-Xmx512m -Xms256m'
+      DELOS_CARDINALITY: '120'
+      DELOS_GOSSIP_DURATION_MS: '50'
+      DELOS_SEEDING_TIMEOUT_S: '180'
+      JAVA_OPTS: '-Xmx256m -Xms128m -XX:+UseZGC'
     networks:
       - delos-net
     volumes:
@@ -156,14 +167,15 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
-      retries: 3
-      start_period: 30s
+      retries: 5
+      start_period: 60s
     deploy:
       resources:
         limits:
-          memory: 768M
+          memory: 384M
 
   # Scalable member nodes - join after kernel is ready
+  # Use: docker compose up -d --scale node=96 for 100-node cluster
   node:
     image: delos-node:latest
     environment:
@@ -173,10 +185,10 @@ services:
       DELOS_GRPC_PORT: '9999'
       DELOS_METRICS_PORT: '9090'
       DELOS_DISCOVERY_PORT: '8080'
-      DELOS_CARDINALITY: '100'
-      DELOS_GOSSIP_DURATION_MS: '100'
-      DELOS_SEEDING_TIMEOUT_S: '120'
-      JAVA_OPTS: '-Xmx512m -Xms256m'
+      DELOS_CARDINALITY: '120'
+      DELOS_GOSSIP_DURATION_MS: '50'
+      DELOS_SEEDING_TIMEOUT_S: '300'
+      JAVA_OPTS: '-Xmx256m -Xms128m -XX:+UseZGC'
     networks:
       - delos-net
     depends_on:
@@ -188,15 +200,15 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 45s
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
     deploy:
       resources:
         limits:
-          memory: 768M
-      replicas: 1  # Use --scale node=N to add more
+          memory: 384M
+      replicas: 1  # Use --scale node=96 for 100-node cluster
 
 networks:
   delos-net:
