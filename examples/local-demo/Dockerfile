@@ -15,7 +15,7 @@
 # =============================================================================
 # Runtime Stage
 # =============================================================================
-FROM eclipse-temurin:24-jre-alpine
+FROM eclipse-temurin:25-jre-alpine
 
 LABEL maintainer="hal.hildebrand@gmail.com"
 LABEL description="Delos distributed system node"
@@ -81,7 +81,6 @@ CMD ["sh", "-c", "exec java \
     -Xmx${DELOS_MAX_HEAP_MB}m \
     -Xms$((DELOS_MAX_HEAP_MB / 2))m \
     -XX:+UseZGC \
-    -XX:+ZGenerational \
     -Djava.net.preferIPv4Stack=true \
     -Dlogback.configurationFile=/app/logback.xml \
     ${JAVA_OPTS} \
