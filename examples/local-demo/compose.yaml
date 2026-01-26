@@ -1,0 +1,206 @@
+# Combined Delos Cluster - All nodes in one compose file
+#
+# This file defines a complete Delos cluster with:
+# - 1 bootstrap node (genesis initiator)
+# - 3 kernel nodes (BFT quorum with bootstrap = 4 nodes for f=1)
+# - Scalable member nodes (join after genesis)
+#
+# Usage:
+#   # Build the Docker image first
+#   mvn package -Pdocker -pl examples/local-demo -am
+#
+#   # Start the complete cluster
+#   docker compose up -d
+#
+#   # View logs
+#   docker compose logs -f
+#
+#   # Scale member nodes
+#   docker compose up -d --scale node=10
+#
+#   # Stop and cleanup
+#   docker compose down -v
+#
+services:
+  # Bootstrap node - starts first, initializes cluster
+  bootstrap:
+    image: delos-node:latest
+    container_name: delos-bootstrap
+    hostname: bootstrap
+    environment:
+      DELOS_NODE_TYPE: 'bootstrap'
+      DELOS_NODE_ID: 'bootstrap-0'
+      DELOS_GRPC_PORT: '9999'
+      DELOS_METRICS_PORT: '9090'
+      DELOS_CARDINALITY: '10'
+      DELOS_BIAS: '3'
+      DELOS_PBYZ: '0.1'
+      DELOS_GOSSIP_DURATION_MS: '100'
+      DELOS_SEEDING_TIMEOUT_S: '60'
+      JAVA_OPTS: '-Xmx512m -Xms256m'
+    ports:
+      - "9999:9999"   # gRPC endpoint
+      - "9090:9090"   # Prometheus metrics
+    networks:
+      delos-net:
+        aliases:
+          - bootstrap
+          - delos-bootstrap
+    volumes:
+      - bootstrap-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/metrics"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+        reservations:
+          memory: 256M
+
+  # Kernel nodes - form BFT quorum with bootstrap
+  kernel1:
+    image: delos-node:latest
+    container_name: delos-kernel1
+    hostname: kernel1
+    environment:
+      DELOS_NODE_TYPE: 'kernel'
+      DELOS_NODE_ID: 'kernel-1'
+      DELOS_BOOTSTRAP_HOST: 'bootstrap'
+      DELOS_BOOTSTRAP_PORT: '9999'
+      DELOS_GRPC_PORT: '9999'
+      DELOS_METRICS_PORT: '9090'
+      DELOS_CARDINALITY: '10'
+      DELOS_GOSSIP_DURATION_MS: '100'
+      JAVA_OPTS: '-Xmx512m -Xms256m'
+    networks:
+      - delos-net
+    volumes:
+      - kernel1-data:/data
+    depends_on:
+      bootstrap:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/metrics"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
+  kernel2:
+    image: delos-node:latest
+    container_name: delos-kernel2
+    hostname: kernel2
+    environment:
+      DELOS_NODE_TYPE: 'kernel'
+      DELOS_NODE_ID: 'kernel-2'
+      DELOS_BOOTSTRAP_HOST: 'bootstrap'
+      DELOS_BOOTSTRAP_PORT: '9999'
+      DELOS_GRPC_PORT: '9999'
+      DELOS_METRICS_PORT: '9090'
+      DELOS_CARDINALITY: '10'
+      DELOS_GOSSIP_DURATION_MS: '100'
+      JAVA_OPTS: '-Xmx512m -Xms256m'
+    networks:
+      - delos-net
+    volumes:
+      - kernel2-data:/data
+    depends_on:
+      bootstrap:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/metrics"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
+  kernel3:
+    image: delos-node:latest
+    container_name: delos-kernel3
+    hostname: kernel3
+    environment:
+      DELOS_NODE_TYPE: 'kernel'
+      DELOS_NODE_ID: 'kernel-3'
+      DELOS_BOOTSTRAP_HOST: 'bootstrap'
+      DELOS_BOOTSTRAP_PORT: '9999'
+      DELOS_GRPC_PORT: '9999'
+      DELOS_METRICS_PORT: '9090'
+      DELOS_CARDINALITY: '10'
+      DELOS_GOSSIP_DURATION_MS: '100'
+      JAVA_OPTS: '-Xmx512m -Xms256m'
+    networks:
+      - delos-net
+    volumes:
+      - kernel3-data:/data
+    depends_on:
+      bootstrap:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/metrics"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
+  # Scalable member nodes - join after kernel is ready
+  node:
+    image: delos-node:latest
+    environment:
+      DELOS_NODE_TYPE: 'member'
+      DELOS_BOOTSTRAP_HOST: 'bootstrap'
+      DELOS_BOOTSTRAP_PORT: '9999'
+      DELOS_GRPC_PORT: '9999'
+      DELOS_METRICS_PORT: '9090'
+      DELOS_CARDINALITY: '100'
+      DELOS_GOSSIP_DURATION_MS: '100'
+      DELOS_SEEDING_TIMEOUT_S: '120'
+      JAVA_OPTS: '-Xmx512m -Xms256m'
+    networks:
+      - delos-net
+    depends_on:
+      kernel1:
+        condition: service_healthy
+      kernel2:
+        condition: service_healthy
+      kernel3:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/metrics"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+      replicas: 1  # Use --scale node=N to add more
+
+networks:
+  delos-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  bootstrap-data:
+  kernel1-data:
+  kernel2-data:
+  kernel3-data:

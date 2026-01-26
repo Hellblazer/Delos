@@ -1,350 +1,305 @@
-# Delos Local Demo - Docker Compose Cluster Pattern
+# Delos Local Demo - Docker Compose Cluster
+
+Multi-node Delos cluster deployment using Docker Compose with real Fireflies membership service.
 
 ## Overview
 
-This example demonstrates the **three-tier bootstrap pattern** for deploying Delos clusters using Docker Compose. It shows the orchestration sequence required to form a Byzantine Fault Tolerant (BFT) cluster.
+This module provides a containerized Delos cluster demonstrating the **three-tier bootstrap pattern** for Byzantine Fault Tolerant (BFT) consensus:
 
-### Current Status: Pattern Demonstration
+1. **Bootstrap Node** - Initializes the cluster, acts as rendezvous point
+2. **Kernel Nodes** (3) - Form minimal BFT quorum (4 nodes = 3f+1 for f=1 tolerance)
+3. **Member Nodes** (N) - Scalable nodes that join after genesis
 
-This is a **pattern demonstration** using simple Alpine containers to illustrate the cluster bootstrap sequence and Docker Compose structure. It establishes the infrastructure foundation for deploying actual Delos nodes.
+### Current Status: Phase 1 Implementation
 
-**What this demonstrates:**
-- Three-tier bootstrap sequence (bootstrap → kernel → nodes)
-- Docker Compose networking configuration
-- Health checks and readiness patterns
-- TestContainers-based orchestration testing
-- Proper startup ordering and dependencies
+**Implemented:**
+- ✅ Real Delos node containers with Fireflies membership
+- ✅ Three-tier bootstrap sequence
+- ✅ Docker Compose networking
+- ✅ Prometheus metrics endpoint
+- ✅ Health checks
+- ✅ Scalable member nodes
 
-**Future enhancement** (not yet implemented):
-- Full Delos node implementation with Fireflies membership
-- MTLS communication between nodes
-- CHOAM consensus operations
-- KERI-based identity management
-- Actual cluster state verification
+**Phase 2 (planned):**
+- ⬜ Full MTLS communication between nodes
+- ⬜ CHOAM consensus integration
+- ⬜ KERI identity bootstrap via gRPC
+- ⬜ Witness service integration
+- ⬜ 100+ node testing
 
 ## Architecture
 
-### Three-Tier Bootstrap Pattern
-
 ```
-┌─────────────────────────────────────────────────────┐
-│  Phase 1: Bootstrap                                 │
-│  ┌───────────────┐                                  │
-│  │   Bootstrap   │  Initializes cluster             │
-│  │    Node 0     │  Well-known rendezvous point     │
-│  └───────────────┘                                  │
-└─────────────────────────────────────────────────────┘
-                      ▼
-┌─────────────────────────────────────────────────────┐
-│  Phase 2: Kernel Quorum (Minimal BFT)              │
-│  ┌───────────┐ ┌───────────┐ ┌───────────┐        │
-│  │  Kernel   │ │  Kernel   │ │  Kernel   │        │
-│  │  Node 1   │ │  Node 2   │ │  Node 3   │        │
-│  └───────────┘ └───────────┘ └───────────┘        │
-│                                                     │
-│  4 nodes total = Minimal quorum for BFT            │
-│  Genesis block generation occurs here              │
-└─────────────────────────────────────────────────────┘
-                      ▼
-┌─────────────────────────────────────────────────────┐
-│  Phase 3: Additional Members (Scalable)            │
-│  ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ...              │
-│  │Node │ │Node │ │Node │ │Node │                   │
-│  │  4  │ │  5  │ │  6  │ │  N  │                   │
-│  └─────┘ └─────┘ └─────┘ └─────┘                   │
-│                                                     │
-│  Join after Genesis block is established           │
-│  Scale horizontally as needed                      │
-└─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Docker Network: delos-net                     │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  ┌───────────────┐     ┌───────────────┐     ┌───────────────┐      │
+│  │   Bootstrap   │     │   Kernel 1    │     │   Kernel 2    │      │
+│  │   (Genesis)   │◄───►│   (Quorum)    │◄───►│   (Quorum)    │      │
+│  │               │     │               │     │               │      │
+│  │  Port: 9999   │     │               │     │               │      │
+│  │  Port: 9090   │     │               │     │               │      │
+│  └───────┬───────┘     └───────┬───────┘     └───────┬───────┘      │
+│          │                     │                     │               │
+│          │         ┌───────────┴───────────┐         │               │
+│          │         │                       │         │               │
+│          │    ┌────▼─────┐           ┌─────▼────┐    │               │
+│          │    │ Kernel 3 │           │ Member 1 │    │               │
+│          │    │ (Quorum) │           │ (Scale)  │    │               │
+│          │    └──────────┘           └──────────┘    │               │
+│          │                                           │               │
+│          │    ┌──────────┐           ┌──────────┐    │               │
+│          └───►│ Member 2 │    ...    │ Member N │◄───┘               │
+│               │ (Scale)  │           │ (Scale)  │                    │
+│               └──────────┘           └──────────┘                    │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+## Quick Start
+
+### 1. Build the Docker Image
+
+```bash
+# From project root
+./mvnw package -Pdocker -pl examples/local-demo -am -DskipTests
+```
+
+### 2. Start the Cluster
+
+```bash
+cd examples/local-demo
+
+# Start complete cluster (bootstrap + 3 kernel + 1 member)
+docker compose up -d
+
+# View logs
+docker compose logs -f
+
+# Check status
+docker compose ps
+```
+
+### 3. Scale Member Nodes
+
+```bash
+# Add 10 member nodes
+docker compose up -d --scale node=10
+
+# Add 100 member nodes (for load testing)
+docker compose up -d --scale node=100
+```
+
+### 4. Stop the Cluster
+
+```bash
+docker compose down -v
 ```
 
 ## Project Structure
 
 ```
 local-demo/
+├── compose.yaml           # Combined cluster definition
 ├── bootstrap/
-│   └── compose.yaml          # Bootstrap node definition
+│   └── compose.yaml       # Standalone bootstrap node
 ├── kernel/
-│   └── compose.yaml          # Kernel quorum nodes (3 nodes)
+│   └── compose.yaml       # Kernel quorum (needs bootstrap first)
 ├── nodes/
-│   └── compose.yaml          # Scalable additional nodes
-├── src/
-│   └── test/
-│       └── java/.../SmokeTest.java  # TestContainers orchestration test
-├── pom.xml                   # Maven configuration with TestContainers
-└── README.md                 # This file
+│   └── compose.yaml       # Scalable members (needs kernel first)
+├── Dockerfile             # Node container image
+├── pom.xml                # Maven build configuration
+└── src/
+    ├── main/
+    │   ├── java/
+    │   │   └── com/hellblazer/delos/demo/
+    │   │       ├── DelosNode.java     # Main entry point
+    │   │       └── NodeConfig.java    # Environment config
+    │   └── resources/
+    │       └── logback.xml            # Logging configuration
+    └── test/
+        └── java/
+            └── com/hellblazer/delos/demo/
+                └── SmokeTest.java     # Integration tests
 ```
 
-## Requirements
+## Configuration
 
-- Docker and Docker Compose installed
-- Maven 3.9.3+ (for running tests)
-- Java 25+ (configured in parent POM)
+Environment variables for node configuration:
 
-## Manual Deployment
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DELOS_NODE_TYPE` | member | Node type: bootstrap, kernel, or member |
+| `DELOS_NODE_ID` | auto | Unique node identifier |
+| `DELOS_BOOTSTRAP_HOST` | bootstrap | Bootstrap node hostname |
+| `DELOS_BOOTSTRAP_PORT` | 9999 | Bootstrap node gRPC port |
+| `DELOS_GRPC_PORT` | 9999 | This node's gRPC port |
+| `DELOS_METRICS_PORT` | 9090 | Prometheus metrics port |
+| `DELOS_CARDINALITY` | 10 | Expected cluster size |
+| `DELOS_BIAS` | 3 | Fireflies ring bias |
+| `DELOS_PBYZ` | 0.1 | Byzantine fault probability |
+| `DELOS_GOSSIP_DURATION_MS` | 100 | Gossip interval (ms) |
+| `DELOS_SEEDING_TIMEOUT_S` | 30 | Join timeout (seconds) |
+| `JAVA_OPTS` | "" | Additional JVM options |
 
-### Step-by-Step Cluster Bootstrap
+## Staged Bootstrap (Alternative)
 
-**⚠️ IMPORTANT:** Follow this exact sequence. Timing matters!
-
-#### 1. Start Bootstrap Node
+For fine-grained control, use the separate compose files:
 
 ```bash
-cd examples/local-demo/bootstrap
-docker compose up
+# Stage 1: Start bootstrap
+docker compose -f bootstrap/compose.yaml up -d
+docker compose -f bootstrap/compose.yaml logs -f
+# Wait for "Bootstrap node is operational"
+
+# Stage 2: Start kernel quorum
+docker compose -f kernel/compose.yaml up -d
+docker compose -f kernel/compose.yaml logs -f
+# Wait for all kernel nodes to be healthy
+
+# Stage 3: Scale member nodes
+docker compose -f nodes/compose.yaml up -d --scale node=5
 ```
 
-Wait for log message: `Bootstrap node ready - cluster initialized`
-
-**Do NOT proceed** until bootstrap is stable (~5 seconds).
-
-#### 2. Start Kernel Nodes
-
-In a new terminal:
+## Running Tests
 
 ```bash
-cd examples/local-demo/kernel
-docker compose up
+# Build the Docker image first
+./mvnw package -Pdocker -pl examples/local-demo -am -DskipTests
+
+# Run integration tests (requires Docker)
+./mvnw test -Pe2e -pl examples/local-demo
 ```
 
-Wait for all 3 kernel nodes to log: `Participating in Genesis block generation...`
+## Monitoring
 
-**Critical:** Allow 10-30 seconds for the kernel to generate the Genesis block before starting additional nodes. In a real Delos cluster, this involves:
-- Establishing secure MTLS connections
-- Forming Fireflies membership rings
-- Initializing CHOAM consensus
-- Creating the initial Genesis block
+### Prometheus Metrics
 
-For this demo, this is simulated with a wait period.
+Bootstrap node exposes metrics at `http://localhost:9090/metrics`
 
-#### 3. Add Additional Nodes (Optional)
+Sample metrics:
+- `fireflies_active_count` - Active nodes in view
+- `fireflies_gossip_rounds` - Gossip rounds completed
+- `fireflies_ring_count` - Number of rings in context
 
-After kernel is stable:
+### Container Logs
 
 ```bash
-cd examples/local-demo/nodes
-docker compose up --scale node=3  # Start 3 additional nodes
+# All containers
+docker compose logs -f
+
+# Specific container
+docker compose logs -f bootstrap
+docker compose logs -f kernel1
 ```
 
-#### 4. Verify Cluster Status
+### Health Checks
 
 ```bash
-# List all running containers
-docker ps --filter "name=delos-"
+# Check container health
+docker compose ps
 
-# View bootstrap logs
-docker logs delos-bootstrap
-
-# View kernel logs
-docker logs delos-kernel1
-docker logs delos-kernel2
-docker logs delos-kernel3
-
-# View additional node logs
-docker logs local-demo-node-1
+# Detailed health
+docker inspect delos-bootstrap --format='{{.State.Health.Status}}'
 ```
 
-#### 5. Cleanup
+## Node Components
 
-```bash
-# Stop all services (run from each directory)
-cd examples/local-demo/nodes && docker compose down
-cd ../kernel && docker compose down
-cd ../bootstrap && docker compose down
+Each container runs `DelosNode` with:
+
 ```
-
-## Automated Testing
-
-### Run with Maven (E2E Profile)
-
-```bash
-# From Delos root directory
-./mvnw test -P e2e -pl examples/local-demo
-
-# Or from examples/local-demo directory
-../../mvnw test -P e2e
+┌─────────────────────────────────────────┐
+│           Delos Node Container          │
+├─────────────────────────────────────────┤
+│  ┌─────────────────────────────────┐    │
+│  │      Fireflies (Gossip)         │    │
+│  │  - Membership view               │    │
+│  │  - Ring-based gossip             │    │
+│  │  - View change coordination      │    │
+│  └─────────────────────────────────┘    │
+│                  │                       │
+│  ┌─────────────────────────────────┐    │
+│  │      Stereotomy (KERI)          │    │
+│  │  - Identity management           │    │
+│  │  - Key event logs               │    │
+│  └─────────────────────────────────┘    │
+│                                          │
+│  Ports: 9999 (gRPC), 9090 (metrics)     │
+└─────────────────────────────────────────┘
 ```
-
-The SmokeTest demonstrates:
-1. Bootstrap node initialization
-2. Kernel quorum formation (4 nodes)
-3. Additional node joining
-4. Network configuration verification
-5. Health check validation
-
-### Test Execution Flow
-
-The test uses TestContainers to:
-- Start bootstrap compose environment
-- Wait for bootstrap readiness
-- Start kernel compose environment
-- Verify quorum formation
-- Start additional nodes
-- Validate cluster state
-- Clean up all resources
-
-## Networking
-
-### Bridge Network Configuration
-
-All services connect to a Docker bridge network (`delos-net`) created by the bootstrap compose file.
-
-- **Bootstrap:** Creates the network
-- **Kernel:** References external network `bootstrap_delos-net`
-- **Nodes:** References external network `bootstrap_delos-net`
-
-This allows:
-- Service discovery by container name
-- Isolation from other Docker networks
-- Predictable addressing for node communication
-
-## Scaling
-
-### Adding More Nodes
-
-Scale the generic node service:
-
-```bash
-cd examples/local-demo/nodes
-docker compose up --scale node=10  # Scale to 10 nodes
-```
-
-Each scaled instance:
-- Gets a unique hostname (node_1, node_2, etc.)
-- Joins via the bootstrap node
-- Participates in cluster membership
-
-### Cluster Limits
-
-For a real Delos cluster:
-- **Minimum:** 4 nodes (1 bootstrap + 3 kernel) for BFT
-- **Recommended:** 7+ nodes for production (tolerates 2 Byzantine failures)
-- **Maximum:** Depends on network capacity and consensus algorithm tuning
-
-## Environment Variables
-
-### Bootstrap Node
-
-| Variable | Value | Description |
-|----------|-------|-------------|
-| `GENESIS` | `true` | Indicates bootstrap/kernel node |
-| `NODE_TYPE` | `bootstrap` | Node role identifier |
-| `NODE_ID` | `bootstrap-0` | Unique node identifier |
-
-### Kernel Nodes
-
-| Variable | Value | Description |
-|----------|-------|-------------|
-| `GENESIS` | `true` | Participates in Genesis block |
-| `NODE_TYPE` | `kernel` | Kernel quorum member |
-| `NODE_ID` | `kernel-{1,2,3}` | Unique node identifier |
-| `BOOTSTRAP_HOST` | `delos-bootstrap` | Bootstrap node hostname |
-
-### Additional Nodes
-
-| Variable | Value | Description |
-|----------|-------|-------------|
-| `GENESIS` | `false` | Joins after Genesis |
-| `NODE_TYPE` | `member` | Regular cluster member |
-| `BOOTSTRAP_HOST` | `delos-bootstrap` | Bootstrap node hostname |
 
 ## Troubleshooting
 
-### Kernel nodes fail to start
+### Container Won't Start
 
-**Symptom:** Kernel compose fails with network error
-
-**Solution:**
-1. Ensure bootstrap is running first
-2. Verify network exists: `docker network ls | grep delos-net`
-3. If missing, restart bootstrap: `cd bootstrap && docker compose up`
-
-### Nodes can't join cluster
-
-**Symptom:** Additional nodes fail to start
-
-**Solution:**
-1. Verify kernel is stable (wait 30 seconds after kernel starts)
-2. Check bootstrap is reachable: `docker exec local-demo-node-1 ping delos-bootstrap`
-3. Review logs for connection errors
-
-### Port conflicts
-
-**Symptom:** "Address already in use" error
-
-**Solution:**
-- This demo uses no exposed ports, conflicts are unlikely
-- For real Delos nodes, ensure ports 8123-8125 are available
-
-### Cleanup issues
-
-**Symptom:** Network persists after `docker compose down`
-
-**Solution:**
-```bash
-# Force remove network
-docker network rm bootstrap_delos-net
-
-# Remove all stopped containers
-docker container prune
-```
-
-## Development Notes
-
-### Extending with Real Delos Nodes
-
-To replace the Alpine containers with actual Delos nodes:
-
-1. **Create MinimalNode application**:
-   - Implement Fireflies View initialization
-   - Add MTLS communication setup
-   - Configure KERI identity management
-   - Implement health check endpoint
-
-2. **Build Docker image**:
+1. Check if the image is built:
    ```bash
-   ./mvnw package jib:dockerBuild -pl examples/local-demo
+   docker images | grep delos-node
    ```
 
-3. **Update compose files**:
-   - Replace `image: alpine:latest` with `image: com.hellblazer.delos/local-demo:VERSION`
-   - Add environment variables for Delos configuration
-   - Configure proper health checks
+2. Rebuild if needed:
+   ```bash
+   ./mvnw package -Pdocker -pl examples/local-demo -am -DskipTests
+   ```
 
-4. **Implement network discovery**:
-   - Use DNS service discovery or well-known addresses
-   - Configure seed endpoints for Fireflies
-   - Set up approach endpoints for node joining
+### Nodes Not Joining
 
-### Maven Configuration
+1. Check bootstrap is healthy:
+   ```bash
+   docker compose logs bootstrap | tail -20
+   ```
 
-The `pom.xml` includes:
-- **Jib plugin** for Docker image building (configured but not used in demo)
-- **Shade plugin** for creating executable JARs
-- **E2E profile** to run SmokeTest separately from unit tests
+2. Verify network connectivity:
+   ```bash
+   docker compose exec kernel1 ping bootstrap
+   ```
 
-## References
+3. Increase seeding timeout:
+   ```yaml
+   environment:
+     DELOS_SEEDING_TIMEOUT_S: '120'
+   ```
 
-- **Fireflies:** Delos membership service (Byzantine intrusion tolerant)
-- **CHOAM:** Committee-based replicated state machines
-- **KERI:** Key Event Receipt Infrastructure (decentralized identity)
-- **TestContainers:** Container-based integration testing framework
+### Out of Memory
 
-## License
+Reduce heap size for large clusters:
+```yaml
+environment:
+  JAVA_OPTS: '-Xmx256m -Xms128m'
+```
 
-BSD-3-Clause (see LICENSE file in repository root)
+## Development
+
+### Modifying Node Code
+
+1. Make changes to `DelosNode.java` or `NodeConfig.java`
+2. Rebuild: `./mvnw package -Pdocker -pl examples/local-demo -DskipTests`
+3. Restart: `docker compose down && docker compose up -d`
+
+### Debugging
+
+Enable remote debugging:
+```yaml
+environment:
+  JAVA_OPTS: '-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005'
+ports:
+  - "5005:5005"
+```
 
 ## Future Enhancements
 
-Planned improvements for this example:
+Phase 2 roadmap:
 
-1. ✅ Docker Compose structure and bootstrap pattern
-2. ✅ TestContainers orchestration test
-3. ⬜ Full Delos node implementation
-4. ⬜ MTLS certificate generation and distribution
-5. ⬜ KERI identity bootstrapping
-6. ⬜ Actual consensus operations demonstration
-7. ⬜ Monitoring and metrics (Prometheus/Grafana)
-8. ⬜ Production deployment patterns (Kubernetes/Swarm)
+1. ⬜ Real MTLS communication between nodes
+2. ⬜ CHOAM consensus integration
+3. ⬜ Witness service integration
+4. ⬜ KERI identity bootstrap via gRPC
+5. ⬜ Checkpoint and recovery testing
+6. ⬜ Byzantine fault injection
+7. ⬜ Performance benchmarks (100+ nodes)
+8. ⬜ Kubernetes deployment patterns
 
-**Status Legend:** ✅ Complete | ⬜ Planned
+## License
+
+GNU Affero General Public License v3.0 - see LICENSE file in repository root.

@@ -6,117 +6,131 @@
 # IMPORTANT: Start these AFTER the bootstrap node is stable and BEFORE adding
 # additional nodes. Allow time for the kernel to generate the Genesis block.
 #
-# Environment Variables:
-#   GENESIS: true - kernel nodes participate in Genesis block generation
-#   NODE_TYPE: kernel - identifies these as kernel quorum members
-#   BOOTSTRAP_HOST: delos-bootstrap - references the bootstrap node for joining
+# Usage:
+#   # First start bootstrap
+#   docker compose -f bootstrap/compose.yaml up -d
+#   # Wait for bootstrap to be ready, then start kernel
+#   docker compose -f kernel/compose.yaml up -d
 #
 services:
   kernel1:
-    image: alpine:latest
+    image: delos-node:latest
     container_name: delos-kernel1
+    hostname: kernel1
     environment:
-      GENESIS: 'true'
-      NODE_TYPE: 'kernel'
-      NODE_ID: 'kernel-1'
-      BOOTSTRAP_HOST: 'delos-bootstrap'
-    command: |
-      sh -c '
-        echo "=== Delos Kernel Node ==="
-        echo "Node ID: $$NODE_ID"
-        echo "Genesis Mode: $$GENESIS"
-        echo "Type: $$NODE_TYPE"
-        echo "Bootstrap: $$BOOTSTRAP_HOST"
-        echo ""
-        echo "Kernel node joining cluster..."
-        sleep 2
-        echo "Connected to bootstrap node"
-        echo "Participating in Genesis block generation..."
-        echo ""
-        # Keep container running
-        tail -f /dev/null
-      '
+      DELOS_NODE_TYPE: 'kernel'
+      DELOS_NODE_ID: 'kernel-1'
+      DELOS_BOOTSTRAP_HOST: 'bootstrap'
+      DELOS_BOOTSTRAP_PORT: '9999'
+      DELOS_GRPC_PORT: '9999'
+      DELOS_METRICS_PORT: '9090'
+      DELOS_CARDINALITY: '10'
+      DELOS_BIAS: '3'
+      DELOS_PBYZ: '0.1'
+      DELOS_GOSSIP_DURATION_MS: '100'
+      DELOS_SEEDING_TIMEOUT_S: '60'
+      JAVA_OPTS: '-Xmx512m -Xms256m'
     networks:
       - delos-net
+    volumes:
+      - kernel1-data:/data
     depends_on:
-      - bootstrap
+      bootstrap:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "echo", "healthy"]
-      interval: 5s
-      timeout: 3s
+      test: ["CMD", "curl", "-f", "http://localhost:9090/metrics"]
+      interval: 10s
+      timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+        reservations:
+          memory: 256M
 
   kernel2:
-    image: alpine:latest
+    image: delos-node:latest
     container_name: delos-kernel2
+    hostname: kernel2
     environment:
-      GENESIS: 'true'
-      NODE_TYPE: 'kernel'
-      NODE_ID: 'kernel-2'
-      BOOTSTRAP_HOST: 'delos-bootstrap'
-    command: |
-      sh -c '
-        echo "=== Delos Kernel Node ==="
-        echo "Node ID: $$NODE_ID"
-        echo "Genesis Mode: $$GENESIS"
-        echo "Type: $$NODE_TYPE"
-        echo "Bootstrap: $$BOOTSTRAP_HOST"
-        echo ""
-        echo "Kernel node joining cluster..."
-        sleep 2
-        echo "Connected to bootstrap node"
-        echo "Participating in Genesis block generation..."
-        echo ""
-        tail -f /dev/null
-      '
+      DELOS_NODE_TYPE: 'kernel'
+      DELOS_NODE_ID: 'kernel-2'
+      DELOS_BOOTSTRAP_HOST: 'bootstrap'
+      DELOS_BOOTSTRAP_PORT: '9999'
+      DELOS_GRPC_PORT: '9999'
+      DELOS_METRICS_PORT: '9090'
+      DELOS_CARDINALITY: '10'
+      DELOS_BIAS: '3'
+      DELOS_PBYZ: '0.1'
+      DELOS_GOSSIP_DURATION_MS: '100'
+      DELOS_SEEDING_TIMEOUT_S: '60'
+      JAVA_OPTS: '-Xmx512m -Xms256m'
     networks:
       - delos-net
+    volumes:
+      - kernel2-data:/data
     depends_on:
-      - bootstrap
+      bootstrap:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "echo", "healthy"]
-      interval: 5s
-      timeout: 3s
+      test: ["CMD", "curl", "-f", "http://localhost:9090/metrics"]
+      interval: 10s
+      timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+        reservations:
+          memory: 256M
 
   kernel3:
-    image: alpine:latest
+    image: delos-node:latest
     container_name: delos-kernel3
+    hostname: kernel3
     environment:
-      GENESIS: 'true'
-      NODE_TYPE: 'kernel'
-      NODE_ID: 'kernel-3'
-      BOOTSTRAP_HOST: 'delos-bootstrap'
-    command: |
-      sh -c '
-        echo "=== Delos Kernel Node ==="
-        echo "Node ID: $$NODE_ID"
-        echo "Genesis Mode: $$GENESIS"
-        echo "Type: $$NODE_TYPE"
-        echo "Bootstrap: $$BOOTSTRAP_HOST"
-        echo ""
-        echo "Kernel node joining cluster..."
-        sleep 2
-        echo "Connected to bootstrap node"
-        echo "Participating in Genesis block generation..."
-        echo ""
-        tail -f /dev/null
-      '
+      DELOS_NODE_TYPE: 'kernel'
+      DELOS_NODE_ID: 'kernel-3'
+      DELOS_BOOTSTRAP_HOST: 'bootstrap'
+      DELOS_BOOTSTRAP_PORT: '9999'
+      DELOS_GRPC_PORT: '9999'
+      DELOS_METRICS_PORT: '9090'
+      DELOS_CARDINALITY: '10'
+      DELOS_BIAS: '3'
+      DELOS_PBYZ: '0.1'
+      DELOS_GOSSIP_DURATION_MS: '100'
+      DELOS_SEEDING_TIMEOUT_S: '60'
+      JAVA_OPTS: '-Xmx512m -Xms256m'
     networks:
       - delos-net
+    volumes:
+      - kernel3-data:/data
     depends_on:
-      - bootstrap
+      bootstrap:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "echo", "healthy"]
-      interval: 5s
-      timeout: 3s
+      test: ["CMD", "curl", "-f", "http://localhost:9090/metrics"]
+      interval: 10s
+      timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+        reservations:
+          memory: 256M
 
 # Reference the external network created by bootstrap
 networks:
   delos-net:
     external: true
     name: bootstrap_delos-net
+
+volumes:
+  kernel1-data:
+  kernel2-data:
+  kernel3-data:

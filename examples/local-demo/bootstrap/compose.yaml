@@ -6,40 +6,55 @@
 #
 # Network: Uses bridge network with well-known address for discovery
 #
-# Environment Variables:
-#   GENESIS: true - indicates this is a bootstrap/kernel node
-#   NODE_TYPE: bootstrap - identifies this as the initial bootstrap node
+# Usage:
+#   docker compose -f bootstrap/compose.yaml up -d
+#   docker compose -f bootstrap/compose.yaml logs -f
 #
 services:
   bootstrap:
-    image: alpine:latest
+    image: delos-node:latest
     container_name: delos-bootstrap
+    hostname: bootstrap
     environment:
-      GENESIS: 'true'
-      NODE_TYPE: 'bootstrap'
-      NODE_ID: 'bootstrap-0'
-    command: |
-      sh -c '
-        echo "=== Delos Bootstrap Node ==="
-        echo "Node ID: $$NODE_ID"
-        echo "Genesis Mode: $$GENESIS"
-        echo "Type: $$NODE_TYPE"
-        echo ""
-        echo "Bootstrap node ready - cluster initialized"
-        echo "Waiting for kernel nodes to join..."
-        echo ""
-        # Keep container running to demonstrate pattern
-        tail -f /dev/null
-      '
+      DELOS_NODE_TYPE: 'bootstrap'
+      DELOS_NODE_ID: 'bootstrap-0'
+      DELOS_GRPC_PORT: '9999'
+      DELOS_METRICS_PORT: '9090'
+      DELOS_CARDINALITY: '10'
+      DELOS_BIAS: '3'
+      DELOS_PBYZ: '0.1'
+      DELOS_GOSSIP_DURATION_MS: '100'
+      DELOS_SEEDING_TIMEOUT_S: '60'
+      JAVA_OPTS: '-Xmx512m -Xms256m'
+    ports:
+      - "9999:9999"   # gRPC endpoint (exposed for external access)
+      - "9090:9090"   # Prometheus metrics
     networks:
-      - delos-net
+      delos-net:
+        aliases:
+          - bootstrap
+          - delos-bootstrap
+    volumes:
+      - bootstrap-data:/data
     healthcheck:
-      test: ["CMD", "echo", "healthy"]
-      interval: 5s
-      timeout: 3s
+      test: ["CMD", "curl", "-f", "http://localhost:9090/metrics"]
+      interval: 10s
+      timeout: 5s
       retries: 3
-      start_period: 5s
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+        reservations:
+          memory: 256M
 
 networks:
   delos-net:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  bootstrap-data:
