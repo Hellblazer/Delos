@@ -9,6 +9,7 @@ package com.hellblazer.delos.demo;
 
 import com.codahale.metrics.MetricRegistry;
 import com.hellblazer.delos.archipelago.*;
+import com.hellblazer.delos.choam.CHOAM;
 import com.hellblazer.delos.comm.grpc.ClientContextSupplier;
 import com.hellblazer.delos.comm.grpc.ServerContextSupplier;
 import com.hellblazer.delos.context.DynamicContext;
@@ -17,13 +18,14 @@ import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.cryptography.SignatureAlgorithm;
 import com.hellblazer.delos.cryptography.cert.CertificateWithPrivateKey;
 import com.hellblazer.delos.cryptography.ssl.CertificateValidator;
+import com.hellblazer.delos.ethereal.Config;
 import com.hellblazer.delos.fireflies.FireflyMetrics;
 import com.hellblazer.delos.fireflies.FireflyMetricsImpl;
-import com.hellblazer.delos.fireflies.Parameters;
 import com.hellblazer.delos.fireflies.View;
 import com.hellblazer.delos.fireflies.View.Participant;
 import com.hellblazer.delos.fireflies.View.Seed;
 import com.hellblazer.delos.membership.Member;
+import com.hellblazer.delos.membership.SigningMember;
 import com.hellblazer.delos.membership.stereotomy.ControlledIdentifierMember;
 import com.hellblazer.delos.stereotomy.*;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
@@ -59,17 +61,27 @@ import java.util.function.Function;
 /**
  * Main entry point for a containerized Delos node with MTLS networking.
  * <p>
- * This class initializes the Fireflies membership service and participates in
- * the distributed system according to its configured role (bootstrap, kernel, or member).
+ * This class initializes the Fireflies membership service and CHOAM consensus,
+ * participating in the distributed system according to its configured role
+ * (bootstrap, kernel, or member).
  * <p>
  * Features:
  * <ul>
  *   <li>KERI identity management via Stereotomy</li>
  *   <li>MTLS (mutual TLS) for secure gRPC communication</li>
  *   <li>MTLS-based identity discovery - extracts KERI identity from TLS certificates</li>
+ *   <li>Fireflies membership and gossip overlay</li>
+ *   <li>CHOAM consensus and state machine replication</li>
  *   <li>Three-tier bootstrap pattern support</li>
  *   <li>Prometheus metrics endpoint</li>
  * </ul>
+ * <p>
+ * Bootstrap Sequence:
+ * <ol>
+ *   <li>Bootstrap/kernel nodes (first 4) generate genesis block</li>
+ *   <li>Member nodes join after genesis and synchronize state</li>
+ *   <li>CHOAM starts after Fireflies view is active</li>
+ * </ol>
  *
  * @author hal.hildebrand
  */
@@ -87,6 +99,8 @@ public class DelosNode {
     private CertificateWithPrivateKey certificate;
     private Router communications;
     private View view;
+    private CHOAM choam;
+    private DynamicContext<Member> choamContext;
     private MemKERL kerl;
     private HTTPServer prometheusServer;
     private HttpServer discoveryServer;
@@ -180,7 +194,7 @@ public class DelosNode {
         // Create Fireflies parameters
         // MaxReseedDepth increased from default 30 to handle rapid cluster formation
         // MaximumTxfr set to cardinality for fast gossip propagation (from ChurnTest)
-        var ffParams = Parameters.newBuilder()
+        var ffParams = com.hellblazer.delos.fireflies.Parameters.newBuilder()
             .setMaxPending(20)
             .setMaximumTxfr(config.cardinality())
             .setSeedingTimout(config.seedingTimeout())
@@ -203,7 +217,67 @@ public class DelosNode {
             ffMetrics
         );
 
+        // Initialize CHOAM consensus
+        initializeCHOAM();
+
         log.info("Node initialization complete");
+    }
+
+    /**
+     * Initialize CHOAM consensus layer.
+     * Genesis generation is enabled for bootstrap and kernel nodes.
+     */
+    private void initializeCHOAM() {
+        // Create separate DynamicContext for CHOAM
+        // This context tracks consensus committee membership
+        choamContext = DynamicContext.<Member>newBuilder()
+            .setBias(config.bias())
+            .setpByz(config.pByz())
+            .setCardinality(config.cardinality())
+            .build();
+
+        // Bootstrap and kernel nodes generate genesis; members join later
+        boolean generateGenesis = config.isGenesisNode();
+
+        // Configure CHOAM parameters
+        var choamParams = com.hellblazer.delos.choam.Parameters.newBuilder()
+            .setGenerateGenesis(generateGenesis)
+            .setGenesisViewId(DigestAlgorithm.DEFAULT.getOrigin())
+            .setGossipDuration(config.gossipDuration())
+            .setBootstrap(com.hellblazer.delos.choam.Parameters.BootstrapParameters.newBuilder()
+                .setGossipDuration(config.gossipDuration())
+                .build())
+            .setProducer(com.hellblazer.delos.choam.Parameters.ProducerParameters.newBuilder()
+                .setGossipDuration(config.gossipDuration())
+                .setBatchInterval(Duration.ofMillis(100))
+                .setMaxBatchByteSize(1024 * 1024)
+                .setMaxBatchCount(10_000)
+                .setEthereal(Config.newBuilder()
+                    .setNumberOfEpochs(3)
+                    .setEpochLength(11))
+                .build())
+            .setCheckpointBlockDelta(100);
+
+        // Set the signer for Ethereal consensus
+        choamParams.getProducer().ethereal().setSigner((SigningMember) member);
+
+        // Simple transaction executor - just acknowledges transactions
+        final CHOAM.TransactionExecutor processor = (index, hash, t, f) -> {
+            if (f != null) {
+                f.completeAsync(Object::new, executor);
+            }
+        };
+
+        // Build CHOAM with runtime parameters
+        choam = new CHOAM(choamParams.build(
+            com.hellblazer.delos.choam.Parameters.RuntimeParameters.newBuilder()
+                .setMember((SigningMember) member)
+                .setCommunications(communications)
+                .setProcessor(processor)
+                .setContext(choamContext)
+                .build()));
+
+        log.info("CHOAM initialized: generateGenesis={}", generateGenesis);
     }
 
     /**
@@ -247,8 +321,103 @@ public class DelosNode {
             log.warn("View activation timed out after {} seconds", timeout);
         }
 
+        // Start CHOAM after Fireflies is active
+        startCHOAM();
+
         log.info("Node started successfully");
         logStatus();
+    }
+
+    /**
+     * Start CHOAM consensus after Fireflies view is active.
+     * Genesis nodes wait for sufficient members before starting.
+     * Activates known members in CHOAM context before starting consensus.
+     *
+     * IMPORTANT: Genesis nodes must only activate exactly minGenesisNodes (4) members
+     * in CHOAM context. If more members are activated, the BFT subset selection may
+     * exclude some genesis nodes from the formation committee, preventing genesis.
+     */
+    private void startCHOAM() {
+        int minGenesisNodes = 4; // 3f+1 for f=1 BFT
+
+        // Genesis nodes need to wait for minimum quorum before starting CHOAM
+        if (config.isGenesisNode()) {
+            log.info("Genesis node waiting for {} members in Fireflies view...", minGenesisNodes);
+
+            var ffContext = view.getContext();
+            long deadline = System.currentTimeMillis() + 60_000; // 60s timeout
+            while (System.currentTimeMillis() < deadline) {
+                int activeCount = ffContext != null ? ffContext.activeCount() : 0;
+                if (activeCount >= minGenesisNodes) {
+                    log.info("Sufficient members ({}) for genesis assembly", activeCount);
+                    break;
+                }
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+
+        // Activate this node in CHOAM context
+        choamContext.activate(member);
+
+        // Activate Fireflies members in CHOAM context
+        // For genesis nodes: Only activate exactly minGenesisNodes total to ensure
+        // the BFT subset selection includes all genesis nodes in the formation committee
+        // For member nodes: Activate all known members since they join after genesis
+        var ffContext = view.getContext();
+        if (ffContext != null) {
+            var activeMembers = ffContext.active().toList();
+            int activated = 1; // We already activated ourselves
+            for (var participant : activeMembers) {
+                if (participant instanceof Member m && !m.getId().equals(member.getId())) {
+                    // Genesis nodes: limit to minGenesisNodes total
+                    if (config.isGenesisNode() && activated >= minGenesisNodes) {
+                        break;
+                    }
+                    choamContext.activate(m);
+                    activated++;
+                }
+            }
+            log.info("Activated {} members in CHOAM context (genesis={})", activated, config.isGenesisNode());
+        }
+
+        // Start CHOAM
+        choam.start();
+        log.info("CHOAM started");
+
+        // Wait for CHOAM to become active (consensus reached)
+        if (config.isGenesisNode()) {
+            // Genesis nodes wait for consensus to form
+            var choamActive = waitForCHOAMActive(30_000);
+            if (choamActive) {
+                log.info("CHOAM consensus active");
+            } else {
+                log.warn("CHOAM did not become active within timeout");
+            }
+        }
+    }
+
+    /**
+     * Wait for CHOAM to become active (consensus reached).
+     */
+    private boolean waitForCHOAMActive(long timeoutMs) {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            if (choam.active()) {
+                return true;
+            }
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return choam.active();
     }
 
     /**
@@ -260,6 +429,14 @@ public class DelosNode {
         }
 
         log.info("Stopping node: {}", config.nodeId());
+
+        try {
+            if (choam != null) {
+                choam.stop();
+            }
+        } catch (Exception e) {
+            log.warn("Error stopping CHOAM", e);
+        }
 
         try {
             if (view != null) {
@@ -521,18 +698,22 @@ public class DelosNode {
     private void logStatus() {
         if (view != null && view.getContext() != null) {
             var context = view.getContext();
-            log.info("Status: type={}, id={}, active={}/{}, rings={}",
+            var choamActive = choam != null && choam.active();
+            log.info("Status: type={}, id={}, ff_active={}/{}, choam={}, rings={}",
                      config.nodeType(),
                      config.nodeId(),
                      context.activeCount(),
                      config.cardinality(),
+                     choamActive ? "ACTIVE" : "INACTIVE",
                      context.getRingCount());
         }
     }
 
     // Accessors for testing
     public View getView() { return view; }
+    public CHOAM getCHOAM() { return choam; }
     public ControlledIdentifierMember getMember() { return member; }
     public NodeConfig getConfig() { return config; }
     public boolean isRunning() { return running.get(); }
+    public boolean isCHOAMActive() { return choam != null && choam.active(); }
 }

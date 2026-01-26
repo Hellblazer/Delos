@@ -25,6 +25,10 @@
         </dependency>
         <dependency>
             <groupId>com.hellblazer.delos</groupId>
+            <artifactId>choam</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.hellblazer.delos</groupId>
             <artifactId>memberships</artifactId>
         </dependency>
         <dependency>
