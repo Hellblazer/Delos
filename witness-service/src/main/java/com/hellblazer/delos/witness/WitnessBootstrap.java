@@ -83,6 +83,10 @@ public class WitnessBootstrap implements AutoCloseable {
     private FirefliesShunningIntegration shunningIntegration;
     private ByzantineDetectorCoordinator byzantineCoordinator;
 
+    // Phase 1A-3-D: Recovery manager for CHOAM integration
+    private WitnessRecoveryManager recoveryManager;
+    private WitnessRecoveryManager.RecoveryResult lastRecoveryResult;
+
     /**
      * Create bootstrap with configuration.
      *
@@ -373,11 +377,11 @@ public class WitnessBootstrap implements AutoCloseable {
     /**
      * Perform recovery from CHOAM checkpoint (Phase 1A-3-D).
      * <p>
-     * Recovery process:
-     * 1. Get latest checkpoint from CheckpointManager
-     * 2. Restore witness state from checkpoint
-     * 3. Replay any blocks after the checkpoint
-     * 4. Restore view/committee state
+     * Uses WitnessRecoveryManager for:
+     * - Gap detection and handling
+     * - View change recovery
+     * - Retry with exponential backoff
+     * - Circuit breaker for permanent failures
      * </p>
      *
      * @param choam CHOAM instance with checkpoint and block data
@@ -386,118 +390,42 @@ public class WitnessBootstrap implements AutoCloseable {
     private void performRecovery(CHOAM choam, WitnessCHOAM witnessCHOAM) {
         log.info("Starting witness recovery from CHOAM...");
 
-        try {
-            var checkpointManager = choam.getCheckpointManager();
-            var blockStore = choam.getBlockStore();
-            var currentHeight = choam.currentHeight();
-
-            if (currentHeight == null) {
-                log.info("No blocks in CHOAM - starting fresh");
-                return;
-            }
-
-            // Get the last checkpoint height (if any)
-            var lastCheckpointHeight = checkpointManager.lastCheckpoint();
-
-            if (lastCheckpointHeight != null) {
-                log.info("Found checkpoint at height {}", lastCheckpointHeight);
-
-                // Get the checkpoint block for recovery
-                var checkpointBlock = checkpointManager.currentCheckpoint();
-                if (checkpointBlock != null) {
-                    // Recover state from checkpoint
-                    witnessCHOAM.recover(checkpointBlock, lastCheckpointHeight.longValue());
-
-                    // Replay blocks after checkpoint
-                    var startHeight = lastCheckpointHeight.add(1);
-                    var endHeight = currentHeight;
-
-                    if (startHeight.compareTo(endHeight) <= 0) {
-                        log.info("Replaying blocks from {} to {}", startHeight, endHeight);
-                        replayBlocks(blockStore, witnessCHOAM, startHeight.longValue(), endHeight.longValue());
-                    }
-                } else {
-                    log.warn("Checkpoint height {} exists but no checkpoint block found - full replay",
-                             lastCheckpointHeight);
-                    replayBlocks(blockStore, witnessCHOAM, 0L, currentHeight.longValue());
-                }
-            } else {
-                log.info("No checkpoint found - replaying all blocks from genesis");
-
-                // Replay from genesis to current
-                replayBlocks(blockStore, witnessCHOAM, 0L, currentHeight.longValue());
-            }
-
-            log.info("Witness recovery complete at height {}", currentHeight);
-
-        } catch (Exception e) {
-            log.error("Recovery failed - starting with clean state: {}", e.getMessage(), e);
-            // Recovery failure fallback: start with clean state
-            // In production, this might trigger an alert or more sophisticated handling
-        }
-    }
-
-    /**
-     * Replay blocks from CHOAM store during recovery (Phase 1A-3-D).
-     * <p>
-     * Iterates through blocks and processes witness-relevant transactions.
-     * </p>
-     *
-     * @param blockStore CHOAM block store
-     * @param witnessCHOAM Witness CHOAM to update
-     * @param startHeight Starting block height (inclusive)
-     * @param endHeight Ending block height (inclusive)
-     */
-    private void replayBlocks(com.hellblazer.delos.choam.support.BlockStore blockStore,
-                             WitnessCHOAM witnessCHOAM,
-                             long startHeight, long endHeight) {
-        var blocksReplayed = 0L;
-
-        for (var height = startHeight; height <= endHeight; height++) {
-            try {
-                var ulongHeight = org.joou.ULong.valueOf(height);
-                var certifiedBlock = blockStore.getCertifiedBlock(ulongHeight);
-                if (certifiedBlock != null) {
-                    // Process block for witness state updates
-                    // The block contains transactions that may include witness receipt operations
-                    processRecoveredBlock(witnessCHOAM, certifiedBlock, height);
-                    blocksReplayed++;
-                }
-            } catch (Exception e) {
-                log.warn("Failed to replay block at height {}: {}", height, e.getMessage());
-                // Continue with next block - partial recovery is better than no recovery
-            }
+        // Initialize recovery manager if needed
+        if (recoveryManager == null) {
+            recoveryManager = new WitnessRecoveryManager();
         }
 
-        log.info("Replayed {} blocks during recovery", blocksReplayed);
-    }
+        // Perform recovery with full error handling
+        lastRecoveryResult = recoveryManager.recover(choam, witnessCHOAM);
 
-    /**
-     * Process a single recovered block (Phase 1A-3-D).
-     * <p>
-     * Extracts witness-relevant transactions from the block and
-     * applies them to the witness state machine.
-     * </p>
-     *
-     * @param witnessCHOAM Witness CHOAM to update
-     * @param certifiedBlock The certified block to process
-     * @param height Block height
-     */
-    private void processRecoveredBlock(WitnessCHOAM witnessCHOAM,
-                                       com.hellblazer.delos.choam.proto.CertifiedBlock certifiedBlock,
-                                       long height) {
-        // For view change updates, we need the HashedCertifiedBlock
-        // Get it from the block store since we need the hash
-        // For now, just log progress - view change handling requires HashedCertifiedBlock
-        // which is constructed during block processing in CHOAM
+        // Log result
+        switch (lastRecoveryResult.status()) {
+            case SUCCESS -> log.info("Recovery completed successfully: {} blocks, {} view changes in {}",
+                lastRecoveryResult.blocksReplayed(),
+                lastRecoveryResult.viewChangesProcessed(),
+                lastRecoveryResult.duration());
 
-        // TODO Phase 1A-3-D Advanced: Extract and replay witness transactions from block body
-        // Full transaction replay will be implemented when we have the witness transaction
-        // format defined. The block body contains Execute transactions that may include
-        // witness receipt operations.
+            case PARTIAL_SUCCESS -> log.warn("Recovery completed with gaps: {} blocks, {} gaps, {} view changes",
+                lastRecoveryResult.blocksReplayed(),
+                lastRecoveryResult.gapsDetected(),
+                lastRecoveryResult.viewChangesProcessed());
 
-        if (height % 1000 == 0) {
-            log.debug("Recovery progress: processed block {}", height);
+            case SKIPPED -> log.info("Recovery skipped - no blocks in CHOAM");
+
+            case FAILED_RETRYABLE -> log.error("Recovery failed (retryable): {}",
+                lastRecoveryResult.errorMessage());
+
+            case FAILED_PERMANENT -> log.error("Recovery failed permanently: {}",
+                lastRecoveryResult.errorMessage());
+
+            case TIMEOUT -> log.error("Recovery timed out after {}",
+                lastRecoveryResult.duration());
+        }
+
+        // If recovery failed, start with clean state
+        if (!lastRecoveryResult.isSuccess() &&
+            lastRecoveryResult.status() != WitnessRecoveryManager.RecoveryStatus.SKIPPED) {
+            log.warn("Starting with clean state due to recovery failure");
         }
     }
 
@@ -897,5 +825,42 @@ public class WitnessBootstrap implements AutoCloseable {
      */
     public ByzantineDetectorCoordinator getByzantineCoordinator() {
         return byzantineCoordinator;
+    }
+
+    /**
+     * Get recovery manager (Phase 1A-3-D).
+     * <p>
+     * Manages CHOAM recovery with gap detection, retries, and circuit breaker.
+     * Available after start() completes with CHOAM.
+     * </p>
+     *
+     * @return WitnessRecoveryManager instance
+     */
+    public WitnessRecoveryManager getRecoveryManager() {
+        return recoveryManager;
+    }
+
+    /**
+     * Get last recovery result (Phase 1A-3-D).
+     * <p>
+     * Returns the result from the most recent recovery attempt.
+     * Null if no recovery has been attempted.
+     * </p>
+     *
+     * @return Last recovery result or null
+     */
+    public WitnessRecoveryManager.RecoveryResult getLastRecoveryResult() {
+        return lastRecoveryResult;
+    }
+
+    /**
+     * Check if last recovery was successful (Phase 1A-3-D).
+     *
+     * @return true if last recovery succeeded or was skipped
+     */
+    public boolean isRecoverySuccessful() {
+        return lastRecoveryResult == null ||
+               lastRecoveryResult.isSuccess() ||
+               lastRecoveryResult.status() == WitnessRecoveryManager.RecoveryStatus.SKIPPED;
     }
 }
