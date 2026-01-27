@@ -50,6 +50,8 @@ Where:
 - Cost: Lowest
 - Fault tolerance: Low
 
+⚠️ **CRITICAL WARNING**: 4-node clusters (f=1) are suitable for **crash failures only**. They provide NO Byzantine fault tolerance against malicious or compromised nodes. For production deployments with Byzantine fault tolerance requirements, use 7+ nodes (f=2 minimum). See [Byzantine Fault Tolerance & Sizing](#byzantine-fault-tolerance--sizing) and [ARCHITECTURE.md](ARCHITECTURE.md#byzantine-fault-tolerance-model) for details.
+
 **7-node cluster (f=2)**
 - Can tolerate 2 Byzantine nodes
 - Consensus requires 5/7 nodes (71%)
