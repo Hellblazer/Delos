@@ -296,6 +296,7 @@ Congratulations! You now have:
 
 **Read documentation**:
 - [ARCHITECTURE.md](ARCHITECTURE.md) - Visual architecture diagrams
+- [TESTING_GUIDE.md](TESTING_GUIDE.md) - Comprehensive testing guide with patterns and best practices
 - [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) - Production deployment *(coming soon)*
 - [MONITORING_GUIDE.md](MONITORING_GUIDE.md) - Metrics and observability *(coming soon)*
 - [GLOSSARY.md](GLOSSARY.md) - Key terminology
@@ -316,11 +317,18 @@ Congratulations! You now have:
 
 ### Start Contributing
 
-Ready to contribute? See [CONTRIBUTING.md](../CONTRIBUTING.md) for:
-- Code style guidelines
-- Testing requirements
-- Pull request process
-- Commit message format
+Ready to contribute? See these guides:
+
+**Contribution Guidelines**:
+- [CONTRIBUTING.md](../CONTRIBUTING.md) - Contribution process, testing, pull requests, commit messages
+
+**Code Quality & Standards** (comprehensive):
+- [CODE_QUALITY_STANDARDS.md](CODE_QUALITY_STANDARDS.md) - Covers:
+  - Design patterns (Factory, Strategy, Builder, Observer, Adapter, Singleton)
+  - Concurrency guidelines (atomic types, concurrent collections, no synchronized keyword)
+  - Error handling and Byzantine determinism requirements
+  - Code organization and naming conventions
+  - Code review checklist with quality criteria
 
 ---
 

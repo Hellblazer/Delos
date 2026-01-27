@@ -385,16 +385,261 @@ Add to your monitoring:
 
 ---
 
+## Hardware Security Module (HSM) Integration
+
+### HSM Benefits and Use Cases
+
+**When to use HSM**:
+- Production clusters with critical data
+- Compliance requirements (HIPAA, PCI-DSS, SOC 2)
+- High-security deployments (financial, government)
+
+**HSM Providers**:
+- **Thales Luna Network HSM** - FIPS 140-2 Level 3
+- **Yubico YubiHSM 2** - USB-connected, affordable
+- **AWS CloudHSM** - Cloud-hosted managed service
+- **Azure Key Vault** - Cloud-hosted with PKIX support
+
+### HSM Configuration for Delos
+
+**Java PKCS#11 Configuration**:
+
+```properties
+# /etc/delos/sun-pkcs11.cfg
+name=Delos-HSM
+description=Thales Luna Network HSM
+library=/opt/thales/lunaclient/lib/libcryptoki.so
+
+slot=0
+slotListIndex=0
+disabledMechanisms={
+    CKM_SHA256_RSA_PKCS
+}
+```
+
+**MTLS Configuration with HSM**:
+
+```yaml
+mtls:
+  serverKeystore:
+    type: PKCS11
+    provider: SunPKCS11
+    config: /etc/delos/sun-pkcs11.cfg
+
+    # HSM slot and PIN
+    slot: 0
+    pinFile: /opt/delos/keys/hsm.pin  # Chmod 600
+
+    # Certificate reference in HSM
+    alias: delos-node1-cert
+
+  trustStore:
+    path: /opt/delos/keys/truststore.jks
+    type: JKS
+    password: ${TRUSTSTORE_PASSWORD}
+```
+
+**HSM Keystore Access** (Java):
+
+```java
+// Load HSM via PKCS#11
+KeyStore hsm = KeyStore.getInstance("PKCS11", "SunPKCS11");
+char[] pin = readPinFromSecureLocation();  // Never hardcode!
+hsm.load(null, pin);
+
+// Use HSM certificate for TLS
+Key privateKey = hsm.getKey("delos-node1-cert", pin);
+Certificate[] chain = hsm.getCertificateChain("delos-node1-cert");
+
+// MTLS server uses HSM key
+SSLContext sslContext = SSLContext.getInstance("TLS");
+KeyManagerFactory kmf = KeyManagerFactory.getInstance("PKIX");
+kmf.init(hsm, pin);
+sslContext.init(kmf.getKeyManagers(), trustManagers, null);
+```
+
+### HSM Operations Checklist
+
+- [ ] HSM initialized with master PIN (stored securely off-site)
+- [ ] Partition created for Delos with unique PIN
+- [ ] PKCS#11 library installed and tested
+- [ ] Key pair generated on HSM (never exported)
+- [ ] Certificate signed by CA and imported to HSM
+- [ ] Backup partition created (offline)
+- [ ] HSM redundancy configured (two devices, same keys)
+- [ ] Network HSM firewall rules enforced
+- [ ] HSM activity logging enabled
+- [ ] HSM health check integrated into monitoring
+
+---
+
+## Post-Quantum Migration Planning
+
+### Current Status (2026)
+
+**ED25519 & X25519 Security Timeline**:
+- **2026-2030**: Secure (quantum computers not a threat)
+- **2030-2040**: Monitor for quantum threat announcements
+- **2040+**: Vulnerable to hypothetical quantum computers
+
+**NIST Post-Quantum Cryptography Status**:
+- Standardization completed for ML-KEM, ML-DSA, SLH-DSA (2024)
+- Available in: OpenSSL 3.2+, BouncyCastle 1.78+
+- Adoption timeline: 2024-2026 for early adopters
+
+### Phase 1: Preparation (2026-2027)
+
+**Year 1 Actions**:
+
+1. **Establish PQC Roadmap**:
+   - [ ] Identify NIST-approved algorithms for use
+   - [ ] Evaluate hybrid signature schemes (ED25519 + ML-DSA)
+   - [ ] Plan key rotation timeline
+
+2. **Library Updates**:
+   - [ ] Update BouncyCastle to 1.78+ (PQC support)
+   - [ ] Test PQC implementations in development
+   - [ ] Benchmark performance impact
+
+3. **Standards & Compliance**:
+   - [ ] Review NIST SP 800-208 (PQC migration)
+   - [ ] Update security policies to address post-quantum
+   - [ ] Plan for hybrid algorithms during transition
+
+### Phase 2: Hybrid Deployment (2027-2029)
+
+**Hybrid Signature Scheme**:
+
+```
+Traditional: ED25519 only
+       ↓ (upgrade)
+Hybrid: ED25519 + ML-DSA (both required)
+       ├─ Signature size: ~64 bytes (ED25519) + ~2420 bytes (ML-DSA)
+       ├─ Total: ~2484 bytes (overhead acceptable during transition)
+       └─ Verification: Both algorithms must validate
+       ↓ (after 3-year transition)
+Post-Quantum: ML-DSA only
+       ├─ Signature size: ~2420 bytes
+       └─ Verification: Single algorithm
+```
+
+**Implementation Strategy**:
+
+```java
+// Hybrid signature structure
+sealed interface UnifiedSignature permits
+    ED25519Signature,           // Legacy only (2026)
+    HybridSignature,            // ED25519 + ML-DSA (2027-2029)
+    PostQuantumSignature;       // ML-DSA only (2029+)
+
+record HybridSignature(
+    JohnHancock ed25519Sig,     // 64 bytes
+    byte[] mldsaSig             // ~2420 bytes
+) implements UnifiedSignature {
+    public boolean verify(byte[] message, PublicKey key) {
+        return ed25519Verify(message, ed25519Sig, key)
+            && mldsaVerify(message, mldsaSig, key);
+    }
+}
+```
+
+### Phase 3: Full Migration (2029-2030)
+
+**Sunset ED25519** (if quantum threat emerges):
+1. Set deprecation flag in 2029 release
+2. Warn operators in 2029-2030
+3. Require PQC-only in 2030+ releases
+
+**Fallback Plan**:
+- If quantum threat doesn't materialize, maintain ED25519 indefinitely
+- Hybrid signatures can coexist safely with pure PQC
+
+### Post-Quantum Algorithm Selection
+
+| Algorithm | Purpose | Security | Standardized | Performance | Status |
+|-----------|---------|----------|--------------|-------------|--------|
+| **ML-KEM-768** | Key encapsulation | 128-bit | NIST (2024) | <1ms | Recommended |
+| **ML-DSA-65** | Digital signatures | 128-bit | NIST (2024) | <2ms | Recommended |
+| **SLH-DSA-SHA2-128s** | Backup signatures | 128-bit | NIST (2024) | ~10ms | Fallback |
+
+**Recommended Migration Path**:
+1. **Phase 2A (2027)**: Implement ML-KEM-768 for session keys
+2. **Phase 2B (2028)**: Implement hybrid ED25519 + ML-DSA-65
+3. **Phase 3 (2029)**: Sunset ED25519 if quantum threat confirmed
+4. **Fallback**: Indefinite coexistence if no quantum threat
+
+### Monitoring Post-Quantum Risk
+
+**Track these indicators**:
+1. **NIST quantum computing announcements**
+2. **Industry PQC adoption rate**
+3. **Quantum threat timeline updates**
+4. **Library and OS support for PQC**
+
+**Review Quarterly**:
+- [ ] Check NIST PQC standardization progress
+- [ ] Review quantum computing milestones
+- [ ] Evaluate new PQC libraries and updates
+- [ ] Assess competitor adoption of PQC
+
+---
+
+## Certificate Pinning for Critical Peers
+
+### When to Use Certificate Pinning
+
+**Pin certificates for**:
+- Witness service nodes (high-criticality)
+- Consensus leader nodes
+- Identity bootstrap services
+
+**Pin strategy**:
+```java
+// Pin specific peer certificate
+X509Certificate trustedCert = loadCertificate("peer-node-1-cert.pem");
+byte[] pinnedPublicKey = extractPublicKeyFromCert(trustedCert);
+
+// During handshake
+SSLSession session = sslSocket.getSession();
+X509Certificate[] peerChain = session.getPeerCertificateChain();
+byte[] peerPublicKey = extractPublicKeyFromCert(peerChain[0]);
+
+if (!Arrays.equals(pinnedPublicKey, peerPublicKey)) {
+    throw new SSLHandshakeException("Certificate pinning failed!");
+}
+```
+
+**Pinning for Witness Service** (Phase 1B):
+
+```yaml
+mtls:
+  pinnedPeers:
+    witness-node-1:
+      certificate: /opt/delos/certs/witness-1-cert.pem
+      algorithm: SHA256
+    witness-node-2:
+      certificate: /opt/delos/certs/witness-2-cert.pem
+      algorithm: SHA256
+    witness-node-3:
+      certificate: /opt/delos/certs/witness-3-cert.pem
+      algorithm: SHA256
+```
+
+---
+
 ## Related Documentation
 
+- **[CRYPTOGRAPHY_ALGORITHMS.md](CRYPTOGRAPHY_ALGORITHMS.md)** - Algorithm selection guide
 - **[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)** - MTLS configuration section
+- **[SECURITY_THREAT_MODEL.md](SECURITY_THREAT_MODEL.md)** - Threat model analysis
 - **[GLOSSARY.md](GLOSSARY.md)** - MTLS definition
 - **[TROUBLESHOOTING_GUIDE.md](TROUBLESHOOTING_GUIDE.md)** - TLS troubleshooting section
 - OpenSSL documentation: https://www.openssl.org/docs/
 - Java keytool reference: https://docs.oracle.com/en/java/javase/21/docs/specs/man/keytool.html
+- NIST PQC Standardization: https://csrc.nist.gov/projects/post-quantum-cryptography/
 
 ---
 
-**Last Updated:** 2026-01-06
+**Last Updated:** January 27, 2026
 **Status:** Production-Ready
 **Owner:** Delos Operators

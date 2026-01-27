@@ -495,6 +495,8 @@ broadcaster.subscribe(message -> {
 
 ## Testing and Validation
 
+**See Also**: [docs/TESTING_GUIDE.md](../docs/TESTING_GUIDE.md) - Comprehensive testing patterns, Byzantine fault injection, deterministic testing, and best practices.
+
 **Test Suite Location**: `fireflies/src/test/java/com/hellblazer/delos/fireflies/`
 
 **Test Coverage** (109+ tests):
@@ -504,23 +506,33 @@ broadcaster.subscribe(message -> {
 - **Race Conditions**: Concurrent joins, leaves, view changes
 - **Resource Exhaustion**: Memory limits, connection handling, garbage collection
 - **Recovery**: Failure recovery, view reconciliation, shunning/rejoin
+- **Determinism**: Seeded randomness, time control, reproducible behavior
 
 **Running Tests**:
 ```bash
-# All fireflies tests
+# All fireflies tests (fast mode)
 ./mvnw test -pl fireflies
 
 # Specific test class
 ./mvnw test -pl fireflies -Dtest=ByzantineScenarioTest
 
-# Large-scale tests
+# Large-scale tests (thorough mode)
 ./mvnw test -pl fireflies -Dlarge_tests=true
+
+# All cluster tests with Byzantine members
+./mvnw test -pl fireflies -Dtest="*ByzantineTest"
 ```
 
 **Canary Tests** (Integration Health):
 - `ChurnTest`: Continuous joins/leaves with concurrent failures
 - `SwarmTest`: Large group (100+) membership stabilization
 - `E2ETest`: End-to-end protocol from bootstrap through consensus
+
+**Test Infrastructure**:
+- **GorgoneionBftTestHelpers**: Fault injection framework for Byzantine behavior
+- **TestContext**: Cluster formation and lifecycle management
+- **SeededSecureRandom**: Deterministic randomness for reproducible tests
+- **Clock.fixed()**: Time control for timing-dependent operations
 
 ## Metrics
 

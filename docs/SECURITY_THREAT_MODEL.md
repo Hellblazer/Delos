@@ -623,23 +623,100 @@ Conditions: Partition 1: 4 nodes (2 Byzantine, 2 correct) | Partition 2: 3 nodes
 
 ---
 
-## Appendix A: Cryptographic Primitives
+## Appendix A: Cryptographic Primitives & Algorithm Matrix
 
-**Hash Functions**:
-- SHA256 (256-bit): Digests, identifiers, checksums
-- SHAKE256 (variable-length): Extensible hashing
+### A.1 Complete Algorithm Registry
 
-**Digital Signatures**:
-- ED25519: Identity signing, key rotation
-- ECDSA (P-256): Alternative for compatibility
+| Category | Algorithm | Purpose | Standard | Security Level | Phase |
+|----------|-----------|---------|----------|----------------|-------|
+| **Identity & Signatures** | ED25519 | KERI identity, key rotation, event signing | RFC 8032 | 128-bit | 1A+ |
+| **Witness Signatures** | BLS-12-381 | Receipt aggregation, witness consensus | IETF draft | 128-bit | 1B+ |
+| **Encryption** | X25519 | ECDH key agreement, session encryption | RFC 7748 | 128-bit | 1A+ |
+| | AES-256-GCM | Symmetric encryption (via TLS 1.3+) | FIPS 197 | 256-bit | 1A+ |
+| | ChaCha20-Poly1305 | Alternative AEAD cipher | RFC 8439 | 256-bit | 1A+ |
+| **Hashing** | SHA-256 | Digests, identifiers, checksums, HMAC | FIPS 180-4 | 128-bit | 1A+ |
+| | SHA-512 | Ed25519 seed expansion | FIPS 180-4 | 256-bit | 1A+ |
+| | SHAKE256 | Ed448 seed expansion, XOF | FIPS 202 | ≥256-bit | Future |
+| **Key Derivation** | HKDF | Derives keys from master secret | RFC 5869 | 128/256-bit | 1A+ |
+| | PBKDF2 | Derives encryption keys from passphrases | RFC 2898 | 128/256-bit | 1A+ |
 
-**Symmetric Encryption**:
-- AES-256-GCM: TLS cipher suite (via TLS 1.3+)
-- ChaCha20-Poly1305: Alternative AEAD cipher
+### A.2 Algorithm Usage by System Component
 
-**Key Derivation**:
-- HKDF: Derives keys from master secret
-- PBKDF2: Derives keys from password
+| Component | Signing Algorithm | Encryption | Hash | Notes |
+|-----------|-------------------|-----------|------|-------|
+| **KERI Identity** | ED25519 | X25519 | SHA-256 | All identity events signed with ED25519 |
+| **Fireflies Gossip** | ED25519 | TLS 1.3 | SHA-256 | Ring messages signed by members |
+| **Ethereal Consensus** | ED25519 | TLS 1.3 | SHA-256 | Block signatures from committee |
+| **CHOAM Replication** | ED25519 | TLS 1.3 | SHA-256 | Transaction signatures |
+| **Witness Service** | ED25519 + BLS-12-381 | TLS 1.3 | SHA-256 | Dual signatures: ED25519 (Phase 1A), BLS aggregates (Phase 1B+) |
+| **Gorgoneion Bootstrap** | ED25519 | TLS 1.3 | SHA-256 | Credential attestation |
+
+### A.3 Cryptographic Safety Properties
+
+| Property | Algorithm | Status | Evidence |
+|----------|-----------|--------|----------|
+| **Deterministic Signatures** | ED25519 | ✓ | RFC 8032: deterministic ECDSA variant |
+| **No Malleability** | ED25519 | ✓ | Unique signature per message |
+| **Signature Aggregation** | BLS-12-381 | ✓ | Pairing-friendly curve property |
+| **Forward Secrecy** | X25519 ephemeral | ✓ | Ephemeral ECDH per session |
+| **Replay Prevention** | (TLS nonce tracking) | ✓ | Nonce validation + timestamp TTL |
+
+### A.4 Hash Functions
+
+**SHA-256** (Primary):
+- Digests, identifiers, checksums
+- 256-bit output, 128-bit collision resistance
+- Hardware acceleration available (SHA-NI)
+- NIST FIPS 180-4 standard
+
+**SHA-512** (EdDSA only):
+- Ed25519 private scalar derivation
+- 512-bit output, 256-bit security
+- Part of RFC 8032 specification
+
+**SHAKE256** (Ed448 future):
+- Ed448 private scalar derivation
+- Extensible output (114 bytes for Ed448)
+- FIPS 202 XOF standard
+
+### A.5 Key Derivation Functions
+
+**HKDF** (HMAC-based Extract-Expand):
+- Derives session keys from shared secrets
+- RFC 5869 standard
+- Used for TLS key derivation
+
+**PBKDF2** (Password-Based Key Derivation):
+- Derives encryption keys from passphrases
+- RFC 2898 standard
+- Used for keystore password protection
+
+### A.6 Performance Characteristics
+
+| Operation | Algorithm | Latency | Throughput | Notes |
+|-----------|-----------|---------|-----------|-------|
+| **Sign** | ED25519 | 1.5ms | ~667/sec | Per signature |
+| **Verify** | ED25519 | 2.5ms | ~400/sec | Single signature |
+| **Aggregate** | BLS-12-381 | <1ms | 10K+/sec | Create single from k |
+| **Verify Agg** | BLS-12-381 | <5ms (k=7) | ~200/sec | Batch verification |
+| **ECDH** | X25519 | 2-3ms | ~400/sec | Per connection |
+| **TLS handshake** | AES-256-GCM | <100ms | 1K/sec | Per connection |
+| **SHA-256** | N/A | <1μs per 64B | >1GB/sec | Hardware accelerated |
+
+### A.7 Post-Quantum Migration Planning
+
+**Timeline** (2026-2030):
+1. **Phase 1**: Monitor NIST PQC standardization (2024-2025)
+2. **Phase 2**: Evaluate hybrid ED25519 + PQC signatures (2026-2027)
+3. **Phase 3**: Implement gradual key rotation to PQC (2027-2029)
+4. **Phase 4**: Full migration complete (2029-2030)
+
+**Recommended Algorithm Family**:
+- **ML-KEM** (lattice-based key encapsulation): Replace X25519
+- **ML-DSA** (lattice-based signatures): Hybrid with ED25519
+- **SLH-DSA** (hash-based signatures): Backup option
+
+**Current Status**: ED25519/BLS-12-381 remain secure against classical computers through 2040+
 
 ---
 

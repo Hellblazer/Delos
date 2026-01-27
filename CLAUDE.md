@@ -161,25 +161,92 @@ Modules depend on each other through the local Maven repository. Always run `ins
 
 ## Testing Structure
 
+### Quick Reference
+
+For comprehensive testing guidance, see **[docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md)** which covers:
+- All test categories (unit, integration, cluster, Byzantine, stress, performance)
+- Deterministic testing patterns (seeded randomness, frozen clocks, controlled parameters)
+- Byzantine FT testing framework (fault injection, detection validation, recovery)
+- Resource management (lifecycle, ports, memory, timeouts)
+- Enforcement checklist and common pitfalls
+- Concrete examples and performance baselines
+
 ### Test Categories
 
-- **Unit tests**: `./mvnw test` - Standard test execution per module
-- **Large tests**: `./mvnw test -Dlarge_tests=true` - Full resource-intensive test suite (requires 8+ GB RAM)
-- **Single module**: `./mvnw test -pl <module>` - Target specific module tests
-- **Single test class**: `./mvnw test -Dtest=ClassName -pl <module>`
-- **Single test method**: `./mvnw test -Dtest=ClassName#methodName -pl <module>`
+- **Unit tests**: `./mvnw test` - Isolated component tests, fast feedback
+- **Integration tests**: Multi-component tests with real I/O (database, gRPC)
+- **Cluster tests**: Multi-node distributed system tests with gossip/consensus
+- **Byzantine tests**: Byzantine fault tolerance with injected failures (3f+1 nodes)
+- **Stress tests**: High load tests (requires `-Dlarge_tests=true`, 8+ GB RAM)
+- **Performance tests**: Throughput and latency measurement with SLA validation
+
+### Test Execution
+
+```bash
+# Standard mode (fast, ~10-15 min)
+./mvnw test
+
+# Thorough mode (full suite, ~45-60 min, requires 8+ GB RAM)
+./mvnw clean install -Dlarge_tests=true
+
+# Single module
+./mvnw test -pl <module>
+
+# Single test class
+./mvnw test -pl <module> -Dtest=ClassName
+
+# Single test method
+./mvnw test -pl <module> -Dtest=ClassName#methodName
+
+# Tests matching pattern
+./mvnw test -Dtest="*Integration*"
+```
 
 ### Memory Requirements
 
-- **Standard tests**: JVM defaults sufficient
-- **Large tests**: May require increased heap: `-DargLine="-Xmx10G -Xms4G"`
+- **Standard tests**: JVM defaults sufficient (~2-4 GB heap)
+- **Large tests**: Requires increased heap: `-DargLine="-Xmx12G -Xms6G"` (8+ GB total)
 
-### Test Patterns
+### Core Patterns
 
-- **Dynamic port allocation**: Tests use port 0 to let the OS assign ports, avoiding conflicts
-- **JUnit 5**: Modern assertions with AssertJ, mocking with Mockito
-- **Integration tests**: Use actual cluster formation with multiple nodes
-- **Isolation**: Each test is independent and can run in any order
+- **Dynamic port allocation**: Tests use port 0, OS assigns available port (no conflicts)
+- **Deterministic execution**: SeededSecureRandom, Clock.fixed() for reproducibility
+- **JUnit 5**: AssertJ fluent assertions, Mockito mocking
+- **Independent tests**: Each test is isolation, no shared state, can run in any order
+- **Cluster formation**: Real multi-node coordination with gossip protocols
+- **Byzantine injection**: GorgoneionBftTestHelpers for fault injection and detection
+
+### Deterministic Testing
+
+Tests must be deterministic to enable debugging, CI reproducibility, and debugging:
+
+```java
+// Use SeededSecureRandom instead of Random
+var random = new SeededSecureRandom("test-seed");
+
+// Use Clock.fixed() for time-dependent operations
+var clock = Clock.fixed(Instant.parse("2026-01-27T10:00:00Z"), ZoneId.of("UTC"));
+
+// Use largeTests flag for controlled parameters
+static final boolean largeTests = Boolean.parseBoolean(System.getProperty("large_tests", "false"));
+var clusterSize = largeTests ? 100 : 10;  // Adapts to fast/thorough mode
+```
+
+### Byzantine Testing Infrastructure
+
+Delos includes comprehensive Byzantine fault testing support:
+
+- **GorgoneionBftTestHelpers**: Fault injection (crashes, delays, equivocation)
+- **ByzantineDetector**: Multi-signal detection (signatures, timing, rate, state anomalies)
+- **TestContext**: Cluster management with member lifecycle and failure handling
+- **Fault categories**: Equivocation, signature forgery, timing anomaly, fork detection, threshold bypass
+
+Example: Test with 3f+1 nodes (3 honest + 1 Byzantine, f=1 tolerance):
+```java
+var cluster = TestCluster.create(4);
+cluster.setByzantine(3);  // Node 3 is Byzantine
+cluster.execute(transaction);  // Consensus continues despite Byzantine member
+```
 
 ### Running Specific Tests
 
@@ -187,14 +254,15 @@ Modules depend on each other through the local Maven repository. Always run `ins
 # Run all tests in fireflies module
 ./mvnw test -pl fireflies
 
-# Run specific test class
-./mvnw test -pl fireflies -Dtest=ViewTest
+# Run all cluster tests
+./mvnw test -Dtest="*ClusterTest"
 
-# Run specific test method
-./mvnw test -pl fireflies -Dtest=ViewTest#shouldFormQuorum
+# Run all Byzantine tests
+./mvnw test -Dtest="*ByzantineTest"
 
-# Run tests matching pattern
-./mvnw test -Dtest="*Integration*"
+# Run with debugging
+./mvnw test -pl <module> -Dtest=ClassName#method \
+  -DargLine="-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005"
 ```
 
 ## Common Development Tasks

@@ -820,9 +820,104 @@ public class RollingKeyRotation {
 
 ---
 
+## Witness Service Integration (Phase 1B+)
+
+### Integration Architecture
+
+The witness service uses KERI identities as the foundation for Byzantine-resilient receipt attestation:
+
+```
+KERL Event (e.g., key rotation)
+    │
+    ├─ Event coordinates (hash-based identifier)
+    ├─ Event digest (content hash)
+    └─ Event signature (member's KERI key)
+         │
+         v
+    [Witness Service]
+         │
+         ├─ Verify event signature using KERL
+         ├─ Check witness committee membership
+         └─ Create receipt with:
+              ├─ ED25519 signature (Phase 1A)
+              └─ BLS aggregate signature (Phase 1B+)
+
+    Result: AggregateWitnessReceipt
+         │
+         └─ Persisted to witness consensus log (CHOAM)
+```
+
+### Certificate Pinning for Witness Nodes
+
+**Configure pinning to ensure witness node identity**:
+
+```yaml
+witness:
+  nodeConnections:
+    # Pin witness node certificates to prevent MITM
+    pinnedCertificates:
+      witness-node-1: /opt/delos/certs/witness-1-pinned.pem
+      witness-node-2: /opt/delos/certs/witness-2-pinned.pem
+      witness-node-3: /opt/delos/certs/witness-3-pinned.pem
+
+    # Verify KERI identity matches certificate CN
+    validateKeriIdentity: true
+
+    # Maximum certificate age before warning
+    certExpirationWarnDays: 30
+```
+
+### Recovery from Witness Failure
+
+**If witness node fails and rejoins**:
+
+1. **Validate identity re-establishment**:
+   ```java
+   // Query current KERL state for witness node
+   SelfAddressingIdentifier witnessId = getWitnessIdentifier("witness-1");
+   KeyState currentState = kerl.getKeyState(witnessId);
+
+   if (currentState.getKeyIndex() > lastKnownIndex) {
+       // Node performed key rotation while offline
+       // This is normal and acceptable
+       log.info("Witness identity confirmed after recovery");
+   }
+   ```
+
+2. **Replay missed receipts**:
+   ```java
+   // Catch up on receipts created while offline
+   long currentBlock = witnessLog.getLatestBlock();
+   long lastProcessedBlock = node.getLastProcessedBlock();
+
+   for (long block = lastProcessedBlock + 1; block <= currentBlock; block++) {
+       WitnessReceipt receipt = witnessLog.getReceipt(block);
+       processReceipt(receipt);  // Validate and update local state
+   }
+   ```
+
+3. **Verify consensus with quorum**:
+   ```java
+   // Ensure witness consensus continued without this node
+   int validReceipts = countValidReceiptsInRange(
+       lastProcessedBlock + 1,
+       currentBlock
+   );
+
+   if (validReceipts >= THRESHOLD) {
+       log.info("Quorum consensus maintained during failure");
+   }
+   ```
+
+---
+
 ## Related Documentation
 
 - [KERI Specification](https://github.com/decentralized-identity/keri)
+- [Cryptography Algorithms Reference](CRYPTOGRAPHY_ALGORITHMS.md) - Algorithm usage for identity
+- [BLS Aggregation Guide](BLS_AGGREGATION_GUIDE.md) - Witness receipt aggregation
+- [Security Threat Model](SECURITY_THREAT_MODEL.md) - KERI security analysis
+- [TLS Setup](TLS_SETUP.md) - Certificate pinning for witness service
 - [Stereotomy Module](../stereotomy/README.md)
 - [Stereotomy Threat Model](../stereotomy/docs/THREAT_MODEL.md)
 - [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) - Identity section
@@ -832,6 +927,6 @@ public class RollingKeyRotation {
 
 ---
 
-**Last Updated:** 2026-01-06
+**Last Updated:** January 27, 2026
 **Status:** Production-Ready
 **Owner:** Delos Operations

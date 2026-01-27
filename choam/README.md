@@ -562,6 +562,8 @@ CHOAM exposes operational metrics via Dropwizard Metrics.
 
 ## Testing and Validation
 
+**See Also**: [docs/TESTING_GUIDE.md](../docs/TESTING_GUIDE.md) - Comprehensive testing patterns, Byzantine fault injection, deterministic testing, and best practices.
+
 **Test Suite Location**: `choam/src/test/java/com/hellblazer/delos/choam/`
 
 **Test Coverage**:
@@ -570,17 +572,21 @@ CHOAM exposes operational metrics via Dropwizard Metrics.
 - **View Changes**: Committee reconfiguration, key rotation
 - **Checkpointing**: State snapshots, bootstrap from checkpoint
 - **Performance**: Throughput and latency benchmarks
+- **Determinism**: Seeded randomness, frozen clocks, deterministic state replication
 
 **Running Tests**:
 ```bash
-# All CHOAM tests
+# All CHOAM tests (fast mode)
 ./mvnw test -pl choam
 
 # Specific test
 ./mvnw test -pl choam -Dtest=ReconfigurationTest
 
-# Performance tests
+# Performance tests (thorough mode)
 ./mvnw test -pl choam -Dtest=PerformanceTest -Dlarge_tests=true
+
+# Test optimization details
+# See also: choam/TEST_OPTIMIZATION.md for fast vs. thorough mode breakdown
 ```
 
 ## Status

@@ -80,36 +80,48 @@ After modifying `.proto` files or database schemas:
 
 ## Code Style and Conventions
 
-### General Guidelines
+For comprehensive code quality standards, design patterns, concurrency guidelines, and error handling requirements, see **[CODE_QUALITY_STANDARDS.md](docs/CODE_QUALITY_STANDARDS.md)**.
 
-- **Java 25**: Use modern Java features including records, pattern matching, and virtual threads
-- **Variable declaration**: Use `var` for local variables where type is obvious
-- **Concurrency**: Use concurrent collections and virtual threads; avoid `synchronized` blocks
-- **Imports**: Organize imports; remove unused imports
-- **Comments**: Write self-documenting code; add comments only for non-obvious logic
-- **Line length**: Soft limit of 120 characters
+This document covers:
+- **Design Patterns**: Factory, Strategy, Builder, Observer, Adapter, Singleton
+- **Concurrency Guidelines**: Atomic types, concurrent collections, thread safety
+- **Error Handling**: Byzantine determinism, exception normalization, logging
+- **Code Quality**: Naming conventions, documentation, code organization
+- **Package Organization**: 4-layer architecture, dependencies
+- **Code Review Checklist**: Pull request quality criteria
 
-### Naming Conventions
+### Quick Reference
 
+**Java 25**: Use modern Java features including records, pattern matching, and virtual threads
+
+**Variable declaration**: Use `var` for local variables where type is obvious
+
+**Concurrency**: Use concurrent collections and virtual threads; **avoid `synchronized` blocks entirely**
+
+**Naming Conventions**:
 - **Classes**: PascalCase (e.g., `ByzantineMember`)
 - **Methods**: camelCase (e.g., `processConsensus()`)
 - **Constants**: UPPER_SNAKE_CASE (e.g., `MAX_RETRIES`)
 - **Packages**: lowercase (e.g., `com.hellblazer.delos.fireflies`)
 
-### Module-Specific Patterns
-
-- **Fireflies**: Use ring-based gossip patterns
-- **CHOAM**: Follow state machine conventions with immutable state transitions
-- **SQL-State**: Use Liquibase for schema migrations
-- **Cryptography**: Prefer self-describing types (Digest, Signature, Identifier)
-
-### Logging
-
-Use SLF4J with parameterized logging:
+**Logging**: Use SLF4J with parameterized logging:
 ```java
-log.debug("Processing transaction: {}", txId);  // CORRECT
-log.debug("Processing transaction: " + txId);   // INCORRECT (string concat)
+log.debug("Processing transaction: {}", txId);      // CORRECT
+log.debug("Processing transaction: " + txId);       // INCORRECT
+log.debug("Value: {:.2f}", value);                  // INCORRECT (Python-style)
 ```
+
+**Concurrency Patterns**:
+- Atomic types for single values: `AtomicBoolean`, `AtomicInteger`, `AtomicReference`
+- Concurrent collections: `ConcurrentHashMap`, `ConcurrentSkipListSet`, `BlockingQueue`
+- Locks only when necessary: `ReadWriteLock`, `ReentrantLock`
+- No `synchronized` keyword
+
+**Comments**: Write self-documenting code. Comments should explain WHY, not WHAT.
+
+**Line length**: Soft limit of 120 characters
+
+**See also**: [CODE_QUALITY_STANDARDS.md](docs/CODE_QUALITY_STANDARDS.md) for detailed guidelines with examples and rationale.
 
 ## Testing Requirements
 
@@ -275,12 +287,35 @@ Include:
 
 ### What Reviewers Look For
 
+**Code Quality & Design**:
 - **Correctness**: Does the code work as intended?
-- **Tests**: Are there adequate tests?
-- **Design**: Is the approach sound?
+- **Design**: Is the approach sound? Does it follow 4-layer architecture?
+- **Patterns**: Are appropriate design patterns used?
+- **Architecture**: No circular or upward dependencies?
+
+**Concurrency & Thread Safety**:
+- **Concurrency**: No `synchronized` keyword? Using correct concurrent collections?
+- **Atomic Operations**: Atomic types used correctly?
+- **Thread Safety**: Documented and guaranteed?
+
+**Error Handling & Byzantine Requirements**:
+- **Byzantine**: Exceptions normalized for replicated components?
+- **Determinism**: Will this code produce identical results on all replicas?
+- **Normalization**: ExceptionNormalizer used in state machine layer?
+
+**Code Quality**:
+- **Naming**: Follow PascalCase, camelCase, UPPER_SNAKE_CASE conventions?
+- **Documentation**: Javadoc complete with @param, @return, @throws?
 - **Readability**: Is the code clear and maintainable?
 - **Performance**: Are there obvious inefficiencies?
 - **Security**: Are there security concerns?
+
+**Testing**:
+- **Tests**: Are there adequate tests? Dynamic ports used?
+- **Coverage**: Critical paths 90%+, public APIs 80%+?
+- **Integration**: Tests isolated and idempotent?
+
+**Comprehensive Checklist**: See [CODE_QUALITY_STANDARDS.md - Code Review Checklist](docs/CODE_QUALITY_STANDARDS.md#code-review-checklist)
 
 ### Responding to Feedback
 
