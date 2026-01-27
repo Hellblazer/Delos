@@ -116,6 +116,16 @@ public class GorgoneionCluster implements AutoCloseable {
     }
 
     /**
+     * Gets the prefix used by this cluster for LocalServer routing.
+     * Client routers must use the same prefix to communicate with cluster members.
+     *
+     * @return the cluster's routing prefix
+     */
+    public String getPrefix() {
+        return prefix;
+    }
+
+    /**
      * Gets majority quorum size.
      *
      * @return quorum size
