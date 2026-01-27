@@ -692,176 +692,200 @@ void shouldActivate() throws Exception {
 
 ## Concrete Examples
 
-### Example 1: Simple BFT Cluster Test
+### Example 1: Simple BFT Cluster Test with Gorgoneion
 
-**Scenario**: 4-node cluster (3 honest + 1 Byzantine) should replicate 100 transactions.
+**Scenario**: 7-node cluster (Gorgoneion - attestation service) verifies Byzantine safety.
 
 ```java
-@DisplayName("Simple BFT Cluster Replication")
-class SimpleBftClusterTest {
+@DisplayName("Gorgoneion BFT Cluster Safety")
+class GorgoneionBftClusterTest {
 
-    private TestCluster cluster;
+    private TestContext context;
+    private GorgoneionCluster cluster;
 
     @BeforeEach
     void setup() throws Exception {
-        // Create 4-node cluster
-        cluster = TestCluster.create(4);
+        var entropy = SecureRandom.getInstance("SHA1PRNG");
+        entropy.setSeed(new byte[] { 1, 2, 3 });  // Deterministic seed
 
-        // Mark last node as Byzantine
-        cluster.setByzantine(3);
+        // Create 7-node test context (f=2, tolerates 2 Byzantine nodes)
+        context = new TestContext(7, entropy);
 
-        // Start cluster
-        cluster.start();
-        assertTrue(cluster.isHealthy());
+        // Create Gorgoneion cluster from context
+        var parameters = new Parameters();  // Use default parameters
+        cluster = new GorgoneionCluster(context, parameters);
     }
 
     @AfterEach
-    void cleanup() {
-        cluster.close();
+    void cleanup() throws Exception {
+        if (cluster != null) cluster.close();
+        if (context != null) context.close();
     }
 
     @Test
-    void shouldReplicateTransactionsWithByzantineMember() {
-        // Submit 100 transactions through node 0 (honest)
-        for (int i = 0; i < 100; i++) {
-            var tx = Transaction.create("type", "data-" + i);
-            cluster.submit(tx);
+    void shouldMaintainSafetyWithNodeFailure() throws Exception {
+        // Verify initial cluster health
+        assertThat(cluster.size()).isEqualTo(7);
+        assertThat(cluster.majority()).isEqualTo(5);
+        assertThat(cluster.faultTolerance()).isEqualTo(2);
+
+        // Stop one node (still within Byzantine tolerance, f=2)
+        cluster.stopNode(5);
+
+        // Issue attestations from remaining nodes
+        var nonce1 = cluster.getMember(0).nonce(UUID.randomUUID());
+        var nonce2 = cluster.getMember(1).nonce(UUID.randomUUID());
+
+        // Record nonces for safety verification
+        cluster.recordNonce(nonce1);
+        cluster.recordNonce(nonce2);
+
+        // Verify Byzantine safety properties held
+        var verification = cluster.verifySafety();
+        assertThat(verification.noConflictingNonces()).isTrue();
+    }
+}
+```
+
+### Example 2: Node Failure and Recovery Test
+
+**Scenario**: Stop a node, verify others continue, then restart and verify synchronization.
+
+```java
+@Test
+void shouldRecoverFromNodeFailure() throws Exception {
+    // All nodes active initially
+    for (int i = 0; i < 7; i++) {
+        assertThat(cluster.isNodeActive(i)).isTrue();
+    }
+
+    // Stop node 3 (within Byzantine tolerance f=2, we need 5/7 active)
+    cluster.stopNode(3);
+    assertThat(cluster.isNodeActive(3)).isFalse();
+
+    // System continues with 6 active nodes
+    // Verify remaining 6 nodes still function (> majority of 5)
+    for (int i = 0; i < 7; i++) {
+        if (i != 3) {
+            assertThat(cluster.getMember(i)).isNotNull();
         }
-
-        // All honest nodes should have replicated all 100 transactions
-        var state0 = cluster.getState(0);
-        var state1 = cluster.getState(1);
-        var state2 = cluster.getState(2);
-
-        assertThat(state0.getTransactionCount()).isEqualTo(100);
-        assertThat(state1.getTransactionCount()).isEqualTo(100);
-        assertThat(state2.getTransactionCount()).isEqualTo(100);
-
-        // All have identical state
-        assertThat(state0.checkpoint()).isEqualTo(state1.checkpoint());
-        assertThat(state1.checkpoint()).isEqualTo(state2.checkpoint());
-
-        // Byzantine node may have different state (not included in quorum)
-        // This is acceptable - Byzantine tolerance allows this
-    }
-}
-```
-
-### Example 2: Byzantine Node Crash Test
-
-**Scenario**: Crash Byzantine node, verify system continues.
-
-```java
-@Test
-void shouldTolerateByzantineNodeCrash() throws Exception {
-    // Initial state: 3 honest + 1 Byzantine
-    cluster.assertHealthy();
-
-    // Crash the Byzantine node
-    cluster.crash(3);
-
-    // System should continue with 3 honest nodes
-    // (Note: 3 honest nodes = minimum for quorum in 4-node system)
-
-    // Submit 50 more transactions
-    for (int i = 100; i < 150; i++) {
-        var tx = Transaction.create("type", "data-" + i);
-        cluster.submit(tx);
     }
 
-    // All honest nodes replicated new transactions
-    assertThat(cluster.getState(0).getTransactionCount()).isEqualTo(150);
-    assertThat(cluster.getState(1).getTransactionCount()).isEqualTo(150);
-    assertThat(cluster.getState(2).getTransactionCount()).isEqualTo(150);
+    // Restart the failed node
+    cluster.restartNode(3);
+    assertThat(cluster.isNodeActive(3)).isTrue();
+
+    // Verify node synchronizes with cluster
+    assertThat(cluster.getMember(3)).isNotNull();
 }
 ```
 
-### Example 3: Timeout Recovery Test
+### Example 3: Blacklist and Safety Test
 
-**Scenario**: Simulate message delay, verify timeout and recovery.
+**Scenario**: Blacklist a node, verify cluster continues safely without it.
 
 ```java
 @Test
-void shouldRecoverFromTimeoutWithFaultyNode() throws Exception {
-    // Inject 5-second delay into Byzantine node's outbound messages
-    cluster.setOutboundDelay(3, Duration.ofSeconds(5));
+void shouldMaintainSafetyWhenBlacklistingNode() throws Exception {
+    var node0 = cluster.getMember(0);
+    var node0Digest = node0.getIdentifier();
 
-    // Submit transaction
-    var txId = cluster.submit(Transaction.create("type", "data"));
+    // Verify initial state
+    assertThat(cluster.isBlacklisted(node0Digest)).isFalse();
 
-    // Transaction should eventually commit (from other 3 honest nodes)
-    var txResult = cluster.waitForTransaction(txId, Duration.ofSeconds(15));
-    assertThat(txResult.isCommitted()).isTrue();
+    // Blacklist node 0 (simulates detection of Byzantine behavior)
+    cluster.blacklist(node0Digest);
+    assertThat(cluster.isBlacklisted(node0Digest)).isTrue();
 
-    // Verify Byzantine node was excluded from consensus
-    var consensusMembers = cluster.getLastConsensusMembers();
-    assertThat(consensusMembers).doesNotContain(3);
+    // Create nonces from other nodes
+    var nonce1 = cluster.getMember(1).nonce(UUID.randomUUID());
+    var nonce2 = cluster.getMember(2).nonce(UUID.randomUUID());
+    var nonce3 = cluster.getMember(3).nonce(UUID.randomUUID());
+
+    // Record nonces for verification (skip blacklisted node 0)
+    cluster.recordNonce(nonce1);
+    cluster.recordNonce(nonce2);
+    cluster.recordNonce(nonce3);
+
+    // System should maintain Byzantine safety despite blacklisted node
+    var verification = cluster.verifySafety();
+    assertThat(verification.noConflictingNonces()).isTrue();
+
+    // Clear blacklist for next test
+    cluster.clearBlacklist();
 }
 ```
 
-### Example 4: Fork Detection Test
+### Example 4: Signer Injection Test (Equivocation Detection)
 
-**Scenario**: Byzantine leader proposes fork, honest members detect and reject.
+**Scenario**: Inject custom signer to create conflicting attestations, detect equivocation.
 
 ```java
 @Test
-void shouldDetectAndRejectFork() throws Exception {
-    // Byzantine node is current leader
-    cluster.electLeader(3);  // 3 is Byzantine
+void shouldDetectEquivocation() throws Exception {
+    var node5 = cluster.getMember(5);
+    var clientId = UUID.randomUUID();
 
-    // Byzantine leader creates fork: sends unit A to node 0, unit B to node 1
-    var unitA = ConsensusUnit.create("block-A");
-    var unitB = ConsensusUnit.create("block-B");  // Different content
+    // Create two conflicting nonces from node 5 (simulates equivocation)
+    // This requires careful handling - in real Byzantine tests, would use
+    // custom signer that produces different signatures for same input
 
-    cluster.sendDirectTo(3, 0, unitA);
-    cluster.sendDirectTo(3, 1, unitB);
+    var nonce1 = node5.nonce(clientId);  // First attestation
+    var nonce2 = node5.nonce(clientId);  // Should be identical (deterministic)
 
-    // Honest members detect fork (same sender, different content)
-    var detector0 = cluster.getByzantineDetector(0);
-    var detector1 = cluster.getByzantineDetector(1);
+    cluster.recordNonce(nonce1);
+    cluster.recordNonce(nonce2);
 
-    // Wait for detection
-    Thread.sleep(1000);
+    // Verify no false detection of equivocation from deterministic signing
+    var verification = cluster.verifySafety();
+    assertThat(verification.noConflictingNonces())
+        .as("Deterministic signing should not create conflicts")
+        .isTrue();
 
-    // Both should have marked node 3 as Byzantine
-    assertThat(detector0.isByzantine(3)).isTrue();
-    assertThat(detector1.isByzantine(3)).isTrue();
-
-    // New leader election should occur (honest member)
-    var newLeader = cluster.getLeader();
-    assertThat(newLeader).isIn(0, 1, 2);  // One of honest nodes
+    // For true Byzantine equivocation, would inject custom Signer:
+    // cluster.injectSigner(5, customSignerWithEquivocation);
+    // Then verification would detect conflicts
 }
 ```
 
-### Example 5: Determinism Verification Test
+### Example 5: Multi-Cluster Setup for Cross-Cluster Testing
 
-**Scenario**: Verify replicated SQL execution produces identical state.
+**Scenario**: Create multiple independent clusters for coordination testing.
 
 ```java
 @Test
-void shouldProduceDeterministicState() throws Exception {
-    // Create cluster with fixed randomness seed
-    var seed = "deterministic-test-seed";
-    cluster = TestCluster.create(3)
-        .withRandomSeed(seed)
-        .withClock(Clock.fixed(EPOCH, UTC));
+void shouldCoordinateAcrossClusters() throws Exception {
+    var entropy1 = SecureRandom.getInstance("SHA1PRNG");
+    entropy1.setSeed(new byte[] { 1, 2, 3 });
 
-    cluster.start();
+    var entropy2 = SecureRandom.getInstance("SHA1PRNG");
+    entropy2.setSeed(new byte[] { 4, 5, 6 });
 
-    // Execute transaction workload
-    for (int i = 0; i < 100; i++) {
-        var tx = Transaction.create("type", "data-" + i);
-        cluster.submit(tx);
-    }
+    // Create two independent clusters (e.g., for cross-cluster attestation)
+    try (var context1 = new TestContext(4, entropy1);
+         var context2 = new TestContext(4, entropy2)) {
 
-    // All nodes should have identical checkpoint
-    var states = cluster.getAllStates();
-    var checkpoint0 = states.get(0).checkpoint();
+        var params = new Parameters();
+        try (var cluster1 = new GorgoneionCluster(context1, params);
+             var cluster2 = new GorgoneionCluster(context2, params)) {
 
-    for (int i = 1; i < states.size(); i++) {
-        assertThat(states.get(i).checkpoint())
-            .as("State divergence at node " + i)
-            .isEqualTo(checkpoint0);
+            // Get router prefixes for cluster-to-cluster communication
+            var prefix1 = cluster1.getPrefix();
+            var prefix2 = cluster2.getPrefix();
+
+            // Cross-cluster coordination would use these prefixes
+            // for routers to communicate between clusters
+
+            assertThat(cluster1.size()).isEqualTo(4);
+            assertThat(cluster2.size()).isEqualTo(4);
+
+            // Each cluster maintains independent Byzantine safety
+            var verification1 = cluster1.verifySafety();
+            var verification2 = cluster2.verifySafety();
+
+            assertThat(verification1.noConflictingNonces()).isTrue();
+            assertThat(verification2.noConflictingNonces()).isTrue();
+        }
     }
 }
 ```
