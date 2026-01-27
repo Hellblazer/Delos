@@ -94,7 +94,7 @@ Comprehensive implementation guides, architectural decisions, and testing patter
 
 - [**Module READMEs**](choam/README.md) — Architecture, usage patterns, threat models for each component
 - [**ADRs**](docs/adr/) — Architectural decision records for design rationale
-- [**Deployment Guides**](docs/) — Setup, configuration, KERI integration, threat models
+- [**Deployment Guides**](docs/INDEX.md) — Complete documentation index with setup, configuration, KERI integration, threat models
 - [**Knowledge Base**](.pm/CONTINUATION.md) — Consolidated research, design patterns, and implementation reference (ChromaDB-indexed for semantic search)
 
 ---
@@ -110,7 +110,7 @@ Each module is a Maven module under the source root with its own README.md.
 
 **Identity & Security**
 * [Stereotomy](stereotomy/README.md) - KERI implementation; KEL, KERL, key and identity management
-* [Stereotomy Services](stereotomy-services) - GRPC services and Protobuf interfaces for KERI
+* [Stereotomy Services](stereotomy-services/README.md) - GRPC services and Protobuf interfaces for KERI
 * [Thoth](thoth/README.md) - Distributed hash table for KERI key management
 * [Gorgoneion](gorgoneion/README.md) - Identity bootstrapping
 * [Gorgoneion Client](gorgoneion-client/README.md) - Identity bootstrap client
@@ -127,20 +127,14 @@ Each module is a Maven module under the source root with its own README.md.
 * [Tron](tron/README.md) - Finite state machine framework using Java Enums
 
 **Specialized Services**
-* [Witness-Service](witness-service) - Byzantine detection, receipt aggregation, proof validation
+* [Witness-Service](witness-service/README.md) - Byzantine detection, receipt aggregation, proof validation
 
 **Platform & Storage**
 * [Schemas](schemas/README.md) - Liquibase SQL definitions
-* [Deterministic H2](h2-deterministic) - Deterministic H2 SQL database
-* [Deterministic Liquibase](liquibase-deterministic) - Deterministic Liquibase
+* [Deterministic H2](h2-deterministic/README.md) - Deterministic H2 SQL database
+* [Deterministic Liquibase](liquibase-deterministic/README.md) - Deterministic Liquibase
 * [Isolates](isolates/README.md) - GraalVM isolate-based multi-tenant enclaves
 * [Isolate Functional Testing](isolate-ftesting/README.md) - Enclave functional testing
-
-## Documentation
-
-- [**docs/** ](docs/) — Deployment guides, troubleshooting, KERI integration, threat models
-- [**Each module's README**](choam/README.md) — Architecture, usage patterns, threat models, tests
-- [**ADRs** ](docs/adr/) — Architectural decision records for design rationale
 
 ## Contributing
 
