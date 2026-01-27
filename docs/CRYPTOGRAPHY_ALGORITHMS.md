@@ -275,19 +275,42 @@ Rolling Update (zero-downtime):
 
 **Summary**: BLS-12-381 is **cryptographically sound** but not yet NIST-approved.
 
+**Risk Level**: 🟡 **MEDIUM** (Non-critical use, acceptable with controls)
+
 **Risk Factors**:
-- Recently standardized (IETF draft as of 2026-01)
-- Pairing-friendly curves have unique attack surface
-- ~10-year academic history (no successful attacks)
-- Widely adopted (Ethereum 2.0, Zcash, others)
+- Recently standardized (IETF draft as of 2026-01) — *Residual standardization risk*
+- Pairing-friendly curves have unique attack surface — *No known attacks after 10 years*
+- ~10-year academic history (no successful attacks) — *Positive indicator*
+- Widely adopted (Ethereum 2.0, Zcash, others) — *Community validation*
 
-**Mitigations**:
-- Use only in non-critical path (witness receipts, not consensus ordering)
-- ED25519 signatures remain primary authentication
-- BLS aggregates validated before persistence
-- Fallback to ED25519 receipts if BLS fails
+**Mitigations** (Active Controls):
+- ✓ Use only in non-critical path (witness receipts, not consensus ordering)
+- ✓ ED25519 signatures remain primary authentication mechanism
+- ✓ BLS aggregates validated before persistence (signature verification)
+- ✓ Fallback to ED25519 receipts if BLS fails
+- ✓ All BLS operations isolated in `Witness-Service` module
+- ✓ No dependency on BLS for consensus safety properties
 
-**Recommendation**: Suitable for Phase 1B+ with risk acceptance documented.
+**Fallback Triggers** (When to Stop Using BLS):
+1. **Cryptanalytic Attack**: Any practical break in BLS-12-381 discovered → Immediate disable, revert to ED25519
+2. **NIST Rejection**: If IETF/NIST issues negative recommendation → Evaluate within 30 days, plan migration
+3. **Academic Consensus**: Peer-reviewed paper in top venue identifies attack → Risk assessment review, require 3-signature approval to continue
+4. **Operational Incidents**: 2+ signature verification failures traced to BLS weakness → Fallback to ED25519, investigate
+5. **Performance Regression**: If BLS overhead exceeds 15% of receipt processing → Evaluate cost-benefit, consider ED25519 exclusively
+
+**Risk Acceptance Sign-Off**:
+- **Decision Authority**: Project Lead (Hal Hildebrand) + Security Reviewer
+- **Approval Date**: 2026-01-27
+- **Review Cycle**: Quarterly (every 90 days)
+- **Next Review**: 2026-04-27
+- **Supersedes**: Previous implicit acceptance
+
+**Recommendation**: ✓ Suitable for Phase 1B+ production use with quarterly risk review and immediate fallback capability to ED25519.
+
+**Cross-References**:
+- See [SECURITY_THREAT_MODEL.md](SECURITY_THREAT_MODEL.md#cryptographic-agility) for threat model
+- See [WITNESS_SERVICE_ARCHITECTURE.md](../witness-service/README.md) for BLS isolation details
+- See [OPS_RUNBOOK_PHASE_1C.md](OPS_RUNBOOK_PHASE_1C.md#bls-rollback-procedure) for operational fallback steps
 
 ### 6.3 Post-Quantum Considerations
 
