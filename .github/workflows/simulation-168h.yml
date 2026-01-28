@@ -71,8 +71,7 @@ jobs:
 
       - name: Build Docker image
         run: |
-          cd examples/local-demo
-          ./mvnw package -Pdocker -DskipTests
+          ./mvnw package -Pdocker -pl examples/local-demo -DskipTests
 
       - name: Calculate node scaling
         id: scaling
