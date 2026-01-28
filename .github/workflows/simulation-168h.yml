@@ -106,7 +106,7 @@ jobs:
       - name: Run 168-hour simulation with chaos testing
         run: |
           echo "Starting 168-hour simulation at $(date)"
-          ./mvnw exec:java -pl examples/local-demo -Psimulation \
+          ./mvnw exec:java -f examples/local-demo/pom.xml -Psimulation \
             -Dexec.mainClass=com.hellblazer.delos.demo.simulation.SimulationOrchestrator \
             -Dsimulation.duration.hours=168 \
             -Dsimulation.nodeCount=${{ steps.scaling.outputs.node_count }} \

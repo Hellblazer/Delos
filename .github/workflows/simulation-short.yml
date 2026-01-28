@@ -80,7 +80,7 @@ jobs:
 
       - name: Run 1-hour simulation with chaos testing
         run: |
-          ./mvnw exec:java -pl examples/local-demo -Psimulation \
+          ./mvnw exec:java -f examples/local-demo/pom.xml -Psimulation \
             -Dexec.mainClass=com.hellblazer.delos.demo.simulation.SimulationOrchestrator \
             -Dsimulation.duration.hours=1 \
             -Dsimulation.nodeCount=10 \
