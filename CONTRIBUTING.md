@@ -378,6 +378,44 @@ Add Counter metric "delos_transactions_total" with labels
 for success/failure and transaction type.
 ```
 
+## Documentation and Resources
+
+Contributors have access to comprehensive documentation organized by topic. Use these resources to understand the codebase, design patterns, and operational requirements:
+
+### Development Resources
+- **[Developer Quick Start](docs/DEVELOPER_QUICKSTART.md)** - Setup instructions, first-time build, IDE configuration
+- **[Testing Guide](docs/TESTING_GUIDE.md)** - Test infrastructure, patterns, Byzantine testing, performance testing
+- **[IDE Setup](docs/IDE_SETUP.md)** - IntelliJ IDEA, Eclipse, VS Code configuration for Delos development
+- **[TLS Setup](docs/TLS_SETUP.md)** - Certificate generation, MTLS configuration, debugging TLS issues
+
+### Architecture & Design
+- **[Architecture Guide](docs/ARCHITECTURE.md)** - 4-layer architecture, module organization, Byzantine consensus design
+- **[Module READMEs](README.md#architecture--design)** - Individual module purposes, entry points, and dependencies
+- **[Architecture Decision Records](docs/ADRS.md)** - Design decisions and their rationale
+- **[Code Quality Standards](docs/CODE_QUALITY_STANDARDS.md)** - Patterns, concurrency guidelines, code review checklist
+
+### Operations & Deployment
+- **[Deployment Guide](docs/DEPLOYMENT_GUIDE.md)** - Production deployment procedures and best practices
+- **[Build Guide](docs/BUILD.md)** - Build system, profiles, troubleshooting build failures
+- **[Configuration Guide](docs/CONFIGURATION_GUIDE.md)** - System configuration, tuning, runtime parameters
+- **[Hardware Requirements](docs/HARDWARE_REQUIREMENTS.md)** - Sizing guidelines, Byzantine fault tolerance requirements
+- **[Monitoring and Alerting](docs/MONITORING_AND_ALERTING.md)** - Metrics, dashboards, alert configurations
+- **[Operational Checklists](docs/OPERATIONAL_CHECKLISTS.md)** - Pre-deployment, operational, and troubleshooting checklists
+- **[Upgrade Procedures](docs/UPGRADE_PROCEDURES.md)** - Version upgrade steps and compatibility notes
+- **[Operations Runbook](docs/OPS_RUNBOOK_PHASE_1C.md)** - Day-2 operations, incident response, playbooks
+
+### Security & Cryptography
+- **[Cryptography Algorithms](docs/CRYPTOGRAPHY_ALGORITHMS.md)** - BLS-12-381, ED25519, signature aggregation, risk assessment
+- **[Security Threat Model](docs/SECURITY_THREAT_MODEL.md)** - Byzantine threat model, attack surfaces, mitigations
+- **[KERI Integration](docs/KERI_INTEGRATION.md)** - Key management, identity, KERI architecture
+
+### Reference & Support
+- **[Documentation Index](docs/INDEX.md)** - Complete directory of all documentation files
+- **[Glossary](docs/GLOSSARY.md)** - Key terms and concepts used throughout Delos
+- **[Troubleshooting Guide](docs/TROUBLESHOOTING_GUIDE.md)** - Common issues, solutions, diagnostic procedures
+- **[API Reference](docs/API_REFERENCE.md)** - Public API documentation and examples
+- **[Knowledge Base](docs/KNOWLEDGE_BASE.md)** - Frequently asked questions, detailed explanations, examples
+
 ## Developer Certificate of Origin (DCO)
 
 By contributing to this project, you certify that:
