@@ -83,7 +83,7 @@ jobs:
       - name: Run 24-hour simulation with chaos testing
         working-directory: examples/local-demo
         run: |
-          ./mvnw exec:java -Psimulation \
+          ../mvnw exec:java -Psimulation \
             -Dexec.mainClass=com.hellblazer.delos.demo.simulation.SimulationOrchestrator \
             -Dsimulation.duration.hours=24 \
             -Dsimulation.nodeCount=${{ steps.scaling.outputs.node_count }} \
