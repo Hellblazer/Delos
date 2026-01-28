@@ -113,7 +113,8 @@ jobs:
             -Dsimulation.enableHeapDumps=${{ github.event.inputs.enable_heap_dumps }} \
             -Dsimulation.enableChaos=${{ github.event.inputs.enable_chaos }} \
             -Dsimulation.chaosStrategy=AGGRESSIVE \
-            -Dsimulation.prometheusUrl=http://localhost:9091
+            -Dsimulation.prometheusUrl=http://localhost:9091 \
+            -Dsimulation.composeFile=examples/local-demo/compose-simulation.yaml
           echo "Simulation completed at $(date)"
 
       - name: Verify reports generated

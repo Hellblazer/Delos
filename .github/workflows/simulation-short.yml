@@ -87,7 +87,8 @@ jobs:
             -Dsimulation.enableHeapDumps=true \
             -Dsimulation.enableChaos=true \
             -Dsimulation.chaosStrategy=PHASE_BASED \
-            -Dsimulation.prometheusUrl=http://localhost:9091
+            -Dsimulation.prometheusUrl=http://localhost:9091 \
+            -Dsimulation.composeFile=examples/local-demo/compose-simulation.yaml
 
       - name: Verify reports generated
         working-directory: examples/local-demo
