@@ -104,10 +104,9 @@ jobs:
           echo "Cluster health check passed"
 
       - name: Run 168-hour simulation with chaos testing
-        working-directory: examples/local-demo
         run: |
           echo "Starting 168-hour simulation at $(date)"
-          ../../mvnw exec:java -Psimulation \
+          ./mvnw exec:java -pl examples/local-demo -Psimulation \
             -Dexec.mainClass=com.hellblazer.delos.demo.simulation.SimulationOrchestrator \
             -Dsimulation.duration.hours=168 \
             -Dsimulation.nodeCount=${{ steps.scaling.outputs.node_count }} \

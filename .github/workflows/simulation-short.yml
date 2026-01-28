@@ -79,9 +79,8 @@ jobs:
           echo "Cluster health check passed"
 
       - name: Run 1-hour simulation with chaos testing
-        working-directory: examples/local-demo
         run: |
-          ../../mvnw exec:java -Psimulation \
+          ./mvnw exec:java -pl examples/local-demo -Psimulation \
             -Dexec.mainClass=com.hellblazer.delos.demo.simulation.SimulationOrchestrator \
             -Dsimulation.duration.hours=1 \
             -Dsimulation.nodeCount=10 \
