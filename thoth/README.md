@@ -27,7 +27,7 @@ evolve as bootstrap tightens. This validator is used for bootstrapping members i
 
 ### KERL Set Validation
 
-This *EventValidation* implementation usse
+This *EventValidation* implementation uses the full KERL set validation, validating all key events in the identifier's event receipt log against configured witnesses and thresholds. This validator is used for general-purpose identifier validation within the Fireflies membership context after bootstrap is complete.
 
 Thoth also provides validation and witnessing services to provide a full-featured public key infrastructure for the rest
 of the Delos stack.
