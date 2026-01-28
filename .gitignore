@@ -19,6 +19,8 @@ chkpoint.txt
 **/.pm
 .pm-archives
 **/.pm-archives
+.pm-netty
+**/.pm-netty
 .beads/*
 !.beads/.gitignore
 !.beads/README.md
