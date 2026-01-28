@@ -7,15 +7,11 @@ name: Short Simulation (1h Validation)
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - 'examples/local-demo/**'
       - '.github/workflows/simulation-short.yml'
-  pull_request:
-    paths:
-      - 'examples/local-demo/**'
-      - '.github/workflows/simulation-short.yml'
-  workflow_dispatch:  # Manual trigger
+  workflow_dispatch:  # Manual trigger only for PRs/develop
 
 jobs:
   short-simulation:
