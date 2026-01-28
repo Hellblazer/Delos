@@ -2,9 +2,9 @@
 
 **Master Navigation Guide for Delos Distributed Systems Platform**
 
-**Last Updated**: 2026-01-09 (Phase 3.5 Complete)
-**Version**: 2.2
-**Status**: Operations & Maintenance - Phase 3 (100% complete): All 5 operational guides published and production-ready
+**Last Updated**: 2026-01-27 (Documentation Remediation Phase 1 Complete)
+**Version**: 2.3
+**Status**: Documentation Remediation Complete - All documentation hubs cross-referenced, orphaned docs linked, critical fixes applied. Operations guides production-ready. Module READMEs updated with documentation sections.
 
 ---
 
@@ -21,6 +21,42 @@
 - **Troubleshoot an issue**: Go to [Troubleshooting](#troubleshooting--common-issues)
 - **Monitor Delos in production**: See [Operations Guide](#operations--monitoring)
 - **Learn about Byzantine fault tolerance**: Read [Consensus Architecture](#consensus--agreement)
+
+---
+
+## Main Documentation Hubs
+
+These are the primary entry points for accessing documentation. Each has been enhanced with comprehensive cross-references to help you navigate to relevant guides:
+
+### Root Documentation Hubs
+
+**[README.md](../README.md)** - Project Overview
+- 20+ documentation links organized by use case
+- Getting Started, Architecture & Design, Operations & Deployment
+- Security & Cryptography, Development & Testing, Reference & Support
+- All module READMEs linked and verified
+
+**[CONTRIBUTING.md](../CONTRIBUTING.md)** - Contribution Guidelines & Resources
+- 17 documentation links organized by developer role
+- Development Resources, Architecture & Design, Operations & Deployment
+- Security & Cryptography, Reference & Support
+- Code contribution workflow and testing requirements
+
+**[docs/DEVELOPER_QUICKSTART.md](DEVELOPER_QUICKSTART.md)** - Developer Quick Start
+- Getting started in 30 minutes
+- IDE setup, first build, running tests
+- Links to detailed guides for each step
+
+### Module READMEs with Documentation Sections
+
+Key modules now include "Documentation and Resources" sections:
+- **[fireflies/README.md](../fireflies/README.md)** - Byzantine membership overlay (626 lines)
+- **[ethereal/README.md](../ethereal/README.md)** - Aleph-BFT consensus (600+ lines)
+- **[choam/README.md](../choam/README.md)** - Committee-based consensus (630+ lines)
+- **[sql-state/README.md](../sql-state/README.md)** - Replicated state machines (770+ lines)
+- **[stereotomy/README.md](../stereotomy/README.md)** - KERI identity (70+ lines)
+
+Each module README includes cross-references to related architecture guides, operational documentation, security threat model, and testing patterns.
 
 ---
 
