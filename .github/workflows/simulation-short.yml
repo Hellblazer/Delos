@@ -148,39 +148,3 @@ jobs:
         run: |
           docker compose -f compose-simulation.yaml down -v
           docker system prune -f
-
-      - name: Comment on PR with summary
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const reportPath = 'examples/local-demo/simulation-results/reports/simulation-report.json';
-
-            if (!fs.existsSync(reportPath)) {
-              console.log('Report file not found, skipping PR comment');
-              return;
-            }
-
-            const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
-
-            const comment = `## Simulation Results (1h validation)
-
-            **Duration:** ${report.duration || '1h'}
-            **Nodes:** ${report.nodeCount || 10}
-            **Status:** ${report.status || 'Unknown'}
-
-            ### Key Metrics
-            - Transaction Latency P99: ${report.latencyP99 || 'N/A'}
-            - Transaction Rate: ${report.transactionRate || 'N/A'}
-            - Heap Usage: ${report.heapUsage || 'N/A'}
-
-            [View detailed report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-            `;
-
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: comment
-            });
