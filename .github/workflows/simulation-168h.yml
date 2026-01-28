@@ -67,7 +67,7 @@ jobs:
 
       - name: Build simulation framework
         run: |
-          ./mvnw clean package -pl examples/local-demo -am -DskipTests
+          ./mvnw clean install -pl examples/local-demo -am -DskipTests
 
       - name: Build Docker image
         run: |
