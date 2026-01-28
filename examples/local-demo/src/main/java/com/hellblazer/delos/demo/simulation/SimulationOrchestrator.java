@@ -175,11 +175,14 @@ public class SimulationOrchestrator {
     private void startDockerCluster() throws IOException, InterruptedException {
         log.info("Starting Docker Compose cluster with {} nodes", config.nodeCount());
 
+        // nodeCount includes 1 bootstrap + 3 kernel nodes, so scale only the member nodes
+        var memberCount = config.nodeCount() - 4;
+
         var pb = new ProcessBuilder(
             "docker", "compose",
             "-f", config.composeFile(),
             "up", "-d",
-            "--scale", "member=" + config.nodeCount()
+            "--scale", "node=" + memberCount
         );
         pb.redirectErrorStream(true);
 
