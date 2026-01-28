@@ -92,10 +92,44 @@ Quick start: See [Local Demo Setup](examples/local-demo/README.md) for running a
 
 Comprehensive implementation guides, architectural decisions, and testing patterns:
 
-- [**Module READMEs**](choam/README.md) — Architecture, usage patterns, threat models for each component
+### Getting Started
+- [**Developer Quick Start**](docs/DEVELOPER_QUICKSTART.md) — 30-min setup, first build, architecture overview, code exploration
+- [**CLAUDE.md**](CLAUDE.md) — Developer reference, build commands, troubleshooting, IDE setup
+- [**CONTRIBUTING.md**](CONTRIBUTING.md) — Contribution process, code standards, testing, commit format
+
+### Architecture & Design
+- [**Architecture Guide**](docs/ARCHITECTURE.md) — System layers, data flow, Byzantine fault tolerance model, failure handling
+- [**Module READMEs**](choam/README.md) — Detailed architecture, usage patterns, threat models for each component
 - [**ADRs**](docs/adr/) — Architectural decision records for design rationale
-- [**Deployment Guides**](docs/INDEX.md) — Complete documentation index with setup, configuration, KERI integration, threat models
-- [**Knowledge Base**](.pm/CONTINUATION.md) — Consolidated research, design patterns, and implementation reference (ChromaDB-indexed for semantic search)
+- [**Code Quality Standards**](docs/CODE_QUALITY_STANDARDS.md) — Design patterns, concurrency, error handling, code review checklist
+
+### Operations & Deployment
+- [**Deployment Guide**](docs/DEPLOYMENT_GUIDE.md) — Production setup, node configuration, cluster initialization
+- [**Build Guide**](docs/BUILD.md) — Build profiles, Maven configuration, troubleshooting
+- [**Configuration Guide**](docs/CONFIGURATION_GUIDE.md) — All parameters, identity, network, consensus, database, performance tuning
+- [**Hardware Requirements**](docs/HARDWARE_REQUIREMENTS.md) — Cluster sizing, Byzantine tolerance, capacity planning
+- [**Monitoring & Alerting**](docs/MONITORING_AND_ALERTING.md) — Health checks, metrics, SLA definitions, Prometheus setup
+- [**Operational Checklists**](docs/OPERATIONAL_CHECKLISTS.md) — Pre-deployment, running, incident response procedures
+- [**Upgrade Procedures**](docs/UPGRADE_PROCEDURES.md) — Rolling updates, blue-green deployment, rollback procedures
+- [**Operational Quick Start**](docs/OPERATIONAL_QUICK_START.md) — Day-1 operations, incident response patterns
+- [**OPS Runbook**](docs/OPS_RUNBOOK_PHASE_1C.md) — Phase 1C specific operational procedures
+
+### Development & Testing
+- [**Testing Guide**](docs/TESTING_GUIDE.md) — BFT testing patterns, deterministic execution, test infrastructure, examples
+- [**IDE Setup**](docs/IDE_SETUP.md) — IntelliJ IDEA, Eclipse, VS Code configuration
+- [**TLS Setup**](docs/TLS_SETUP.md) — Certificate generation, keystore setup, MTLS configuration
+
+### Security & Cryptography
+- [**Cryptography Algorithms**](docs/CRYPTOGRAPHY_ALGORITHMS.md) — Algorithm reference, BLS risk assessment, post-quantum planning
+- [**Security Threat Model**](docs/SECURITY_THREAT_MODEL.md) — Attack scenarios, cryptographic agility, security guarantees
+- [**KERI Integration**](docs/KERI_INTEGRATION.md) — Decentralized identity, key management, identity bootstrapping
+
+### Reference & Support
+- [**Complete Documentation Index**](docs/INDEX.md) — All guides organized by category
+- [**Glossary**](docs/GLOSSARY.md) — Key terminology and acronyms
+- [**Troubleshooting Guide**](docs/TROUBLESHOOTING_GUIDE.md) — Common issues and resolution
+- [**API Reference**](docs/API_REFERENCE.md) — Gorgoneion API, Witness-Service API documentation
+- [**Knowledge Base**](.pm/CONTINUATION.md) — Consolidated research, design patterns, implementation reference (ChromaDB-indexed for semantic search)
 
 ---
 
