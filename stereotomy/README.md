@@ -36,6 +36,31 @@ Stereotomy underwent comprehensive security remediation as of January 2026, addr
 
 For detailed security analysis, attack vectors, mitigations, and test coverage, see [`docs/THREAT_MODEL.md`](./docs/THREAT_MODEL.md).
 
+## Documentation and Resources
+
+Developers working with Stereotomy (KERI implementation) can reference these documentation resources:
+
+### Identity & KERI Architecture
+- **[KERI Integration Guide](../docs/KERI_INTEGRATION.md)** - KERI architecture, key events, identifier lifecycle
+- **[Architecture Guide](../docs/ARCHITECTURE.md)** - Stereotomy's role in identity/security layer
+- **[Gorgoneion README](../gorgoneion/README.md)** - Identity bootstrapping using Stereotomy
+- **[Fireflies README](../fireflies/README.md)** - Member identification via Stereotomy identifiers
+
+### Security & Cryptography
+- **[Security Threat Model](../docs/SECURITY_THREAT_MODEL.md)** - Threat model, attack surfaces, mitigations
+- **[Cryptography Algorithms](../docs/CRYPTOGRAPHY_ALGORITHMS.md)** - ED25519, BLS-12-381, signature schemes
+- **[Security Threat Model - Stereotomy](./docs/THREAT_MODEL.md)** - Module-specific threat analysis and vulnerabilities
+
+### Development & Testing
+- **[Testing Guide](../docs/TESTING_GUIDE.md)** - Test patterns, key event validation, deterministic testing
+- **[Build Guide](../docs/BUILD.md)** - Building Stereotomy and dependent modules
+- **[IDE Setup](../docs/IDE_SETUP.md)** - Development environment configuration
+
+### Operations & Deployment
+- **[Configuration Guide](../docs/CONFIGURATION_GUIDE.md)** - Key store configuration, PKCS11 integration
+- **[Operational Checklists](../docs/OPERATIONAL_CHECKLISTS.md)** - Key rotation procedures, bootstrap checklist
+- **[Hardware Requirements](../docs/HARDWARE_REQUIREMENTS.md)** - HSM requirements, key management hardware
+
 ## Implementation
 
 Stereotomy is loosely based on the design of the foundation Java implementation of KERI.
