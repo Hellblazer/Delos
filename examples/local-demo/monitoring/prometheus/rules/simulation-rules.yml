@@ -30,9 +30,7 @@ groups:
       # Heap usage baseline (P95 from first 2h)
       - record: simulation:heap_usage_mb:baseline
         expr: |
-          quantile(0.95,
-            jvm_memory_used_bytes{area="heap"}[2h] offset 2h
-          ) / 1048576
+          quantile_over_time(0.95, jvm_memory_used_bytes{area="heap"}[2h] offset 2h) / 1048576
 
       # GC pause ratio baseline (avg from first 2h)
       - record: simulation:gc_pause_ratio:baseline
