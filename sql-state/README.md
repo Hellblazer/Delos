@@ -738,6 +738,38 @@ choam.registerExecutor(new TransactionExecutor() {
 });
 ```
 
+## Documentation and Resources
+
+Developers building applications on SQL-State can reference these documentation resources:
+
+### Architecture & Consensus Integration
+- **[Architecture Guide](../docs/ARCHITECTURE.md)** - SQL-State's role in consensus layer, 4-layer architecture
+- **[CHOAM README](../choam/README.md)** - Committee consensus that drives SQL-State replication
+- **[Ethereal README](../ethereal/README.md)** - Aleph-BFT consensus protocol
+- **[Fireflies README](../fireflies/README.md)** - Membership overlay
+
+### Determinism & Replication
+- **[CHOAM README - Block Production](../choam/README.md#block-production)** - How blocks feed SQL-State machine
+- **[Deterministic Execution](../docs/ARCHITECTURE.md#deterministic-replication)** - Deterministic SQL execution guarantees
+- **[H2 Database Setup](../docs/CONFIGURATION_GUIDE.md#h2-database-configuration)** - Deterministic H2 configuration
+
+### Development & Testing
+- **[Testing Guide](../docs/TESTING_GUIDE.md)** - Test patterns, deterministic testing, replication testing
+- **[Build Guide](../docs/BUILD.md)** - Building SQL-State and dependent modules
+- **[IDE Setup](../docs/IDE_SETUP.md)** - Development environment configuration
+- **[Integration Patterns](../docs/INTEGRATION_PATTERNS.md)** - 7 production patterns including SQL-State usage
+
+### Deployment & Operations
+- **[Configuration Guide](../docs/CONFIGURATION_GUIDE.md)** - SQL-State parameters, H2 settings, checkpoint intervals
+- **[Deployment Guide](../docs/DEPLOYMENT_GUIDE.md)** - Production deployment procedures
+- **[Monitoring and Alerting](../docs/MONITORING_AND_ALERTING.md)** - SQL-State metrics (execution latency, block processing)
+- **[Operational Checklists](../docs/OPERATIONAL_CHECKLISTS.md)** - Pre-deployment, checkpoint procedures
+- **[Performance Tuning](../docs/PERFORMANCE_TUNING.md)** - Throughput optimization, resource tuning
+
+### Troubleshooting & Disaster Recovery
+- **[Troubleshooting Guide](../docs/TROUBLESHOOTING_GUIDE.md)** - Common SQL-State issues, state divergence diagnosis
+- **[Disaster Recovery](../docs/DISASTER_RECOVERY.md)** - Backup, restore, and recovery procedures
+
 ## References
 
 - **Core Classes**:

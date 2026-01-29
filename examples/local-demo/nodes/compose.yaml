@@ -4,50 +4,51 @@
 # They participate in consensus but did not generate the Genesis block.
 #
 # IMPORTANT: Start these ONLY AFTER:
-#   1. Bootstrap node is running
-#   2. All 3 kernel nodes have started
-#   3. Kernel has generated the Genesis block (allow ~10-30 seconds)
+#   1. Bootstrap node is running and healthy
+#   2. All 3 kernel nodes have started and are healthy
+#   3. Kernel has generated the Genesis block (wait ~30 seconds)
 #
 # Scaling: Use docker compose --scale to add more nodes:
-#   docker compose up --scale node=5
+#   docker compose -f nodes/compose.yaml up -d --scale node=10
 #
-# Environment Variables:
-#   GENESIS: false - joining nodes don't participate in Genesis
-#   NODE_TYPE: member - regular cluster member
-#   BOOTSTRAP_HOST: delos-bootstrap - rendezvous point for joining
+# Usage:
+#   docker compose -f nodes/compose.yaml up -d
+#   docker compose -f nodes/compose.yaml up -d --scale node=5
+#   docker compose -f nodes/compose.yaml up -d --scale node=100
 #
 services:
   node:
-    image: alpine:latest
+    image: delos-node:latest
     environment:
-      GENESIS: 'false'
-      NODE_TYPE: 'member'
-      BOOTSTRAP_HOST: 'delos-bootstrap'
-    command: |
-      sh -c '
-        NODE_ID="node-$$HOSTNAME"
-        echo "=== Delos Cluster Node ==="
-        echo "Node ID: $$NODE_ID"
-        echo "Genesis Mode: $$GENESIS"
-        echo "Type: $$NODE_TYPE"
-        echo "Bootstrap: $$BOOTSTRAP_HOST"
-        echo ""
-        echo "Node joining established cluster..."
-        sleep 3
-        echo "Connected to bootstrap node"
-        echo "Cluster membership obtained"
-        echo "Node operational"
-        echo ""
-        tail -f /dev/null
-      '
+      DELOS_NODE_TYPE: 'member'
+      DELOS_BOOTSTRAP_HOST: 'bootstrap'
+      DELOS_BOOTSTRAP_PORT: '9999'
+      DELOS_GRPC_PORT: '9999'
+      DELOS_METRICS_PORT: '9090'
+      DELOS_CARDINALITY: '100'
+      DELOS_BIAS: '3'
+      DELOS_PBYZ: '0.1'
+      DELOS_GOSSIP_DURATION_MS: '100'
+      DELOS_SEEDING_TIMEOUT_S: '120'
+      JAVA_OPTS: '-Xmx512m -Xms256m'
     networks:
       - delos-net
     healthcheck:
-      test: ["CMD", "echo", "healthy"]
-      interval: 5s
-      timeout: 3s
+      test: ["CMD", "curl", "-f", "http://localhost:9090/metrics"]
+      interval: 10s
+      timeout: 5s
       retries: 3
-      start_period: 15s
+      start_period: 45s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+        reservations:
+          memory: 256M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
 
 # Reference the external network created by bootstrap
 networks:

@@ -145,3 +145,33 @@ by the CA. The difference is that the KERL is far more flexible and powerful tha
 rotate and interact in all the forms that KERI facilitates. This evolving KERL is accepted into the group as validated
 through the Byzantine subset of the Gorgoneion cluster's membership as well as validated via an integrated attestation
 service such as AWS, GCP, Azure or even private clouds or SGX/TPM mechanisms.
+
+## Documentation and Resources
+
+Developers working with Gorgoneion (identity bootstrapping) can reference these documentation resources:
+
+### Identity & KERI Architecture
+- **[KERI Integration Guide](../docs/KERI_INTEGRATION.md)** - KERI architecture, key events, identifier lifecycle
+- **[Stereotomy README](../stereotomy/README.md)** - KERI implementation that Gorgoneion uses
+- **[Architecture Guide](../docs/ARCHITECTURE.md)** - Gorgoneion's role in identity/security layer
+- **[Fireflies README](../fireflies/README.md)** - Membership overlay for Gorgoneion cluster
+
+### Security & Byzantine Consensus
+- **[Security Threat Model](../docs/SECURITY_THREAT_MODEL.md)** - Threat model, identity security, mitigation strategies
+- **[CHOAM README](../choam/README.md)** - Committee consensus used in Gorgoneion attestation
+- **[Ethereal README](../ethereal/README.md)** - BFT consensus protocol underlying identity validation
+
+### Development & Testing
+- **[Testing Guide](../docs/TESTING_GUIDE.md)** - Identity validation testing, replay attack prevention, Byzantine fault injection
+- **[Build Guide](../docs/BUILD.md)** - Building Gorgoneion and dependent modules
+- **[IDE Setup](../docs/IDE_SETUP.md)** - Development environment configuration
+
+### Operations & Deployment
+- **[Configuration Guide](../docs/CONFIGURATION_GUIDE.md)** - Gorgoneion witness configuration, timeouts, cache settings
+- **[Deployment Guide](../docs/DEPLOYMENT_GUIDE.md)** - Identity provisioning procedures, KERL bootstrapping
+- **[Operational Checklists](../docs/OPERATIONAL_CHECKLISTS.md)** - Bootstrap procedures, identity verification checklist
+- **[Monitoring and Alerting](../docs/MONITORING_AND_ALERTING.md)** - Gorgoneion metrics and monitoring
+
+### Cryptography & Key Management
+- **[Cryptography Algorithms](../docs/CRYPTOGRAPHY_ALGORITHMS.md)** - ED25519, signature schemes, algorithms used in KERI
+- **[KERI Integration - Key Rotation](../docs/KERI_INTEGRATION.md)** - Key rotation procedures in KERI

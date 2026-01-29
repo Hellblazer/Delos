@@ -132,6 +132,12 @@ public class CachingKEL<K extends KEL.AppendKEL> implements KEL.AppendKEL {
         } catch (Throwable e) {
             log.error("Cannot complete append", e);
             return null;
+        } finally {
+            // Invalidate cache entries for appended events - CRITICAL FIX for Delos-4026
+            // Without this, cache gets out of sync with underlying KEL after append succeeds
+            for (var event : events) {
+                keyCoords.invalidate(event.getCoordinates());
+            }
         }
     }
 
@@ -162,12 +168,28 @@ public class CachingKEL<K extends KEL.AppendKEL> implements KEL.AppendKEL {
 
     @Override
     public KeyEvent getKeyEvent(EventCoordinates coordinates) {
-        return keyCoords.get(coordinates);
+        if (coordinates == null) {
+            return null;
+        }
+        try {
+            return keyCoords.get(coordinates);
+        } catch (Throwable e) {
+            log.error("Cannot load key event for {}", coordinates, e);
+            return null;
+        }
     }
 
     @Override
     public KeyState getKeyState(EventCoordinates coordinates) {
-        return ksCoords.get(coordinates);
+        if (coordinates == null) {
+            return null;
+        }
+        try {
+            return ksCoords.get(coordinates);
+        } catch (Throwable e) {
+            log.error("Cannot load key state for {}", coordinates, e);
+            return null;
+        }
     }
 
     @Override

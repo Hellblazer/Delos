@@ -381,18 +381,160 @@ A GraalVM isolate-based process isolation boundary. Multiple enclaves can run on
 
 ---
 
-## See Also
+## Failure Modes and Recovery
 
-- **DEPLOYMENT_GUIDE.md**: Deployment terminology and procedures
-- **MONITORING_GUIDE.md**: Metrics and monitoring terminology
-- **TROUBLESHOOTING_GUIDE.md**: Error scenarios and resolution
-- **Architecture Decision Records**: Technical deep-dives
-  - ADR-0003: BFT Membership Architecture
-  - ADR-0004: Consensus Design (CHOAM)
-  - ADR-0005: Deterministic SQL State
+**Crash Fault**
+A node that permanently stops executing (hardware failure, power loss, etc.). Distinguished from Byzantine (continues but misbehaves).
+- *Context*: Failure classification
+- *Related*: Byzantine Fault, Failure Detection
+- *Example*: "Node crashed due to OOM, requires restart"
+
+**Quorum Loss**
+Situation where fewer than (2f+1) honest members remain operational, making consensus impossible. System halts (safety maintained, liveness lost).
+- *Context*: Failure modes
+- *Formula*: For 7-node cluster (f=2), quorum loss when ≤4 nodes online
+- *Example*: "Quorum lost: only 3 of 7 nodes responding"
+
+**Byzantine Attack / Equivocation**
+Attack where Byzantine member sends conflicting messages (e.g., votes for both Block A and Block B at same height). Detected and excluded via consensus.
+- *Context*: Byzantine failure
+- *Related*: Byzantine Member, Signature Verification
+- *Example*: "Member attempted equivocation, shunned from view"
+
+**Cascading Failure**
+Multiple failures in sequence causing progressive system degradation. Example: 1 failure (degraded), 2 failures (more degraded), 3 failures (quorum lost).
+- *Context*: Failure analysis
+- *Related*: Quorum Loss, Failure Modes
+- *Example*: "3 nodes failed in 5 minutes, cluster halted"
+
+**Clock Skew**
+Discrepancy between member's clock and cluster's synchronized time. If > clockSkewTolerance (typically 500ms), member's messages rejected.
+- *Context*: Time-based failures
+- *Related*: NTP, Timestamp Validation
+- *Example*: "Clock skew 2 seconds, member isolated"
 
 ---
 
-**Last Updated**: 2026-01-06
+## Capacity Planning and Scaling
+
+**Horizontal Scaling**
+Adding more nodes to cluster to increase capacity. Increases fault tolerance (f increases) and quorum size.
+- *Context*: Capacity planning
+- *Related*: Vertical Scaling, Cluster Size
+- *Example*: "Scale from 5 to 7 nodes to increase f from 1 to 2"
+
+**Vertical Scaling**
+Increasing resources (CPU, RAM, disk) on existing nodes. Doesn't change fault tolerance but improves throughput.
+- *Context*: Capacity planning
+- *Related*: Horizontal Scaling
+- *Example*: "Increase RAM from 16GB to 32GB per node"
+
+**Capacity Planning**
+Proactive process of monitoring metrics and scaling before hitting hard limits. Uses triggers (e.g., scale at 70% CPU, not 95%).
+- *Context*: Operations
+- *Related*: Metrics, Monitoring, Scaling Triggers
+- *Example*: "Monthly capacity review shows 60% growth rate"
+
+**Scaling Trigger**
+Specific metric threshold that indicates need to scale. Examples: CPU > 70%, Memory > 85%, Disk growth runway < 30 days.
+- *Context*: Capacity planning
+- *Related*: Metrics, Monitoring
+- *Example*: "CPU scaling trigger hit: 72% usage for 10 minutes"
+
+**Runway Calculation**
+Estimation of time until resource exhaustion. Formula: Free_Resource / Daily_Growth_Rate.
+- *Context*: Disk capacity planning
+- *Example*: "100GB disk, 1GB/day growth = 100 day runway"
+
+**Committee Scaling**
+In large clusters, dividing members into multiple committees, each handling different key ranges. Reduces consensus complexity.
+- *Context*: Large-scale deployments
+- *Related*: CHOAM, Committee
+- *Example*: "16-node cluster split into 2 committees of 8 members each"
+
+---
+
+## Advanced Concepts
+
+**Deterministic State Machine Replication**
+Replicated state machines that produce identical state from identical transaction sequences, regardless of timing or Byzantine members. Achieved via:
+- Seeded deterministic random generators
+- Frozen clock for state execution
+- Canonical transaction ordering via consensus
+- Deterministic SQL execution
+
+- *Context*: Core architecture
+- *Related*: SQL-State, CHOAM, Consensus
+- *Example*: "All 7 nodes execute same 1000-transaction block identically"
+
+**Total Ordering**
+Guarantee that all honest nodes see transactions in same order. Produced by Ethereal consensus.
+- *Context*: Safety guarantee
+- *Related*: Ethereal, Consensus, Ledger
+- *Example*: "Transaction A always before Transaction B on all nodes"
+
+**Quorum Intersection Property**
+Mathematical guarantee that any two quorums have at least one honest member in common. Ensures safety even with Byzantine members.
+- *Context*: Byzantine protocol design
+- *Related*: Quorum, Byzantine Fault Tolerance
+- *Example*: "Any two 5-member quorums in 7-node cluster overlap in ≥3 members"
+
+**Virtually Synchronous Abstraction**
+Abstraction where membership appears fully synchronized to applications - all nodes have identical view of membership at each logical time.
+- *Context*: Application semantics
+- *Related*: Fireflies, View, Abstraction
+- *Example*: "Application code doesn't need to handle partial membership"
+
+**DAG-Based Consensus**
+Consensus protocol where nodes propose transactions into a Directed Acyclic Graph (DAG) showing causal relationships. Achieves high throughput without leader.
+- *Context*: Consensus design
+- *Related*: Ethereal, Aleph-BFT
+- *Example*: "DAG units 5000-8000/second, converts to 1-10 blocks/second"
+
+---
+
+## Appendix: Terms by Domain
+
+### For Operators
+- Cluster, Node, Member, Health Check, Recovery
+- Throughput, Consensus Latency, Gossip Latency
+- Byzantine Fault Tolerance, Quorum, View
+- Scaling (Horizontal/Vertical), Capacity Planning
+
+### For Security Teams
+- Byzantine Member, Byzantine Fault Tolerance, Equivocation
+- Identity, KERI, KERL, Key Rotation
+- MTLS, Witness, Signature
+- Threat Model, Attack Surface
+
+### For Developers
+- Member, Process, Transaction
+- Ledger, Block, State Machine
+- Deterministic Execution, Checkpoint
+- SQL-State, CHOAM, Ethereal
+
+### For Architects
+- 3f+1 formula, Quorum, Quorum Intersection
+- Ring Structure, BFT Subset
+- Totally Ordered, Virtually Synchronous
+- Cascading Failure, Network Partition
+
+---
+
+## Cross-References
+
+See related documentation:
+- **FAILURE_MODES.md** - Detailed failure mode descriptions, detection, recovery
+- **CAPACITY_PLANNING.md** - Metrics-driven scaling procedures
+- **ARCHITECTURE.md** - System design and layers
+- **SECURITY_THREAT_MODEL.md** - Threat analysis and mitigations
+- **MONITORING_AND_ALERTING.md** - Metrics and dashboards
+- **DEPLOYMENT_GUIDE.md** - Deployment terminology and procedures
+- **TROUBLESHOOTING_GUIDE.md** - Error scenarios and resolution
+
+---
+
+**Last Updated**: 2026-01-27
 **Status**: Production
-**Audience**: Users, Operators, Developers
+**Audience**: Users, Operators, Developers, Security Teams
+**Version**: 1.1 (Enhanced with failure modes and capacity planning terms)

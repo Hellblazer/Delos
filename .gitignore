@@ -16,9 +16,12 @@
 pom.xml.bak
 /ff.log
 chkpoint.txt
+.pm
 **/.pm
 .pm-archives
 **/.pm-archives
+.pm-netty
+**/.pm-netty
 .beads/*
 !.beads/.gitignore
 !.beads/README.md

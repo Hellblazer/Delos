@@ -2,7 +2,7 @@
 
 Delos is a **distributed multi-tenant database platform** providing Byzantine fault-tolerant consensus, decentralized identity management, and replicated SQL state machines. Build secure, wide-area distributed systems with verifiable credentials and role-based access control.
 
-**Status**: [![Build Status](https://github.com/Hellblazer/delos/actions/workflows/maven.yml/badge.svg)](https://github.com/Hellblazer/Delos/actions) | Production-ready consensus & membership (Phase 3.4 witness-service storage complete, Jan 2026)
+**Status**: [![Build Status](https://github.com/Hellblazer/delos/actions/workflows/maven.yml/badge.svg)](https://github.com/Hellblazer/Delos/actions)
 
 **Current version**: `0.2.3-SNAPSHOT`
 
@@ -18,27 +18,7 @@ Delos is a **distributed multi-tenant database platform** providing Byzantine fa
 * **State Machines**: CHOAM — replicated SQL state machines with materialized views, DDL/DML/stored procedures
 * **Access Control**: Zanzibar-style relation-based access control (Delphinius)
 * **Witness Service**: Byzantine detection (5 detectors), receipt aggregation, multi-backend storage with compression
-
-## Recent Work (2026-01-24)
-
-**Comprehensive Byzantine Consensus & Witness Infrastructure**: 245-commit experimental implementation spanning hierarchical aggregation, recursive proof validation, Byzantine detection (5 detectors), key rotation orchestration, and full receipt storage architecture. Well-tested foundation with <1% Byzantine overhead, 3-4x CI speedup, and 60+ tests validating 20+ attack scenarios. Well along toward production—more work ahead.
-
-**Core Components Delivered**:
-- **Hierarchical BLS Aggregation**: 7-layer tree structure for signature verification and Byzantine isolation
-- **Recursive Proof Validation**: Cross-epoch proof verification with proto schema extensions
-- **Byzantine Detection Framework**: 5 detectors (Equivocation, Timing, Coalition, Replay, Coordinated) with anomaly scoring
-- **Key Rotation**: 3-phase lifecycle orchestration with dual-key grace periods and integration tests
-- **Recursive Aggregation**: Builder fluent API, ChainAggregator service, EpochTransitionValidator
-- **Cross-Epoch Support**: RecursiveProofValidator BLS integration, TemporalByzantineIsolator
-- **Compression Infrastructure**: ProofCompressionCodec with pluggable strategies (NONE/LZ4/ZSTD), 10-20% reduction
-- **Full Storage Integration**: 5-layer abstraction (interface→implementations→compression→cache→factory), multi-backend support, idempotent writes
-- **CI Hardening**: Timeout scaling (1.33-2x multiplier), 3-4x speedup (30min→8-10min), 99%+ reliability
-
-**Test Coverage**: 60+ new tests | 18+ pre-existing failures fixed | 20+ Byzantine attack scenarios | <1% Byzantine overhead on consensus
-
-**Performance**: Storage <5-10ms, cache <1ms, DB retrieve <30-50ms, throughput >1000 receipts/sec | CI 3-4x faster
-
-**Documentation**: 25,000+ lines consolidated (14 documents) — hierarchical aggregation, Byzantine detection patterns, storage architecture, CI timeout strategies, plus comprehensive operations runbooks
+* **Production Testing**: 168-hour continuous operation testing with chaos engineering, heap dump analysis, state consistency verification, and degradation detection
 
 ## Status
 
@@ -51,35 +31,65 @@ Delos is an experimental distributed platform—well-tested subsystems, solid ar
 - **Stereotomy/KERI** (identity): Fully integrated
 - **SQL-State**: Mature with comprehensive testing
 - **Domain Sockets**: Pure Java NIO implementation (JEP 380) — No native dependencies, full GraalVM isolates compatibility
+- **Simulation Framework** (production testing): End-to-end orchestration for 168-hour continuous operation testing with 200+ tests, chaos engineering, state verification, and degradation detection. Validated at 100-node scale.
 
 **Experimental Components**:
 - **Witness-Service** (receipt management): Well-tested foundation — Full storage integration with multi-backend persistence, compression, Byzantine detection (5 detectors), and E2E testing. Solid architecture; production hardening in progress
 
-Platform is architecturally sound with excellent test coverage. Integration-level production deployment testing still needed.
+Platform is architecturally sound with excellent test coverage. Integration-level production deployment testing still needed. Simulation framework provides foundation for continuous validation at production scale.
 
-## Recent Improvements (2026-01-24)
+## Examples & Simulation Testing
 
-**CI Reliability & Test Hardening**:
-- Fixed Byzantine/CHOAM timeout patterns under parallel CI load (8 concurrent test batches)
-- Resolved DeterminismVerificationTest test-batch-4 timeout handling
-- Implemented adaptive test tuning for CI environment variations
-- All test suites now pass consistently in high-concurrency scenarios
+Delos includes production-scale simulation and testing infrastructure:
 
-**Storage & Performance**:
-- Proof compression codec integration (LZ4/ZSTD) achieving 10-20% size reduction
-- Receipt storage abstraction layer with thread-safe guarantees
-- In-memory fallback for backward compatibility with zero breaking changes
-- Batch insert optimization for JDBC receipt persistence
+- [**Local Demo**](examples/local-demo/README.md) — Single-machine multi-node cluster with Docker Compose
+- [**Simulation Framework**](examples/local-demo/README-SIMULATION.md) — 168-hour production stability testing with chaos engineering, heap dump analysis, state verification, and metric collection
+- **CI/CD Pipelines**: Automated short (1h), medium (24h), and full-scale (168h) testing via GitHub Actions
 
-**Witness-Service Enhancements**:
-- Recursive proof validator with BLS signature verification
-- Cross-epoch Byzantine detection (TemporalByzantineIsolator)
-- Epoch transition validation framework (EpochTransitionValidator)
-- Complete storage lifecycle management with compression fallback strategies
+Quick start: See [Local Demo Setup](examples/local-demo/README.md) for running a 10-node cluster locally.
 
 ## Documentation
 
-See [Knowledge Consolidation](docs/KNOWLEDGE_CONSOLIDATION.md) for comprehensive implementation guides (25,000+ lines) covering Phase 3.4, witness-service storage patterns, and ethereal consensus testing — archived in Memory Bank for team reference and onboarding.
+Comprehensive implementation guides, architectural decisions, and testing patterns:
+
+### Getting Started
+- [**Developer Quick Start**](docs/DEVELOPER_QUICKSTART.md) — 30-min setup, first build, architecture overview, code exploration
+- [**CLAUDE.md**](CLAUDE.md) — Developer reference, build commands, troubleshooting, IDE setup
+- [**CONTRIBUTING.md**](CONTRIBUTING.md) — Contribution process, code standards, testing, commit format
+
+### Architecture & Design
+- [**Architecture Guide**](docs/ARCHITECTURE.md) — System layers, data flow, Byzantine fault tolerance model, failure handling
+- [**Module READMEs**](choam/README.md) — Detailed architecture, usage patterns, threat models for each component
+- [**ADRs**](docs/adr/) — Architectural decision records for design rationale
+- [**Code Quality Standards**](docs/CODE_QUALITY_STANDARDS.md) — Design patterns, concurrency, error handling, code review checklist
+
+### Operations & Deployment
+- [**Deployment Guide**](docs/DEPLOYMENT_GUIDE.md) — Production setup, node configuration, cluster initialization
+- [**Build Guide**](docs/BUILD.md) — Build profiles, Maven configuration, troubleshooting
+- [**Configuration Guide**](docs/CONFIGURATION_GUIDE.md) — All parameters, identity, network, consensus, database, performance tuning
+- [**Hardware Requirements**](docs/HARDWARE_REQUIREMENTS.md) — Cluster sizing, Byzantine tolerance, capacity planning
+- [**Monitoring & Alerting**](docs/MONITORING_AND_ALERTING.md) — Health checks, metrics, SLA definitions, Prometheus setup
+- [**Operational Checklists**](docs/OPERATIONAL_CHECKLISTS.md) — Pre-deployment, running, incident response procedures
+- [**Upgrade Procedures**](docs/UPGRADE_PROCEDURES.md) — Rolling updates, blue-green deployment, rollback procedures
+- [**Operational Quick Start**](docs/OPERATIONAL_QUICK_START.md) — Day-1 operations, incident response patterns
+- [**OPS Runbook**](docs/OPS_RUNBOOK_PHASE_1C.md) — Phase 1C specific operational procedures
+
+### Development & Testing
+- [**Testing Guide**](docs/TESTING_GUIDE.md) — BFT testing patterns, deterministic execution, test infrastructure, examples
+- [**IDE Setup**](docs/IDE_SETUP.md) — IntelliJ IDEA, Eclipse, VS Code configuration
+- [**TLS Setup**](docs/TLS_SETUP.md) — Certificate generation, keystore setup, MTLS configuration
+
+### Security & Cryptography
+- [**Cryptography Algorithms**](docs/CRYPTOGRAPHY_ALGORITHMS.md) — Algorithm reference, BLS risk assessment, post-quantum planning
+- [**Security Threat Model**](docs/SECURITY_THREAT_MODEL.md) — Attack scenarios, cryptographic agility, security guarantees
+- [**KERI Integration**](docs/KERI_INTEGRATION.md) — Decentralized identity, key management, identity bootstrapping
+
+### Reference & Support
+- [**Complete Documentation Index**](docs/INDEX.md) — All guides organized by category
+- [**Glossary**](docs/GLOSSARY.md) — Key terminology and acronyms
+- [**Troubleshooting Guide**](docs/TROUBLESHOOTING_GUIDE.md) — Common issues and resolution
+- [**API Reference**](docs/API_REFERENCE.md) — Gorgoneion API, Witness-Service API documentation
+- [**Knowledge Base**](.pm/CONTINUATION.md) — Consolidated research, design patterns, implementation reference (ChromaDB-indexed for semantic search)
 
 ---
 
@@ -94,7 +104,7 @@ Each module is a Maven module under the source root with its own README.md.
 
 **Identity & Security**
 * [Stereotomy](stereotomy/README.md) - KERI implementation; KEL, KERL, key and identity management
-* [Stereotomy Services](stereotomy-services) - GRPC services and Protobuf interfaces for KERI
+* [Stereotomy Services](stereotomy-services/README.md) - GRPC services and Protobuf interfaces for KERI
 * [Thoth](thoth/README.md) - Distributed hash table for KERI key management
 * [Gorgoneion](gorgoneion/README.md) - Identity bootstrapping
 * [Gorgoneion Client](gorgoneion-client/README.md) - Identity bootstrap client
@@ -111,20 +121,14 @@ Each module is a Maven module under the source root with its own README.md.
 * [Tron](tron/README.md) - Finite state machine framework using Java Enums
 
 **Specialized Services**
-* [Witness-Service](witness-service) - Byzantine detection, receipt aggregation, proof validation
+* [Witness-Service](witness-service/README.md) - Byzantine detection, receipt aggregation, proof validation
 
 **Platform & Storage**
 * [Schemas](schemas/README.md) - Liquibase SQL definitions
-* [Deterministic H2](h2-deterministic) - Deterministic H2 SQL database
-* [Deterministic Liquibase](liquibase-deterministic) - Deterministic Liquibase
+* [Deterministic H2](h2-deterministic/README.md) - Deterministic H2 SQL database
+* [Deterministic Liquibase](liquibase-deterministic/README.md) - Deterministic Liquibase
 * [Isolates](isolates/README.md) - GraalVM isolate-based multi-tenant enclaves
 * [Isolate Functional Testing](isolate-ftesting/README.md) - Enclave functional testing
-
-## Documentation
-
-- [**docs/** ](docs/) — Deployment guides, troubleshooting, KERI integration, threat models
-- [**Each module's README**](choam/README.md) — Architecture, usage patterns, threat models, tests
-- [**ADRs** ](docs/adr/) — Architectural decision records for design rationale
 
 ## Contributing
 

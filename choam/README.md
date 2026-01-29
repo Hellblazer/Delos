@@ -562,6 +562,8 @@ CHOAM exposes operational metrics via Dropwizard Metrics.
 
 ## Testing and Validation
 
+**See Also**: [docs/TESTING_GUIDE.md](../docs/TESTING_GUIDE.md) - Comprehensive testing patterns, Byzantine fault injection, deterministic testing, and best practices.
+
 **Test Suite Location**: `choam/src/test/java/com/hellblazer/delos/choam/`
 
 **Test Coverage**:
@@ -570,22 +572,50 @@ CHOAM exposes operational metrics via Dropwizard Metrics.
 - **View Changes**: Committee reconfiguration, key rotation
 - **Checkpointing**: State snapshots, bootstrap from checkpoint
 - **Performance**: Throughput and latency benchmarks
+- **Determinism**: Seeded randomness, frozen clocks, deterministic state replication
 
 **Running Tests**:
 ```bash
-# All CHOAM tests
+# All CHOAM tests (fast mode)
 ./mvnw test -pl choam
 
 # Specific test
 ./mvnw test -pl choam -Dtest=ReconfigurationTest
 
-# Performance tests
+# Performance tests (thorough mode)
 ./mvnw test -pl choam -Dtest=PerformanceTest -Dlarge_tests=true
+
+# Test optimization details
+# See also: choam/TEST_OPTIMIZATION.md for fast vs. thorough mode breakdown
 ```
 
 ## Status
 
 CHOAM is currently **MVP status**. It's now very stable and fast enough to do serious simulations and provides the foundation for the next phase of transaction ordering and SQL event generation. Critical features such as view reconfiguration (periodic, pseudo-random committee BFT election), checkpointing, bootstrapping, etc. are currently provided. The system is stable through a very wide range of parameters, and while it may perform poorly when configured with extreme values, it will perform correctly.
+
+## Documentation and Resources
+
+Developers working with CHOAM can reference these documentation resources:
+
+### Architecture & Consensus
+- **[Architecture Guide](../docs/ARCHITECTURE.md)** - 4-layer architecture, CHOAM's role in consensus layer
+- **[Ethereal README](../ethereal/README.md)** - Aleph-BFT consensus protocol that drives CHOAM
+- **[Fireflies README](../fireflies/README.md)** - Membership overlay that CHOAM depends on
+
+### State Machine & Replication
+- **[SQL-State README](../sql-state/README.md)** - JDBC-accessible replicated state machines built on CHOAM
+- **[Build Guide](../docs/BUILD.md)** - Building CHOAM and related modules
+- **[Testing Guide](../docs/TESTING_GUIDE.md)** - Test patterns, Byzantine fault injection, deterministic testing
+
+### Operations & Deployment
+- **[Configuration Guide](../docs/CONFIGURATION_GUIDE.md)** - CHOAM configuration parameters (view rotation, checkpoint intervals)
+- **[Hardware Requirements](../docs/HARDWARE_REQUIREMENTS.md)** - Sizing for CHOAM-based state machines
+- **[Monitoring and Alerting](../docs/MONITORING_AND_ALERTING.md)** - CHOAM metrics, dashboards, alerts
+- **[Operational Checklists](../docs/OPERATIONAL_CHECKLISTS.md)** - Pre-deployment, operational procedures
+
+### Performance & Troubleshooting
+- **[Troubleshooting Guide](../docs/TROUBLESHOOTING_GUIDE.md)** - Common CHOAM issues, diagnostic procedures
+- **[ADR-0004: CHOAM Architecture](../docs/adr/0004-choam-architecture.md)** - Design decisions and rationale
 
 ## References
 

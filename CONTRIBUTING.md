@@ -80,36 +80,48 @@ After modifying `.proto` files or database schemas:
 
 ## Code Style and Conventions
 
-### General Guidelines
+For comprehensive code quality standards, design patterns, concurrency guidelines, and error handling requirements, see **[CODE_QUALITY_STANDARDS.md](docs/CODE_QUALITY_STANDARDS.md)**.
 
-- **Java 25**: Use modern Java features including records, pattern matching, and virtual threads
-- **Variable declaration**: Use `var` for local variables where type is obvious
-- **Concurrency**: Use concurrent collections and virtual threads; avoid `synchronized` blocks
-- **Imports**: Organize imports; remove unused imports
-- **Comments**: Write self-documenting code; add comments only for non-obvious logic
-- **Line length**: Soft limit of 120 characters
+This document covers:
+- **Design Patterns**: Factory, Strategy, Builder, Observer, Adapter, Singleton
+- **Concurrency Guidelines**: Atomic types, concurrent collections, thread safety
+- **Error Handling**: Byzantine determinism, exception normalization, logging
+- **Code Quality**: Naming conventions, documentation, code organization
+- **Package Organization**: 4-layer architecture, dependencies
+- **Code Review Checklist**: Pull request quality criteria
 
-### Naming Conventions
+### Quick Reference
 
+**Java 25**: Use modern Java features including records, pattern matching, and virtual threads
+
+**Variable declaration**: Use `var` for local variables where type is obvious
+
+**Concurrency**: Use concurrent collections and virtual threads; **avoid `synchronized` blocks entirely**
+
+**Naming Conventions**:
 - **Classes**: PascalCase (e.g., `ByzantineMember`)
 - **Methods**: camelCase (e.g., `processConsensus()`)
 - **Constants**: UPPER_SNAKE_CASE (e.g., `MAX_RETRIES`)
 - **Packages**: lowercase (e.g., `com.hellblazer.delos.fireflies`)
 
-### Module-Specific Patterns
-
-- **Fireflies**: Use ring-based gossip patterns
-- **CHOAM**: Follow state machine conventions with immutable state transitions
-- **SQL-State**: Use Liquibase for schema migrations
-- **Cryptography**: Prefer self-describing types (Digest, Signature, Identifier)
-
-### Logging
-
-Use SLF4J with parameterized logging:
+**Logging**: Use SLF4J with parameterized logging:
 ```java
-log.debug("Processing transaction: {}", txId);  // CORRECT
-log.debug("Processing transaction: " + txId);   // INCORRECT (string concat)
+log.debug("Processing transaction: {}", txId);      // CORRECT
+log.debug("Processing transaction: " + txId);       // INCORRECT
+log.debug("Value: {:.2f}", value);                  // INCORRECT (Python-style)
 ```
+
+**Concurrency Patterns**:
+- Atomic types for single values: `AtomicBoolean`, `AtomicInteger`, `AtomicReference`
+- Concurrent collections: `ConcurrentHashMap`, `ConcurrentSkipListSet`, `BlockingQueue`
+- Locks only when necessary: `ReadWriteLock`, `ReentrantLock`
+- No `synchronized` keyword
+
+**Comments**: Write self-documenting code. Comments should explain WHY, not WHAT.
+
+**Line length**: Soft limit of 120 characters
+
+**See also**: [CODE_QUALITY_STANDARDS.md](docs/CODE_QUALITY_STANDARDS.md) for detailed guidelines with examples and rationale.
 
 ## Testing Requirements
 
@@ -275,12 +287,35 @@ Include:
 
 ### What Reviewers Look For
 
+**Code Quality & Design**:
 - **Correctness**: Does the code work as intended?
-- **Tests**: Are there adequate tests?
-- **Design**: Is the approach sound?
+- **Design**: Is the approach sound? Does it follow 4-layer architecture?
+- **Patterns**: Are appropriate design patterns used?
+- **Architecture**: No circular or upward dependencies?
+
+**Concurrency & Thread Safety**:
+- **Concurrency**: No `synchronized` keyword? Using correct concurrent collections?
+- **Atomic Operations**: Atomic types used correctly?
+- **Thread Safety**: Documented and guaranteed?
+
+**Error Handling & Byzantine Requirements**:
+- **Byzantine**: Exceptions normalized for replicated components?
+- **Determinism**: Will this code produce identical results on all replicas?
+- **Normalization**: ExceptionNormalizer used in state machine layer?
+
+**Code Quality**:
+- **Naming**: Follow PascalCase, camelCase, UPPER_SNAKE_CASE conventions?
+- **Documentation**: Javadoc complete with @param, @return, @throws?
 - **Readability**: Is the code clear and maintainable?
 - **Performance**: Are there obvious inefficiencies?
 - **Security**: Are there security concerns?
+
+**Testing**:
+- **Tests**: Are there adequate tests? Dynamic ports used?
+- **Coverage**: Critical paths 90%+, public APIs 80%+?
+- **Integration**: Tests isolated and idempotent?
+
+**Comprehensive Checklist**: See [CODE_QUALITY_STANDARDS.md - Code Review Checklist](docs/CODE_QUALITY_STANDARDS.md#code-review-checklist)
 
 ### Responding to Feedback
 
@@ -342,6 +377,44 @@ Proposed Solution:
 Add Counter metric "delos_transactions_total" with labels
 for success/failure and transaction type.
 ```
+
+## Documentation and Resources
+
+Contributors have access to comprehensive documentation organized by topic. Use these resources to understand the codebase, design patterns, and operational requirements:
+
+### Development Resources
+- **[Developer Quick Start](docs/DEVELOPER_QUICKSTART.md)** - Setup instructions, first-time build, IDE configuration
+- **[Testing Guide](docs/TESTING_GUIDE.md)** - Test infrastructure, patterns, Byzantine testing, performance testing
+- **[IDE Setup](docs/IDE_SETUP.md)** - IntelliJ IDEA, Eclipse, VS Code configuration for Delos development
+- **[TLS Setup](docs/TLS_SETUP.md)** - Certificate generation, MTLS configuration, debugging TLS issues
+
+### Architecture & Design
+- **[Architecture Guide](docs/ARCHITECTURE.md)** - 4-layer architecture, module organization, Byzantine consensus design
+- **[Module READMEs](README.md#architecture--design)** - Individual module purposes, entry points, and dependencies
+- **[Architecture Decision Records](docs/ADRS.md)** - Design decisions and their rationale
+- **[Code Quality Standards](docs/CODE_QUALITY_STANDARDS.md)** - Patterns, concurrency guidelines, code review checklist
+
+### Operations & Deployment
+- **[Deployment Guide](docs/DEPLOYMENT_GUIDE.md)** - Production deployment procedures and best practices
+- **[Build Guide](docs/BUILD.md)** - Build system, profiles, troubleshooting build failures
+- **[Configuration Guide](docs/CONFIGURATION_GUIDE.md)** - System configuration, tuning, runtime parameters
+- **[Hardware Requirements](docs/HARDWARE_REQUIREMENTS.md)** - Sizing guidelines, Byzantine fault tolerance requirements
+- **[Monitoring and Alerting](docs/MONITORING_AND_ALERTING.md)** - Metrics, dashboards, alert configurations
+- **[Operational Checklists](docs/OPERATIONAL_CHECKLISTS.md)** - Pre-deployment, operational, and troubleshooting checklists
+- **[Upgrade Procedures](docs/UPGRADE_PROCEDURES.md)** - Version upgrade steps and compatibility notes
+- **[Operations Runbook](docs/OPS_RUNBOOK_PHASE_1C.md)** - Day-2 operations, incident response, playbooks
+
+### Security & Cryptography
+- **[Cryptography Algorithms](docs/CRYPTOGRAPHY_ALGORITHMS.md)** - BLS-12-381, ED25519, signature aggregation, risk assessment
+- **[Security Threat Model](docs/SECURITY_THREAT_MODEL.md)** - Byzantine threat model, attack surfaces, mitigations
+- **[KERI Integration](docs/KERI_INTEGRATION.md)** - Key management, identity, KERI architecture
+
+### Reference & Support
+- **[Documentation Index](docs/INDEX.md)** - Complete directory of all documentation files
+- **[Glossary](docs/GLOSSARY.md)** - Key terms and concepts used throughout Delos
+- **[Troubleshooting Guide](docs/TROUBLESHOOTING_GUIDE.md)** - Common issues, solutions, diagnostic procedures
+- **[API Reference](docs/API_REFERENCE.md)** - Public API documentation and examples
+- **[Knowledge Base](docs/KNOWLEDGE_BASE.md)** - Frequently asked questions, detailed explanations, examples
 
 ## Developer Certificate of Origin (DCO)
 

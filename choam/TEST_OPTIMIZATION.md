@@ -1,5 +1,7 @@
 # CHOAM Test Suite Optimization
 
+**See Also**: [docs/TESTING_GUIDE.md](../docs/TESTING_GUIDE.md) - Comprehensive testing guide with deterministic patterns, Byzantine testing, and best practices.
+
 ## Summary
 
 Optimized 6 major CHOAM test suites to run dramatically faster while preserving correctness guarantees.

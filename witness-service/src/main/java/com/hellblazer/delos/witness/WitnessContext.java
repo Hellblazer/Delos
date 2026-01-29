@@ -66,6 +66,10 @@ public class WitnessContext {
     private final CommitteeBLSKeyStore committeeBLSKeyStore;
     private final CommitteeKeyCache committeeKeyCache;
 
+    // Phase 1A-3-B: KERL integration for committee member verification
+    private volatile WitnessKerlIntegration kerlIntegration;
+    private volatile boolean kerlVerificationEnabled = false;
+
     private volatile long currentEpoch;
     private volatile Set<Identifier> currentMembers;
 
@@ -136,6 +140,7 @@ public class WitnessContext {
      * 1. Hash event coordinates deterministically
      * 2. Use hash as point on rings: context.bftSubset(hash)
      * 3. Return k unique successors from rings
+     * 4. (Phase 1A-3-B) Filter by KERL KeyState verification if enabled
      * </p>
      *
      * @param eventCoordinates The event being witnessed
@@ -151,9 +156,24 @@ public class WitnessContext {
             var bftSubset = firefliesContext.bftSubset(eventHash);
 
             // Convert Member to Identifier
-            return bftSubset.stream()
+            var candidates = bftSubset.stream()
                 .map(Member::getId)
                 .map(this::toIdentifier)
+                .limit(parameters.k() * 2)  // Get extra candidates for KERL filtering
+                .collect(Collectors.toSet());
+
+            // Phase 1A-3-B: Filter by KERL verification if enabled
+            if (kerlVerificationEnabled && kerlIntegration != null) {
+                try {
+                    return kerlIntegration.filterValidMembers(candidates, parameters.k());
+                } catch (WitnessKerlIntegration.InsufficientCommitteeException e) {
+                    log.warn("KERL filtering failed, falling back to unfiltered committee: {}", e.getMessage());
+                    // Fall back to unfiltered committee to maintain availability
+                }
+            }
+
+            // Return k members without KERL filtering
+            return candidates.stream()
                 .limit(parameters.k())
                 .collect(Collectors.toSet());
         } finally {
@@ -421,5 +441,50 @@ public class WitnessContext {
      */
     public CommitteeKeyCache getCommitteeKeyCache() {
         return committeeKeyCache;
+    }
+
+    /**
+     * Enable KERL verification for committee member selection.
+     * <p>
+     * Phase 1A-3-B: When enabled, committee members are filtered by KERL KeyState
+     * verification. Only members with valid, non-revoked keys are included in committees.
+     *
+     * @param kerlIntegration The KERL integration instance
+     */
+    public void enableKerlVerification(WitnessKerlIntegration kerlIntegration) {
+        this.kerlIntegration = kerlIntegration;
+        this.kerlVerificationEnabled = true;
+        log.info("KERL verification enabled for committee selection");
+    }
+
+    /**
+     * Disable KERL verification for committee member selection.
+     * <p>
+     * When disabled, all Fireflies members are eligible for committee membership
+     * without KeyState verification (backward-compatible behavior).
+     */
+    public void disableKerlVerification() {
+        this.kerlVerificationEnabled = false;
+        log.info("KERL verification disabled for committee selection");
+    }
+
+    /**
+     * Check if KERL verification is enabled.
+     *
+     * @return true if KERL verification is active
+     */
+    public boolean isKerlVerificationEnabled() {
+        return kerlVerificationEnabled && kerlIntegration != null;
+    }
+
+    /**
+     * Get the KERL integration instance.
+     * <p>
+     * Returns null if KERL verification is not configured.
+     *
+     * @return KERL integration or null
+     */
+    public WitnessKerlIntegration getKerlIntegration() {
+        return kerlIntegration;
     }
 }

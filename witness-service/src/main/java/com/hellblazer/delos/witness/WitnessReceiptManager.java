@@ -23,6 +23,8 @@ import com.hellblazer.delos.witness.aggregation.storage.memory.InMemoryRecursive
 import com.hellblazer.delos.witness.metrics.BLSMetrics;
 import com.hellblazer.delos.witness.migration.MigrationPhase;
 import com.hellblazer.delos.witness.receipt.AggregateWitnessReceipt;
+import com.hellblazer.delos.witness.validation.RuntimeByzantineValidator;
+import com.hellblazer.delos.witness.validation.ValidationStatus;
 import com.hellblazer.delos.witness.validation.graceful.DegradedThresholdCalculator;
 import com.hellblazer.delos.witness.validation.graceful.SignatureBuffer;
 import org.slf4j.Logger;
@@ -75,6 +77,9 @@ public class WitnessReceiptManager {
     // Receipt storage (Phase 3.4.5 - storage integration)
     private final AggregateReceiptStore aggregateReceiptStore;
     private final RecursiveReceiptStore recursiveReceiptStore;
+
+    // Phase 1A-3-C.1: Runtime Byzantine quorum enforcement (nullable)
+    private volatile RuntimeByzantineValidator byzantineValidator;
 
     // Map: EventCoordinates -> CollectionState
     private final Map<String, CollectionState> collections = new ConcurrentHashMap<>();
@@ -173,6 +178,31 @@ public class WitnessReceiptManager {
         this.recursiveReceiptStore = recursiveReceiptStore != null
             ? recursiveReceiptStore
             : new InMemoryRecursiveReceiptStore();
+    }
+
+    /**
+     * Set the RuntimeByzantineValidator for pre-validation enforcement.
+     * <p>
+     * Phase 1A-3-C.1: When set, signature submissions are pre-validated for:
+     * <ul>
+     *   <li>Committee membership</li>
+     *   <li>Early quorum rejection</li>
+     *   <li>Byzantine member rejection</li>
+     * </ul>
+     *
+     * @param validator The validator instance (nullable to disable)
+     */
+    public void setByzantineValidator(RuntimeByzantineValidator validator) {
+        this.byzantineValidator = validator;
+    }
+
+    /**
+     * Get the RuntimeByzantineValidator.
+     *
+     * @return The validator or null if not configured
+     */
+    public RuntimeByzantineValidator getByzantineValidator() {
+        return byzantineValidator;
     }
 
     /**
@@ -347,6 +377,172 @@ public class WitnessReceiptManager {
                     }
                 }
             }
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Validate and add BLS signature with pre-validation enforcement.
+     * <p>
+     * Phase 1A-3-C.1: Runtime Byzantine quorum enforcement.
+     * Performs pre-validation before accumulation:
+     * <ul>
+     *   <li>Committee membership check</li>
+     *   <li>Early quorum rejection</li>
+     *   <li>Byzantine member rejection</li>
+     * </ul>
+     * Returns detailed ValidationStatus instead of throwing exceptions.
+     *
+     * @param event Event coordinates being witnessed
+     * @param member Committee member identifier
+     * @param committeeIndex Member's index in committee
+     * @param signature BLS signature from member
+     * @return ValidationStatus indicating result of validation and accumulation
+     * @throws IllegalStateException if BLS is not supported in current migration phase
+     */
+    public ValidationStatus validateAndAddBLSSignature(
+        EventCoordinates event,
+        Identifier member,
+        int committeeIndex,
+        BLSSignature signature
+    ) {
+        // Check if BLS is supported in current phase (before validation)
+        if (migrationPhase == MigrationPhase.INIT) {
+            throw new IllegalStateException("BLS signatures not supported in INIT phase");
+        }
+
+        Objects.requireNonNull(event, "event required");
+        Objects.requireNonNull(member, "member required");
+        Objects.requireNonNull(signature, "signature required");
+
+        if (committeeIndex < 0) {
+            throw new IllegalArgumentException("committeeIndex must be >= 0, got: " + committeeIndex);
+        }
+
+        // Phase 1A-3-C.1: Pre-validation if validator configured
+        if (byzantineValidator != null) {
+            var validationResult = byzantineValidator.validate(event, member);
+            if (!validationResult.status().isAccepted()) {
+                log.debug("Pre-validation rejected {} for event {}: {}",
+                          member, event, validationResult.reason());
+
+                // Update metrics based on rejection type
+                if (metrics != null) {
+                    switch (validationResult.status()) {
+                        case REJECTED_NOT_IN_COMMITTEE -> metrics.incrementRejectedNotInCommittee();
+                        case REJECTED_DUPLICATE -> metrics.incrementRejectedDuplicate();
+                        case REJECTED_QUORUM_MET -> metrics.incrementRejectedLate();
+                        case REJECTED_BYZANTINE -> metrics.incrementRejectedByzantine();
+                        default -> { /* no specific metric */ }
+                    }
+                }
+
+                return validationResult.status();
+            }
+        }
+
+        // Start latency measurement
+        var startNanos = System.nanoTime();
+
+        lock.writeLock().lock();
+        try {
+            // Get or create collection state for this event
+            var key = eventKey(event);
+            var state = collections.computeIfAbsent(key, k ->
+                new CollectionState(SignatureFormat.BLS_12_381, parameters.threshold())
+            );
+
+            // Accumulate in BLS aggregator
+            var result = blsAggregator.accumulate(
+                event,
+                member,
+                committeeIndex,
+                signature,
+                parameters.threshold(),
+                parameters.epoch()
+            );
+
+            // Handle accumulation result and return ValidationStatus
+            return switch (result) {
+                case AccumulationResult.Accumulated acc -> {
+                    state.recordSignature(member);
+                    recordLatency(startNanos);
+                    updateActiveAccumulators();
+
+                    // Record acceptance in validator
+                    if (byzantineValidator != null) {
+                        byzantineValidator.recordAccepted(event, member);
+                    }
+
+                    yield ValidationStatus.ACCEPTED;
+                }
+                case AccumulationResult.ThresholdMet tm -> {
+                    state.recordSignature(member);
+                    state.markThresholdMet(tm.snapshot());
+                    recordLatency(startNanos);
+                    if (metrics != null) {
+                        metrics.recordCompletedAccumulation();
+                    }
+                    updateActiveAccumulators();
+
+                    // Record acceptance and quorum in validator
+                    if (byzantineValidator != null) {
+                        byzantineValidator.recordAccepted(event, member);
+                        byzantineValidator.recordQuorumMet(event);
+                    }
+
+                    yield ValidationStatus.ACCEPTED;
+                }
+                case AccumulationResult.AlreadyPresent ap -> {
+                    if (metrics != null) {
+                        metrics.incrementRejectedDuplicate();
+                    }
+                    yield ValidationStatus.REJECTED_DUPLICATE;
+                }
+                case AccumulationResult.LateSigner ls -> {
+                    if (metrics != null) {
+                        metrics.incrementRejectedLate();
+                    }
+                    yield ValidationStatus.REJECTED_QUORUM_MET;
+                }
+                case AccumulationResult.InvalidSignature is -> {
+                    if (metrics != null) {
+                        metrics.incrementRejectedInvalidSignature();
+                    }
+                    log.warn("Invalid signature from {} for event {}: {}",
+                             member, event, is.reason());
+                    yield ValidationStatus.REJECTED_INVALID_SIGNATURE;
+                }
+                case AccumulationResult.EpochMismatch em -> {
+                    if (metrics != null) {
+                        metrics.incrementRejectedEpoch();
+                    }
+                    yield ValidationStatus.REJECTED_EPOCH_MISMATCH;
+                }
+                case AccumulationResult.ViewRefMismatch vm -> {
+                    if (metrics != null) {
+                        metrics.incrementRejectedViewRef();
+                    }
+                    yield ValidationStatus.REJECTED_VIEW_MISMATCH;
+                }
+                case AccumulationResult.Buffered buf -> {
+                    // Buffer signature during view change
+                    if (signatureBuffer != null && isViewChangeActive != null && isViewChangeActive.get()) {
+                        var position = signatureBuffer.buffer(
+                            member,
+                            signature.toBytes(),
+                            new byte[0],
+                            event,
+                            parameters.epoch()
+                        );
+                        var bufferKey = new BufferKey(event, member);
+                        committeeIndexMap.put(bufferKey, committeeIndex);
+                        log.debug("Signature buffered for member {} at position {}", member, position);
+                    }
+                    yield ValidationStatus.BUFFERED;
+                }
+            };
         } finally {
             lock.writeLock().unlock();
         }

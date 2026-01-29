@@ -1,0 +1,218 @@
+# Prometheus Recording and Alerting Rules for 168-Hour Simulation
+#
+# These rules support the simulation framework with:
+# - Baseline metric recording (first 2 hours)
+# - Current metric calculations for comparison
+# - Alert rules for simulation degradation detection
+#
+# Rules are optimized for long-running stability tests.
+
+groups:
+  # === Baseline Recording Rules ===
+  # These record baseline metrics from the first 2 hours of simulation
+  - name: simulation-baseline
+    interval: 60s
+    rules:
+      # Transaction latency baseline (P99 from first 2h)
+      - record: simulation:transaction_latency_p99:baseline
+        expr: |
+          quantile(0.99,
+            histogram_quantile(0.99,
+              rate(choam_transaction_latency_seconds_bucket[2h] offset 2h)
+            )
+          )
+
+      # Transaction rate baseline (avg tx/sec from first 2h)
+      - record: simulation:transaction_rate:baseline
+        expr: |
+          avg(rate(choam_transactions_completed_total[2h] offset 2h))
+
+      # Heap usage baseline (P95 from first 2h)
+      - record: simulation:heap_usage_mb:baseline
+        expr: |
+          quantile_over_time(0.95, jvm_memory_used_bytes{area="heap"}[2h] offset 2h) / 1048576
+
+      # GC pause ratio baseline (avg from first 2h)
+      - record: simulation:gc_pause_ratio:baseline
+        expr: |
+          avg(rate(jvm_gc_pause_seconds_sum[2h] offset 2h))
+
+      # Byzantine accusation rate baseline (from first 2h)
+      - record: simulation:byzantine_accusations:baseline
+        expr: |
+          avg(rate(ff_accusations_total[2h] offset 2h)) * 60
+
+  # === Current Metric Recording Rules ===
+  # These track current metrics for comparison against baseline
+  - name: simulation-current
+    interval: 30s
+    rules:
+      # Current transaction latency P99
+      - record: simulation:transaction_latency_p99:current
+        expr: |
+          histogram_quantile(0.99,
+            rate(choam_transaction_latency_seconds_bucket[5m])
+          )
+
+      # Current transaction rate
+      - record: simulation:transaction_rate:current
+        expr: |
+          rate(choam_transactions_completed_total[5m])
+
+      # Current heap usage in MB
+      - record: simulation:heap_usage_mb:current
+        expr: |
+          jvm_memory_used_bytes{area="heap"} / 1048576
+
+      # Current GC pause ratio (percentage of time in GC)
+      - record: simulation:gc_pause_ratio:current
+        expr: |
+          rate(jvm_gc_pause_seconds_sum[5m])
+
+      # Current Byzantine accusation rate per minute
+      - record: simulation:byzantine_accusations:rate
+        expr: |
+          rate(ff_accusations_total[5m]) * 60
+
+      # Heap usage percentage
+      - record: simulation:heap_usage_percent:current
+        expr: |
+          (jvm_memory_used_bytes{area="heap"} /
+           jvm_memory_max_bytes{area="heap"}) * 100
+
+      # Transaction success rate
+      - record: simulation:transaction_success_rate:current
+        expr: |
+          (sum(rate(choam_transactions_completed_total[5m])) /
+           sum(rate(choam_transactions_submitted_total[5m]))) * 100
+
+  # === Simulation Alert Rules ===
+  # These alert on degradation or anomalies during simulation
+  - name: simulation-alerts
+    interval: 30s
+    rules:
+      # Alert when P99 latency exceeds 100ms for sustained period
+      - alert: SimulationHighLatency
+        expr: |
+          simulation:transaction_latency_p99:current > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          component: simulation
+        annotations:
+          summary: "Simulation experiencing high latency"
+          description: "P99 transaction latency is {{ $value | humanizeDuration }} (threshold: 100ms)"
+
+      # Alert when heap usage exceeds 80%
+      - alert: SimulationHighHeapUsage
+        expr: |
+          simulation:heap_usage_percent:current > 80
+        for: 15m
+        labels:
+          severity: warning
+          component: simulation
+        annotations:
+          summary: "High heap usage on {{ $labels.instance }}"
+          description: "Heap usage is {{ $value | humanizePercentage }} (threshold: 80%)"
+
+      # Alert when GC overhead exceeds 10%
+      - alert: SimulationHighGCPause
+        expr: |
+          simulation:gc_pause_ratio:current > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          component: simulation
+        annotations:
+          summary: "High GC overhead on {{ $labels.instance }}"
+          description: "GC consuming {{ $value | humanizePercentage }} of time (threshold: 10%)"
+
+      # Alert when transaction rate drops to near zero
+      - alert: SimulationTransactionStall
+        expr: |
+          simulation:transaction_rate:current < 0.01
+        for: 5m
+        labels:
+          severity: critical
+          component: simulation
+        annotations:
+          summary: "Transaction processing has stalled"
+          description: "Transaction rate is {{ $value }}/sec (near zero for 5+ minutes)"
+
+      # Alert when Byzantine accusations spike
+      - alert: SimulationByzantineSpam
+        expr: |
+          simulation:byzantine_accusations:rate > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: simulation
+        annotations:
+          summary: "High Byzantine accusation rate"
+          description: "{{ $value }} accusations/min (threshold: 5/min, possible spam)"
+
+      # Alert when transaction success rate drops below 99%
+      - alert: SimulationLowSuccessRate
+        expr: |
+          simulation:transaction_success_rate:current < 99
+        for: 5m
+        labels:
+          severity: critical
+          component: simulation
+        annotations:
+          summary: "Low transaction success rate"
+          description: "Success rate is {{ $value | humanizePercentage }} (threshold: 99%)"
+
+      # Alert when cluster size drops below minimum
+      - alert: SimulationInsufficientNodes
+        expr: |
+          count(up{job=~"delos-.*"} == 1) < 4
+        for: 2m
+        labels:
+          severity: critical
+          component: simulation
+        annotations:
+          summary: "Insufficient cluster size for BFT"
+          description: "Only {{ $value }} nodes up (minimum: 4 for f=1 BFT)"
+
+      # Alert when latency degrades significantly from baseline
+      - alert: SimulationLatencyDegradation
+        expr: |
+          (simulation:transaction_latency_p99:current -
+           simulation:transaction_latency_p99:baseline) /
+           simulation:transaction_latency_p99:baseline > 0.5
+        for: 15m
+        labels:
+          severity: warning
+          component: simulation
+        annotations:
+          summary: "Transaction latency degraded from baseline"
+          description: "Latency increased {{ $value | humanizePercentage }} above baseline"
+
+      # Alert when throughput degrades significantly from baseline
+      - alert: SimulationThroughputDegradation
+        expr: |
+          (simulation:transaction_rate:baseline -
+           simulation:transaction_rate:current) /
+           simulation:transaction_rate:baseline > 0.2
+        for: 15m
+        labels:
+          severity: warning
+          component: simulation
+        annotations:
+          summary: "Transaction throughput degraded from baseline"
+          description: "Throughput decreased {{ $value | humanizePercentage }} below baseline"
+
+      # Alert on memory leak indicators
+      - alert: SimulationMemoryLeak
+        expr: |
+          (simulation:heap_usage_mb:current -
+           simulation:heap_usage_mb:baseline) /
+           simulation:heap_usage_mb:baseline > 1.0
+        for: 1h
+        labels:
+          severity: critical
+          component: simulation
+        annotations:
+          summary: "Potential memory leak detected"
+          description: "Heap usage increased {{ $value | humanizePercentage }} above baseline over 1h"

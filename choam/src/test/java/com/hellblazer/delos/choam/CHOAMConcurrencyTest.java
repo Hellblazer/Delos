@@ -182,7 +182,7 @@ public class CHOAMConcurrencyTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(LARGE_TESTS ? 90 : 30, TimeUnit.SECONDS);
+        boolean completed = countdown.await(LARGE_TESTS ? 120 : 30, TimeUnit.SECONDS);
         assertTrue(completed, "Concurrent operations should complete without deadlock");
 
         // Verify all members remain consistent

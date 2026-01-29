@@ -1,5 +1,9 @@
 # KeyRotationOrchestratorTest Timing Tests - Analysis & Findings
 
+**See Also**:
+- [docs/TESTING_GUIDE.md](../docs/TESTING_GUIDE.md) - Comprehensive testing guide with solutions for timing-sensitive tests
+- [Common Pitfalls & Solutions](../docs/TESTING_GUIDE.md#common-pitfalls--solutions) - Timing-Sensitive Assertions pattern
+
 ## Executive Summary
 
 **3 tests in KeyRotationOrchestratorTest remain flaky** due to fundamental architectural issues with timing-based assertions on scheduled tasks. These tests cannot be reliably fixed through timing adjustments alone.

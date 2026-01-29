@@ -564,6 +564,31 @@ echo "Stale units: $(ethereal.metrics.staleUnits())"
 - Force manual checkpoint: `ethereal.checkpoint()`
 - Restart member to clear DAG state
 
+## Documentation and Resources
+
+Developers implementing and operating Ethereal can reference these documentation resources:
+
+### Architecture & Consensus Design
+- **[Architecture Guide](../docs/ARCHITECTURE.md)** - Ethereal's role in the consensus layer, 4-layer architecture
+- **[CHOAM README](../choam/README.md)** - State machine replication using Ethereal consensus
+- **[Fireflies README](../fireflies/README.md)** - Membership overlay that Ethereal depends on
+- **[ADR-0005: Ethereal Aleph-BFT](../docs/adr/0005-ethereal-consensus.md)** - Design decisions and architecture
+
+### Development & Testing
+- **[Testing Guide](../docs/TESTING_GUIDE.md)** - Test patterns, Byzantine fault injection, deterministic testing for consensus
+- **[Build Guide](../docs/BUILD.md)** - Building Ethereal and dependent modules
+- **[IDE Setup](../docs/IDE_SETUP.md)** - Development environment configuration
+
+### Operations & Deployment
+- **[Configuration Guide](../docs/CONFIGURATION_GUIDE.md)** - Ethereal parameters (timeout, quorum size, dag depth)
+- **[Monitoring and Alerting](../docs/MONITORING_AND_ALERTING.md)** - Ethereal metrics (DAG size, ordering latency, checkpoints)
+- **[Operational Checklists](../docs/OPERATIONAL_CHECKLISTS.md)** - Pre-deployment and operational procedures
+- **[Hardware Requirements](../docs/HARDWARE_REQUIREMENTS.md)** - Sizing guidelines for Ethereal-based systems
+
+### Performance & Troubleshooting
+- **[Troubleshooting Guide](../docs/TROUBLESHOOTING_GUIDE.md)** - Common issues, diagnostic procedures, recovery
+- **[Security Threat Model](../docs/SECURITY_THREAT_MODEL.md)** - Byzantine threat model, attack surfaces
+
 ## References
 
 ### Papers

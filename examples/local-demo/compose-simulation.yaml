@@ -1,0 +1,338 @@
+# Extended Delos Cluster for 168-Hour Simulation
+#
+# This file extends compose.yaml with:
+# - Volume mounts for simulation data collection
+# - Enhanced JVM flags for heap dumps and monitoring
+# - JMX remote monitoring enabled
+# - Optimized for long-running stability tests
+#
+# Usage:
+#   # Build the Docker image first
+#   mvn package -Pdocker -pl examples/local-demo -am
+#
+#   # Start simulation cluster (10 nodes for testing)
+#   docker compose -f compose-simulation.yaml up -d --scale node=6
+#
+#   # Scale to 100 nodes (96 members + 4 genesis)
+#   docker compose -f compose-simulation.yaml up -d --scale node=96
+#
+#   # Monitor cluster formation
+#   docker compose -f compose-simulation.yaml logs -f | grep "Status:"
+#
+#   # Stop and cleanup
+#   docker compose -f compose-simulation.yaml down -v
+#
+# Resource Requirements for 100-node cluster:
+#   - Memory: ~64GB (512MB per node + overhead for extended run)
+#   - CPU: 8+ cores recommended
+#   - Disk: ~50GB (heap dumps, logs, metrics)
+#
+services:
+  # Bootstrap node - starts first, initializes cluster
+  bootstrap:
+    image: delos-node:latest
+    container_name: delos-bootstrap
+    hostname: bootstrap
+    environment:
+      DELOS_NODE_TYPE: 'bootstrap'
+      DELOS_NODE_ID: 'bootstrap-0'
+      DELOS_GRPC_PORT: '9999'
+      DELOS_METRICS_PORT: '9090'
+      DELOS_DISCOVERY_PORT: '8080'
+      DELOS_CARDINALITY: '120'
+      DELOS_BIAS: '3'
+      DELOS_PBYZ: '0.1'
+      DELOS_GOSSIP_DURATION_MS: '50'
+      DELOS_SEEDING_TIMEOUT_S: '180'
+      JAVA_OPTS: >-
+        -Xmx512m -Xms256m
+        -XX:+UseZGC
+        -XX:+HeapDumpOnOutOfMemoryError
+        -XX:HeapDumpPath=/data/heapdumps/bootstrap.hprof
+        -XX:+ExitOnOutOfMemoryError
+        -Dcom.sun.management.jmxremote
+        -Dcom.sun.management.jmxremote.port=9010
+        -Dcom.sun.management.jmxremote.authenticate=false
+        -Dcom.sun.management.jmxremote.ssl=false
+    ports:
+      - "9999:9999"   # gRPC endpoint
+      - "9090:9090"   # Prometheus metrics
+      - "8080:8080"   # Health endpoint
+      - "9010:9010"   # JMX monitoring
+    networks:
+      delos-net:
+        aliases:
+          - bootstrap
+          - delos-bootstrap
+    volumes:
+      - bootstrap-data:/data
+      - ./simulation-data/heapdumps:/data/heapdumps
+      - ./simulation-data/checkpoints:/data/checkpoints
+      - ./simulation-results/metrics:/data/metrics
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+        reservations:
+          memory: 256M
+
+  # Kernel nodes - form BFT quorum with bootstrap
+  kernel1:
+    image: delos-node:latest
+    container_name: delos-kernel1
+    hostname: kernel1
+    environment:
+      DELOS_NODE_TYPE: 'kernel'
+      DELOS_NODE_ID: 'kernel-1'
+      DELOS_BOOTSTRAP_HOST: 'bootstrap'
+      DELOS_BOOTSTRAP_PORT: '9999'
+      DELOS_GRPC_PORT: '9999'
+      DELOS_METRICS_PORT: '9090'
+      DELOS_DISCOVERY_PORT: '8080'
+      DELOS_CARDINALITY: '120'
+      DELOS_GOSSIP_DURATION_MS: '50'
+      DELOS_SEEDING_TIMEOUT_S: '180'
+      JAVA_OPTS: >-
+        -Xmx512m -Xms256m
+        -XX:+UseZGC
+        -XX:+HeapDumpOnOutOfMemoryError
+        -XX:HeapDumpPath=/data/heapdumps/kernel1.hprof
+        -XX:+ExitOnOutOfMemoryError
+        -Dcom.sun.management.jmxremote
+        -Dcom.sun.management.jmxremote.port=9010
+        -Dcom.sun.management.jmxremote.authenticate=false
+        -Dcom.sun.management.jmxremote.ssl=false
+    networks:
+      - delos-net
+    volumes:
+      - kernel1-data:/data
+      - ./simulation-data/heapdumps:/data/heapdumps
+      - ./simulation-data/checkpoints:/data/checkpoints
+      - ./simulation-results/metrics:/data/metrics
+    depends_on:
+      bootstrap:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
+  kernel2:
+    image: delos-node:latest
+    container_name: delos-kernel2
+    hostname: kernel2
+    environment:
+      DELOS_NODE_TYPE: 'kernel'
+      DELOS_NODE_ID: 'kernel-2'
+      DELOS_BOOTSTRAP_HOST: 'bootstrap'
+      DELOS_BOOTSTRAP_PORT: '9999'
+      DELOS_GRPC_PORT: '9999'
+      DELOS_METRICS_PORT: '9090'
+      DELOS_DISCOVERY_PORT: '8080'
+      DELOS_CARDINALITY: '120'
+      DELOS_GOSSIP_DURATION_MS: '50'
+      DELOS_SEEDING_TIMEOUT_S: '180'
+      JAVA_OPTS: >-
+        -Xmx512m -Xms256m
+        -XX:+UseZGC
+        -XX:+HeapDumpOnOutOfMemoryError
+        -XX:HeapDumpPath=/data/heapdumps/kernel2.hprof
+        -XX:+ExitOnOutOfMemoryError
+        -Dcom.sun.management.jmxremote
+        -Dcom.sun.management.jmxremote.port=9010
+        -Dcom.sun.management.jmxremote.authenticate=false
+        -Dcom.sun.management.jmxremote.ssl=false
+    networks:
+      - delos-net
+    volumes:
+      - kernel2-data:/data
+      - ./simulation-data/heapdumps:/data/heapdumps
+      - ./simulation-data/checkpoints:/data/checkpoints
+      - ./simulation-results/metrics:/data/metrics
+    depends_on:
+      bootstrap:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
+  kernel3:
+    image: delos-node:latest
+    container_name: delos-kernel3
+    hostname: kernel3
+    environment:
+      DELOS_NODE_TYPE: 'kernel'
+      DELOS_NODE_ID: 'kernel-3'
+      DELOS_BOOTSTRAP_HOST: 'bootstrap'
+      DELOS_BOOTSTRAP_PORT: '9999'
+      DELOS_GRPC_PORT: '9999'
+      DELOS_METRICS_PORT: '9090'
+      DELOS_DISCOVERY_PORT: '8080'
+      DELOS_CARDINALITY: '120'
+      DELOS_GOSSIP_DURATION_MS: '50'
+      DELOS_SEEDING_TIMEOUT_S: '180'
+      JAVA_OPTS: >-
+        -Xmx512m -Xms256m
+        -XX:+UseZGC
+        -XX:+HeapDumpOnOutOfMemoryError
+        -XX:HeapDumpPath=/data/heapdumps/kernel3.hprof
+        -XX:+ExitOnOutOfMemoryError
+        -Dcom.sun.management.jmxremote
+        -Dcom.sun.management.jmxremote.port=9010
+        -Dcom.sun.management.jmxremote.authenticate=false
+        -Dcom.sun.management.jmxremote.ssl=false
+    networks:
+      - delos-net
+    volumes:
+      - kernel3-data:/data
+      - ./simulation-data/heapdumps:/data/heapdumps
+      - ./simulation-data/checkpoints:/data/checkpoints
+      - ./simulation-results/metrics:/data/metrics
+    depends_on:
+      bootstrap:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+
+  # Scalable member nodes - join after kernel is ready
+  # Use: docker compose -f compose-simulation.yaml up -d --scale node=96 for 100-node cluster
+  node:
+    image: delos-node:latest
+    environment:
+      DELOS_NODE_TYPE: 'member'
+      DELOS_BOOTSTRAP_HOST: 'bootstrap'
+      DELOS_BOOTSTRAP_PORT: '9999'
+      DELOS_GRPC_PORT: '9999'
+      DELOS_METRICS_PORT: '9090'
+      DELOS_DISCOVERY_PORT: '8080'
+      DELOS_CARDINALITY: '120'
+      DELOS_GOSSIP_DURATION_MS: '50'
+      DELOS_SEEDING_TIMEOUT_S: '300'
+      JAVA_OPTS: >-
+        -Xmx512m -Xms256m
+        -XX:+UseZGC
+        -XX:+HeapDumpOnOutOfMemoryError
+        -XX:HeapDumpPath=/data/heapdumps
+        -XX:+ExitOnOutOfMemoryError
+        -Dcom.sun.management.jmxremote
+        -Dcom.sun.management.jmxremote.port=9010
+        -Dcom.sun.management.jmxremote.authenticate=false
+        -Dcom.sun.management.jmxremote.ssl=false
+    networks:
+      - delos-net
+    volumes:
+      - ./simulation-data/heapdumps:/data/heapdumps
+      - ./simulation-data/checkpoints:/data/checkpoints
+      - ./simulation-results/metrics:/data/metrics
+    depends_on:
+      kernel1:
+        condition: service_healthy
+      kernel2:
+        condition: service_healthy
+      kernel3:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+      replicas: 1  # Use --scale node=96 for 100-node cluster
+
+  # === Monitoring Stack ===
+  # Prometheus - metrics collection and alerting
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: delos-prometheus
+    hostname: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+      - '--storage.tsdb.retention.time=30d'  # Extended retention for 168h simulation
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9091:9090"   # Prometheus UI (9091 to avoid conflict with node metrics)
+    networks:
+      - delos-net
+    depends_on:
+      bootstrap:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 2G  # Increased for 168h retention
+
+  # Grafana - visualization and dashboards
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: delos-grafana
+    hostname: grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: delos
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_SERVER_ROOT_URL: 'http://localhost:3000'
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"   # Grafana UI
+    networks:
+      - delos-net
+    depends_on:
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+networks:
+  delos-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  bootstrap-data:
+  kernel1-data:
+  kernel2-data:
+  kernel3-data:
+  prometheus-data:
+  grafana-data:

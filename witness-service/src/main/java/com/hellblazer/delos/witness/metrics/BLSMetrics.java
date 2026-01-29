@@ -44,6 +44,23 @@ public interface BLSMetrics {
     void incrementRejectedDuplicate();
 
     /**
+     * Increment counter for signatures rejected due to invalid signature verification.
+     */
+    default void incrementRejectedInvalidSignature() {}
+
+    /**
+     * Increment counter for signatures rejected because member not in committee.
+     * Phase 1A-3-C.1: Runtime Byzantine quorum enforcement.
+     */
+    default void incrementRejectedNotInCommittee() {}
+
+    /**
+     * Increment counter for signatures rejected from Byzantine members.
+     * Phase 1A-3-C.1: Runtime Byzantine quorum enforcement.
+     */
+    default void incrementRejectedByzantine() {}
+
+    /**
      * Set current number of active accumulators.
      *
      * @param count Active accumulator count

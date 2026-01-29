@@ -7,6 +7,7 @@
  */
 package com.hellblazer.delos.witness;
 
+import com.hellblazer.delos.choam.CHOAM;
 import com.hellblazer.delos.context.Context;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
@@ -81,6 +82,10 @@ public class WitnessBootstrap implements AutoCloseable {
     // Phase 1C-3-B: Enhanced Byzantine detection with all detectors
     private FirefliesShunningIntegration shunningIntegration;
     private ByzantineDetectorCoordinator byzantineCoordinator;
+
+    // Phase 1A-3-D: Recovery manager for CHOAM integration
+    private WitnessRecoveryManager recoveryManager;
+    private WitnessRecoveryManager.RecoveryResult lastRecoveryResult;
 
     /**
      * Create bootstrap with configuration.
@@ -179,6 +184,54 @@ public class WitnessBootstrap implements AutoCloseable {
     }
 
     /**
+     * Start witness service with CHOAM integration and recovery (Phase 1A-3-D).
+     * <p>
+     * This is the recommended method for production use. It provides:
+     * - Real CHOAM instance for Byzantine fault-tolerant persistence
+     * - Automatic recovery from checkpoint on startup
+     * - Block replay for missed transactions
+     *
+     * @param firefliesContext Fireflies consensus context (for committee selection)
+     * @param choam CHOAM instance for persistence and recovery
+     * @throws IOException If gRPC server fails to start
+     */
+    public void start(Context<?> firefliesContext, CHOAM choam) throws IOException {
+        // Create receipt stores using factory
+        var aggregateStore = ReceiptStoreFactory.createAggregateReceiptStore(
+            receiptConfig,
+            dataSource,
+            null  // metrics will be passed to WitnessReceiptManager
+        );
+
+        var recursiveStore = ReceiptStoreFactory.createRecursiveReceiptStore(
+            receiptConfig,
+            dataSource,
+            null  // metrics will be passed to WitnessReceiptManager
+        );
+
+        // Create WitnessReceiptManager with configured stores
+        var witnessReceiptManager = new WitnessReceiptManager(
+            WitnessParameters.newBuilder()
+                .k(config.committeeSize())
+                .threshold(config.threshold())
+                .epoch(0)
+                .drainPeriod(config.drainPeriod())
+                .build(),
+            null,  // SignatureBuffer (will be enhanced in future phases)
+            null,  // isViewChangeActive (will be enhanced in future phases)
+            null,  // DegradedThresholdCalculator (will be enhanced in future phases)
+            null,  // BLSMetrics (will be created in metricsBootstrap)
+            aggregateStore,
+            recursiveStore
+        );
+
+        log.info("Starting witness service with CHOAM integration");
+
+        // Delegate to full start method with CHOAM
+        start(firefliesContext, witnessReceiptManager, choam);
+    }
+
+    /**
      * Start witness service with external receipt manager (backward compatible).
      * <p>
      * Use this method when you need full control over WitnessReceiptManager
@@ -191,6 +244,24 @@ public class WitnessBootstrap implements AutoCloseable {
      */
     public void start(Context<?> firefliesContext,
                      WitnessReceiptManager witnessReceiptManager) throws IOException {
+        // Delegate to full start method without CHOAM (backward compatible)
+        start(firefliesContext, witnessReceiptManager, null);
+    }
+
+    /**
+     * Start witness service with full configuration (Phase 1A-3-D).
+     * <p>
+     * Internal method that handles both CHOAM-enabled and legacy modes.
+     * Includes recovery logic when CHOAM is provided.
+     *
+     * @param firefliesContext Fireflies consensus context (for committee selection)
+     * @param witnessReceiptManager Receipt manager (Phase 1A-1 component)
+     * @param choam CHOAM instance for persistence (nullable for backward compatibility)
+     * @throws IOException If gRPC server fails to start
+     */
+    private void start(Context<?> firefliesContext,
+                      WitnessReceiptManager witnessReceiptManager,
+                      CHOAM choam) throws IOException {
         // Initialize metrics bootstrap (Phase 1C Byzantine detection metrics)
         metricsBootstrap = new WitnessMetricsBootstrap();
         metricsBootstrap.startReporters();
@@ -227,19 +298,27 @@ public class WitnessBootstrap implements AutoCloseable {
             config.digestAlgorithm()
         );
 
-        // Initialize CHOAM for persistence (placeholder for Phase 1A-2 integration)
-        // In full implementation, this would integrate with real CHOAM
+        // Initialize CHOAM for persistence (Phase 1A-3-D: Real CHOAM integration)
+        var witnessParams = WitnessParameters.newBuilder()
+            .k(config.committeeSize())
+            .threshold(config.threshold())
+            .epoch(0)
+            .drainPeriod(config.drainPeriod())
+            .build();
+
         witnessCHOAM = new WitnessCHOAM(
-            null,  // CHOAM instance (from session)
-            null,  // Session (from CHOAM)
+            choam,  // Real CHOAM instance (or null for backward compatibility)
+            choam != null ? choam.getSession() : null,  // Session from CHOAM
             stateMachine,
-            WitnessParameters.newBuilder()
-                .k(config.committeeSize())
-                .threshold(config.threshold())
-                .epoch(0)
-                .drainPeriod(config.drainPeriod())
-                .build()
+            witnessParams
         );
+
+        // Phase 1A-3-D: Recovery from CHOAM checkpoint if CHOAM is available
+        if (choam != null) {
+            performRecovery(choam, witnessCHOAM);
+        } else {
+            log.warn("CHOAM not provided - running without persistence/recovery");
+        }
 
         // Create migration components for Ed25519 to BLS transition
         var migrationStateTracker = new com.hellblazer.delos.witness.migration.MigrationStateTracker(
@@ -293,6 +372,61 @@ public class WitnessBootstrap implements AutoCloseable {
             30, 30,  // Start after 30s, repeat every 30s
             TimeUnit.SECONDS
         );
+    }
+
+    /**
+     * Perform recovery from CHOAM checkpoint (Phase 1A-3-D).
+     * <p>
+     * Uses WitnessRecoveryManager for:
+     * - Gap detection and handling
+     * - View change recovery
+     * - Retry with exponential backoff
+     * - Circuit breaker for permanent failures
+     * </p>
+     *
+     * @param choam CHOAM instance with checkpoint and block data
+     * @param witnessCHOAM Witness CHOAM instance to recover state into
+     */
+    private void performRecovery(CHOAM choam, WitnessCHOAM witnessCHOAM) {
+        log.info("Starting witness recovery from CHOAM...");
+
+        // Initialize recovery manager if needed
+        if (recoveryManager == null) {
+            recoveryManager = new WitnessRecoveryManager();
+        }
+
+        // Perform recovery with full error handling
+        lastRecoveryResult = recoveryManager.recover(choam, witnessCHOAM);
+
+        // Log result
+        switch (lastRecoveryResult.status()) {
+            case SUCCESS -> log.info("Recovery completed successfully: {} blocks, {} view changes in {}",
+                lastRecoveryResult.blocksReplayed(),
+                lastRecoveryResult.viewChangesProcessed(),
+                lastRecoveryResult.duration());
+
+            case PARTIAL_SUCCESS -> log.warn("Recovery completed with gaps: {} blocks, {} gaps, {} view changes",
+                lastRecoveryResult.blocksReplayed(),
+                lastRecoveryResult.gapsDetected(),
+                lastRecoveryResult.viewChangesProcessed());
+
+            case SKIPPED -> log.info("Recovery skipped - no blocks in CHOAM");
+
+            case FAILED_RETRYABLE -> log.error("Recovery failed (retryable): {}",
+                lastRecoveryResult.errorMessage());
+
+            case FAILED_PERMANENT -> log.error("Recovery failed permanently: {}",
+                lastRecoveryResult.errorMessage());
+
+            case TIMEOUT -> log.error("Recovery timed out after {}",
+                lastRecoveryResult.duration());
+        }
+
+        // If recovery failed, start with clean state
+        if (!lastRecoveryResult.isSuccess() &&
+            lastRecoveryResult.status() != WitnessRecoveryManager.RecoveryStatus.SKIPPED) {
+            log.warn("Starting with clean state due to recovery failure");
+        }
     }
 
     /**
@@ -691,5 +825,42 @@ public class WitnessBootstrap implements AutoCloseable {
      */
     public ByzantineDetectorCoordinator getByzantineCoordinator() {
         return byzantineCoordinator;
+    }
+
+    /**
+     * Get recovery manager (Phase 1A-3-D).
+     * <p>
+     * Manages CHOAM recovery with gap detection, retries, and circuit breaker.
+     * Available after start() completes with CHOAM.
+     * </p>
+     *
+     * @return WitnessRecoveryManager instance
+     */
+    public WitnessRecoveryManager getRecoveryManager() {
+        return recoveryManager;
+    }
+
+    /**
+     * Get last recovery result (Phase 1A-3-D).
+     * <p>
+     * Returns the result from the most recent recovery attempt.
+     * Null if no recovery has been attempted.
+     * </p>
+     *
+     * @return Last recovery result or null
+     */
+    public WitnessRecoveryManager.RecoveryResult getLastRecoveryResult() {
+        return lastRecoveryResult;
+    }
+
+    /**
+     * Check if last recovery was successful (Phase 1A-3-D).
+     *
+     * @return true if last recovery succeeded or was skipped
+     */
+    public boolean isRecoverySuccessful() {
+        return lastRecoveryResult == null ||
+               lastRecoveryResult.isSuccess() ||
+               lastRecoveryResult.status() == WitnessRecoveryManager.RecoveryStatus.SKIPPED;
     }
 }

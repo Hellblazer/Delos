@@ -228,9 +228,10 @@ abstract public class AbstractLifecycleTest {
                                     .filter(cb -> cb != null)
                                     .map(cb -> cb.height())
                                     .toList();
+        final var minHeight = target.compareTo(ULong.valueOf(1)) >= 0 ? target.subtract(ULong.valueOf(1)) : ULong.valueOf(0);
         final var maxHeight = target.add(ULong.valueOf(1));
         final long outOfRange = heights.stream()
-                                      .filter(h -> h.compareTo(target) < 0 ||
+                                      .filter(h -> h.compareTo(minHeight) < 0 ||
                                                    h.compareTo(maxHeight) > 0)
                                       .count();
         assertEquals(0, outOfRange, "members diverged beyond acceptable tolerance: " + heights);

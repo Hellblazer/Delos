@@ -28,6 +28,25 @@ Delos is a **multi-tenant distributed database platform** providing Byzantine fa
 
 ---
 
+## Byzantine Fault Tolerance Model
+
+Delos operates on a Byzantine Fault Tolerance (BFT) security model where:
+
+- **Quorum Threshold**: `3f+1` nodes required (where `f` = max number of simultaneous Byzantine failures)
+- **Fault Tolerance**: Can tolerate up to `f` malicious (Byzantine) nodes for cluster of `n >= 3f+1` nodes
+- **Safety Guarantee**: All honest nodes converge to identical state despite up to `f` Byzantine failures
+- **Liveness Assumption**: Network is partially asynchronous (eventual message delivery)
+
+**Common Configurations**:
+| Nodes (n) | Max Failures (f) | Quorum (2f+1) | BFT Subset | Example |
+|-----------|-----------------|--------------|-----------|---------|
+| 4 | 1 | 3 | 1-4 | Development cluster |
+| 7 | 2 | 5 | 2-4 | Test cluster |
+| 13 | 4 | 9 | 4-5 | Small production |
+| 100+ | 33+ | 67+ | 42 | Large production |
+
+---
+
 ## Layer Architecture
 
 Delos is organized into four logical layers, each building on the layer below:
@@ -169,6 +188,31 @@ graph TD
 
 ---
 
+## Protocol Comparison: Ethereal vs CHOAM vs Fireflies
+
+Three core protocols solve different problems in the consensus stack:
+
+| Aspect | **Ethereal** (Layer 3) | **CHOAM** (Layer 3) | **Fireflies** (Layer 2) |
+|--------|--------|-------|---------|
+| **Purpose** | Asynchronous consensus | State machine replication | Membership & gossip |
+| **Problem Solved** | Total ordering of transactions | Replicated state with view changes | Secure membership discovery |
+| **Consensus Model** | DAG-based (no leader) | Committee-based SMR | BFT gossip + voting |
+| **Unit of Order** | Blocks via DAG validation | Linear transaction log | View changes + membership |
+| **Timing Model** | Asynchronous (no clocks needed) | Partially synchronous | Asynchronous with timeouts |
+| **Quorum Required** | 2f+1 honest nodes in committee | 2f+1 in committee | BFT subset voting (2f+1) |
+| **Key Innovation** | Parallel unit production (no bottleneck) | Committee rotation per view | BFT subset voting reduces voting from 3f+1→13-42 nodes |
+| **Fault Tolerance** | Tolerates f Byzantine nodes | Tolerates f Byzantine nodes | Tolerates f Byzantine nodes |
+| **Output** | Totally ordered blocks | Totally ordered transactions | Stable membership + gossip state |
+| **View Changes** | Implicit (DAG continues) | Explicit (Assemble block) | Explicit (observation voting) |
+
+**How They Work Together**:
+1. **Fireflies** maintains stable membership view (which nodes are in cluster)
+2. **CHOAM** routes transactions to committee, receives ordered blocks from Ethereal
+3. **Ethereal** takes transaction batches, produces totally ordered blocks via DAG consensus
+4. **SQLState** executes blocks deterministically → all nodes identical state
+
+---
+
 ## Module Dependencies
 
 This diagram shows the primary dependencies between major modules:
@@ -232,8 +276,65 @@ graph TD
 **Key Properties**:
 - **Total order**: All nodes see same transaction sequence
 - **Determinism**: Same inputs always produce same outputs
-- **Byzantine fault tolerance**: Works even if f<n/3 nodes are malicious
+- **Byzantine fault tolerance**: Works even if f<n/3 nodes are malicious (requires n >= 3f+1)
 - **Asynchronous**: No timing assumptions required
+
+---
+
+## Deterministic Execution Requirements
+
+For all nodes to achieve identical state despite failures, execution must be **deterministic**:
+
+**Determinism Guarantees in SQL-State**:
+1. **Block hash seeding**: RANDOM(), TIME(), and other non-deterministic functions seeded by block hash
+2. **Single-writer model**: Only CHOAM's totally ordered log can modify state
+3. **Transaction ordering**: All nodes execute same transactions in same sequence
+4. **Identical execution**: Same SQL input → same database output on all nodes
+
+**What's Forbidden** (causes non-determinism):
+- `System.currentTimeMillis()` in stored procedures (use block timestamp)
+- `Math.random()` in SQL functions (use RANDOM(seed) instead)
+- `UUID.randomUUID()` in transactions (deterministic seed required)
+- File I/O, network calls, or external state during transaction execution
+- Concurrent threads with non-deterministic ordering
+
+**How It Works**:
+```
+Block #123 hash: SHA256(abcd...)
+  ↓
+RANDOM(abcd...) in SQL → always same value on all nodes
+TIME() in SQL → uses block timestamp, not system clock
+  ↓
+All nodes execute identical transactions → identical state
+```
+
+---
+
+## Byzantine Fault Tolerance Guarantees Per Layer
+
+**Layer 2 (Fireflies Membership)**:
+- Stable, agreed-upon membership even with f Byzantine members
+- BFT join protocol ensures quorum agreement on new members
+- Gossip with Byzantine ring isolation (malicious nodes confined)
+- View changes via 2f+1 majority voting
+
+**Layer 3 (Ethereal Consensus)**:
+- Total ordering via DAG despite f Byzantine nodes proposing invalid units
+- Invalid units detected via signature verification and cryptographic validation
+- Consensus advances with 2f+1 honest nodes regardless of Byzantine delays
+- No leader bottleneck → Byzantine nodes can't block consensus by stalling
+
+**Layer 3 (CHOAM SMR)**:
+- Committee-based replication ensures linear log despite membership changes
+- View reconfiguration via 2f+1 votes + asynchronous join protocol
+- Blocks delivered via reliable broadcast (gossip + 2/3+1 confirmation)
+- State machine execution deterministic → all nodes identical state
+
+**Layer 4 (SQL-State & Delphinius)**:
+- Identical state across all nodes (no divergence despite Byzantine failures)
+- Relation-based access control enforced on replicated state
+- Corruption detected via state hash comparison
+- Rollback via checkpoint + replay
 
 ---
 
@@ -364,17 +465,41 @@ Provides linearizable operations (sequential consistency).
 
 ### Handling Failures
 
-**Node failure**:
-- Fireflies detects failure via gossip timeout
-- View change proposed and voted on
-- New view excludes failed node
-- Committees rebalanced to maintain quorum
+**Node Crash (Fail-Stop)**:
+1. **Detection**: Fireflies detects via gossip timeout (typically 5-30s)
+2. **Accusation**: Live members accuse failed node (part of gossip protocol)
+3. **Rebuttal Period**: Failed node has window to prove liveness
+4. **View Change**: If no rebuttal, view change vote scheduled
+5. **Voting**: BFT subset votes on new view (excluding failed node)
+6. **Installation**: All nodes install new view, committees rebalanced
+7. **Recovery**: Failed node can rejoin by contacting seed, re-acquiring membership
 
-**Byzantine behavior** (malicious node):
-- Invalid signatures rejected (KERI validation)
-- Consensus requires 3f+1 honest nodes
-- Bloom filter prevents membership lies
-- View voting detects inconsistent observations
+**Byzantine Behavior** (Malicious Node):
+1. **Detection**: Multiple detection mechanisms
+   - Signature verification fails (KERI validation)
+   - Cryptographic hash mismatch
+   - Equivocation detected (two different signatures for same content)
+2. **Response**:
+   - Invalid messages rejected locally
+   - Gossip excludes Byzantine node (Bloom filter + shunning)
+   - Consensus proceeds with 2f+1 honest nodes
+   - If repeated behavior: explicit blacklisting + view change
+3. **Safety Guarantee**: Consensus requires 3f+1 total nodes
+   - Even if f nodes are Byzantine, 2f+1 honest remain
+   - Honest majority ensures convergence
+
+**Network Partition** (Minority Partition):
+- Minority partition can read state but not produce new blocks
+- Majority partition continues consensus (owns the ledger)
+- When partition heals: minority replays partition minority blocks
+- No split-brain: only majority partition's blocks are canonical
+
+**Recovery Process**:
+1. **Checkpoint-Based Sync**: New node loads recent checkpoint (state snapshot)
+2. **Deferred Block Replay**: Blocks after checkpoint replayed (catches up to leader)
+3. **Gossip State Transfer**: Missing blocks acquired via gossip from committee
+4. **View Synchronization**: Joins at next view change via Fireflies join protocol
+5. **State Verification**: Hash comparison confirms identical state as other nodes
 
 ---
 
@@ -394,5 +519,6 @@ Provides linearizable operations (sequential consistency).
 
 ---
 
-**Last updated**: 2026-01-07
-**Version**: 0.0.6-SNAPSHOT
+**Last updated**: 2026-01-27 (Updated with protocol comparison, BFT model, deterministic execution, and recovery details)
+**Version**: 0.0.7
+**Status**: Consolidated with ChromaDB knowledge base (264+ indexed documents)

@@ -1,0 +1,64 @@
+# Prometheus configuration for Delos cluster monitoring
+#
+# Scrapes metrics from all Delos nodes in the Docker Compose cluster.
+# Uses Docker DNS for service discovery.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+  # Attach cluster labels to all time series
+  external_labels:
+    cluster: 'delos-local'
+
+# Alerting configuration
+alerting:
+  alertmanagers: []
+
+# Rule files for alerting
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Bootstrap node (single instance, known hostname)
+  - job_name: 'delos-bootstrap'
+    static_configs:
+      - targets: ['bootstrap:9090']
+        labels:
+          node_type: 'bootstrap'
+          node_role: 'genesis'
+
+  # Kernel nodes (known hostnames)
+  - job_name: 'delos-kernel'
+    static_configs:
+      - targets:
+          - 'kernel1:9090'
+          - 'kernel2:9090'
+          - 'kernel3:9090'
+        labels:
+          node_type: 'kernel'
+          node_role: 'genesis'
+
+  # Member nodes (uses Docker DNS for service discovery)
+  # Note: Docker Compose scaled services use predictable naming
+  - job_name: 'delos-members'
+    dns_sd_configs:
+      - names:
+          - 'tasks.node'
+        type: 'A'
+        port: 9090
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+      - source_labels: []
+        target_label: node_type
+        replacement: 'member'
+      - source_labels: []
+        target_label: node_role
+        replacement: 'participant'

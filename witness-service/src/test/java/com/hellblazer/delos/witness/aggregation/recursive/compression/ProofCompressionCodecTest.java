@@ -242,4 +242,56 @@ class ProofCompressionCodecTest {
             codec.compress(empty, config);
         }, "Should reject empty input");
     }
+
+    // ========== HYBRID Strategy Integration Tests (Phase 3.3.4.3) ==========
+    // Note: Detailed HYBRID compression tests are in HybridStrategyTest.
+    // These tests verify ProofCompressionCodec integration only.
+
+    @Test
+    void testHybridCodecDecoding() {
+        // GIVEN: ProofCompressionCodec
+        var codec = new ProofCompressionCodec();
+
+        // WHEN: Decode HYBRID codec byte (5)
+        // We test via reflection since decodeCodec is private, or indirectly via decompress
+        // For this test, we verify the codec can handle HYBRID codec byte without exception
+
+        // Create compressed data with HYBRID codec header (byte 5)
+        var fakeCompressed = new byte[]{5, 1, 2, 3}; // 5 = HYBRID codec, followed by dummy data
+
+        // THEN: Should recognize HYBRID codec byte and attempt decompression
+        // (will fail on invalid data, but won't throw "invalid codec byte")
+        var exception = assertThrows(CompressionException.class, () -> {
+            codec.decompress(fakeCompressed);
+        });
+
+        // Should fail on decompression, not codec recognition
+        assertFalse(exception.getMessage().contains("Invalid codec byte"),
+                    "Should recognize HYBRID codec byte (5) without throwing invalid codec error");
+    }
+
+    @Test
+    void testHybridStrategyAvailable() {
+        // GIVEN: ProofCompressionCodec
+        // WHEN: Create config with HYBRID codec
+        var config = new CompressionConfig(CompressionCodec.HYBRID, 100, true, 0);
+
+        // THEN: Config should be valid and codec should be recognized
+        assertEquals(CompressionCodec.HYBRID, config.codec(),
+                     "HYBRID codec should be available in CompressionConfig");
+        assertEquals(5, CompressionCodec.HYBRID.getNumber(),
+                     "HYBRID codec should have wire format value 5");
+    }
+
+    @Test
+    void testHybridCodecIsImplemented() {
+        // GIVEN: CompressionCodec enum
+        var codec = com.hellblazer.delos.witness.aggregation.recursive.CompressionCodec.HYBRID;
+
+        // WHEN: Check if implemented
+        var implemented = codec.isImplemented();
+
+        // THEN: HYBRID should now be marked as implemented
+        assertTrue(implemented, "HYBRID codec should be marked as implemented");
+    }
 }
