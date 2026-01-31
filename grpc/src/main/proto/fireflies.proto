@@ -95,12 +95,30 @@ message ViewChangeGossip {
   repeated SignedViewChange updates = 2;
 }
 
+message WitnessReceipt {
+  stereotomy.EventCoords event_coordinates = 1;
+  crypto.Digeste witness_id = 2;
+  int64 timestamp = 3;
+  int32 ring_position = 4;
+}
+
+message SignedWitnessReceipt {
+  WitnessReceipt receipt = 1;
+  crypto.Sig signature = 2;
+}
+
+message ReceiptGossip {
+  crypto.Biff bff = 1;
+  repeated SignedWitnessReceipt updates = 2;
+}
+
 message Digests {
   crypto.Biff identityBff = 1;
   crypto.Biff noteBff = 2;
   crypto.Biff accusationBff = 3;
   crypto.Biff observationBff = 4;
   crypto.Biff joinBiff = 5;
+  crypto.Biff receiptBff = 6;
 }
 
 message Gossip {
@@ -109,6 +127,7 @@ message Gossip {
   AccusationGossip accusations = 4;
   ViewChangeGossip observations = 5;
   JoinGossip joins = 6;
+  ReceiptGossip receipts = 7;
 }
 
 message Update {
