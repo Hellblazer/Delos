@@ -81,6 +81,9 @@ public class WitnessReceiptManager {
     // Phase 1A-3-C.1: Runtime Byzantine quorum enforcement (nullable)
     private volatile RuntimeByzantineValidator byzantineValidator;
 
+    // Phase 1A: Fireflies gossip broadcaster for receipt propagation (nullable)
+    private volatile com.hellblazer.delos.witness.gossip.ReceiptGossipBroadcaster gossipBroadcaster;
+
     // Map: EventCoordinates -> CollectionState
     private final Map<String, CollectionState> collections = new ConcurrentHashMap<>();
 
@@ -203,6 +206,32 @@ public class WitnessReceiptManager {
      */
     public RuntimeByzantineValidator getByzantineValidator() {
         return byzantineValidator;
+    }
+
+    /**
+     * Set the ReceiptGossipBroadcaster for receipt propagation.
+     * <p>
+     * Phase 1A: When set, receipts are broadcast via Fireflies gossip
+     * when M-of-N threshold is achieved. Enables:
+     * <ul>
+     *   <li>Anti-entropy reconciliation across witnesses</li>
+     *   <li>Distributed receipt queries</li>
+     *   <li>Receipt propagation for non-committee members</li>
+     * </ul>
+     *
+     * @param broadcaster The broadcaster instance (nullable to disable)
+     */
+    public void setGossipBroadcaster(com.hellblazer.delos.witness.gossip.ReceiptGossipBroadcaster broadcaster) {
+        this.gossipBroadcaster = broadcaster;
+    }
+
+    /**
+     * Get the ReceiptGossipBroadcaster.
+     *
+     * @return The broadcaster or null if not configured
+     */
+    public com.hellblazer.delos.witness.gossip.ReceiptGossipBroadcaster getGossipBroadcaster() {
+        return gossipBroadcaster;
     }
 
     /**
@@ -703,11 +732,28 @@ public class WitnessReceiptManager {
      * Removes both CollectionState and BLSReceiptAggregator entries.
      * Use this instead of completeCollection() for BLS collections to ensure
      * immediate cleanup instead of waiting for time-based expiration.
+     * <p>
+     * Phase 1A: If gossip broadcaster is configured, broadcasts aggregate receipt
+     * to Fireflies overlay for anti-entropy and distributed queries.
      *
      * @param event Event coordinates
      */
     public void completeBLSCollection(EventCoordinates event) {
         Objects.requireNonNull(event, "event required");
+
+        // Phase 1A: Broadcast receipt before cleanup (if broadcaster configured)
+        if (gossipBroadcaster != null) {
+            try {
+                var aggregateOpt = getAggregateReceipt(event);
+                if (aggregateOpt.isPresent()) {
+                    gossipBroadcaster.broadcast(event, aggregateOpt.get());
+                    log.debug("Broadcast aggregate receipt for event: {}", event);
+                }
+            } catch (Exception e) {
+                // Don't fail completion on broadcast error (best-effort)
+                log.warn("Failed to broadcast receipt for event {}: {}", event, e.getMessage());
+            }
+        }
 
         // Remove CollectionState (same as completeCollection)
         lock.writeLock().lock();
