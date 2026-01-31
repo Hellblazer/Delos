@@ -17,6 +17,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -41,6 +42,7 @@ import java.util.stream.Collectors;
 public class ReceiptAntiEntropyService {
 
     private static final Logger log = LoggerFactory.getLogger(ReceiptAntiEntropyService.class);
+    private static final int MAX_RECEIPTS = 100_000;
 
     private final DigestAlgorithm digestAlgorithm;
     private final double falsePositiveRate;
@@ -51,10 +53,10 @@ public class ReceiptAntiEntropyService {
     private final ReadWriteLock lock;
 
     // Metrics
-    private volatile long receiptsAdded = 0;
-    private volatile long receiptsRemoved = 0;
-    private volatile long bloomFiltersBuilt = 0;
-    private volatile long missingReceiptsIdentified = 0;
+    private final AtomicLong receiptsAdded = new AtomicLong(0);
+    private final AtomicLong receiptsRemoved = new AtomicLong(0);
+    private final AtomicLong bloomFiltersBuilt = new AtomicLong(0);
+    private final AtomicLong missingReceiptsIdentified = new AtomicLong(0);
 
     /**
      * Create anti-entropy service with default parameters.
@@ -97,9 +99,21 @@ public class ReceiptAntiEntropyService {
 
         lock.writeLock().lock();
         try {
+            // Rate limiting: prevent DoS by limiting total receipts
+            if (receiptIndex.size() >= MAX_RECEIPTS && !receiptIndex.containsKey(digest)) {
+                if (log.isWarnEnabled()) {
+                    log.warn("Receipt index at capacity ({}), rejecting new receipt: event={}, witness={}",
+                        MAX_RECEIPTS,
+                        receipt.eventCoordinates(),
+                        receipt.witnessId()
+                    );
+                }
+                return false;
+            }
+
             var previous = receiptIndex.put(digest, receipt);
             if (previous == null) {
-                receiptsAdded++;
+                receiptsAdded.incrementAndGet();
                 if (log.isDebugEnabled()) {
                     log.debug("Added receipt to anti-entropy index: event={}, witness={}, total={}",
                         receipt.eventCoordinates(),
@@ -131,7 +145,7 @@ public class ReceiptAntiEntropyService {
         try {
             var removed = receiptIndex.remove(digest);
             if (removed != null) {
-                receiptsRemoved++;
+                receiptsRemoved.incrementAndGet();
                 if (log.isDebugEnabled()) {
                     log.debug("Removed receipt from anti-entropy index: event={}, total={}",
                         receipt.eventCoordinates(),
@@ -162,10 +176,10 @@ public class ReceiptAntiEntropyService {
 
             receiptIndex.keySet().forEach(bff::add);
 
-            bloomFiltersBuilt++;
+            bloomFiltersBuilt.incrementAndGet();
 
-            if (log.isTraceEnabled()) {
-                log.trace("Built bloom filter: receipts={}, seed={}",
+            if (log.isDebugEnabled()) {
+                log.debug("Built bloom filter: receipts={}, seed={}",
                     receiptIndex.size(),
                     seed
                 );
@@ -201,22 +215,15 @@ public class ReceiptAntiEntropyService {
         lock.readLock().lock();
         try {
             var peerBff = BloomFilter.<Digest>from(peerBloomFilter);
-            var missing = new ArrayList<GossipableReceipt>(Math.min(maxReceipts, receiptIndex.size()));
 
-            for (var entry : receiptIndex.entrySet()) {
-                if (missing.size() >= maxReceipts) {
-                    break;
-                }
-
-                var digest = entry.getKey();
-                var receipt = entry.getValue();
-
-                // If peer's bloom filter doesn't contain this digest, they're missing it
-                if (!peerBff.contains(digest)) {
-                    missing.add(receipt);
-                    missingReceiptsIdentified++;
-                }
-            }
+            var missing = receiptIndex.entrySet().stream()
+                .filter(entry -> !peerBff.contains(entry.getKey()))
+                .limit(maxReceipts)
+                .map(entry -> {
+                    missingReceiptsIdentified.incrementAndGet();
+                    return entry.getValue();
+                })
+                .toList();
 
             if (log.isDebugEnabled() && !missing.isEmpty()) {
                 log.debug("Identified {} missing receipts for peer (max: {}, total: {})",
@@ -245,6 +252,11 @@ public class ReceiptAntiEntropyService {
      * @throws NullPointerException if peerBloomFilter is null
      */
     public ReceiptGossip buildGossipResponse(Biff peerBloomFilter, int maxReceipts, long seed) {
+        Objects.requireNonNull(peerBloomFilter, "peerBloomFilter required");
+        if (maxReceipts < 0) {
+            throw new IllegalArgumentException("maxReceipts must be non-negative: " + maxReceipts);
+        }
+
         var missingReceipts = identifyMissingReceipts(peerBloomFilter, maxReceipts);
         var knownDigests = getKnownDigests();
 
@@ -286,7 +298,7 @@ public class ReceiptAntiEntropyService {
      * @return Count of receipts added
      */
     public long getReceiptsAdded() {
-        return receiptsAdded;
+        return receiptsAdded.get();
     }
 
     /**
@@ -295,7 +307,7 @@ public class ReceiptAntiEntropyService {
      * @return Count of receipts removed
      */
     public long getReceiptsRemoved() {
-        return receiptsRemoved;
+        return receiptsRemoved.get();
     }
 
     /**
@@ -304,7 +316,7 @@ public class ReceiptAntiEntropyService {
      * @return Count of bloom filters built
      */
     public long getBloomFiltersBuilt() {
-        return bloomFiltersBuilt;
+        return bloomFiltersBuilt.get();
     }
 
     /**
@@ -313,17 +325,17 @@ public class ReceiptAntiEntropyService {
      * @return Count of missing receipts identified
      */
     public long getMissingReceiptsIdentified() {
-        return missingReceiptsIdentified;
+        return missingReceiptsIdentified.get();
     }
 
     /**
      * Reset metrics counters (for testing).
      */
-    public void resetMetrics() {
-        receiptsAdded = 0;
-        receiptsRemoved = 0;
-        bloomFiltersBuilt = 0;
-        missingReceiptsIdentified = 0;
+    void resetMetrics() {
+        receiptsAdded.set(0);
+        receiptsRemoved.set(0);
+        bloomFiltersBuilt.set(0);
+        missingReceiptsIdentified.set(0);
     }
 
     /**

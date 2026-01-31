@@ -12,6 +12,8 @@ import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.cryptography.JohnHancock;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -36,6 +38,8 @@ import java.util.Set;
  * @since Phase 1A (Fireflies-KERI Integration)
  */
 public final class ReceiptGossipCodec {
+
+    private static final Logger log = LoggerFactory.getLogger(ReceiptGossipCodec.class);
 
     private ReceiptGossipCodec() {
         // Utility class - no instantiation
@@ -212,8 +216,9 @@ public final class ReceiptGossipCodec {
                 receipts.add(receipt);
             } catch (Exception e) {
                 // Log malformed receipt but continue processing others
-                // In production, would use SLF4J logger
-                System.err.println("Skipping malformed receipt in gossip: " + e.getMessage());
+                if (log.isDebugEnabled()) {
+                    log.debug("Skipping malformed receipt in gossip", e);
+                }
             }
         }
 
@@ -223,12 +228,22 @@ public final class ReceiptGossipCodec {
     /**
      * Compute digest of a receipt for Bloom filter anti-entropy.
      * <p>
-     * Digest uniquely identifies a receipt for deduplication.
-     * Combines event coordinates and witness ID to create unique key.
+     * Digest uniquely identifies a receipt for deduplication by combining:
+     * <ul>
+     *   <li>Event digest (identifies which event was witnessed)</li>
+     *   <li>Witness ID (identifies which witness signed the receipt)</li>
+     * </ul>
+     * <p>
+     * This composite key ensures that multiple witnesses can provide receipts
+     * for the same event, and each receipt is tracked independently. The digest
+     * is used in bloom filters to efficiently identify missing receipts during
+     * anti-entropy reconciliation.
+     * <p>
+     * Computation: hash(event_digest_bytes || witness_id_bytes)
      *
      * @param receipt         Receipt to digest
-     * @param digestAlgorithm Algorithm to use
-     * @return Receipt digest for Bloom filter
+     * @param digestAlgorithm Algorithm to use for hashing
+     * @return Receipt digest for Bloom filter and deduplication
      * @throws NullPointerException if any parameter is null
      */
     public static Digest digestOf(GossipableReceipt receipt, DigestAlgorithm digestAlgorithm) {

@@ -359,6 +359,70 @@ class ReceiptAntiEntropyServiceTest {
         // Bloom filter size should reflect minimum cardinality
     }
 
+    // Byzantine Fault Tests
+
+    @Test
+    void testRateLimitPreventsReceiptFlooding() {
+        // Given: Service at max capacity
+        for (int i = 0; i < 100_000; i++) {
+            service.addReceipt(createTestReceipt(i));
+        }
+        assertEquals(100_000, service.getReceiptCount());
+
+        // When: Byzantine node attempts to flood with additional receipts
+        var floodReceipt = createTestReceipt(200_000);
+        var added = service.addReceipt(floodReceipt);
+
+        // Then: Receipt rejected (rate limited)
+        assertFalse(added, "Should reject receipt when at MAX_RECEIPTS capacity");
+        assertEquals(100_000, service.getReceiptCount(), "Should not exceed MAX_RECEIPTS");
+
+        // When: Update existing receipt (should still work)
+        var existingReceipt = createTestReceipt(50);
+        var updated = service.addReceipt(existingReceipt);
+
+        // Then: Update allowed (same digest)
+        assertFalse(updated, "Should allow updates to existing receipts");
+    }
+
+    @Test
+    void testParameterValidationPreventsInvalidInput() {
+        // Given: Service with receipts
+        service.addReceipt(createTestReceipt(0));
+        var bff = service.buildBloomFilter(SEED);
+
+        // When/Then: Invalid maxReceipts rejected
+        assertThrows(IllegalArgumentException.class, () -> {
+            service.buildGossipResponse(bff, -1, SEED);
+        }, "Should reject negative maxReceipts");
+
+        // When/Then: Null bloom filter rejected
+        assertThrows(NullPointerException.class, () -> {
+            service.buildGossipResponse(null, 10, SEED);
+        }, "Should reject null bloom filter");
+
+        // When/Then: Zero maxReceipts allowed (valid edge case)
+        var gossip = service.buildGossipResponse(bff, 0, SEED);
+        assertNotNull(gossip);
+        assertEquals(0, gossip.getUpdatesCount(), "Should return no receipts when maxReceipts=0");
+    }
+
+    @Test
+    void testEmptyPeerBloomFilterDoesNotCauseCrash() {
+        // Given: Service with receipts
+        for (int i = 0; i < 1000; i++) {
+            service.addReceipt(createTestReceipt(i));
+        }
+
+        // When: Peer sends empty bloom filter (Byzantine or misconfigured)
+        var emptyBff = new BloomFilter.DigestBloomFilter(SEED, 1, 0.01);
+        var missing = service.identifyMissingReceipts(emptyBff.toBff(), 100);
+
+        // Then: Should identify limited number of missing receipts without crash
+        assertEquals(100, missing.size(), "Should respect maxReceipts limit");
+        assertEquals(100, service.getMissingReceiptsIdentified());
+    }
+
     // Test Helpers
 
     private GossipableReceipt createTestReceipt(int variant) {
