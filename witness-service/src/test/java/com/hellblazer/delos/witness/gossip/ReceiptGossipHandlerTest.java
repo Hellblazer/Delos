@@ -29,6 +29,7 @@ import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -42,6 +43,15 @@ import static org.junit.jupiter.api.Assertions.*;
 class ReceiptGossipHandlerTest {
 
     private static final DigestAlgorithm DIGEST_ALGO = DigestAlgorithm.DEFAULT;
+    private static final long BLOOM_SEED = 42L;
+    private static final double BLOOM_FPR = 0.01;
+
+    // Helper to create known digests set from receipts
+    private static Set<Digest> knownDigestsFrom(List<GossipableReceipt> receipts) {
+        return receipts.stream()
+                       .map(r -> ReceiptGossipCodec.digestOf(r, DIGEST_ALGO))
+                       .collect(Collectors.toSet());
+    }
 
     private WitnessReceiptManager receiptManager;
     private ReceiptGossipHandler handler;
@@ -89,7 +99,9 @@ class ReceiptGossipHandlerTest {
 
         var gossip = ReceiptGossipCodec.toReceiptGossip(
             receipts,
-            new byte[]{1, 2, 3},
+            knownDigestsFrom(receipts),
+            BLOOM_SEED,
+            BLOOM_FPR,
             DIGEST_ALGO
         );
 
@@ -116,9 +128,12 @@ class ReceiptGossipHandlerTest {
 
         // Given: Gossip with receipts
         var receipt = createTestReceipt(0);
+        var receipts = List.of(receipt);
         var gossip = ReceiptGossipCodec.toReceiptGossip(
-            List.of(receipt),
-            new byte[]{1, 2, 3},
+            receipts,
+            knownDigestsFrom(receipts),
+            BLOOM_SEED,
+            BLOOM_FPR,
             DIGEST_ALGO
         );
 
@@ -142,11 +157,13 @@ class ReceiptGossipHandlerTest {
 
         var gossip = ReceiptGossipCodec.toReceiptGossip(
             receipts,
-            new byte[]{1, 2, 3},
+            knownDigestsFrom(receipts),
+            BLOOM_SEED,
+            BLOOM_FPR,
             DIGEST_ALGO
         );
 
-        // Given: receipt2 is already known
+        // Given: receipt2 is already known (for anti-entropy test)
         var knownDigests = new HashSet<Digest>();
         knownDigests.add(ReceiptGossipCodec.digestOf(receipt2, DIGEST_ALGO));
 
@@ -170,7 +187,9 @@ class ReceiptGossipHandlerTest {
         var receipt1 = createTestReceipt(0);
         var gossip1 = ReceiptGossipCodec.toReceiptGossip(
             List.of(receipt1),
-            new byte[]{1},
+            knownDigestsFrom(List.of(receipt1)),
+            BLOOM_SEED,
+            BLOOM_FPR,
             DIGEST_ALGO
         );
         handler.handleGossip(gossip1, null);
@@ -185,7 +204,9 @@ class ReceiptGossipHandlerTest {
         var receipt3 = createTestReceipt(2);
         var gossip2 = ReceiptGossipCodec.toReceiptGossip(
             List.of(receipt2, receipt3),
-            new byte[]{2},
+            knownDigestsFrom(List.of(receipt2, receipt3)),
+            BLOOM_SEED,
+            BLOOM_FPR,
             DIGEST_ALGO
         );
         handler.handleGossip(gossip2, null);
@@ -220,7 +241,9 @@ class ReceiptGossipHandlerTest {
 
         var gossip = ReceiptGossipCodec.toReceiptGossip(
             receipts,
-            new byte[]{1, 2, 3},
+            knownDigestsFrom(receipts),
+            BLOOM_SEED,
+            BLOOM_FPR,
             DIGEST_ALGO
         );
 
@@ -249,7 +272,9 @@ class ReceiptGossipHandlerTest {
         var receipt = createTestReceipt(0);
         var gossip = ReceiptGossipCodec.toReceiptGossip(
             List.of(receipt),
-            new byte[]{1},
+            knownDigestsFrom(List.of(receipt)),
+            BLOOM_SEED,
+            BLOOM_FPR,
             DIGEST_ALGO
         );
 

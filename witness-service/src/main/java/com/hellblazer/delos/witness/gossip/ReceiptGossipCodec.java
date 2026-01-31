@@ -7,6 +7,7 @@
  */
 package com.hellblazer.delos.witness.gossip;
 
+import com.hellblazer.delos.bloomFilters.BloomFilter;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.cryptography.JohnHancock;
@@ -16,6 +17,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Codec for converting between domain witness receipts and Fireflies gossip proto messages.
@@ -147,20 +149,27 @@ public final class ReceiptGossipCodec {
      * <p>
      * Creates a gossip message with Bloom filter for anti-entropy and
      * list of signed receipts for propagation.
+     * <p>
+     * The bloom filter contains digests of all known receipts (not just the ones
+     * being gossiped), allowing receivers to identify which receipts they're missing.
      *
-     * @param receipts        Receipts to gossip
-     * @param bloomFilter     Bloom filter of all known receipt digests (for anti-entropy)
-     * @param digestAlgorithm Algorithm used for Bloom filter
+     * @param receipts              Receipts to gossip
+     * @param knownReceiptDigests   Digests of all receipts known to sender (for anti-entropy)
+     * @param seed                  Random seed for bloom filter hash functions
+     * @param falsePositiveRate     Desired false positive rate (e.g., 0.01 for 1%)
+     * @param digestAlgorithm       Algorithm used to compute receipt digests
      * @return ReceiptGossip proto ready for Fireflies gossip round
      * @throws NullPointerException if any parameter is null
      */
     public static com.hellblazer.delos.fireflies.proto.ReceiptGossip toReceiptGossip(
         List<GossipableReceipt> receipts,
-        byte[] bloomFilter,
+        Set<Digest> knownReceiptDigests,
+        long seed,
+        double falsePositiveRate,
         DigestAlgorithm digestAlgorithm
     ) {
         Objects.requireNonNull(receipts, "receipts required");
-        Objects.requireNonNull(bloomFilter, "bloomFilter required");
+        Objects.requireNonNull(knownReceiptDigests, "knownReceiptDigests required");
         Objects.requireNonNull(digestAlgorithm, "digestAlgorithm required");
 
         // Convert receipts to signed protos
@@ -168,11 +177,13 @@ public final class ReceiptGossipCodec {
                                       .map(ReceiptGossipCodec::toSignedProto)
                                       .toList();
 
-        // Create Bloom filter proto (Biff) - using empty for now
-        var biffProto = com.hellblazer.delos.cryptography.proto.Biff.getDefaultInstance();
+        // Build bloom filter from known receipt digests
+        var n = Math.max(10, knownReceiptDigests.size()); // Minimum cardinality for empty sets
+        var bff = new BloomFilter.DigestBloomFilter(seed, n, falsePositiveRate);
+        knownReceiptDigests.forEach(bff::add);
 
         return com.hellblazer.delos.fireflies.proto.ReceiptGossip.newBuilder()
-                            .setBff(biffProto)
+                            .setBff(bff.toBff())
                             .addAllUpdates(signedReceipts)
                             .build();
     }
@@ -240,5 +251,64 @@ public final class ReceiptGossipCodec {
         );
 
         return digestAlgorithm.digest(combined);
+    }
+
+    /**
+     * Check if sender likely has a receipt based on bloom filter.
+     * <p>
+     * Used for anti-entropy: if bloom filter contains the receipt digest,
+     * the sender likely already has it (subject to false positive rate).
+     * <p>
+     * Note: Bloom filters can have false positives but never false negatives.
+     * If this returns false, sender definitely doesn't have the receipt.
+     * If this returns true, sender probably has it (but might not due to FPR).
+     *
+     * @param gossip          Gossip message containing bloom filter
+     * @param receipt         Receipt to check
+     * @param digestAlgorithm Algorithm used for digest
+     * @return true if sender likely has this receipt
+     * @throws NullPointerException if any parameter is null
+     */
+    public static boolean senderHasReceipt(
+        com.hellblazer.delos.fireflies.proto.ReceiptGossip gossip,
+        GossipableReceipt receipt,
+        DigestAlgorithm digestAlgorithm
+    ) {
+        Objects.requireNonNull(gossip, "gossip required");
+        Objects.requireNonNull(receipt, "receipt required");
+        Objects.requireNonNull(digestAlgorithm, "digestAlgorithm required");
+
+        if (!gossip.hasBff()) {
+            return false; // No bloom filter = sender has nothing
+        }
+
+        var bff = BloomFilter.<Digest>from(gossip.getBff());
+        var receiptDigest = digestOf(receipt, digestAlgorithm);
+        return bff.contains(receiptDigest);
+    }
+
+    /**
+     * Check if sender likely has a receipt digest based on bloom filter.
+     * <p>
+     * Used for anti-entropy when you already have the digest computed.
+     *
+     * @param gossip Gossip message containing bloom filter
+     * @param digest Receipt digest to check
+     * @return true if sender likely has this receipt
+     * @throws NullPointerException if any parameter is null
+     */
+    public static boolean senderHasReceipt(
+        com.hellblazer.delos.fireflies.proto.ReceiptGossip gossip,
+        Digest digest
+    ) {
+        Objects.requireNonNull(gossip, "gossip required");
+        Objects.requireNonNull(digest, "digest required");
+
+        if (!gossip.hasBff()) {
+            return false; // No bloom filter = sender has nothing
+        }
+
+        var bff = BloomFilter.<Digest>from(gossip.getBff());
+        return bff.contains(digest);
     }
 }

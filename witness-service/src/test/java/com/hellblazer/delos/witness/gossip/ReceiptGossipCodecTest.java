@@ -20,7 +20,10 @@ import org.joou.ULong;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
@@ -36,6 +39,15 @@ import static org.junit.jupiter.api.Assertions.*;
 class ReceiptGossipCodecTest {
 
     private static final DigestAlgorithm DIGEST_ALGO = DigestAlgorithm.DEFAULT;
+    private static final long BLOOM_SEED = 42L;
+    private static final double BLOOM_FPR = 0.01; // 1% false positive rate
+
+    // Helper to create known digests set from receipts
+    private static Set<Digest> knownDigestsFrom(List<GossipableReceipt> receipts) {
+        return receipts.stream()
+                       .map(r -> ReceiptGossipCodec.digestOf(r, DIGEST_ALGO))
+                       .collect(Collectors.toSet());
+    }
 
     @Test
     void testToProto_validReceipt() {
@@ -132,15 +144,20 @@ class ReceiptGossipCodecTest {
         var receipt2 = createTestReceipt(1);
         var receipt3 = createTestReceipt(2);
         var receipts = List.of(receipt1, receipt2, receipt3);
-        var bloomFilter = new byte[]{1, 2, 3, 4}; // Mock Bloom filter
+        var knownDigests = knownDigestsFrom(receipts);
 
-        // When: Converting to gossip proto
-        var gossip = ReceiptGossipCodec.toReceiptGossip(receipts, bloomFilter, DIGEST_ALGO);
+        // When: Converting to gossip proto with bloom filter
+        var gossip = ReceiptGossipCodec.toReceiptGossip(receipts, knownDigests, BLOOM_SEED, BLOOM_FPR, DIGEST_ALGO);
 
-        // Then: Contains all receipts and Bloom filter
+        // Then: Contains all receipts and populated Bloom filter
         assertNotNull(gossip);
         assertTrue(gossip.hasBff());
         assertEquals(3, gossip.getUpdatesCount());
+
+        // Verify bloom filter is populated
+        var bff = gossip.getBff();
+        assertTrue(bff.getBitsCount() > 0, "Bloom filter should be populated");
+        assertEquals(BLOOM_SEED, bff.getSeed(), "Bloom filter should use provided seed");
     }
 
     @Test
@@ -150,8 +167,8 @@ class ReceiptGossipCodecTest {
         var original2 = createTestReceipt(1);
         var original3 = createTestReceipt(2);
         var originals = List.of(original1, original2, original3);
-        var bloomFilter = new byte[]{1, 2, 3, 4};
-        var gossipProto = ReceiptGossipCodec.toReceiptGossip(originals, bloomFilter, DIGEST_ALGO);
+        var knownDigests = knownDigestsFrom(originals);
+        var gossipProto = ReceiptGossipCodec.toReceiptGossip(originals, knownDigests, BLOOM_SEED, BLOOM_FPR, DIGEST_ALGO);
 
         // When: Converting from gossip proto
         var reconstructed = ReceiptGossipCodec.fromReceiptGossip(gossipProto);
@@ -172,10 +189,10 @@ class ReceiptGossipCodecTest {
             createTestReceipt(1),
             createTestReceipt(2)
         );
-        var bloomFilter = new byte[]{1, 2, 3, 4};
+        var knownDigests = knownDigestsFrom(originals);
 
         // When: Round-trip through gossip proto
-        var gossipProto = ReceiptGossipCodec.toReceiptGossip(originals, bloomFilter, DIGEST_ALGO);
+        var gossipProto = ReceiptGossipCodec.toReceiptGossip(originals, knownDigests, BLOOM_SEED, BLOOM_FPR, DIGEST_ALGO);
         var reconstructed = ReceiptGossipCodec.fromReceiptGossip(gossipProto);
 
         // Then: All receipts perfectly reconstructed
@@ -281,11 +298,11 @@ class ReceiptGossipCodecTest {
         assertThrows(NullPointerException.class, () -> ReceiptGossipCodec.toSignedProto(null));
         assertThrows(NullPointerException.class, () -> ReceiptGossipCodec.fromSignedProto(null));
         assertThrows(NullPointerException.class, () ->
-            ReceiptGossipCodec.toReceiptGossip(null, new byte[]{}, DIGEST_ALGO));
+            ReceiptGossipCodec.toReceiptGossip(null, Set.of(), BLOOM_SEED, BLOOM_FPR, DIGEST_ALGO));
         assertThrows(NullPointerException.class, () ->
-            ReceiptGossipCodec.toReceiptGossip(List.of(), null, DIGEST_ALGO));
+            ReceiptGossipCodec.toReceiptGossip(List.of(), null, BLOOM_SEED, BLOOM_FPR, DIGEST_ALGO));
         assertThrows(NullPointerException.class, () ->
-            ReceiptGossipCodec.toReceiptGossip(List.of(), new byte[]{}, null));
+            ReceiptGossipCodec.toReceiptGossip(List.of(), Set.of(), BLOOM_SEED, BLOOM_FPR, null));
         assertThrows(NullPointerException.class, () ->
             ReceiptGossipCodec.fromReceiptGossip(null));
         assertThrows(NullPointerException.class, () ->

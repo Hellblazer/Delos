@@ -32,6 +32,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -46,6 +47,15 @@ import static org.junit.jupiter.api.Assertions.*;
 class ReceiptGossipIntegrationTest {
 
     private static final DigestAlgorithm DIGEST_ALGO = DigestAlgorithm.DEFAULT;
+    private static final long BLOOM_SEED = 42L;
+    private static final double BLOOM_FPR = 0.01;
+
+    // Helper to create known digests set from receipts
+    private static Set<Digest> knownDigestsFrom(List<GossipableReceipt> receipts) {
+        return receipts.stream()
+                       .map(r -> ReceiptGossipCodec.digestOf(r, DIGEST_ALGO))
+                       .collect(Collectors.toSet());
+    }
 
     private WitnessReceiptManager receiptManager;
     private ReceiptGossipHandler handler;
@@ -77,7 +87,7 @@ class ReceiptGossipIntegrationTest {
         );
 
         // When: Encode to gossip
-        var gossip = ReceiptGossipCodec.toReceiptGossip(receipts, new byte[]{1, 2, 3}, DIGEST_ALGO);
+        var gossip = ReceiptGossipCodec.toReceiptGossip(receipts, knownDigestsFrom(receipts), BLOOM_SEED, BLOOM_FPR, DIGEST_ALGO);
 
         // And: Decode and handle gossip
         var processed = handler.handleGossip(gossip, null);
@@ -122,7 +132,7 @@ class ReceiptGossipIntegrationTest {
         knownDigests.add(ReceiptGossipCodec.digestOf(receipts.get(3), DIGEST_ALGO));
 
         // When: Process gossip with anti-entropy filter
-        var gossip = ReceiptGossipCodec.toReceiptGossip(receipts, new byte[]{1, 2, 3}, DIGEST_ALGO);
+        var gossip = ReceiptGossipCodec.toReceiptGossip(receipts, knownDigestsFrom(receipts), BLOOM_SEED, BLOOM_FPR, DIGEST_ALGO);
         var processed = handler.handleGossip(gossip, knownDigests);
 
         // Then: Only unknown receipts processed (0, 2, 4)
@@ -150,7 +160,7 @@ class ReceiptGossipIntegrationTest {
         var receipts = List.of(validReceipt, staleReceipt);
 
         // When: Process gossip
-        var gossip = ReceiptGossipCodec.toReceiptGossip(receipts, new byte[]{1, 2, 3}, DIGEST_ALGO);
+        var gossip = ReceiptGossipCodec.toReceiptGossip(receipts, knownDigestsFrom(receipts), BLOOM_SEED, BLOOM_FPR, DIGEST_ALGO);
         var processed = handler.handleGossip(gossip, null);
 
         // Then: Only valid receipt processed
@@ -195,8 +205,8 @@ class ReceiptGossipIntegrationTest {
         var batch1 = List.of(createTestReceipt(0), createTestReceipt(1));
         var batch2 = List.of(createTestReceipt(2), createTestReceipt(3), createTestReceipt(4));
 
-        var gossip1 = ReceiptGossipCodec.toReceiptGossip(batch1, new byte[]{1}, DIGEST_ALGO);
-        var gossip2 = ReceiptGossipCodec.toReceiptGossip(batch2, new byte[]{2}, DIGEST_ALGO);
+        var gossip1 = ReceiptGossipCodec.toReceiptGossip(batch1, knownDigestsFrom(batch1), BLOOM_SEED, BLOOM_FPR, DIGEST_ALGO);
+        var gossip2 = ReceiptGossipCodec.toReceiptGossip(batch2, knownDigestsFrom(batch2), BLOOM_SEED, BLOOM_FPR, DIGEST_ALGO);
 
         handler.handleGossip(gossip1, null);
         handler.handleGossip(gossip2, null);
@@ -229,7 +239,9 @@ class ReceiptGossipIntegrationTest {
 
                     var gossip = ReceiptGossipCodec.toReceiptGossip(
                         receipts,
-                        new byte[]{(byte) batchId},
+                        knownDigestsFrom(receipts),
+                        BLOOM_SEED,
+                        BLOOM_FPR,
                         DIGEST_ALGO
                     );
 
@@ -283,7 +295,7 @@ class ReceiptGossipIntegrationTest {
             createTestReceipt(4)   // Will fail (even)
         );
 
-        var gossip = ReceiptGossipCodec.toReceiptGossip(receipts, new byte[]{1, 2, 3}, DIGEST_ALGO);
+        var gossip = ReceiptGossipCodec.toReceiptGossip(receipts, knownDigestsFrom(receipts), BLOOM_SEED, BLOOM_FPR, DIGEST_ALGO);
         var processed = errorHandler.handleGossip(gossip, null);
 
         // Then: Processing continues despite failures
@@ -302,7 +314,9 @@ class ReceiptGossipIntegrationTest {
         // Given: Empty gossip
         var emptyGossip = ReceiptGossipCodec.toReceiptGossip(
             List.of(),
-            new byte[]{1, 2, 3},
+            Set.of(), // Empty known digests
+            BLOOM_SEED,
+            BLOOM_FPR,
             DIGEST_ALGO
         );
 
@@ -326,7 +340,7 @@ class ReceiptGossipIntegrationTest {
             createTestReceiptAtTime(2, now)
         );
 
-        var gossip = ReceiptGossipCodec.toReceiptGossip(receipts, new byte[]{1, 2, 3}, DIGEST_ALGO);
+        var gossip = ReceiptGossipCodec.toReceiptGossip(receipts, knownDigestsFrom(receipts), BLOOM_SEED, BLOOM_FPR, DIGEST_ALGO);
 
         // When: Extract bloom filter from gossip
         var bff = gossip.getBff();
@@ -363,7 +377,7 @@ class ReceiptGossipIntegrationTest {
         var receipts = List.of(freshReceipt, slightlyOldReceipt, veryOldReceipt);
 
         // When: Process with strict validator
-        var gossip = ReceiptGossipCodec.toReceiptGossip(receipts, new byte[]{1, 2, 3}, DIGEST_ALGO);
+        var gossip = ReceiptGossipCodec.toReceiptGossip(receipts, knownDigestsFrom(receipts), BLOOM_SEED, BLOOM_FPR, DIGEST_ALGO);
         var processed = strictHandler.handleGossip(gossip, null);
 
         // Then: Only fresh and slightly old receipts pass
