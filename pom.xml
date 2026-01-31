@@ -32,7 +32,6 @@
         <module>stereotomy-services</module>
         <module>thoth</module>
         <module>witness-service</module>
-        <module>fireflies-keri-service</module>
 
         <!-- gRPC and other infrastructure -->
         <module>grpc</module>
@@ -153,11 +152,6 @@
             <dependency>
                 <groupId>com.hellblazer.delos</groupId>
                 <artifactId>thoth</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.hellblazer.delos</groupId>
-                <artifactId>fireflies-keri-service</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
