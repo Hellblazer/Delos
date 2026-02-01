@@ -688,7 +688,7 @@ class Phase1B3PerformanceTest {
     private boolean validateBlsSignature(byte[] signature) {
         // Simulate BLS signature validation
         // In real implementation, this would call BLS verification
-        metrics.getBlsValidationsCounter().inc();
+        metrics.recordBlsValidation();
         return signature != null && signature.length == 64;
     }
 
@@ -727,8 +727,8 @@ class Phase1B3PerformanceTest {
             10,
             10,
             detector.getShunnedMemberCount(),
-            metrics.getBlsValidationsCounter().getCount(),
-            metrics.getBlsFailuresCounter().getCount(),
+            metrics.getBlsValidationsCount(),
+            metrics.getBlsFailuresCount(),
             false
         );
     }

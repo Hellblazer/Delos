@@ -86,8 +86,8 @@ public final class Phase1B3HealthProviderImpl implements Phase1B3HealthProvider 
             readinessChecker.getRegisteredMemberCount(),
             readinessChecker.getTotalMemberCount(),
             detector.getShunnedMemberCount(),
-            metrics.getBlsValidationsCounter().getCount(),
-            metrics.getBlsFailuresCounter().getCount(),
+            metrics.getBlsValidationsCount(),
+            metrics.getBlsFailuresCount(),
             transitionInProgress
         );
     }

@@ -18,6 +18,7 @@ import com.codahale.metrics.Timer;
 import com.codahale.metrics.Counter;
 import com.codahale.metrics.MetricRegistry;
 
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -116,43 +117,51 @@ public class WitnessMetrics {
     }
 
     /**
-     * Get histogram for receipt collection latency (ms).
+     * Record receipt collection latency (ms).
      * <p>
      * Measures time from event signing to M-of-N threshold achieved.
      * </p>
+     *
+     * @param latencyMillis latency in milliseconds
      */
-    public Histogram receiptCollectionLatency() {
-        return receiptCollectionLatency;
+    public void recordReceiptCollectionLatency(long latencyMillis) {
+        receiptCollectionLatency.update(latencyMillis);
     }
 
     /**
-     * Get histogram for receipt gossip latency (ms).
+     * Record receipt gossip latency (ms).
      * <p>
      * Measures time from threshold achievement to cluster-wide propagation.
      * </p>
+     *
+     * @param latencyMillis latency in milliseconds
      */
-    public Histogram receiptGossipLatency() {
-        return receiptGossipLatency;
+    public void recordReceiptGossipLatency(long latencyMillis) {
+        receiptGossipLatency.update(latencyMillis);
     }
 
     /**
-     * Get timer for view change coordination (ms).
+     * Record view change coordination duration (ms).
      * <p>
      * Measures drain period + member set propagation during reconfiguration.
      * </p>
+     *
+     * @param durationNanos duration in nanoseconds
      */
-    public Timer viewChangeCoordinationTime() {
-        return viewChangeCoordinationTime;
+    public void recordViewChangeCoordinationDuration(long durationNanos) {
+        viewChangeCoordinationTime.update(durationNanos, TimeUnit.NANOSECONDS);
     }
 
     /**
-     * Get timer for committee selection (μs).
+     * Record committee selection duration (μs).
      * <p>
      * Measures latency of bftSubset() deterministic committee selection.
      * </p>
+     *
+     * @param durationNanos duration in nanoseconds
      */
-    public Timer committeeSelectionTime() {
-        return committeeSelectionTime;
+    public void recordCommitteeSelectionDuration(long durationNanos) {
+        committeeSelectionTime.update(durationNanos, TimeUnit.NANOSECONDS);
     }
 
     /**
@@ -218,47 +227,82 @@ public class WitnessMetrics {
     }
 
     /**
-     * Get Byzantine shunned counter.
-     *
-     * @return counter for members shunned due to Byzantine behavior
+     * Record a Byzantine member being shunned.
      */
-    public Counter getByzantineShunnedCounter() {
-        return byzantineShunned;
+    public void recordByzantineShunned() {
+        byzantineShunned.inc();
     }
 
     /**
-     * Get BLS failures counter.
-     *
-     * @return counter for BLS signature validation failures
+     * Record a BLS signature validation failure.
      */
-    public Counter getBlsFailuresCounter() {
-        return blsFailures;
+    public void recordBlsFailure() {
+        blsFailures.inc();
     }
 
     /**
-     * Get BLS validations counter.
-     *
-     * @return counter for total BLS signature validations
+     * Record a BLS signature validation.
      */
-    public Counter getBlsValidationsCounter() {
-        return blsValidations;
+    public void recordBlsValidation() {
+        blsValidations.inc();
     }
 
     /**
-     * Get registration attempts counter.
-     *
-     * @return counter for BLS key registration attempts
+     * Record a BLS key registration attempt.
      */
-    public Counter getRegistrationAttemptsCounter() {
-        return registrationAttempts;
+    public void recordRegistrationAttempt() {
+        registrationAttempts.inc();
     }
 
     /**
-     * Get registration successes counter.
-     *
-     * @return counter for successful BLS key registrations
+     * Record a successful BLS key registration.
      */
-    public Counter getRegistrationSuccessesCounter() {
-        return registrationSuccesses;
+    public void recordRegistrationSuccess() {
+        registrationSuccesses.inc();
+    }
+
+    /**
+     * Get count of Byzantine members shunned.
+     *
+     * @return total count of members shunned
+     */
+    public long getByzantineShunnedCount() {
+        return byzantineShunned.getCount();
+    }
+
+    /**
+     * Get count of BLS signature validation failures.
+     *
+     * @return total count of validation failures
+     */
+    public long getBlsFailuresCount() {
+        return blsFailures.getCount();
+    }
+
+    /**
+     * Get count of BLS signature validations.
+     *
+     * @return total count of validations
+     */
+    public long getBlsValidationsCount() {
+        return blsValidations.getCount();
+    }
+
+    /**
+     * Get count of BLS key registration attempts.
+     *
+     * @return total count of attempts
+     */
+    public long getRegistrationAttemptsCount() {
+        return registrationAttempts.getCount();
+    }
+
+    /**
+     * Get count of successful BLS key registrations.
+     *
+     * @return total count of successful registrations
+     */
+    public long getRegistrationSuccessesCount() {
+        return registrationSuccesses.getCount();
     }
 }

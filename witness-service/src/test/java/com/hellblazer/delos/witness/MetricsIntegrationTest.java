@@ -60,12 +60,14 @@ class MetricsIntegrationTest {
         assertThat(inProgressGauge.getValue()).isEqualTo(0);
 
         // Test Byzantine counters
-        metrics.getByzantineShunnedCounter().inc();
-        metrics.getBlsFailuresCounter().inc(3);
+        metrics.recordByzantineShunned();
+        metrics.recordBlsFailure();
+        metrics.recordBlsFailure();
+        metrics.recordBlsFailure();
 
         // Test registration counters
-        metrics.getRegistrationAttemptsCounter().inc();
-        metrics.getRegistrationSuccessesCounter().inc();
+        metrics.recordRegistrationAttempt();
+        metrics.recordRegistrationSuccess();
 
         Counter shunnedCounter = registry.getCounters().get("witness.byzantine.shunned");
         Counter blsFailuresCounter = registry.getCounters().get("witness.byzantine.bls_failures");

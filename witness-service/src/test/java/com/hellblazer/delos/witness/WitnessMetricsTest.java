@@ -39,8 +39,9 @@ class WitnessMetricsTest {
         var registry = new MetricRegistry();
         var metrics = new WitnessMetrics(registry);
 
-        var histogram = metrics.receiptCollectionLatency();
-        assertThat(histogram).isNotNull();
+        // Trigger metric registration by recording a value
+        metrics.recordReceiptCollectionLatency(1);
+
         assertThat(registry.getHistograms()).containsKey("witness.receipt.collection.latency");
     }
 
@@ -49,11 +50,11 @@ class WitnessMetricsTest {
         var registry = new MetricRegistry();
         var metrics = new WitnessMetrics(registry);
 
-        metrics.receiptCollectionLatency().update(25);
-        metrics.receiptCollectionLatency().update(30);
-        metrics.receiptCollectionLatency().update(15);
+        metrics.recordReceiptCollectionLatency(25);
+        metrics.recordReceiptCollectionLatency(30);
+        metrics.recordReceiptCollectionLatency(15);
 
-        var histogram = metrics.receiptCollectionLatency();
+        var histogram = registry.getHistograms().get("witness.receipt.collection.latency");
         assertThat(histogram.getCount()).isEqualTo(3);
         assertThat(histogram.getSnapshot().getMean()).isCloseTo(23.33, within(0.1));
     }
@@ -89,8 +90,9 @@ class WitnessMetricsTest {
         var registry = new MetricRegistry();
         var metrics = new WitnessMetrics(registry);
 
-        var timer = metrics.viewChangeCoordinationTime();
-        assertThat(timer).isNotNull();
+        // Trigger metric registration by recording a value
+        metrics.recordViewChangeCoordinationDuration(1000000); // 1ms
+
         assertThat(registry.getTimers()).containsKey("witness.view.change.coordination.time");
     }
 
@@ -99,16 +101,16 @@ class WitnessMetricsTest {
         var registry = new MetricRegistry();
         var metrics = new WitnessMetrics(registry);
 
-        var context = metrics.viewChangeCoordinationTime().time();
+        var startNanos = System.nanoTime();
         try {
             Thread.sleep(10);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-        } finally {
-            context.stop();
         }
+        var durationNanos = System.nanoTime() - startNanos;
+        metrics.recordViewChangeCoordinationDuration(durationNanos);
 
-        var timer = metrics.viewChangeCoordinationTime();
+        var timer = registry.getTimers().get("witness.view.change.coordination.time");
         assertThat(timer.getCount()).isEqualTo(1);
         assertThat(timer.getSnapshot().getMean()).isGreaterThan(0);
     }
@@ -118,8 +120,9 @@ class WitnessMetricsTest {
         var registry = new MetricRegistry();
         var metrics = new WitnessMetrics(registry);
 
-        var timer = metrics.committeeSelectionTime();
-        assertThat(timer).isNotNull();
+        // Trigger metric registration by recording a value
+        metrics.recordCommitteeSelectionDuration(1000); // 1μs
+
         assertThat(registry.getTimers()).containsKey("witness.committee.selection.time");
     }
 
@@ -128,11 +131,11 @@ class WitnessMetricsTest {
         var registry = new MetricRegistry();
         var metrics = new WitnessMetrics(registry);
 
-        // Simulate microsecond-level timing
-        metrics.committeeSelectionTime().update(150, TimeUnit.MICROSECONDS);
-        metrics.committeeSelectionTime().update(200, TimeUnit.MICROSECONDS);
+        // Record nanosecond-level timing (150μs = 150,000ns)
+        metrics.recordCommitteeSelectionDuration(150_000);
+        metrics.recordCommitteeSelectionDuration(200_000);
 
-        var timer = metrics.committeeSelectionTime();
+        var timer = registry.getTimers().get("witness.committee.selection.time");
         assertThat(timer.getCount()).isEqualTo(2);
     }
 
@@ -168,8 +171,9 @@ class WitnessMetricsTest {
         var registry = new MetricRegistry();
         var metrics = new WitnessMetrics(registry);
 
-        var histogram = metrics.receiptGossipLatency();
-        assertThat(histogram).isNotNull();
+        // Trigger metric registration by recording a value
+        metrics.recordReceiptGossipLatency(1);
+
         assertThat(registry.getHistograms()).containsKey("witness.receipt.gossip.latency");
     }
 
@@ -178,11 +182,11 @@ class WitnessMetricsTest {
         var registry = new MetricRegistry();
         var metrics = new WitnessMetrics(registry);
 
-        metrics.receiptGossipLatency().update(5);
-        metrics.receiptGossipLatency().update(8);
-        metrics.receiptGossipLatency().update(12);
+        metrics.recordReceiptGossipLatency(5);
+        metrics.recordReceiptGossipLatency(8);
+        metrics.recordReceiptGossipLatency(12);
 
-        var histogram = metrics.receiptGossipLatency();
+        var histogram = registry.getHistograms().get("witness.receipt.gossip.latency");
         assertThat(histogram.getCount()).isEqualTo(3);
         assertThat(histogram.getSnapshot().getMean()).isCloseTo(8.33, within(0.1));
     }
