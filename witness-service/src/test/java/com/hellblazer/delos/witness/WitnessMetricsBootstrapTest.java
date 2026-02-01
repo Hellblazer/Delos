@@ -47,13 +47,6 @@ class WitnessMetricsBootstrapTest {
     }
 
     @Test
-    @DisplayName("should provide BLS metrics")
-    void shouldProvideBLSMetrics() {
-        BLSMetrics metrics = bootstrap.getBLSMetrics();
-        assertThat(metrics).isNotNull();
-    }
-
-    @Test
     @DisplayName("should provide orchestration metrics")
     void shouldProvideOrchestrationMetrics() {
         ResponseOrchestrationMetrics metrics = bootstrap.getOrchestrationMetrics();
@@ -72,19 +65,6 @@ class WitnessMetricsBootstrapTest {
         assertThat(metricNames)
             .as("Byzantine detection metrics registered")
             .anyMatch(name -> name.contains("byzantine.detection"));
-    }
-
-    @Test
-    @DisplayName("should register BLS metrics in registry")
-    void shouldRegisterBLSMetricsInRegistry() {
-        MetricRegistry registry = bootstrap.getRegistry();
-
-        var metrics = registry.getMetrics();
-        var metricNames = metrics.keySet();
-
-        assertThat(metricNames)
-            .as("BLS metrics registered")
-            .anyMatch(name -> name.contains("bls."));
     }
 
     @Test
@@ -127,9 +107,9 @@ class WitnessMetricsBootstrapTest {
         int metricCount = registry.getMetrics().size();
 
         // Verify we have a reasonable number of metrics
-        // Byzantine detection: ~20 metrics, BLS: ~30 metrics = ~50+ total
+        // Byzantine detection: ~20 metrics
         assertThat(metricCount)
-            .as("Sufficient metrics registered for Phase 1C")
-            .isGreaterThan(30);
+            .as("Sufficient metrics registered for Phase 1C Byzantine detection")
+            .isGreaterThan(10);
     }
 }

@@ -13,6 +13,7 @@ import com.hellblazer.delos.context.ViewChange;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.fireflies.View;
+import com.hellblazer.delos.witness.metrics.BLSMetrics;
 import org.joou.ULong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

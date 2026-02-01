@@ -9,6 +9,7 @@ package com.hellblazer.delos.witness;
 
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
+import com.hellblazer.delos.witness.metrics.BLSMetrics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

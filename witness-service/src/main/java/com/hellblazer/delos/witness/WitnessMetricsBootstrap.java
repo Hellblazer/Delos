@@ -36,7 +36,6 @@ import org.slf4j.LoggerFactory;
  *
  *   // Get metrics and wire into components
  *   var byzantineMetrics = metricsBootstrap.getByzantineMetrics();
- *   var blsMetrics = metricsBootstrap.getBLSMetrics();
  *
  *   // Use in detectors, orchestrators, etc.
  *   var detector = new SignatureAnomalyDetector(config, byzantineMetrics);
@@ -47,8 +46,11 @@ import org.slf4j.LoggerFactory;
  * <p>
  * <strong>Metrics Included</strong>:
  * - Byzantine Detection (40+ metrics): Anomaly detection, escalation, quarantine, impact
- * - BLS Signatures (20+ metrics): Receipt, verification, aggregation, view changes, degradation
  * - Response Orchestration: Escalation coordination metrics
+ * <p>
+ * <strong>Note on BLS Metrics</strong>:
+ * BLS metrics have been migrated to Micrometer (MicrometerBLSMetrics).
+ * Create BLS metrics separately using SimpleMeterRegistry or your preferred Micrometer registry.
  * <p>
  * <strong>Performance</strong>:
  * - Negligible overhead: <1% throughput impact (validated in Delos-3969)
@@ -64,7 +66,6 @@ public class WitnessMetricsBootstrap implements AutoCloseable {
 
     private final MetricRegistry registry;
     private final ByzantineDetectionMetricsImpl byzantineMetrics;
-    private final BLSMetricsImpl blsMetrics;
     private final ResponseOrchestrationMetrics orchestrationMetrics;
     private JmxReporter jmxReporter;
 
@@ -81,11 +82,6 @@ public class WitnessMetricsBootstrap implements AutoCloseable {
         this.byzantineMetrics = new ByzantineDetectionMetricsImpl();
         this.byzantineMetrics.register(registry);
         log.debug("Byzantine detection metrics registered");
-
-        // Create and register BLS metrics
-        this.blsMetrics = new BLSMetricsImpl();
-        this.blsMetrics.register(registry);
-        log.debug("BLS metrics registered");
 
         // Create response orchestration metrics (standalone, no register needed)
         this.orchestrationMetrics = new ResponseOrchestrationMetrics();
@@ -116,17 +112,6 @@ public class WitnessMetricsBootstrap implements AutoCloseable {
         return byzantineMetrics;
     }
 
-    /**
-     * Get BLS metrics instance (legacy Dropwizard implementation).
-     * <p>
-     * Use this when creating receipt managers and view change listeners.
-     * Note: Returns legacy impl, not conforming to new BLSMetrics interface.
-     *
-     * @return BLS metrics (legacy implementation)
-     */
-    public BLSMetricsImpl getBLSMetrics() {
-        return blsMetrics;
-    }
 
     /**
      * Get response orchestration metrics instance.
