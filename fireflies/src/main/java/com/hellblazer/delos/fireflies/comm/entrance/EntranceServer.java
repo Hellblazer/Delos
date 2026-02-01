@@ -1,12 +1,12 @@
 /*
- * Copyright (c) 2022, salesforce.com, inc.
+ * Copyright (c) 2026, Hal Hildebrand.
  * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
+ * GNU Affero General Public License
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
  */
 package com.hellblazer.delos.fireflies.comm.entrance;
 
-import com.codahale.metrics.Timer.Context;
 import com.hellblazer.delos.archipelago.RoutableService;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.fireflies.FireflyMetrics;
@@ -39,11 +39,11 @@ public class EntranceServer extends EntranceImplBase {
 
     @Override
     public void join(Join request, StreamObserver<JoinResponse> responseObserver) {
-        Context timer = metrics == null ? null : metrics.inboundJoinDuration().time();
+        long startNanos = System.nanoTime();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
             metrics.recordInboundBandwidth(serializedSize);
-            metrics.inboundJoin().update(serializedSize);
+            metrics.recordInboundJoinSize(serializedSize);
         }
         Digest from = identity.getFrom();
         log.info("EntranceServer.join() called from: {} (identity)", from);
@@ -56,7 +56,7 @@ public class EntranceServer extends EntranceImplBase {
         router.evaluate(responseObserver, s -> {
             log.info("EntranceServer.join() inside router.evaluate() callback from: {}", from);
             try {
-                s.join(request, from, responseObserver, timer);
+                s.join(request, from, responseObserver, startNanos);
                 log.info("EntranceServer.join() Service.join() completed from: {}", from);
             } catch (Throwable t) {
                 log.error("EntranceServer.join() Service.join() threw exception from: {}", from, t);
@@ -71,11 +71,11 @@ public class EntranceServer extends EntranceImplBase {
 
     @Override
     public void seed(Registration request, StreamObserver<Redirect> responseObserver) {
-        Context timer = metrics == null ? null : metrics.inboundSeedDuration().time();
+        long startNanos = System.nanoTime();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
             metrics.recordInboundBandwidth(serializedSize);
-            metrics.inboundSeed().update(serializedSize);
+            metrics.recordInboundSeedSize(serializedSize);
         }
         Digest from = identity.getFrom();
         log.info("EntranceServer.seed() called from: {} (identity)", from);
@@ -100,11 +100,11 @@ public class EntranceServer extends EntranceImplBase {
             responseObserver.onNext(r);
             responseObserver.onCompleted();
             log.info("EntranceServer.seed() completed successfully from: {}", from);
-            if (timer != null) {
+            if (metrics != null) {
                 var serializedSize = r.getSerializedSize();
                 metrics.recordOutboundBandwidth(serializedSize);
-                metrics.outboundRedirect().update(serializedSize);
-                timer.stop();
+                metrics.recordOutboundRedirectSize(serializedSize);
+                metrics.recordInboundSeedDuration(System.nanoTime() - startNanos);
             }
         });
     }

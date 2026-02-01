@@ -1,8 +1,9 @@
 /*
- * Copyright (c) 2022, salesforce.com, inc.
+ * Copyright (c) 2026, Hal Hildebrand.
  * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
+ * GNU Affero General Public License
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
  */
 package com.hellblazer.delos.fireflies.comm.entrance;
 
@@ -59,7 +60,7 @@ public class EntranceClient implements Entrance {
         if (metrics != null) {
             var serializedSize = join.getSerializedSize();
             metrics.recordOutboundBandwidth(serializedSize);
-            metrics.outboundJoin().update(serializedSize);
+            metrics.recordOutboundJoinSize(serializedSize);
         }
 
         SettableFuture<Gateway> result = SettableFuture.create();
@@ -80,7 +81,7 @@ public class EntranceClient implements Entrance {
                         try {
                             var serializedSize = gateway.getSerializedSize();
                             metrics.recordInboundBandwidth(serializedSize);
-                            metrics.inboundGateway().update(serializedSize);
+                            metrics.recordInboundGatewaySize(serializedSize);
                         } catch (Throwable e) {
                             // ignore
                         }
@@ -111,14 +112,14 @@ public class EntranceClient implements Entrance {
         if (metrics != null) {
             var serializedSize = registration.getSerializedSize();
             metrics.recordOutboundBandwidth(serializedSize);
-            metrics.outboundSeed().update(serializedSize);
+            metrics.recordOutboundSeedSize(serializedSize);
         }
         Redirect result = client.seed(registration);
         if (metrics != null) {
             try {
                 var serializedSize = result.getSerializedSize();
                 metrics.recordInboundBandwidth(serializedSize);
-                metrics.inboundRedirect().update(serializedSize);
+                metrics.recordInboundRedirectSize(serializedSize);
             } catch (Throwable e) {
                 // nothing
             }

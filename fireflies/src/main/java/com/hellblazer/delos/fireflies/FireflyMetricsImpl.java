@@ -1,8 +1,9 @@
 /*
- * Copyright (c) 2020, salesforce.com, inc.
+ * Copyright (c) 2026, Hal Hildebrand.
  * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
+ * GNU Affero General Public License
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
  */
 package com.hellblazer.delos.fireflies;
 
@@ -13,9 +14,15 @@ import com.codahale.metrics.Timer;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.protocols.EndpointMetricsImpl;
 
+import java.util.concurrent.TimeUnit;
+
 import static com.codahale.metrics.MetricRegistry.name;
 
 /**
+ * Dropwizard Metrics implementation of FireflyMetrics.
+ * <p>
+ * Note: This implementation will be replaced with Micrometer in Phase 2.
+ *
  * @author hal.hildebrand
  */
 public class FireflyMetricsImpl extends EndpointMetricsImpl implements FireflyMetrics {
@@ -83,148 +90,158 @@ public class FireflyMetricsImpl extends EndpointMetricsImpl implements FireflyMe
         inboundEnjoinDuration = registry.timer(name(context.shortString(), "ff.enjoin.duration"));
     }
 
+    // === Event Counters (Meters) ===
+
     @Override
-    public Meter accusations() {
-        return accusations;
+    public void recordAccusation() {
+        accusations.mark();
     }
 
     @Override
-    public Meter filteredNotes() {
-        return filteredNotes;
+    public void recordFilteredNote() {
+        filteredNotes.mark();
     }
 
     @Override
-    public Histogram gossipReply() {
-        return gossipReply;
+    public void recordJoin() {
+        joining.mark();
     }
 
     @Override
-    public Histogram gossipResponse() {
-        return gossipResponse;
+    public void recordLeave() {
+        leaving.mark();
     }
 
     @Override
-    public Timer inboundEnjoinDuration() {
-        return inboundEnjoinDuration;
+    public void recordNote() {
+        notes.mark();
     }
 
     @Override
-    public Histogram inboundGateway() {
-        return inboundGateway;
+    public void recordShunnedGossip() {
+        shunnedGossip.mark();
     }
 
     @Override
-    public Histogram inboundGossip() {
-        return inboundGossip;
+    public void recordViewChange() {
+        viewChanges.mark();
+    }
+
+    // === Size Recording (Histograms) - inbound ===
+
+    @Override
+    public void recordInboundGatewaySize(int bytes) {
+        inboundGateway.update(bytes);
     }
 
     @Override
-    public Timer inboundGossipDuration() {
-        return inboundGossipTimer;
+    public void recordInboundGossipSize(int bytes) {
+        inboundGossip.update(bytes);
     }
 
     @Override
-    public Histogram inboundJoin() {
-        return inboundJoin;
+    public void recordInboundJoinSize(int bytes) {
+        inboundJoin.update(bytes);
     }
 
     @Override
-    public Timer inboundJoinDuration() {
-        return inboundJoinDuration;
+    public void recordInboundRedirectSize(int bytes) {
+        inboundRedirect.update(bytes);
     }
 
     @Override
-    public Histogram inboundRedirect() {
-        return inboundRedirect;
+    public void recordInboundSeedSize(int bytes) {
+        inboundSeed.update(bytes);
     }
 
     @Override
-    public Histogram inboundSeed() {
-        return inboundSeed;
+    public void recordInboundUpdateSize(int bytes) {
+        inboundUpdate.update(bytes);
+    }
+
+    // === Size Recording (Histograms) - outbound ===
+
+    @Override
+    public void recordOutboundGatewaySize(int bytes) {
+        outboundGateway.update(bytes);
     }
 
     @Override
-    public Timer inboundSeedDuration() {
-        return inboundSeedDuration;
+    public void recordOutboundGossipSize(int bytes) {
+        outboundGossip.update(bytes);
     }
 
     @Override
-    public Histogram inboundUpdate() {
-        return inboundUpdate;
+    public void recordOutboundJoinSize(int bytes) {
+        outboundJoin.update(bytes);
     }
 
     @Override
-    public Timer inboundUpdateTimer() {
-        return inboundUpdateTimer;
+    public void recordOutboundRedirectSize(int bytes) {
+        outboundRedirect.update(bytes);
     }
 
     @Override
-    public Timer joinDuration() {
-        return joinDuration;
+    public void recordOutboundSeedSize(int bytes) {
+        outboundSeed.update(bytes);
     }
 
     @Override
-    public Meter joins() {
-        return joining;
+    public void recordOutboundUpdateSize(int bytes) {
+        outboundUpdate.update(bytes);
+    }
+
+    // === Size Recording (Histograms) - gossip reply/response ===
+
+    @Override
+    public void recordGossipReplySize(int bytes) {
+        gossipReply.update(bytes);
     }
 
     @Override
-    public Meter leaves() {
-        return leaving;
+    public void recordGossipResponseSize(int bytes) {
+        gossipResponse.update(bytes);
+    }
+
+    // === Duration Recording (Timers) ===
+
+    @Override
+    public void recordEnjoinDuration(long nanos) {
+        inboundEnjoinDuration.update(nanos, TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Meter notes() {
-        return notes;
+    public void recordInboundGossipDuration(long nanos) {
+        inboundGossipTimer.update(nanos, TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Histogram outboundGateway() {
-        return outboundGateway;
+    public void recordInboundJoinDuration(long nanos) {
+        inboundJoinDuration.update(nanos, TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Histogram outboundGossip() {
-        return outboundGossip;
+    public void recordInboundSeedDuration(long nanos) {
+        inboundSeedDuration.update(nanos, TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Histogram outboundJoin() {
-        return outboundJoin;
+    public void recordInboundUpdateDuration(long nanos) {
+        inboundUpdateTimer.update(nanos, TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Histogram outboundRedirect() {
-        return outboundRedirect;
+    public void recordJoinDuration(long nanos) {
+        joinDuration.update(nanos, TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Histogram outboundSeed() {
-        return outboundSeed;
+    public void recordOutboundUpdateDuration(long nanos) {
+        outboundUpdateTimer.update(nanos, TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Histogram outboundUpdate() {
-        return outboundUpdate;
-    }
-
-    @Override
-    public Timer outboundUpdateTimer() {
-        return outboundUpdateTimer;
-    }
-
-    @Override
-    public Timer seedDuration() {
-        return seedDuration;
-    }
-
-    @Override
-    public Meter shunnedGossip() {
-        return shunnedGossip;
-    }
-
-    @Override
-    public Meter viewChanges() {
-        return viewChanges;
+    public void recordSeedDuration(long nanos) {
+        seedDuration.update(nanos, TimeUnit.NANOSECONDS);
     }
 }

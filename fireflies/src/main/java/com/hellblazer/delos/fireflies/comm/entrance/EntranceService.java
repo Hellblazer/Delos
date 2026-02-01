@@ -1,12 +1,12 @@
 /*
- * Copyright (c) 2022, salesforce.com, inc.
+ * Copyright (c) 2026, Hal Hildebrand.
  * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
+ * GNU Affero General Public License
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
  */
 package com.hellblazer.delos.fireflies.comm.entrance;
 
-import com.codahale.metrics.Timer.Context;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.fireflies.proto.JoinResponse;
 import com.hellblazer.delos.fireflies.proto.Join;
@@ -19,7 +19,7 @@ import io.grpc.stub.StreamObserver;
  */
 public interface EntranceService {
 
-    void join(Join request, Digest from, StreamObserver<JoinResponse> responseObserver, Context timer);
+    void join(Join request, Digest from, StreamObserver<JoinResponse> responseObserver, long startNanos);
 
     Redirect seed(Registration request, Digest from);
 }
