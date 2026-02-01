@@ -529,8 +529,15 @@ public class Adder {
             return;
         }
 
-        // TODO: Delos-vupk - Add PreUnit signature verification when gossip protocol updated to sign units
-        // Currently skipped as gossip protocol doesn't populate signatures in PreUnit_s
+        // CRITICAL (Delos-rfgm): Verify signature before processing
+        // Byzantine nodes may attempt to inject units with forged or missing signatures
+        var preunit = PreUnit.from(u, conf.digestAlgorithm());
+        if (verifiers != null && !preunit.verify(verifiers)) {
+            failed.add(digest);
+            log.error("Signature verification failed for unit: {} from creator: {} on: {}", decoded, decoded.creator(),
+                      conf.logLabel());
+            return;
+        }
 
         if (u.toByteString().size() > maxSize) {
             failed.add(digest);
@@ -539,7 +546,6 @@ public class Adder {
             return;
         }
 
-        var preunit = PreUnit.from(u, conf.digestAlgorithm());
         wpu = new Waiting(preunit, u);
 
         if (!validateParents(wpu)) {

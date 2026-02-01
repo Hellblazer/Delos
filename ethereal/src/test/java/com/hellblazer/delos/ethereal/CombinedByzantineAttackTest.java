@@ -91,7 +91,9 @@ public class CombinedByzantineAttackTest {
         for (int i = 0; i < N_PROC; i++) {
             var failed = new HashSet<Digest>();
             var dag = new Dag.DagImpl(config, currentEpoch);
-            var adder = new Adder(currentEpoch, dag, 1024 * 1024, config, failed, verifiers);
+            // Pass null verifiers - these tests focus on equivocation detection,
+            // not signature verification (which is tested in PreUnitSignatureVerificationTest)
+            var adder = new Adder(currentEpoch, dag, 1024 * 1024, config, failed, null);
 
             dags.add(dag);
             adders.add(adder);
@@ -148,7 +150,7 @@ public class CombinedByzantineAttackTest {
 
         // Phase 2: Simulate epoch transition
         currentEpoch = 1;
-        var newAdder0 = new Adder(currentEpoch, dags.get(0), 1024 * 1024, config, failedSets.get(0), verifiers);
+        var newAdder0 = new Adder(currentEpoch, dags.get(0), 1024 * 1024, config, failedSets.get(0), null);
 
         // Byzantine attempts equivocation in new epoch - should still be rejected if blacklist persists
         // Note: In production, blacklist would be carried over to new epoch

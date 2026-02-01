@@ -100,6 +100,8 @@ public class Ethereal {
 
     private static BiConsumer<Boolean, List<Unit>> blocker(BiConsumer<List<ByteString>, Boolean> blocker,
                                                            Config config) {
+        final var errorHandler = config.consumerErrorHandler() != null ? config.consumerErrorHandler()
+                                                                        : new ConsumerErrorHandler.Builder().build();
         return (completeIt, units) -> {
             var print = log.isTraceEnabled() ? units.stream().map(PreUnit::shortString).toList() : null;
             log.trace("Make pre block: {} on: {}", print, config.logLabel());
@@ -116,8 +118,15 @@ public class Ethereal {
                 log.trace("Emitting last: {} pre block: {} on: {}", last, print, config.logLabel());
                 try {
                     blocker.accept(preBlock, last);
+                    errorHandler.recordSuccess();
                 } catch (Throwable t) {
                     log.error("Error consuming last: {} pre block: {} on: {}", last, print, config.logLabel(), t);
+                    var action = errorHandler.handleError(t, preBlock, last);
+                    if (action == ConsumerErrorHandler.ErrorAction.HALT) {
+                        log.error("Consumer error handler requested HALT - stopping consensus on: {}",
+                                  config.logLabel());
+                        throw new ConsumerException("Consumer failed and requested halt", t);
+                    }
                 }
             }
         };
@@ -224,7 +233,24 @@ public class Ethereal {
         log.trace("Stopping Ethereal on: {}", config.logLabel());
         completeIt();
         consumer.shutdown();
-        consumer.getQueue().clear(); // Flush any pending consumers
+
+        // Gracefully drain pending units with timeout
+        try {
+            var drained = consumer.awaitTermination(config.shutdownDrainTimeoutMillis(), TimeUnit.MILLISECONDS);
+            if (!drained) {
+                var pendingCount = consumer.getQueue().size();
+                log.warn("Shutdown timeout after {}ms, discarding {} pending units on: {}",
+                        config.shutdownDrainTimeoutMillis(), pendingCount, config.logLabel());
+                consumer.getQueue().clear();
+            } else {
+                log.trace("Gracefully drained all pending units on: {}", config.logLabel());
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("Interrupted during shutdown drain, discarding pending units on: {}", config.logLabel());
+            consumer.getQueue().clear();
+        }
+
         creator.stop();
         epochs.values().forEach(epoch::close);
         epochs.clear();

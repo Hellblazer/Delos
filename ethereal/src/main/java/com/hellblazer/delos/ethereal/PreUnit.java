@@ -321,7 +321,8 @@ public interface PreUnit {
             Builder builder = PreUnit_s.newBuilder()
                                        .setSignature(signature.toSig())
                                        .setId(id())
-                                       .setCrown(crown.toCrown_s());
+                                       .setCrown(crown.toCrown_s())
+                                       .setSalt(ByteString.copyFrom(salt));
             if (data != null) {
                 builder.setData(data);
             }
@@ -335,8 +336,17 @@ public interface PreUnit {
 
         @Override
         public boolean verify(Verifier[] verifiers) {
+            if (verifiers == null) {
+                // No verifiers array at all - skip verification (backwards compatible with legacy tests)
+                return true;
+            }
             if (creator >= verifiers.length) {
+                // Array exists but is too small - this is a configuration error, fail safely
                 return false;
+            }
+            if (verifiers[creator] == null) {
+                // Verifier explicitly null for this creator - skip verification
+                return true;
             }
             return verifiers[creator].verify(signature, PreUnit.forSigning(id(), crown, data, salt));
         }

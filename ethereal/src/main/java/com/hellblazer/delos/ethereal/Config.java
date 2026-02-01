@@ -57,11 +57,14 @@ import java.util.Objects;
  * @param bias              BFT bias parameter (typically 3 for n=3f+1)
  * @param fpr               False positive rate for Bloom filters
  * @param unitTimeoutMillis Timeout threshold for stale waiting units (1000-60000ms, default 5000ms)
+ * @param shutdownDrainTimeoutMillis Timeout for draining pending units during shutdown (1000-60000ms, default 5000ms)
+ * @param consumerErrorHandler Error handler for consumer failures (null for default behavior)
  * @author hal.hildebrand
  */
 public record Config(String label, short nProc, int epochLength, short pid, Signer signer,
                      DigestAlgorithm digestAlgorithm, int numberOfEpochs, WeakThresholdKey WTKey, double bias,
-                     double fpr, long unitTimeoutMillis) {
+                     double fpr, long unitTimeoutMillis, long shutdownDrainTimeoutMillis,
+                     ConsumerErrorHandler consumerErrorHandler) {
 
     public static Builder newBuilder() {
         return new Builder();
@@ -77,18 +80,21 @@ public record Config(String label, short nProc, int epochLength, short pid, Sign
 
     public static class Builder implements Cloneable {
 
-        private int              bias            = 3;
-        private DigestAlgorithm  digestAlgorithm = DigestAlgorithm.DEFAULT;
-        private int              epochLength     = 11;
-        private double           fpr             = 0.00125;
-        private String           label           = "";
-        private short            nProc;
-        private int              numberOfEpochs  = 3;  // < 0 for unbounded
-        private double           pByz            = -1;
-        private short            pid;
-        private Signer           signer          = new MockSigner(SignatureAlgorithm.DEFAULT, ULong.MIN);
-        private long             unitTimeoutMillis = 5000L;  // Default 5 seconds
-        private WeakThresholdKey wtk;
+        private int                    bias                         = 3;
+        private ConsumerErrorHandler   consumerErrorHandler;
+        private DigestAlgorithm        digestAlgorithm              = DigestAlgorithm.DEFAULT;
+        private int                    epochLength                  = 11;
+        private double                 fpr                          = 0.00125;
+        private String                 label                        = "";
+        private short                  nProc;
+        private int                    numberOfEpochs               = 3;  // < 0 for unbounded
+        private double                 pByz                         = -1;
+        private short                  pid;
+        private long                   shutdownDrainTimeoutMillis   = 5000L;  // Default 5 seconds
+        private Signer                 signer                       = new MockSigner(SignatureAlgorithm.DEFAULT,
+                                                                                      ULong.MIN);
+        private long                   unitTimeoutMillis            = 5000L;  // Default 5 seconds
+        private WeakThresholdKey       wtk;
 
         public Builder() {
         }
@@ -119,8 +125,12 @@ public record Config(String label, short nProc, int epochLength, short pid, Sign
                 throw new IllegalArgumentException(
                     "unitTimeoutMillis must be between 1000 and 60000 (1-60 seconds): " + unitTimeoutMillis);
             }
+            if (shutdownDrainTimeoutMillis < 1000 || shutdownDrainTimeoutMillis > 60000) {
+                throw new IllegalArgumentException(
+                    "shutdownDrainTimeoutMillis must be between 1000 and 60000 (1-60 seconds): " + shutdownDrainTimeoutMillis);
+            }
             return new Config(label, nProc, epochLength, pid, signer, digestAlgorithm, numberOfEpochs, wtk, bias, fpr,
-                              unitTimeoutMillis);
+                              unitTimeoutMillis, shutdownDrainTimeoutMillis, consumerErrorHandler);
         }
 
         @Override
@@ -237,6 +247,24 @@ public record Config(String label, short nProc, int epochLength, short pid, Sign
 
         public Builder setUnitTimeoutMillis(long unitTimeoutMillis) {
             this.unitTimeoutMillis = unitTimeoutMillis;
+            return this;
+        }
+
+        public long getShutdownDrainTimeoutMillis() {
+            return shutdownDrainTimeoutMillis;
+        }
+
+        public Builder setShutdownDrainTimeoutMillis(long shutdownDrainTimeoutMillis) {
+            this.shutdownDrainTimeoutMillis = shutdownDrainTimeoutMillis;
+            return this;
+        }
+
+        public ConsumerErrorHandler getConsumerErrorHandler() {
+            return consumerErrorHandler;
+        }
+
+        public Builder setConsumerErrorHandler(ConsumerErrorHandler consumerErrorHandler) {
+            this.consumerErrorHandler = consumerErrorHandler;
             return this;
         }
     }
