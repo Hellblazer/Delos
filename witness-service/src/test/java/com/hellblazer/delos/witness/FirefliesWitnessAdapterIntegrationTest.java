@@ -27,7 +27,9 @@ import org.joou.ULong;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -59,20 +61,29 @@ import static org.mockito.Mockito.*;
  *
  * @author hal.hildebrand
  */
+@Tag("integration")
 @DisplayName("FirefliesWitnessAdapter Integration Tests")
 class FirefliesWitnessAdapterIntegrationTest {
 
     private static final DigestAlgorithm ALGORITHM = DigestAlgorithm.DEFAULT;
+
+    /**
+     * Committee size k=7 represents a 3f+1 configuration with f=2 fault tolerance.
+     * This is a common BFT configuration that can tolerate 2 Byzantine failures.
+     */
     private static final int COMMITTEE_SIZE = 7;
+
+    /**
+     * Witness pool size of 21 = 3 * COMMITTEE_SIZE, providing sufficient
+     * diversity for committee selection testing across different events.
+     */
     private static final int WITNESS_POOL_SIZE = 21;
 
     private FirefliesWitnessAdapter adapter;
-    private SecureRandom entropy;
 
     @BeforeEach
     void setUp() {
         adapter = new FirefliesWitnessAdapter(ALGORITHM);
-        entropy = deterministicEntropy();
     }
 
     // ===== Committee Selection Determinism Tests =====
@@ -82,6 +93,7 @@ class FirefliesWitnessAdapterIntegrationTest {
     class CommitteeSelectionDeterminismTests {
 
         @Test
+        @Timeout(value = 500, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
         @DisplayName("A.1: Same event yields same committee across multiple calls")
         void sameEventYieldsSameCommittee() {
             var context = createTestContext(COMMITTEE_SIZE, 5, WITNESS_POOL_SIZE);
@@ -101,6 +113,7 @@ class FirefliesWitnessAdapterIntegrationTest {
         }
 
         @Test
+        @Timeout(value = 500, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
         @DisplayName("A.2: Different events produce different hashes for selection")
         void differentEventsProduceDifferentHashes() {
             // Generate hashes for different events
@@ -231,6 +244,7 @@ class FirefliesWitnessAdapterIntegrationTest {
     // ===== View Change During Collection Tests =====
 
     @Nested
+    @Tag("concurrency")
     @DisplayName("C. View Change During Receipt Collection")
     class ViewChangeDuringCollectionTests {
 
@@ -322,7 +336,7 @@ class FirefliesWitnessAdapterIntegrationTest {
                     });
                 }
 
-                latch.await(30, TimeUnit.SECONDS);
+                latch.await(5, TimeUnit.SECONDS);
 
                 // All results should be identical
                 var uniqueResults = new HashSet<>(results.values());
@@ -361,6 +375,7 @@ class FirefliesWitnessAdapterIntegrationTest {
     // ===== Byzantine Tolerance Tests =====
 
     @Nested
+    @Tag("byzantine")
     @DisplayName("D. Byzantine Fault Tolerance")
     class ByzantineFaultToleranceTests {
 
@@ -414,14 +429,15 @@ class FirefliesWitnessAdapterIntegrationTest {
         }
 
         @Test
-        @DisplayName("D.3: Committee selection excludes failed members correctly")
-        void committeeSelectionWithFailedMembers() {
+        @DisplayName("D.3: All committee members are valid context members")
+        void allCommitteeMembersAreValidContextMembers() {
             var context = createTestContext(COMMITTEE_SIZE, 5, WITNESS_POOL_SIZE);
             var coords = createEventCoordinates("byzantine-test", 1);
 
             var committee = adapter.selectWitnesses(context, coords);
 
             // All committee members should be valid context members
+            // This ensures no invalid/unknown members are selected
             committee.forEach(member ->
                 assertThat(context.isMember(member.getId()))
                     .as("Committee member should be in context")
@@ -429,37 +445,41 @@ class FirefliesWitnessAdapterIntegrationTest {
         }
 
         @Test
-        @DisplayName("D.4: Invalid signatures don't count toward threshold")
-        void invalidSignaturesDontCountTowardThreshold() {
-            // This is a conceptual test - adapter doesn't validate signatures
-            // but we verify the threshold semantics are correct
+        @DisplayName("D.4: Threshold arithmetic ensures honest majority suffices")
+        void thresholdArithmeticEnsuresHonestMajoritySuffices() {
+            // Validates the mathematical property that with k=3f+1 nodes,
+            // even if f nodes are Byzantine (invalid sigs), the remaining
+            // k-f honest nodes can still reach the 2f+1 threshold
             int k = 7;
             int f = 2;
             int threshold = 5;  // 2f+1
 
-            // Simulate: 2 Byzantine (invalid sigs) + 5 honest = 7 total
-            int byzantineCount = f;
+            // With f Byzantine nodes producing invalid signatures,
+            // we have k-f = 5 honest nodes
             int honestCount = k - f;
             int validSignatures = honestCount;  // Only honest produce valid sigs
 
             assertThat(validSignatures)
-                .as("Valid signatures (%d) should meet threshold (%d)",
+                .as("Honest nodes (%d) should meet threshold (%d)",
                     validSignatures, threshold)
                 .isGreaterThanOrEqualTo(threshold);
         }
 
         @Test
-        @DisplayName("D.5: Equivocation detection - different sigs for same event")
-        void equivocationDetection() {
+        @DisplayName("D.5: Hash determinism enables equivocation detection")
+        void hashDeterminismEnablesEquivocationDetection() {
+            // Equivocation detection relies on deterministic hashing:
+            // if two signatures claim to be for the same event but produce
+            // different hashes, equivocation is detected
             var coords1 = createEventCoordinates("event", 1);
             var coords2 = createEventCoordinates("event", 1);
 
-            // Same event should produce identical hash
+            // Same event coordinates should produce identical hash
             var hash1 = adapter.hashEventCoordinates(coords1);
             var hash2 = adapter.hashEventCoordinates(coords2);
 
             assertThat(hash1)
-                .as("Same event coords should produce same hash")
+                .as("Same event coords should produce same hash (enables equivocation detection)")
                 .isEqualTo(hash2);
 
             // Different events should produce different hashes
@@ -731,8 +751,104 @@ class FirefliesWitnessAdapterIntegrationTest {
         }
     }
 
+    // ===== Error Handling Tests =====
+
+    @Nested
+    @DisplayName("H. Error Handling")
+    class ErrorHandlingTests {
+
+        @Test
+        @DisplayName("H.1: Null context throws NullPointerException")
+        void nullContextThrowsException() {
+            var coords = createEventCoordinates("test", 1);
+
+            assertThatThrownBy(() -> adapter.selectWitnesses(null, coords))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("context");
+        }
+
+        @Test
+        @DisplayName("H.2: Null event coordinates throws NullPointerException")
+        void nullEventCoordinatesThrowsException() {
+            var context = createTestContext(COMMITTEE_SIZE, 5, WITNESS_POOL_SIZE);
+
+            assertThatThrownBy(() -> adapter.selectWitnesses(context, null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("eventCoordinates");
+        }
+
+        @Test
+        @DisplayName("H.3: Null witnesses set throws NullPointerException")
+        void nullWitnessesSetThrowsException() {
+            assertThatThrownBy(() -> adapter.toWitnessIdentifiers(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("witnesses");
+        }
+
+        @Test
+        @DisplayName("H.4: Zero witness count throws IllegalArgumentException")
+        void zeroWitnessCountThrowsException() {
+            assertThatThrownBy(() -> adapter.computeBias(0, 1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("witnessCount must be positive");
+        }
+
+        @Test
+        @DisplayName("H.5: Zero threshold throws IllegalArgumentException")
+        void zeroThresholdThrowsException() {
+            assertThatThrownBy(() -> adapter.computeBias(5, 0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("threshold must be positive");
+        }
+
+        @Test
+        @DisplayName("H.6: Threshold exceeding witness count throws IllegalArgumentException")
+        void thresholdExceedingWitnessCountThrowsException() {
+            assertThatThrownBy(() -> adapter.computeBias(5, 6))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("threshold cannot exceed witnessCount");
+        }
+
+        @Test
+        @DisplayName("H.7: Negative witness count throws IllegalArgumentException")
+        void negativeWitnessCountThrowsException() {
+            assertThatThrownBy(() -> adapter.computeBias(-1, 1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("witnessCount must be positive");
+        }
+
+        @Test
+        @DisplayName("H.8: Negative threshold throws IllegalArgumentException")
+        void negativeThresholdThrowsException() {
+            assertThatThrownBy(() -> adapter.computeBias(5, -1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("threshold must be positive");
+        }
+
+        @Test
+        @DisplayName("H.9: Null digest algorithm in constructor throws NullPointerException")
+        void nullDigestAlgorithmThrowsException() {
+            assertThatThrownBy(() -> new FirefliesWitnessAdapter(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("digestAlgorithm");
+        }
+
+        @Test
+        @DisplayName("H.10: Hash of null event coordinates throws NullPointerException")
+        void hashNullEventCoordinatesThrowsException() {
+            assertThatThrownBy(() -> adapter.hashEventCoordinates(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("eventCoordinates");
+        }
+    }
+
     // ===== Helper Methods =====
 
+    /**
+     * Creates deterministic entropy for reproducible tests.
+     * Uses SHA1PRNG with fixed seed for consistency across test runs.
+     */
+    @SuppressWarnings("java:S4790")  // SHA1PRNG acceptable for deterministic testing
     private static SecureRandom deterministicEntropy() {
         try {
             var random = SecureRandom.getInstance("SHA1PRNG");
