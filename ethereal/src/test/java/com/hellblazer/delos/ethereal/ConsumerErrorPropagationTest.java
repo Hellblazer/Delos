@@ -8,7 +8,6 @@
 
 package com.hellblazer.delos.ethereal;
 
-import com.codahale.metrics.MetricRegistry;
 import com.google.protobuf.ByteString;
 import com.hellblazer.delos.archipelago.LocalServer;
 import com.hellblazer.delos.archipelago.Router;
@@ -17,7 +16,8 @@ import com.hellblazer.delos.context.DynamicContext;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.cryptography.Signer;
 import com.hellblazer.delos.ethereal.memberships.ChRbcGossip;
-import com.hellblazer.delos.ethereal.memberships.comm.EtherealMetricsImpl;
+import com.hellblazer.delos.ethereal.memberships.comm.MicrometerEtherealMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.membership.SigningMember;
 import com.hellblazer.delos.membership.stereotomy.ControlledIdentifierMember;
@@ -201,7 +201,7 @@ public class ConsumerErrorPropagationTest {
     private void runWithErrorHandler(ConsumerErrorHandler errorHandler,
                                       java.util.function.BiConsumer<List<ByteString>, Boolean> blocker)
     throws NoSuchAlgorithmException, InterruptedException {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var finished = new CountDownLatch(NPROC);
 
         var controllers = new ArrayList<Ethereal>();
@@ -226,7 +226,7 @@ public class ConsumerErrorPropagationTest {
                                                        .build();
         context.activate(members);
 
-        var metrics = new EtherealMetricsImpl(context.getId(), "test", registry);
+        var metrics = new MicrometerEtherealMetrics(context.getId(), "test", registry);
         var builder = Config.newBuilder()
                             .setnProc((short) NPROC)
                             .setNumberOfEpochs(NUM_EPOCHS)
