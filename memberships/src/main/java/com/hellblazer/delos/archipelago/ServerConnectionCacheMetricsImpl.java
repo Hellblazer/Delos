@@ -38,42 +38,47 @@ public class ServerConnectionCacheMetricsImpl implements ServerConnectionCacheMe
     }
 
     @Override
-    public Meter borrowRate() {
-        return borrowRate;
+    public void recordBorrow() {
+        borrowRate.mark();
     }
 
     @Override
-    public Timer channelOpenDuration() {
-        return channelOpenDuration;
+    public void recordChannelOpenDuration(long nanos) {
+        channelOpenDuration.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Meter closeConnectionRate() {
-        return closeConnectionRate;
+    public void recordCloseConnection() {
+        closeConnectionRate.mark();
     }
 
     @Override
-    public Counter createConnection() {
-        return createConnection;
+    public void incrementCreateConnection() {
+        createConnection.inc();
     }
 
     @Override
-    public Meter failedConnectionRate() {
-        return failedConnectionRate;
+    public void recordFailedConnection() {
+        failedConnectionRate.mark();
     }
 
     @Override
-    public Counter failedOpenConnection() {
-        return failedOpenConnection;
+    public void incrementFailedOpenConnection() {
+        failedOpenConnection.inc();
     }
 
     @Override
-    public Counter openConnections() {
-        return openConnections;
+    public void incrementOpenConnections() {
+        openConnections.inc();
     }
 
     @Override
-    public Meter releaseRate() {
-        return releaseRate;
+    public void decrementOpenConnections() {
+        openConnections.dec();
+    }
+
+    @Override
+    public void recordRelease() {
+        releaseRate.mark();
     }
 }

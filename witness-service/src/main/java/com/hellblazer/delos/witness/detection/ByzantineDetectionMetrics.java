@@ -7,8 +7,6 @@
  */
 package com.hellblazer.delos.witness.detection;
 
-import com.codahale.metrics.MetricRegistry;
-
 /**
  * Metrics interface for Byzantine detection operations.
  * <p>
@@ -428,13 +426,6 @@ public interface ByzantineDetectionMetrics {
     // ===========================
     // Lifecycle
     // ===========================
-
-    /**
-     * Register metrics with a MetricRegistry.
-     *
-     * @param registry Dropwizard MetricRegistry
-     */
-    void register(MetricRegistry registry);
 
     /**
      * Reset all metrics (for testing or view changes).

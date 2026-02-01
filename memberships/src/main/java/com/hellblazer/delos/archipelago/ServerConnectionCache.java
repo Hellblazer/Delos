@@ -6,9 +6,6 @@
  */
 package com.hellblazer.delos.archipelago;
 
-import com.codahale.metrics.Counter;
-import com.codahale.metrics.Meter;
-import com.codahale.metrics.Timer;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.membership.Member;
 import io.grpc.CallCredentials;
@@ -95,8 +92,8 @@ public class ServerConnectionCache {
                 }
                 ReleasableManagedChannel conn = new ReleasableManagedChannel(to, channel, member);
                 if (metrics != null) {
-                    metrics.createConnection().inc();
-                    metrics.openConnections().inc();
+                    metrics.incrementCreateConnection();
+                    metrics.incrementOpenConnections();
                 }
                 return conn;
             });
@@ -104,7 +101,7 @@ public class ServerConnectionCache {
                 log.debug("Increment borrow to: {} channel to: {} on: {}", connection.borrowed,
                           connection.member.getId(), member);
                 if (metrics != null) {
-                    metrics.borrowRate().mark();
+                    metrics.recordBorrow();
                 }
                 queue.remove(connection);
             }
@@ -131,8 +128,8 @@ public class ServerConnectionCache {
                 try {
                     conn.channel.shutdown();
                     if (metrics != null) {
-                        metrics.channelOpenDuration().update(Duration.between(conn.created, Instant.now(clock)));
-                        metrics.openConnections().dec();
+                        metrics.recordChannelOpenDuration(Duration.between(conn.created, Instant.now(clock)).toNanos());
+                        metrics.decrementOpenConnections();
                     }
                 } catch (Throwable e) {
                     log.debug("Error closing connection to: {} on: {}", conn.member.getId(), member);
@@ -153,7 +150,7 @@ public class ServerConnectionCache {
                 log.debug("Releasing connection to: {} on: {}", connection.member.getId(), member);
                 queue.add(connection);
                 if (metrics != null) {
-                    metrics.releaseRate().mark();
+                    metrics.recordRelease();
                 }
                 manageConnections();
             }
@@ -171,9 +168,9 @@ public class ServerConnectionCache {
             log.debug("connection to: {} is closed on: {}", connection.member.getId(), member);
             cache.remove(connection.member);
             if (metrics != null) {
-                metrics.openConnections().dec();
-                metrics.closeConnectionRate().mark();
-                metrics.channelOpenDuration().update(Duration.between(connection.created, Instant.now(clock)));
+                metrics.decrementOpenConnections();
+                metrics.recordCloseConnection();
+                metrics.recordChannelOpenDuration(Duration.between(connection.created, Instant.now(clock)).toNanos());
             }
             return true;
         }
@@ -206,21 +203,23 @@ public class ServerConnectionCache {
 
     public interface ServerConnectionCacheMetrics {
 
-        Meter borrowRate();
+        void recordBorrow();
 
-        Timer channelOpenDuration();
+        void recordChannelOpenDuration(long nanos);
 
-        Meter closeConnectionRate();
+        void recordCloseConnection();
 
-        Counter createConnection();
+        void incrementCreateConnection();
 
-        Meter failedConnectionRate();
+        void recordFailedConnection();
 
-        Counter failedOpenConnection();
+        void incrementFailedOpenConnection();
 
-        Counter openConnections();
+        void incrementOpenConnections();
 
-        Meter releaseRate();
+        void decrementOpenConnections();
+
+        void recordRelease();
 
     }
 

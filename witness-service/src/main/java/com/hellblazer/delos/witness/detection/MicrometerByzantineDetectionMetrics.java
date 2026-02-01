@@ -7,8 +7,8 @@
  */
 package com.hellblazer.delos.witness.detection;
 
-import com.codahale.metrics.*;
 import com.hellblazer.delos.cryptography.Digest;
+import io.micrometer.core.instrument.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,30 +22,38 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Dropwizard Metrics implementation of ByzantineDetectionMetrics interface.
+ * Micrometer implementation of ByzantineDetectionMetrics interface.
  * <p>
- * Provides thread-safe, lock-free metric tracking for Byzantine detection operations.
- * Uses Dropwizard Metrics library with SlidingTimeWindowArrayReservoir for histograms.
+ * Provides thread-safe, lock-free metric tracking for Byzantine detection operations
+ * using Micrometer's metric abstraction layer. Compatible with multiple monitoring
+ * systems (Prometheus, Graphite, InfluxDB, etc.) through MeterRegistry backends.
  * </p>
  * <p>
  * <strong>Thread Safety:</strong>
- * All operations are thread-safe using atomic operations and Dropwizard's
+ * All operations are thread-safe using atomic operations and Micrometer's
  * concurrent-safe metric types. No synchronized blocks ensure compatibility with virtual threads.
  * </p>
  * <p>
  * <strong>Performance:</strong>
  * - Counter increments: O(1) atomic operations
- * - Histogram updates: O(log N) for reservoir
- * - Timer operations: O(1) + O(log N) for reservoir
+ * - Distribution summary updates: O(log N) for histogram
+ * - Timer operations: O(1) + O(log N) for histogram
  * - Gauge reads: O(1) atomic reads
+ * </p>
+ * <p>
+ * <strong>Tags:</strong>
+ * Uses Micrometer tags for metric discrimination:
+ * - "detector" tag for DetectorType (signature, timing, rate, etc.)
+ * - "action" tag for ResponseAction (alert, quarantine, etc.)
+ * - "phase" tag for KeyRotationPhase (pre_rotation, grace_period, etc.)
  * </p>
  *
  * @author hal.hildebrand
  * @since 1.0 (Phase 1C-3-D)
  */
-public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics {
+public class MicrometerByzantineDetectionMetrics implements ByzantineDetectionMetrics {
 
-    private static final Logger log = LoggerFactory.getLogger(ByzantineDetectionMetricsImpl.class);
+    private static final Logger log = LoggerFactory.getLogger(MicrometerByzantineDetectionMetrics.class);
 
     // Metric name constants
     private static final String PREFIX = "byzantine.detection.";
@@ -77,79 +85,65 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
 
     // Key rotation metrics (Phase 1C-3-A)
     private static final String ROTATION_INITIATED = PREFIX + "rotation.initiated";
-    private static final String ROTATION_INITIATED_RATE = PREFIX + "rotation.initiated.rate";
     private static final String ROTATIONS_IN_PROGRESS = PREFIX + "rotation.in_progress";
     private static final String ROTATION_PHASE_DURATION = PREFIX + "rotation.phase.duration";
     private static final String ROTATION_TOTAL_DURATION = PREFIX + "rotation.total.duration";
     private static final String GRACE_OLD_SIGNATURES = PREFIX + "rotation.grace.old_signatures";
     private static final String GRACE_NEW_SIGNATURES = PREFIX + "rotation.grace.new_signatures";
-    private static final String GRACE_ACCEPTANCE_RATIO = PREFIX + "rotation.grace.acceptance_ratio";
     private static final String GRACE_ACCEPTANCE_LATENCY = PREFIX + "rotation.grace.acceptance_latency";
     private static final String ROTATION_FAILURES = PREFIX + "rotation.failures";
-    private static final String ROTATION_FAILURES_PHASE = PREFIX + "rotation.failures.phase";
     private static final String ROTATION_RECOVERY_ATTEMPTS = PREFIX + "rotation.recovery.attempts";
-    private static final String ROTATION_ORCHESTRATION_LATENCY = PREFIX + "rotation.orchestration.latency";
     private static final String KERI_PUBLISH_LATENCY = PREFIX + "rotation.keri.publish.latency";
     private static final String DUAL_KEY_VALIDATION_TIME = PREFIX + "rotation.dual_key.validation.time";
 
-    // Registry state
-    private final AtomicReference<MetricRegistry> registryRef = new AtomicReference<>(null);
+    // MeterRegistry
+    private final MeterRegistry registry;
 
     // Per-detector metrics (keyed by DetectorType)
-    private final Map<DetectorType, Meter> anomalyDetectionMeters = new EnumMap<>(DetectorType.class);
-    private final Map<DetectorType, Histogram> anomalyScoreHistograms = new EnumMap<>(DetectorType.class);
+    private final Map<DetectorType, Counter> anomalyDetectionCounters = new EnumMap<>(DetectorType.class);
+    private final Map<DetectorType, DistributionSummary> anomalyScoreSummaries = new EnumMap<>(DetectorType.class);
     private final Map<DetectorType, Timer> detectionLatencyTimers = new EnumMap<>(DetectorType.class);
     private final Map<DetectorType, Counter> falsePositiveCounters = new EnumMap<>(DetectorType.class);
     private final Map<DetectorType, Counter> thresholdBreachCounters = new EnumMap<>(DetectorType.class);
 
     // Coordinator metrics
-    private volatile Histogram ensembleVoteHistogram;
-    private volatile Counter quorumReachedCounter;
-    private volatile Counter quarantineEventsCounter;
-    private volatile Histogram quarantineDurationHistogram;
+    private final DistributionSummary ensembleVoteSummary;
+    private final Counter quorumReachedCounter;
+    private final Counter quarantineEventsCounter;
+    private final Timer quarantineDurationTimer;
     private final AtomicInteger activeQuarantinesValue = new AtomicInteger(0);
-    private volatile Gauge<Integer> activeQuarantinesGauge;
-    private volatile Counter quarantineRecoveryCounter;
+    private final Counter quarantineRecoveryCounter;
     private final Map<ResponseAction, Counter> escalationActionCounters = new EnumMap<>(ResponseAction.class);
-    private volatile Timer escalationLatencyTimer;
+    private final Timer escalationLatencyTimer;
 
     // Impact metrics
     private final AtomicInteger membersExcludedValue = new AtomicInteger(0);
-    private volatile Gauge<Integer> membersExcludedGauge;
     private final AtomicReference<Double> consensusImpactValue = new AtomicReference<>(0.0);
-    private volatile Gauge<Double> consensusImpactGauge;
-    private volatile Histogram falseAlarmDurationHistogram;
-    private volatile Histogram timeToClearAnomaliesHistogram;
+    private final Timer falseAlarmDurationTimer;
+    private final Timer timeToClearAnomaliesTimer;
 
     // Key rotation metrics (Phase 1C-3-A)
-    private volatile Counter rotationInitiatedCounter;
-    private volatile Meter rotationInitiatedMeter;
+    private final Counter rotationInitiatedCounter;
     private final AtomicInteger rotationsInProgressValue = new AtomicInteger(0);
-    private volatile Gauge<Integer> rotationsInProgressGauge;
     private final Set<Digest> currentlyRotatingMembers = ConcurrentHashMap.newKeySet();
 
     // Phase-specific metrics
-    private volatile Histogram phasePreRotationDurationHistogram;
-    private volatile Histogram phaseGracePeriodDurationHistogram;
-    private volatile Timer rotationOrchestrationLatencyTimer;
+    private final Map<KeyRotationPhase, Timer> phaseTimers = new EnumMap<>(KeyRotationPhase.class);
 
     // Grace period tracking (per rotation)
     private final ConcurrentHashMap<String, GraceStats> graceStatsMap = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Counter> graceOldSignatureCounters = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Counter> graceNewSignatureCounters = new ConcurrentHashMap<>();
-    private volatile Histogram graceAcceptanceLatencyHistogram;
+    private final ConcurrentHashMap<String, AtomicLong> graceOldSignatureCounters = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, AtomicLong> graceNewSignatureCounters = new ConcurrentHashMap<>();
+    private final Timer graceAcceptanceLatencyTimer;
 
     // Failure tracking
-    private volatile Counter rotationFailuresCounter;
-    private volatile Meter rotationFailuresMeter;
-    private volatile Counter rotationFailuresPreRotationCounter;
-    private volatile Counter rotationFailuresGracePeriodCounter;
-    private volatile Counter rotationFailuresActivationCounter;
-    private volatile Counter rotationRecoveryAttemptsCounter;
+    private final Counter rotationFailuresCounter;
+    private final Map<KeyRotationPhase, Counter> rotationFailuresPhaseCounters = new EnumMap<>(KeyRotationPhase.class);
+    private final Counter rotationRecoveryAttemptsCounter;
 
     // Performance metrics
-    private volatile Timer keriPublishLatencyTimer;
-    private volatile Histogram dualKeyValidationTimeHistogram;
+    private final Timer keriPublishLatencyTimer;
+    private final DistributionSummary dualKeyValidationTimeSummary;
 
     // Rotation phase tracking (for duration calculation)
     private final ConcurrentHashMap<String, RotationPhaseState> rotationStates = new ConcurrentHashMap<>();
@@ -198,195 +192,193 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
     }
 
     /**
-     * Create a new ByzantineDetectionMetricsImpl instance.
+     * Create a new MicrometerByzantineDetectionMetrics instance.
      * <p>
-     * Call {@link #register(MetricRegistry)} before recording metrics.
-     */
-    public ByzantineDetectionMetricsImpl() {
-        // Metrics initialized on registration
-    }
-
-    /**
-     * Register metrics with a Dropwizard MetricRegistry.
-     * <p>
-     * This method is specific to the Dropwizard implementation and must be called
-     * before recording any metrics.
+     * All metrics are registered immediately with the provided MeterRegistry.
      * </p>
      *
-     * @param registry Dropwizard MetricRegistry
+     * @param registry Micrometer MeterRegistry for metric registration
      */
-    public void register(MetricRegistry registry) {
+    public MicrometerByzantineDetectionMetrics(MeterRegistry registry) {
         if (registry == null) {
-            throw new NullPointerException("MetricRegistry cannot be null");
+            throw new NullPointerException("MeterRegistry cannot be null");
         }
+        this.registry = registry;
 
-        // Check if already registered with a different registry
-        var existing = registryRef.get();
-        if (existing != null && existing != registry) {
-            throw new IllegalStateException("Metrics already registered with a different registry");
-        }
-
-        // Idempotent - return if already registered with same registry
-        if (registryRef.compareAndSet(null, registry)) {
-            initializeMetrics(registry);
-            log.info("Byzantine detection metrics registered successfully");
-        } else if (registryRef.get() == registry) {
-            log.debug("Byzantine detection metrics already registered with this registry, skipping");
-        }
-    }
-
-    /**
-     * Initialize all metrics with the provided registry.
-     */
-    private void initializeMetrics(MetricRegistry registry) {
-        // Per-detector metrics for each DetectorType
+        // Initialize per-detector metrics
         for (var detectorType : DetectorType.values()) {
-            var typeSuffix = "." + detectorType.name().toLowerCase();
+            var tags = Tags.of("detector", detectorType.name().toLowerCase());
 
-            anomalyDetectionMeters.put(detectorType,
-                registry.meter(ANOMALY_DETECTION + typeSuffix));
+            anomalyDetectionCounters.put(detectorType,
+                Counter.builder(ANOMALY_DETECTION)
+                    .tags(tags)
+                    .description("Anomaly detection events for " + detectorType)
+                    .register(registry));
 
-            anomalyScoreHistograms.put(detectorType,
-                registry.register(ANOMALY_SCORE + typeSuffix,
-                    new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS))));
+            anomalyScoreSummaries.put(detectorType,
+                DistributionSummary.builder(ANOMALY_SCORE)
+                    .tags(tags)
+                    .description("Anomaly score distribution (0.0-1.0)")
+                    .baseUnit("score")
+                    .scale(100) // Scale to 0-100 for better resolution
+                    .register(registry));
 
             detectionLatencyTimers.put(detectorType,
-                registry.timer(DETECTION_LATENCY + typeSuffix));
+                Timer.builder(DETECTION_LATENCY)
+                    .tags(tags)
+                    .description("Detection latency in microseconds")
+                    .register(registry));
 
             falsePositiveCounters.put(detectorType,
-                registry.counter(FALSE_POSITIVE + typeSuffix));
+                Counter.builder(FALSE_POSITIVE)
+                    .tags(tags)
+                    .description("False positive count after anomaly reset")
+                    .register(registry));
 
             thresholdBreachCounters.put(detectorType,
-                registry.counter(THRESHOLD_BREACH + typeSuffix));
+                Counter.builder(THRESHOLD_BREACH)
+                    .tags(tags)
+                    .description("Detection threshold breach events")
+                    .register(registry));
         }
 
         // Coordinator metrics
-        this.ensembleVoteHistogram = registry.register(ENSEMBLE_VOTE,
-            new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS)));
-        this.quorumReachedCounter = registry.counter(QUORUM_REACHED);
-        this.quarantineEventsCounter = registry.counter(QUARANTINE_EVENT);
-        this.quarantineDurationHistogram = registry.register(QUARANTINE_DURATION,
-            new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS)));
-        this.activeQuarantinesGauge = registry.register(ACTIVE_QUARANTINES,
-            (Gauge<Integer>) activeQuarantinesValue::get);
-        this.quarantineRecoveryCounter = registry.counter(QUARANTINE_RECOVERY);
-        this.escalationLatencyTimer = registry.timer(ESCALATION_LATENCY);
+        this.ensembleVoteSummary = DistributionSummary.builder(ENSEMBLE_VOTE)
+            .description("Ensemble vote count distribution (0-3 detectors)")
+            .baseUnit("votes")
+            .register(registry);
+
+        this.quorumReachedCounter = Counter.builder(QUORUM_REACHED)
+            .description("Quorum reached events (2+ detectors agree)")
+            .register(registry);
+
+        this.quarantineEventsCounter = Counter.builder(QUARANTINE_EVENT)
+            .description("Member quarantine events")
+            .register(registry);
+
+        this.quarantineDurationTimer = Timer.builder(QUARANTINE_DURATION)
+            .description("Quarantine duration in milliseconds")
+            .register(registry);
+
+        Gauge.builder(ACTIVE_QUARANTINES, activeQuarantinesValue, AtomicInteger::get)
+            .description("Current number of active quarantines")
+            .register(registry);
+
+        this.quarantineRecoveryCounter = Counter.builder(QUARANTINE_RECOVERY)
+            .description("Quarantine recovery events")
+            .register(registry);
+
+        this.escalationLatencyTimer = Timer.builder(ESCALATION_LATENCY)
+            .description("Time from detection to escalation action")
+            .register(registry);
 
         // Escalation action counters for each ResponseAction
         for (var action : ResponseAction.values()) {
             escalationActionCounters.put(action,
-                registry.counter(ESCALATION_ACTION + "." + action.name().toLowerCase()));
+                Counter.builder(ESCALATION_ACTION)
+                    .tags(Tags.of("action", action.name().toLowerCase()))
+                    .description("Escalation action: " + action)
+                    .register(registry));
         }
 
         // Impact metrics
-        this.membersExcludedGauge = registry.register(MEMBERS_EXCLUDED,
-            (Gauge<Integer>) membersExcludedValue::get);
-        this.consensusImpactGauge = registry.register(CONSENSUS_IMPACT,
-            (Gauge<Double>) consensusImpactValue::get);
-        this.falseAlarmDurationHistogram = registry.register(FALSE_ALARM_DURATION,
-            new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS)));
-        this.timeToClearAnomaliesHistogram = registry.register(TIME_TO_CLEAR,
-            new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS)));
+        Gauge.builder(MEMBERS_EXCLUDED, membersExcludedValue, AtomicInteger::get)
+            .description("Number of members excluded due to Byzantine behavior")
+            .register(registry);
+
+        Gauge.builder(CONSENSUS_IMPACT, consensusImpactValue, AtomicReference::get)
+            .description("Consensus impact score (0.0-1.0, quorum risk)")
+            .register(registry);
+
+        this.falseAlarmDurationTimer = Timer.builder(FALSE_ALARM_DURATION)
+            .description("False alarm duration in milliseconds")
+            .register(registry);
+
+        this.timeToClearAnomaliesTimer = Timer.builder(TIME_TO_CLEAR)
+            .description("Time to clear all anomalies from first detection")
+            .register(registry);
 
         // Key rotation metrics (Phase 1C-3-A)
-        this.rotationInitiatedCounter = registry.counter(ROTATION_INITIATED);
-        this.rotationInitiatedMeter = registry.meter(ROTATION_INITIATED_RATE);
-        this.rotationsInProgressGauge = registry.register(ROTATIONS_IN_PROGRESS,
-            (Gauge<Integer>) rotationsInProgressValue::get);
+        this.rotationInitiatedCounter = Counter.builder(ROTATION_INITIATED)
+            .description("Key rotation initiations")
+            .register(registry);
 
-        this.phasePreRotationDurationHistogram = registry.register(
-            ROTATION_PHASE_DURATION + ".pre_rotation",
-            new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS)));
-        this.phaseGracePeriodDurationHistogram = registry.register(
-            ROTATION_PHASE_DURATION + ".grace_period",
-            new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS)));
+        Gauge.builder(ROTATIONS_IN_PROGRESS, rotationsInProgressValue, AtomicInteger::get)
+            .description("Currently active key rotations")
+            .register(registry);
 
-        this.rotationOrchestrationLatencyTimer = registry.timer(ROTATION_ORCHESTRATION_LATENCY);
-        this.graceAcceptanceLatencyHistogram = registry.register(GRACE_ACCEPTANCE_LATENCY,
-            new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS)));
+        // Phase-specific timers
+        for (var phase : KeyRotationPhase.values()) {
+            if (!phase.isTerminal()) {
+                phaseTimers.put(phase,
+                    Timer.builder(ROTATION_PHASE_DURATION)
+                        .tags(Tags.of("phase", phase.name().toLowerCase()))
+                        .description("Duration of " + phase + " phase")
+                        .register(registry));
+            }
+        }
 
-        this.rotationFailuresCounter = registry.counter(ROTATION_FAILURES);
-        this.rotationFailuresMeter = registry.meter(ROTATION_FAILURES + ".rate");
-        this.rotationFailuresPreRotationCounter = registry.counter(ROTATION_FAILURES_PHASE + ".pre_rotation");
-        this.rotationFailuresGracePeriodCounter = registry.counter(ROTATION_FAILURES_PHASE + ".grace_period");
-        this.rotationFailuresActivationCounter = registry.counter(ROTATION_FAILURES_PHASE + ".activation");
-        this.rotationRecoveryAttemptsCounter = registry.counter(ROTATION_RECOVERY_ATTEMPTS);
+        this.graceAcceptanceLatencyTimer = Timer.builder(GRACE_ACCEPTANCE_LATENCY)
+            .description("Time since grace period start for old signature acceptance")
+            .register(registry);
 
-        this.keriPublishLatencyTimer = registry.timer(KERI_PUBLISH_LATENCY);
-        this.dualKeyValidationTimeHistogram = registry.register(DUAL_KEY_VALIDATION_TIME,
-            new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS)));
+        this.rotationFailuresCounter = Counter.builder(ROTATION_FAILURES)
+            .description("Key rotation failures")
+            .register(registry);
+
+        // Phase-specific failure counters
+        rotationFailuresPhaseCounters.put(KeyRotationPhase.PRE_ROTATION,
+            Counter.builder(ROTATION_FAILURES)
+                .tags(Tags.of("phase", "pre_rotation"))
+                .description("Failures during PRE_ROTATION phase")
+                .register(registry));
+        rotationFailuresPhaseCounters.put(KeyRotationPhase.GRACE_PERIOD,
+            Counter.builder(ROTATION_FAILURES)
+                .tags(Tags.of("phase", "grace_period"))
+                .description("Failures during GRACE_PERIOD phase")
+                .register(registry));
+        rotationFailuresPhaseCounters.put(KeyRotationPhase.ACTIVATED,
+            Counter.builder(ROTATION_FAILURES)
+                .tags(Tags.of("phase", "activation"))
+                .description("Failures during ACTIVATED phase")
+                .register(registry));
+
+        this.rotationRecoveryAttemptsCounter = Counter.builder(ROTATION_RECOVERY_ATTEMPTS)
+            .description("Rotation recovery attempts")
+            .register(registry);
+
+        this.keriPublishLatencyTimer = Timer.builder(KERI_PUBLISH_LATENCY)
+            .description("KERI key publish operation latency")
+            .register(registry);
+
+        this.dualKeyValidationTimeSummary = DistributionSummary.builder(DUAL_KEY_VALIDATION_TIME)
+            .description("Dual-key validation overhead during grace period")
+            .baseUnit("nanoseconds")
+            .register(registry);
+
+        log.info("Micrometer Byzantine detection metrics initialized successfully");
     }
 
     @Override
     public void reset() {
-        // Reset per-detector metrics
-        for (var counter : falsePositiveCounters.values()) {
-            var count = counter.getCount();
-            counter.dec(count);
-        }
-        for (var counter : thresholdBreachCounters.values()) {
-            var count = counter.getCount();
-            counter.dec(count);
-        }
+        // Note: Micrometer metrics cannot be truly reset once registered.
+        // This method resets internal state but cumulative counters will retain their values.
+        // For testing, use a new MeterRegistry instance instead.
 
-        // Reset coordinator metrics
-        if (quorumReachedCounter != null) {
-            var count = quorumReachedCounter.getCount();
-            quorumReachedCounter.dec(count);
-        }
-        if (quarantineEventsCounter != null) {
-            var count = quarantineEventsCounter.getCount();
-            quarantineEventsCounter.dec(count);
-        }
-        if (quarantineRecoveryCounter != null) {
-            var count = quarantineRecoveryCounter.getCount();
-            quarantineRecoveryCounter.dec(count);
-        }
-
-        // Reset escalation action counters
-        for (var counter : escalationActionCounters.values()) {
-            var count = counter.getCount();
-            counter.dec(count);
-        }
-
-        // Reset gauges
+        // Reset gauges (only internal state we control)
         activeQuarantinesValue.set(0);
         membersExcludedValue.set(0);
         consensusImpactValue.set(0.0);
-
-        // Reset key rotation metrics
-        if (rotationInitiatedCounter != null) {
-            var count = rotationInitiatedCounter.getCount();
-            rotationInitiatedCounter.dec(count);
-        }
-        if (rotationFailuresCounter != null) {
-            var count = rotationFailuresCounter.getCount();
-            rotationFailuresCounter.dec(count);
-        }
-        if (rotationFailuresPreRotationCounter != null) {
-            var count = rotationFailuresPreRotationCounter.getCount();
-            rotationFailuresPreRotationCounter.dec(count);
-        }
-        if (rotationFailuresGracePeriodCounter != null) {
-            var count = rotationFailuresGracePeriodCounter.getCount();
-            rotationFailuresGracePeriodCounter.dec(count);
-        }
-        if (rotationFailuresActivationCounter != null) {
-            var count = rotationFailuresActivationCounter.getCount();
-            rotationFailuresActivationCounter.dec(count);
-        }
-        if (rotationRecoveryAttemptsCounter != null) {
-            var count = rotationRecoveryAttemptsCounter.getCount();
-            rotationRecoveryAttemptsCounter.dec(count);
-        }
 
         // Reset rotation state tracking
         rotationsInProgressValue.set(0);
         currentlyRotatingMembers.clear();
         graceStatsMap.clear();
+        graceOldSignatureCounters.clear();
+        graceNewSignatureCounters.clear();
         rotationStates.clear();
 
-        log.info("Byzantine detection metrics reset completed");
+        log.warn("Byzantine detection metrics reset - note that Micrometer counters retain cumulative values");
     }
 
     // ===========================
@@ -398,14 +390,13 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
         if (score < 0.0 || score > 1.0) {
             throw new IllegalArgumentException("Score must be 0.0-1.0, got: " + score);
         }
-        var meter = anomalyDetectionMeters.get(detectorType);
-        if (meter != null) {
-            meter.mark();
+        var counter = anomalyDetectionCounters.get(detectorType);
+        if (counter != null) {
+            counter.increment();
         }
-        var histogram = anomalyScoreHistograms.get(detectorType);
-        if (histogram != null) {
-            // Scale score to [0, 100] for histogram (better resolution)
-            histogram.update((long) (score * 100));
+        var summary = anomalyScoreSummaries.get(detectorType);
+        if (summary != null) {
+            summary.record(score);
         }
     }
 
@@ -416,7 +407,7 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
         }
         var timer = detectionLatencyTimers.get(detectorType);
         if (timer != null) {
-            timer.update(latencyMicros, TimeUnit.MICROSECONDS);
+            timer.record(latencyMicros, TimeUnit.MICROSECONDS);
         }
     }
 
@@ -424,20 +415,20 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
     public void incrementFalsePositive(DetectorType detectorType) {
         var counter = falsePositiveCounters.get(detectorType);
         if (counter != null) {
-            counter.inc();
+            counter.increment();
         }
     }
 
     @Override
     public long getAnomalyDetectionCount(DetectorType detectorType) {
-        var meter = anomalyDetectionMeters.get(detectorType);
-        return meter != null ? meter.getCount() : 0L;
+        var counter = anomalyDetectionCounters.get(detectorType);
+        return counter != null ? (long) counter.count() : 0L;
     }
 
     @Override
     public long getFalsePositiveCount(DetectorType detectorType) {
         var counter = falsePositiveCounters.get(detectorType);
-        return counter != null ? counter.getCount() : 0L;
+        return counter != null ? (long) counter.count() : 0L;
     }
 
     // ===========================
@@ -449,23 +440,17 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
         if (voteCount < 0 || voteCount > 3) {
             throw new IllegalArgumentException("Vote count must be 0-3, got: " + voteCount);
         }
-        if (ensembleVoteHistogram != null) {
-            ensembleVoteHistogram.update(voteCount);
-        }
+        ensembleVoteSummary.record(voteCount);
     }
 
     @Override
     public void incrementQuorumReached() {
-        if (quorumReachedCounter != null) {
-            quorumReachedCounter.inc();
-        }
+        quorumReachedCounter.increment();
     }
 
     @Override
     public void recordQuarantineEvent() {
-        if (quarantineEventsCounter != null) {
-            quarantineEventsCounter.inc();
-        }
+        quarantineEventsCounter.increment();
     }
 
     @Override
@@ -473,9 +458,7 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
         if (durationMs < 0) {
             throw new IllegalArgumentException("Duration cannot be negative: " + durationMs);
         }
-        if (quarantineDurationHistogram != null) {
-            quarantineDurationHistogram.update(durationMs);
-        }
+        quarantineDurationTimer.record(durationMs, TimeUnit.MILLISECONDS);
     }
 
     @Override
@@ -488,9 +471,7 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
 
     @Override
     public void recordQuarantineRecovery() {
-        if (quarantineRecoveryCounter != null) {
-            quarantineRecoveryCounter.inc();
-        }
+        quarantineRecoveryCounter.increment();
     }
 
     @Override
@@ -500,21 +481,19 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
         }
         var counter = escalationActionCounters.get(action);
         if (counter != null) {
-            counter.inc();
+            counter.increment();
         }
-        if (escalationLatencyTimer != null) {
-            escalationLatencyTimer.update(latencyMicros, TimeUnit.MICROSECONDS);
-        }
+        escalationLatencyTimer.record(latencyMicros, TimeUnit.MICROSECONDS);
     }
 
     @Override
     public long getQuorumReachedCount() {
-        return quorumReachedCounter != null ? quorumReachedCounter.getCount() : 0L;
+        return (long) quorumReachedCounter.count();
     }
 
     @Override
     public long getQuarantineEventsCount() {
-        return quarantineEventsCounter != null ? quarantineEventsCounter.getCount() : 0L;
+        return (long) quarantineEventsCounter.count();
     }
 
     @Override
@@ -524,13 +503,13 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
 
     @Override
     public long getQuarantineRecoveryCount() {
-        return quarantineRecoveryCounter != null ? quarantineRecoveryCounter.getCount() : 0L;
+        return (long) quarantineRecoveryCounter.count();
     }
 
     @Override
     public long getEscalationActionCount(ResponseAction action) {
         var counter = escalationActionCounters.get(action);
-        return counter != null ? counter.getCount() : 0L;
+        return counter != null ? (long) counter.count() : 0L;
     }
 
     // ===========================
@@ -558,9 +537,7 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
         if (durationMs < 0) {
             throw new IllegalArgumentException("Duration cannot be negative: " + durationMs);
         }
-        if (falseAlarmDurationHistogram != null) {
-            falseAlarmDurationHistogram.update(durationMs);
-        }
+        falseAlarmDurationTimer.record(durationMs, TimeUnit.MILLISECONDS);
     }
 
     @Override
@@ -568,9 +545,7 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
         if (durationMs < 0) {
             throw new IllegalArgumentException("Duration cannot be negative: " + durationMs);
         }
-        if (timeToClearAnomaliesHistogram != null) {
-            timeToClearAnomaliesHistogram.update(durationMs);
-        }
+        timeToClearAnomaliesTimer.record(durationMs, TimeUnit.MILLISECONDS);
     }
 
     @Override
@@ -591,14 +566,14 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
     public void recordThresholdBreach(DetectorType detectorType) {
         var counter = thresholdBreachCounters.get(detectorType);
         if (counter != null) {
-            counter.inc();
+            counter.increment();
         }
     }
 
     @Override
     public long getThresholdBreachCount(DetectorType detectorType) {
         var counter = thresholdBreachCounters.get(detectorType);
-        return counter != null ? counter.getCount() : 0L;
+        return counter != null ? (long) counter.count() : 0L;
     }
 
     // ===========================
@@ -616,15 +591,7 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
             throw new IllegalStateException("Member " + memberId + " is already rotating");
         }
 
-        // Increment counters and meters
-        if (rotationInitiatedCounter != null) {
-            rotationInitiatedCounter.inc();
-        }
-        if (rotationInitiatedMeter != null) {
-            rotationInitiatedMeter.mark();
-        }
-
-        // Update in-progress gauge
+        rotationInitiatedCounter.increment();
         rotationsInProgressValue.incrementAndGet();
     }
 
@@ -651,10 +618,6 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
         if (to.isTerminal()) {
             rotationStates.remove(rotationId);
             rotationsInProgressValue.decrementAndGet();
-
-            // Clean up member tracking (requires looking up member ID from rotation ID)
-            // This is a simplification - in production, you'd need a rotationId -> memberId map
-            // For now, we just decrement the counter
         }
     }
 
@@ -687,20 +650,9 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
     }
 
     private void recordPhaseDuration(KeyRotationPhase phase, long durationMs) {
-        switch (phase) {
-            case PRE_ROTATION:
-                if (phasePreRotationDurationHistogram != null) {
-                    phasePreRotationDurationHistogram.update(durationMs);
-                }
-                break;
-            case GRACE_PERIOD:
-                if (phaseGracePeriodDurationHistogram != null) {
-                    phaseGracePeriodDurationHistogram.update(durationMs);
-                }
-                break;
-            default:
-                // Other phases not tracked separately
-                break;
+        var timer = phaseTimers.get(phase);
+        if (timer != null) {
+            timer.record(durationMs, TimeUnit.MILLISECONDS);
         }
     }
 
@@ -716,12 +668,9 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
         var stats = graceStatsMap.computeIfAbsent(rotationId, id -> new GraceStats());
         stats.oldSignatureCount.incrementAndGet();
 
-        var counter = graceOldSignatureCounters.computeIfAbsent(rotationId, id -> new Counter());
-        counter.inc();
+        graceOldSignatureCounters.computeIfAbsent(rotationId, id -> new AtomicLong(0)).incrementAndGet();
 
-        if (graceAcceptanceLatencyHistogram != null) {
-            graceAcceptanceLatencyHistogram.update(durationSinceGraceStart);
-        }
+        graceAcceptanceLatencyTimer.record(durationSinceGraceStart, TimeUnit.MILLISECONDS);
     }
 
     @Override
@@ -733,8 +682,7 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
         var stats = graceStatsMap.computeIfAbsent(rotationId, id -> new GraceStats());
         stats.newSignatureCount.incrementAndGet();
 
-        var counter = graceNewSignatureCounters.computeIfAbsent(rotationId, id -> new Counter());
-        counter.inc();
+        graceNewSignatureCounters.computeIfAbsent(rotationId, id -> new AtomicLong(0)).incrementAndGet();
     }
 
     @Override
@@ -743,13 +691,7 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
             throw new NullPointerException("rotationId and reason cannot be null");
         }
 
-        if (rotationFailuresCounter != null) {
-            rotationFailuresCounter.inc();
-        }
-        if (rotationFailuresMeter != null) {
-            rotationFailuresMeter.mark();
-        }
-
+        rotationFailuresCounter.increment();
         log.warn("Rotation {} failed: {}", rotationId, reason);
     }
 
@@ -763,25 +705,9 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
         recordRotationFailure(rotationId, reason);
 
         // Record phase-specific failure
-        switch (phase) {
-            case PRE_ROTATION:
-                if (rotationFailuresPreRotationCounter != null) {
-                    rotationFailuresPreRotationCounter.inc();
-                }
-                break;
-            case GRACE_PERIOD:
-                if (rotationFailuresGracePeriodCounter != null) {
-                    rotationFailuresGracePeriodCounter.inc();
-                }
-                break;
-            case ACTIVATED:
-                if (rotationFailuresActivationCounter != null) {
-                    rotationFailuresActivationCounter.inc();
-                }
-                break;
-            default:
-                // Other phases not tracked separately
-                break;
+        var counter = rotationFailuresPhaseCounters.get(phase);
+        if (counter != null) {
+            counter.increment();
         }
     }
 
@@ -791,10 +717,7 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
             throw new NullPointerException("rotationId cannot be null");
         }
 
-        if (rotationRecoveryAttemptsCounter != null) {
-            rotationRecoveryAttemptsCounter.inc();
-        }
-
+        rotationRecoveryAttemptsCounter.increment();
         log.info("Recovery attempt for rotation {}", rotationId);
     }
 
@@ -807,9 +730,11 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
             throw new IllegalArgumentException("Duration cannot be negative: " + totalDurationMs);
         }
 
-        if (rotationOrchestrationLatencyTimer != null) {
-            rotationOrchestrationLatencyTimer.update(totalDurationMs, TimeUnit.MILLISECONDS);
-        }
+        // Total duration is recorded as a timer event
+        Timer.builder(ROTATION_TOTAL_DURATION)
+            .description("Total rotation ceremony duration")
+            .register(registry)
+            .record(totalDurationMs, TimeUnit.MILLISECONDS);
     }
 
     @Override
@@ -818,9 +743,7 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
             throw new IllegalArgumentException("Duration cannot be negative: " + durationMs);
         }
 
-        if (keriPublishLatencyTimer != null) {
-            keriPublishLatencyTimer.update(durationMs, TimeUnit.MILLISECONDS);
-        }
+        keriPublishLatencyTimer.record(durationMs, TimeUnit.MILLISECONDS);
     }
 
     @Override
@@ -829,9 +752,7 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
             throw new IllegalArgumentException("Duration cannot be negative: " + durationNanos);
         }
 
-        if (dualKeyValidationTimeHistogram != null) {
-            dualKeyValidationTimeHistogram.update(durationNanos);
-        }
+        dualKeyValidationTimeSummary.record(durationNanos);
     }
 
     @Override
@@ -851,32 +772,35 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
 
     @Override
     public long getRotationInitiatedCount() {
-        return rotationInitiatedCounter != null ? rotationInitiatedCounter.getCount() : 0L;
+        return (long) rotationInitiatedCounter.count();
     }
 
     @Override
     public long getRotationFailuresCount() {
-        return rotationFailuresCounter != null ? rotationFailuresCounter.getCount() : 0L;
+        return (long) rotationFailuresCounter.count();
     }
 
     @Override
     public long getRotationFailuresPreRotationCount() {
-        return rotationFailuresPreRotationCounter != null ? rotationFailuresPreRotationCounter.getCount() : 0L;
+        var counter = rotationFailuresPhaseCounters.get(KeyRotationPhase.PRE_ROTATION);
+        return counter != null ? (long) counter.count() : 0L;
     }
 
     @Override
     public long getRotationFailuresGracePeriodCount() {
-        return rotationFailuresGracePeriodCounter != null ? rotationFailuresGracePeriodCounter.getCount() : 0L;
+        var counter = rotationFailuresPhaseCounters.get(KeyRotationPhase.GRACE_PERIOD);
+        return counter != null ? (long) counter.count() : 0L;
     }
 
     @Override
     public long getRotationFailuresActivationCount() {
-        return rotationFailuresActivationCounter != null ? rotationFailuresActivationCounter.getCount() : 0L;
+        var counter = rotationFailuresPhaseCounters.get(KeyRotationPhase.ACTIVATED);
+        return counter != null ? (long) counter.count() : 0L;
     }
 
     @Override
     public long getRotationRecoveryAttemptsCount() {
-        return rotationRecoveryAttemptsCounter != null ? rotationRecoveryAttemptsCounter.getCount() : 0L;
+        return (long) rotationRecoveryAttemptsCounter.count();
     }
 
     @Override
@@ -886,7 +810,7 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
         }
 
         var counter = graceOldSignatureCounters.get(rotationId);
-        return counter != null ? counter.getCount() : 0L;
+        return counter != null ? counter.get() : 0L;
     }
 
     @Override
@@ -896,6 +820,6 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
         }
 
         var counter = graceNewSignatureCounters.get(rotationId);
-        return counter != null ? counter.getCount() : 0L;
+        return counter != null ? counter.get() : 0L;
     }
 }
