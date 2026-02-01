@@ -27,14 +27,25 @@ import java.util.Objects;
  *   <li>THOTH: 10s (DHT operations are slower)</li>
  * </ul>
  * </p>
+ * <p>
+ * <b>Phase 5: Anti-Feedback Mechanism</b><br>
+ * Rate limiting prevents runaway escalation:
+ * <ul>
+ *   <li>maxResponsesPerInterval: caps responses per evaluation cycle</li>
+ *   <li>responseCooldown: prevents rapid re-triggering for same member</li>
+ *   <li>signalDeduplicationWindow: tracks seen signals to prevent amplification</li>
+ * </ul>
+ * </p>
  *
- * @param defaultPollInterval Default interval for polling layers
- * @param layerPollIntervals  Per-layer poll interval overrides
- * @param warningThreshold    Score threshold for warning-level response [0.0, 1.0)
- * @param criticalThreshold   Score threshold for critical response (warningThreshold, 1.0]
- * @param layerWeights        Weights for each layer's contribution to aggregated score (must be >= 0)
- * @param responseCooldown    Minimum time between responses for the same member
- * @param scoreDecayRate      Rate at which scores decay per evaluation cycle [0.0, 1.0]
+ * @param defaultPollInterval        Default interval for polling layers
+ * @param layerPollIntervals         Per-layer poll interval overrides
+ * @param warningThreshold           Score threshold for warning-level response [0.0, 1.0)
+ * @param criticalThreshold          Score threshold for critical response (warningThreshold, 1.0]
+ * @param layerWeights               Weights for each layer's contribution to aggregated score (must be >= 0)
+ * @param responseCooldown           Minimum time between responses for the same member
+ * @param scoreDecayRate             Rate at which scores decay per evaluation cycle [0.0, 1.0]
+ * @param maxResponsesPerInterval    Maximum responses per evaluation interval (rate limiting)
+ * @param signalDeduplicationWindow  Window for signal deduplication to prevent amplification
  * @author hal.hildebrand
  */
 public record IntelligenceConfig(
@@ -44,7 +55,9 @@ public record IntelligenceConfig(
     double criticalThreshold,
     Map<String, Double> layerWeights,
     Duration responseCooldown,
-    double scoreDecayRate
+    double scoreDecayRate,
+    int maxResponsesPerInterval,
+    Duration signalDeduplicationWindow
 ) {
     /**
      * Standard layer names used across the system.
@@ -59,6 +72,7 @@ public record IntelligenceConfig(
         Objects.requireNonNull(layerPollIntervals, "layerPollIntervals cannot be null");
         Objects.requireNonNull(layerWeights, "layerWeights cannot be null");
         Objects.requireNonNull(responseCooldown, "responseCooldown cannot be null");
+        Objects.requireNonNull(signalDeduplicationWindow, "signalDeduplicationWindow cannot be null");
 
         if (defaultPollInterval.isNegative() || defaultPollInterval.isZero()) {
             throw new IllegalArgumentException("defaultPollInterval must be positive");
@@ -75,6 +89,12 @@ public record IntelligenceConfig(
         }
         if (scoreDecayRate < 0.0 || scoreDecayRate > 1.0) {
             throw new IllegalArgumentException("scoreDecayRate must be in range [0.0, 1.0]");
+        }
+        if (maxResponsesPerInterval < 1) {
+            throw new IllegalArgumentException("maxResponsesPerInterval must be >= 1");
+        }
+        if (signalDeduplicationWindow.isNegative()) {
+            throw new IllegalArgumentException("signalDeduplicationWindow cannot be negative");
         }
 
         // Validate layer weights are non-negative
@@ -128,7 +148,7 @@ public record IntelligenceConfig(
      * Default configuration suitable for production use.
      * <p>
      * Uses conservative thresholds and recommended layer weights based on
-     * signal reliability.
+     * signal reliability. Rate limiting prevents runaway escalation.
      * </p>
      *
      * @return Default configuration
@@ -151,7 +171,9 @@ public record IntelligenceConfig(
                 LAYER_GORGONEION, 0.1
             ),
             Duration.ofSeconds(15),                         // responseCooldown (3x default poll)
-            0.95                                            // scoreDecayRate (5% decay per cycle)
+            0.95,                                           // scoreDecayRate (5% decay per cycle)
+            10,                                             // maxResponsesPerInterval (Phase 5)
+            Duration.ofSeconds(30)                          // signalDeduplicationWindow (Phase 5)
         );
     }
 
@@ -176,6 +198,8 @@ public record IntelligenceConfig(
         private Map<String, Double> layerWeights = Map.of();
         private Duration responseCooldown = Duration.ofSeconds(15);
         private double scoreDecayRate = 0.95;
+        private int maxResponsesPerInterval = 10;
+        private Duration signalDeduplicationWindow = Duration.ofSeconds(30);
 
         public Builder defaultPollInterval(Duration interval) {
             Objects.requireNonNull(interval, "defaultPollInterval cannot be null");
@@ -243,6 +267,23 @@ public record IntelligenceConfig(
             return this;
         }
 
+        public Builder maxResponsesPerInterval(int max) {
+            if (max < 1) {
+                throw new IllegalArgumentException("maxResponsesPerInterval must be >= 1");
+            }
+            this.maxResponsesPerInterval = max;
+            return this;
+        }
+
+        public Builder signalDeduplicationWindow(Duration window) {
+            Objects.requireNonNull(window, "signalDeduplicationWindow cannot be null");
+            if (window.isNegative()) {
+                throw new IllegalArgumentException("signalDeduplicationWindow cannot be negative");
+            }
+            this.signalDeduplicationWindow = window;
+            return this;
+        }
+
         public IntelligenceConfig build() {
             // Final cross-field validation
             if (criticalThreshold <= warningThreshold) {
@@ -256,7 +297,9 @@ public record IntelligenceConfig(
                 criticalThreshold,
                 layerWeights,
                 responseCooldown,
-                scoreDecayRate
+                scoreDecayRate,
+                maxResponsesPerInterval,
+                signalDeduplicationWindow
             );
         }
     }

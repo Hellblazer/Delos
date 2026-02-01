@@ -80,6 +80,12 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
     // Recent responses for cooldown tracking (atomic via putIfAbsent)
     private final ConcurrentHashMap<Identifier, Instant> recentResponses;
 
+    // Rate limiting: responses triggered this interval (Phase 5)
+    private final java.util.concurrent.atomic.AtomicInteger responsesThisInterval;
+
+    // Signal deduplication: track seen signal fingerprints (Phase 5)
+    private final ConcurrentHashMap<String, Instant> seenSignals;
+
     // Cached minimum poll interval (computed once at start)
     private volatile Duration minPollInterval;
 
@@ -115,6 +121,10 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
         this.memberProfiles = new ConcurrentHashMap<>();
         this.pendingResponses = ConcurrentHashMap.newKeySet();
         this.recentResponses = new ConcurrentHashMap<>();
+
+        // Phase 5: Anti-feedback mechanism
+        this.responsesThisInterval = new java.util.concurrent.atomic.AtomicInteger(0);
+        this.seenSignals = new ConcurrentHashMap<>();
 
         this.started = new AtomicBoolean(false);
         this.closed = new AtomicBoolean(false);
@@ -269,8 +279,8 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
     /**
      * Reset all tracked state.
      * <p>
-     * Clears all member profiles, pending responses, and recent responses.
-     * Also resets all registered providers.
+     * Clears all member profiles, pending responses, recent responses,
+     * and anti-feedback tracking. Also resets all registered providers.
      * </p>
      */
     public void reset() {
@@ -278,6 +288,9 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
         memberProfiles.clear();
         pendingResponses.clear();
         recentResponses.clear();
+        // Phase 5: Reset anti-feedback state
+        responsesThisInterval.set(0);
+        seenSignals.clear();
         for (var provider : providers) {
             provider.reset();
         }
@@ -340,6 +353,7 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
      * Evaluate all member profiles and trigger responses.
      * <p>
      * Thread-safe: runs on scheduler thread, may see mid-update profile state.
+     * Phase 5: Includes rate limiting and signal deduplication.
      * </p>
      */
     private void evaluateResponses() {
@@ -349,6 +363,10 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
 
         var timer = metrics.evaluationCycleDuration().time();
         try {
+            // Phase 5: Reset rate limit counter and record previous interval
+            var previousResponses = responsesThisInterval.getAndSet(0);
+            metrics.responsesPerInterval().update(previousResponses);
+
             metrics.trackedMemberCount().update(memberProfiles.size());
 
             for (var entry : memberProfiles.entrySet()) {
@@ -366,6 +384,9 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
             // Cleanup negligible profiles
             memberProfiles.entrySet().removeIf(e -> e.getValue().isNegligible(0.01));
 
+            // Phase 5: Cleanup expired signal fingerprints
+            cleanupExpiredSignals();
+
         } catch (Exception e) {
             log.error("Error during response evaluation: {}", e.getMessage(), e);
         } finally {
@@ -376,6 +397,12 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
     private void evaluateMember(Identifier memberId, MemberRiskProfile profile) {
         // Record score distribution
         metrics.aggregatedScoreDistribution().update((long) (profile.getAggregatedScore() * 1000));
+
+        // Phase 5: Check rate limit before processing
+        if (responsesThisInterval.get() >= config.maxResponsesPerInterval()) {
+            metrics.rateLimitedSkips().inc();
+            return; // Rate limit reached
+        }
 
         // Atomically claim pending slot - if add() returns false, already pending
         // This fixes HIGH #4: race condition on pending check
@@ -396,6 +423,13 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
             }
         }
 
+        // Phase 5: Check signal deduplication
+        if (isSignalDuplicate(memberId, profile)) {
+            pendingResponses.remove(memberId);
+            metrics.deduplicatedSignals().inc();
+            return;
+        }
+
         // Evaluate thresholds - still holding pending slot
         if (profile.isCritical()) {
             triggerCriticalResponse(memberId, profile, now);
@@ -410,6 +444,9 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
     private void triggerCriticalResponse(Identifier memberId, MemberRiskProfile profile, Instant now) {
         log.warn("CRITICAL Byzantine detection for {}: score={}, sources={}",
             memberId, String.format("%.3f", profile.getAggregatedScore()), profile.getActiveSignalSources());
+
+        // Phase 5: Increment rate limit counter
+        responsesThisInterval.incrementAndGet();
 
         metrics.criticalDetections().inc();
         metrics.responsesTriggered().mark();
@@ -454,6 +491,9 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
         log.info("WARNING Byzantine detection for {}: score={}, sources={}",
             memberId, String.format("%.3f", profile.getAggregatedScore()), profile.getActiveSignalSources());
 
+        // Phase 5: Increment rate limit counter
+        responsesThisInterval.incrementAndGet();
+
         metrics.warningDetections().inc();
         metrics.responsesTriggered().mark();
         metrics.pendingResponses().inc();
@@ -494,5 +534,66 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
             }
         }
         return min;
+    }
+
+    // ==================== Phase 5: Anti-Feedback Helpers ====================
+
+    /**
+     * Check if a signal is a duplicate of a recently seen signal.
+     * <p>
+     * Creates a fingerprint from the member ID and active signal sources
+     * to detect when multiple layers report the same underlying event.
+     * </p>
+     *
+     * @param memberId Member being evaluated
+     * @param profile  Risk profile with signal sources
+     * @return true if this signal was recently seen (duplicate)
+     */
+    private boolean isSignalDuplicate(Identifier memberId, MemberRiskProfile profile) {
+        var fingerprint = createSignalFingerprint(memberId, profile);
+        var now = clock.instant();
+
+        var previous = seenSignals.putIfAbsent(fingerprint, now);
+        if (previous == null) {
+            return false; // First time seeing this signal
+        }
+
+        // Check if within deduplication window
+        var elapsed = Duration.between(previous, now);
+        if (elapsed.compareTo(config.signalDeduplicationWindow()) < 0) {
+            return true; // Duplicate within window
+        }
+
+        // Window expired, update timestamp
+        seenSignals.put(fingerprint, now);
+        return false;
+    }
+
+    /**
+     * Create a fingerprint for signal deduplication.
+     * <p>
+     * Combines member ID with sorted signal sources to create a unique
+     * identifier for this signal combination.
+     * </p>
+     */
+    private String createSignalFingerprint(Identifier memberId, MemberRiskProfile profile) {
+        var sources = profile.getActiveSignalSources().stream()
+                              .sorted()
+                              .toList();
+        return memberId.toString() + ":" + sources.toString();
+    }
+
+    /**
+     * Cleanup expired signal fingerprints.
+     * <p>
+     * Removes fingerprints older than the deduplication window to prevent
+     * unbounded memory growth.
+     * </p>
+     */
+    private void cleanupExpiredSignals() {
+        var now = clock.instant();
+        var window = config.signalDeduplicationWindow();
+        seenSignals.entrySet().removeIf(e ->
+            Duration.between(e.getValue(), now).compareTo(window) > 0);
     }
 }

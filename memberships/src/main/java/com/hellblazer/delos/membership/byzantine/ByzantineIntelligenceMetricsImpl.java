@@ -29,6 +29,9 @@ public class ByzantineIntelligenceMetricsImpl implements ByzantineIntelligenceMe
     private final Counter cooldownSkips;
     private final Histogram trackedMemberCount;
     private final Counter providerErrors;
+    private final Counter rateLimitedSkips;
+    private final Counter deduplicatedSignals;
+    private final Histogram responsesPerInterval;
 
     /**
      * Create metrics registered with the given registry.
@@ -59,6 +62,12 @@ public class ByzantineIntelligenceMetricsImpl implements ByzantineIntelligenceMe
             name(prefix, "byzantine.members.tracked"));
         this.providerErrors = registry.counter(
             name(prefix, "byzantine.provider.errors"));
+        this.rateLimitedSkips = registry.counter(
+            name(prefix, "byzantine.ratelimit.skips"));
+        this.deduplicatedSignals = registry.counter(
+            name(prefix, "byzantine.signals.deduplicated"));
+        this.responsesPerInterval = registry.histogram(
+            name(prefix, "byzantine.responses.per.interval"));
     }
 
     @Override
@@ -114,5 +123,20 @@ public class ByzantineIntelligenceMetricsImpl implements ByzantineIntelligenceMe
     @Override
     public Counter providerErrors() {
         return providerErrors;
+    }
+
+    @Override
+    public Counter rateLimitedSkips() {
+        return rateLimitedSkips;
+    }
+
+    @Override
+    public Counter deduplicatedSignals() {
+        return deduplicatedSignals;
+    }
+
+    @Override
+    public Histogram responsesPerInterval() {
+        return responsesPerInterval;
     }
 }

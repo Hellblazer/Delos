@@ -75,7 +75,9 @@ class IntelligenceConfigTest {
             0.8,
             Map.of(),
             Duration.ofSeconds(15),
-            0.95
+            0.95,
+            10,
+            Duration.ofSeconds(30)
         )).isInstanceOf(IllegalArgumentException.class);
 
         assertThatThrownBy(() -> new IntelligenceConfig(
@@ -85,7 +87,9 @@ class IntelligenceConfigTest {
             0.5, // critical must be > warning
             Map.of(),
             Duration.ofSeconds(15),
-            0.95
+            0.95,
+            10,
+            Duration.ofSeconds(30)
         )).isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -98,7 +102,9 @@ class IntelligenceConfigTest {
             0.8,
             Map.of(),
             Duration.ofSeconds(15),
-            1.5 // invalid decay rate
+            1.5, // invalid decay rate
+            10,
+            Duration.ofSeconds(30)
         )).isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -111,7 +117,9 @@ class IntelligenceConfigTest {
             0.8,
             Map.of("LAYER", -0.1), // negative weight
             Duration.ofSeconds(15),
-            0.95
+            0.95,
+            10,
+            Duration.ofSeconds(30)
         )).isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("LAYER")
             .hasMessageContaining(">= 0.0");
@@ -126,7 +134,9 @@ class IntelligenceConfigTest {
             0.8,
             Map.of(),
             Duration.ofSeconds(15),
-            0.95
+            0.95,
+            10,
+            Duration.ofSeconds(30)
         )).isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("positive");
     }
@@ -190,7 +200,9 @@ class IntelligenceConfigTest {
             0.8,
             mutableWeights,
             Duration.ofSeconds(15),
-            0.95
+            0.95,
+            10,
+            Duration.ofSeconds(30)
         );
 
         mutableIntervals.put("NEW", Duration.ofSeconds(2));
@@ -198,5 +210,56 @@ class IntelligenceConfigTest {
 
         assertThat(config.layerPollIntervals()).hasSize(1);
         assertThat(config.layerWeights()).hasSize(1);
+    }
+
+    @Test
+    void shouldHavePhase5AntiFeedbackDefaults() {
+        var config = IntelligenceConfig.defaults();
+
+        assertThat(config.maxResponsesPerInterval()).isEqualTo(10);
+        assertThat(config.signalDeduplicationWindow()).isEqualTo(Duration.ofSeconds(30));
+    }
+
+    @Test
+    void shouldRejectInvalidMaxResponses() {
+        assertThatThrownBy(() -> new IntelligenceConfig(
+            Duration.ofSeconds(5),
+            Map.of(),
+            0.5,
+            0.8,
+            Map.of(),
+            Duration.ofSeconds(15),
+            0.95,
+            0, // invalid - must be >= 1
+            Duration.ofSeconds(30)
+        )).isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("maxResponsesPerInterval");
+    }
+
+    @Test
+    void shouldRejectNegativeDeduplicationWindow() {
+        assertThatThrownBy(() -> new IntelligenceConfig(
+            Duration.ofSeconds(5),
+            Map.of(),
+            0.5,
+            0.8,
+            Map.of(),
+            Duration.ofSeconds(15),
+            0.95,
+            10,
+            Duration.ofSeconds(-1) // invalid - cannot be negative
+        )).isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("signalDeduplicationWindow");
+    }
+
+    @Test
+    void shouldBuildWithPhase5Options() {
+        var config = IntelligenceConfig.builder()
+            .maxResponsesPerInterval(20)
+            .signalDeduplicationWindow(Duration.ofMinutes(1))
+            .build();
+
+        assertThat(config.maxResponsesPerInterval()).isEqualTo(20);
+        assertThat(config.signalDeduplicationWindow()).isEqualTo(Duration.ofMinutes(1));
     }
 }

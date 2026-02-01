@@ -101,6 +101,39 @@ public interface ByzantineIntelligenceMetrics {
     Counter providerErrors();
 
     /**
+     * Counter of responses skipped due to rate limiting.
+     * <p>
+     * Phase 5: Anti-feedback mechanism tracks when responses are
+     * skipped because maxResponsesPerInterval was exceeded.
+     * </p>
+     *
+     * @return Counter for rate-limited skips
+     */
+    Counter rateLimitedSkips();
+
+    /**
+     * Counter of signals deduplicated (same event from multiple layers).
+     * <p>
+     * Phase 5: Tracks signal deduplication to prevent amplification
+     * when multiple layers detect the same underlying event.
+     * </p>
+     *
+     * @return Counter for deduplicated signals
+     */
+    Counter deduplicatedSignals();
+
+    /**
+     * Histogram of responses per evaluation interval.
+     * <p>
+     * Phase 5: Tracks distribution of response counts per interval
+     * to monitor rate limiting effectiveness.
+     * </p>
+     *
+     * @return Histogram of response counts
+     */
+    Histogram responsesPerInterval();
+
+    /**
      * No-op implementation for testing.
      *
      * @return Metrics that record nothing
@@ -172,6 +205,21 @@ public interface ByzantineIntelligenceMetrics {
         @Override
         public Counter providerErrors() {
             return NO_OP_COUNTER;
+        }
+
+        @Override
+        public Counter rateLimitedSkips() {
+            return NO_OP_COUNTER;
+        }
+
+        @Override
+        public Counter deduplicatedSignals() {
+            return NO_OP_COUNTER;
+        }
+
+        @Override
+        public Histogram responsesPerInterval() {
+            return NO_OP_HISTOGRAM;
         }
     }
 }
