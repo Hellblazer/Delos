@@ -7,8 +7,6 @@
  */
 package com.hellblazer.delos.witness.detection;
 
-import com.codahale.metrics.MetricRegistry;
-
 /**
  * No-op implementation of ByzantineDetectionMetrics for testing.
  *
@@ -139,11 +137,6 @@ public class NoOpByzantineDetectionMetrics implements ByzantineDetectionMetrics 
     @Override
     public long getThresholdBreachCount(DetectorType detectorType) {
         return 0L;
-    }
-
-    @Override
-    public void register(MetricRegistry registry) {
-        // No-op
     }
 
     @Override

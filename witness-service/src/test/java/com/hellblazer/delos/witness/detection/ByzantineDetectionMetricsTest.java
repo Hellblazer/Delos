@@ -7,7 +7,7 @@
  */
 package com.hellblazer.delos.witness.detection;
 
-import com.codahale.metrics.MetricRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -21,14 +21,13 @@ import static org.assertj.core.api.Assertions.*;
  */
 class ByzantineDetectionMetricsTest {
 
-    private ByzantineDetectionMetricsImpl metrics;
-    private MetricRegistry registry;
+    private ByzantineDetectionMetrics metrics;
+    private SimpleMeterRegistry registry;
 
     @BeforeEach
     void setUp() {
-        metrics = new ByzantineDetectionMetricsImpl();
-        registry = new MetricRegistry();
-        metrics.register(registry);
+        registry = new SimpleMeterRegistry();
+        metrics = new MicrometerByzantineDetectionMetrics(registry);
     }
 
     // ===========================
@@ -329,37 +328,25 @@ class ByzantineDetectionMetricsTest {
     // ===========================
 
     @Test
-    void testRegister_NullRegistry() {
-        var newMetrics = new ByzantineDetectionMetricsImpl();
-        assertThatThrownBy(() -> newMetrics.register(null))
-            .isInstanceOf(NullPointerException.class)
-            .hasMessageContaining("MetricRegistry cannot be null");
+    void testConstructor_NullRegistry() {
+        assertThatThrownBy(() -> new MicrometerByzantineDetectionMetrics(null))
+            .isInstanceOf(NullPointerException.class);
     }
 
     @Test
-    void testRegister_Idempotent() {
-        var newMetrics = new ByzantineDetectionMetricsImpl();
-        var newRegistry = new MetricRegistry();
+    void testConstructor_AcceptsValidRegistry() {
+        var newRegistry = new SimpleMeterRegistry();
+        assertThat(new MicrometerByzantineDetectionMetrics(newRegistry)).isNotNull();
+    }
 
-        newMetrics.register(newRegistry);
-        newMetrics.register(newRegistry); // Should be idempotent
+    @Test
+    void testMetricsWorkAfterConstruction() {
+        var newRegistry = new SimpleMeterRegistry();
+        var newMetrics = new MicrometerByzantineDetectionMetrics(newRegistry);
 
-        // Verify metrics still work
+        // Verify metrics work immediately after construction
         newMetrics.recordAnomalyDetection(DetectorType.SIGNATURE, 0.5);
         assertThat(newMetrics.getAnomalyDetectionCount(DetectorType.SIGNATURE)).isEqualTo(1);
-    }
-
-    @Test
-    void testRegister_DifferentRegistry() {
-        var newMetrics = new ByzantineDetectionMetricsImpl();
-        var registry1 = new MetricRegistry();
-        var registry2 = new MetricRegistry();
-
-        newMetrics.register(registry1);
-
-        assertThatThrownBy(() -> newMetrics.register(registry2))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("already registered with a different registry");
     }
 
     @Test

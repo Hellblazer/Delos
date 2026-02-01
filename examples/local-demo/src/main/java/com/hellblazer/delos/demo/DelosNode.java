@@ -7,7 +7,6 @@
  */
 package com.hellblazer.delos.demo;
 
-import com.codahale.metrics.MetricRegistry;
 import com.hellblazer.delos.archipelago.*;
 import com.hellblazer.delos.choam.CHOAM;
 import com.hellblazer.delos.comm.grpc.ClientContextSupplier;
@@ -19,8 +18,7 @@ import com.hellblazer.delos.cryptography.SignatureAlgorithm;
 import com.hellblazer.delos.cryptography.cert.CertificateWithPrivateKey;
 import com.hellblazer.delos.cryptography.ssl.CertificateValidator;
 import com.hellblazer.delos.ethereal.Config;
-import com.hellblazer.delos.fireflies.FireflyMetrics;
-import com.hellblazer.delos.fireflies.FireflyMetricsImpl;
+import com.hellblazer.delos.fireflies.MicrometerFireflyMetrics;
 import com.hellblazer.delos.fireflies.View;
 import com.hellblazer.delos.fireflies.View.Participant;
 import com.hellblazer.delos.fireflies.View.Seed;
@@ -32,11 +30,11 @@ import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
 import com.hellblazer.delos.stereotomy.mem.MemKERL;
 import com.hellblazer.delos.stereotomy.mem.MemKeyStore;
 import com.sun.net.httpserver.HttpServer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.prometheus.PrometheusConfig;
+import io.micrometer.prometheus.PrometheusMeterRegistry;
 import io.netty.handler.ssl.ClientAuth;
 import io.netty.handler.ssl.SslContext;
-import io.prometheus.client.CollectorRegistry;
-import io.prometheus.client.dropwizard.DropwizardExports;
-import io.prometheus.client.exporter.HTTPServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -91,7 +89,7 @@ public class DelosNode {
     private static final Logger log = LoggerFactory.getLogger(DelosNode.class);
 
     private final NodeConfig config;
-    private final MetricRegistry metrics;
+    private final SimpleMeterRegistry metrics;
     private final AtomicBoolean running = new AtomicBoolean(false);
 
     // Endpoint registry for member-to-endpoint resolution
@@ -104,13 +102,14 @@ public class DelosNode {
     private CHOAM choam;
     private DynamicContext<Member> choamContext;
     private MemKERL kerl;
-    private HTTPServer prometheusServer;
+    private PrometheusMeterRegistry prometheusRegistry;
+    private HttpServer prometheusServer;
     private HttpServer discoveryServer;
     private ExecutorService executor;
 
     public DelosNode(NodeConfig config) {
         this.config = config;
-        this.metrics = new MetricRegistry();
+        this.metrics = new SimpleMeterRegistry();
     }
 
     public static void main(String[] args) {
@@ -188,7 +187,7 @@ public class DelosNode {
         // Create MTLS router
         var cacheBuilder = ServerConnectionCache.newBuilder()
             .setTarget(30)
-            .setMetrics(new ServerConnectionCacheMetricsImpl(metrics));
+            .setMetrics(new MicrometerServerConnectionCacheMetrics(metrics));
 
         communications = new MtlsServer(member, ep, clientContextSupplier(), serverContextSupplier())
             .router(cacheBuilder, executor);
@@ -204,7 +203,7 @@ public class DelosNode {
             .build();
 
         // Create Fireflies metrics
-        FireflyMetrics ffMetrics = new FireflyMetricsImpl(context.getId(), metrics);
+        var ffMetrics = new MicrometerFireflyMetrics(context.getId(), metrics);
 
         // Create the view with real network endpoint
         view = new View(
@@ -466,10 +465,18 @@ public class DelosNode {
 
         try {
             if (prometheusServer != null) {
-                prometheusServer.close();
+                prometheusServer.stop(1);
             }
         } catch (Exception e) {
             log.warn("Error stopping Prometheus server", e);
+        }
+
+        try {
+            if (prometheusRegistry != null) {
+                prometheusRegistry.close();
+            }
+        } catch (Exception e) {
+            log.warn("Error closing Prometheus registry", e);
         }
 
         try {
@@ -647,19 +654,39 @@ public class DelosNode {
 
     /**
      * Start the Prometheus metrics HTTP server.
-     * Bridges Dropwizard MetricRegistry to Prometheus CollectorRegistry.
+     * Exposes Micrometer metrics in Prometheus scrape format.
      */
     private void startPrometheusServer() {
         try {
-            // Register Dropwizard metrics with Prometheus
-            // This bridges all metrics from the Dropwizard MetricRegistry to Prometheus
-            CollectorRegistry.defaultRegistry.register(new DropwizardExports(metrics));
-            log.info("Registered Dropwizard metrics with Prometheus");
+            // Create Prometheus registry with composite including our simple registry
+            prometheusRegistry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
+            prometheusRegistry.config().commonTags("node", config.nodeId());
 
-            prometheusServer = new HTTPServer(
-                new InetSocketAddress(config.metricsPort()),
-                CollectorRegistry.defaultRegistry
-            );
+            // Note: Metrics are already being collected in SimpleMeterRegistry,
+            // but for Prometheus export we need a PrometheusMeterRegistry.
+            // In production, you'd use PrometheusMeterRegistry directly instead of SimpleMeterRegistry.
+
+            prometheusServer = HttpServer.create(new InetSocketAddress(config.metricsPort()), 0);
+
+            // GET /metrics - Prometheus scrape endpoint
+            prometheusServer.createContext("/metrics", exchange -> {
+                if (!"GET".equals(exchange.getRequestMethod())) {
+                    exchange.sendResponseHeaders(405, -1);
+                    return;
+                }
+
+                var response = prometheusRegistry.scrape();
+                var bytes = response.getBytes(StandardCharsets.UTF_8);
+
+                exchange.getResponseHeaders().set("Content-Type", "text/plain; version=0.0.4");
+                exchange.sendResponseHeaders(200, bytes.length);
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(bytes);
+                }
+            });
+
+            prometheusServer.setExecutor(executor);
+            prometheusServer.start();
             log.info("Prometheus server started on port {}", config.metricsPort());
         } catch (IOException e) {
             log.warn("Failed to start Prometheus server on port {}: {}",

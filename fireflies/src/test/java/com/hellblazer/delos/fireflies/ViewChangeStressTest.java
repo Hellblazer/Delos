@@ -6,9 +6,9 @@
  */
 package com.hellblazer.delos.fireflies;
 
-import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Timer;
 import com.hellblazer.delos.archipelago.*;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.context.DynamicContext;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
@@ -62,7 +62,7 @@ public class ViewChangeStressTest {
     private final List<Router>                            gateways       = new ArrayList<>();
     private final Timer                                   joinLatencyTimer = new Timer();
     private       Map<Digest, ControlledIdentifierMember> members;
-    private       MetricRegistry                          registry;
+    private       SimpleMeterRegistry                     registry;
     private       List<View>                              views;
     private       ExecutorService                         executor;
 
@@ -295,7 +295,7 @@ public class ViewChangeStressTest {
 
     private void initialize() throws Exception {
         var parameters = Parameters.newBuilder().setMaxPending(20).setMaximumTxfr(5).build();
-        registry = new MetricRegistry();
+        registry = new SimpleMeterRegistry();
 
         // Use only INITIAL_CARDINALITY for bootstrap, rest are joiners
         var bootstrapMembers = identities.values()
@@ -347,16 +347,16 @@ public class ViewChangeStressTest {
                                 .build();
             }
 
-            var metrics = new FireflyMetricsImpl(context.getId(), registry);
+            var metrics = new MicrometerFireflyMetrics(context.getId(), registry);
             var comms = new LocalServer(prefix, node).router(ServerConnectionCache.newBuilder()
                                                                                       .setTarget(200)
                                                                                       .setMetrics(
-                                                                                      new ServerConnectionCacheMetricsImpl(
+                                                                                      new MicrometerServerConnectionCacheMetrics(
                                                                                       registry)));
             var gateway = new LocalServer(gatewayPrefix, node).router(ServerConnectionCache.newBuilder()
                                                                                    .setTarget(200)
                                                                                    .setMetrics(
-                                                                                   new ServerConnectionCacheMetricsImpl(
+                                                                                   new MicrometerServerConnectionCacheMetrics(
                                                                                    registry)));
             comms.start();
             communications.add(comms);

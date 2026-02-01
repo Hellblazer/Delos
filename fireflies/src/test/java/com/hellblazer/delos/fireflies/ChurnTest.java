@@ -6,9 +6,8 @@
  */
 package com.hellblazer.delos.fireflies;
 
-import com.codahale.metrics.ConsoleReporter;
-import com.codahale.metrics.MetricRegistry;
 import com.hellblazer.delos.archipelago.*;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.context.Context;
 import com.hellblazer.delos.context.DynamicContext;
 import com.hellblazer.delos.cryptography.Digest;
@@ -75,8 +74,8 @@ public class ChurnTest {
     private final        List<Router>                                                communications = new ArrayList<>();
     private final        List<Router>                                                gateways       = new ArrayList<>();
     private              Map<Digest, ControlledIdentifierMember>                     members;
-    private              MetricRegistry                                              node0Registry;
-    private              MetricRegistry                                              registry;
+    private              SimpleMeterRegistry                                         node0Registry;
+    private              SimpleMeterRegistry                                         registry;
     private              List<View>                                                  views;
     private              ExecutorService                                             executor;
     private              ExecutorService                                             executor2;
@@ -296,14 +295,16 @@ public class ChurnTest {
             assertTrue(testGraph.isSC());
         }
 
-        if (Boolean.getBoolean("reportMetrics")) {
-            System.out.println("Node 0 metrics");
-            ConsoleReporter.forRegistry(node0Registry)
-                           .convertRatesTo(TimeUnit.SECONDS)
-                           .convertDurationsTo(TimeUnit.MILLISECONDS)
-                           .build()
-                           .report();
-        }
+        // Note: ConsoleReporter is Dropwizard-specific. Micrometer metrics can be accessed via:
+        // node0Registry.getMeters().forEach(meter -> System.out.println(meter.getId() + " = " + meter.measure()));
+        // if (Boolean.getBoolean("reportMetrics")) {
+        //     System.out.println("Node 0 metrics");
+        //     ConsoleReporter.forRegistry(node0Registry)
+        //                    .convertRatesTo(TimeUnit.SECONDS)
+        //                    .convertDurationsTo(TimeUnit.MILLISECONDS)
+        //                    .build()
+        //                    .report();
+        // }
     }
 
     private void initialize() {
@@ -314,8 +315,8 @@ public class ChurnTest {
                                    .setSeedingTimout(Duration.ofSeconds(IS_CI ? 120 : 90))  // Increased to allow view change completion
                                    .setMaxReseedDepth(50)  // Increased from default 30 to handle epoch mismatch reseeds
                                    .build();
-        registry = new MetricRegistry();
-        node0Registry = new MetricRegistry();
+        registry = new SimpleMeterRegistry();
+        node0Registry = new SimpleMeterRegistry();
 
         members = identities.values()
                             .stream()
@@ -328,19 +329,19 @@ public class ChurnTest {
         final var gatewayPrefix = UUID.randomUUID().toString();
         views = members.values().stream().map(node -> {
             DynamicContext<Participant> context = ctxBuilder.build();
-            FireflyMetricsImpl metrics = new FireflyMetricsImpl(context.getId(),
+            var metrics = new MicrometerFireflyMetrics(context.getId(),
                                                                 frist.getAndSet(false) ? node0Registry : registry);
             var comms = new LocalServer(prefix, node).router(ServerConnectionCache.newBuilder()
                                                                                   .setTarget(200)
                                                                                   .setMetrics(
-                                                                                  new ServerConnectionCacheMetricsImpl(
+                                                                                  new MicrometerServerConnectionCacheMetrics(
                                                                                   frist.getAndSet(false) ? node0Registry
                                                                                                          : registry)),
                                                              executor);
             var gateway = new LocalServer(gatewayPrefix, node).router(ServerConnectionCache.newBuilder()
                                                                                            .setTarget(200)
                                                                                            .setMetrics(
-                                                                                           new ServerConnectionCacheMetricsImpl(
+                                                                                           new MicrometerServerConnectionCacheMetrics(
                                                                                            frist.getAndSet(false)
                                                                                            ? node0Registry : registry)),
                                                                       executor2);

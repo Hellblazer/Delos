@@ -6,9 +6,9 @@
  */
 package com.hellblazer.delos.fireflies;
 
-import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Timer;
 import com.hellblazer.delos.archipelago.*;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.context.DynamicContext;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
@@ -61,7 +61,7 @@ public class LockContentionTest {
     private final List<Router>                            gateways       = new ArrayList<>();
     private final Timer                                   lockHoldTimer  = new Timer();
     private       Map<Digest, ControlledIdentifierMember> members;
-    private       MetricRegistry                          registry;
+    private       SimpleMeterRegistry                     registry;
     private       List<View>                              views;
     private       ExecutorService                         executor;
 
@@ -268,7 +268,7 @@ public class LockContentionTest {
 
     private void initialize() throws Exception {
         var parameters = Parameters.newBuilder().setMaxPending(20).setMaximumTxfr(5).build();
-        registry = new MetricRegistry();
+        registry = new SimpleMeterRegistry();
 
         // Use only TEST_CARDINALITY views to avoid port exhaustion in test
         var testMembers = identities.values()
@@ -300,16 +300,16 @@ public class LockContentionTest {
         for (int i = 0; i < memberList.size(); i++) {
             var node = memberList.get(i);
             DynamicContext<Participant> context = ctxBuilder.build();
-            var metrics = new FireflyMetricsImpl(context.getId(), registry);
+            var metrics = new MicrometerFireflyMetrics(context.getId(), registry);
             var comms = new LocalServer(prefix, node).router(ServerConnectionCache.newBuilder()
                                                                                       .setTarget(200)
                                                                                       .setMetrics(
-                                                                                      new ServerConnectionCacheMetricsImpl(
+                                                                                      new MicrometerServerConnectionCacheMetrics(
                                                                                       registry)));
             var gateway = new LocalServer(gatewayPrefix, node).router(ServerConnectionCache.newBuilder()
                                                                                    .setTarget(200)
                                                                                    .setMetrics(
-                                                                                   new ServerConnectionCacheMetricsImpl(
+                                                                                   new MicrometerServerConnectionCacheMetrics(
                                                                                    registry)));
             comms.start();
             communications.add(comms);

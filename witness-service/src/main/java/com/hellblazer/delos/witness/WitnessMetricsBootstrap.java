@@ -117,13 +117,14 @@ public class WitnessMetricsBootstrap implements AutoCloseable {
     }
 
     /**
-     * Get BLS metrics instance.
+     * Get BLS metrics instance (legacy Dropwizard implementation).
      * <p>
      * Use this when creating receipt managers and view change listeners.
+     * Note: Returns legacy impl, not conforming to new BLSMetrics interface.
      *
-     * @return BLS metrics
+     * @return BLS metrics (legacy implementation)
      */
-    public BLSMetrics getBLSMetrics() {
+    public BLSMetricsImpl getBLSMetrics() {
         return blsMetrics;
     }
 

@@ -7,18 +7,15 @@
  */
 package com.hellblazer.delos.demo;
 
-import com.codahale.metrics.MetricRegistry;
 import com.google.common.collect.Sets;
-import com.hellblazer.delos.archipelago.LocalServer;
-import com.hellblazer.delos.archipelago.Router;
-import com.hellblazer.delos.archipelago.ServerConnectionCache;
-import com.hellblazer.delos.archipelago.ServerConnectionCacheMetricsImpl;
+import com.hellblazer.delos.archipelago.*;
 import com.hellblazer.delos.context.DynamicContext;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.fireflies.*;
 import com.hellblazer.delos.fireflies.View.Participant;
 import com.hellblazer.delos.fireflies.View.Seed;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.membership.stereotomy.ControlledIdentifierMember;
 import com.hellblazer.delos.stereotomy.*;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
@@ -77,7 +74,7 @@ public class ThreeTierBootstrapTest {
     private final List<Router> gateways = new ArrayList<>();
     private Map<Digest, ControlledIdentifierMember> members;
     private List<View> views;
-    private MetricRegistry registry;
+    private SimpleMeterRegistry registry;
 
     @BeforeAll
     public static void beforeClass() throws Exception {
@@ -268,7 +265,7 @@ public class ThreeTierBootstrapTest {
     }
 
     private void initialize() {
-        registry = new MetricRegistry();
+        registry = new SimpleMeterRegistry();
         members = identities.values().stream()
             .map(ControlledIdentifierMember::new)
             .collect(Collectors.toMap(ControlledIdentifierMember::getId, m -> m));
@@ -289,8 +286,8 @@ public class ThreeTierBootstrapTest {
 
         views = members.values().stream().map(node -> {
             DynamicContext<Participant> context = ctxBuilder.build();
-            var metrics = new FireflyMetricsImpl(context.getId(), registry);
-            var cacheMetrics = new ServerConnectionCacheMetricsImpl(registry);
+            var metrics = new MicrometerFireflyMetrics(context.getId(), registry);
+            var cacheMetrics = new MicrometerServerConnectionCacheMetrics(registry);
 
             var comms = new LocalServer(prefix, node).router(
                 ServerConnectionCache.newBuilder().setTarget(200).setMetrics(cacheMetrics));

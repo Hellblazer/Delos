@@ -7,7 +7,6 @@
  */
 package com.hellblazer.delos.demo;
 
-import com.codahale.metrics.MetricRegistry;
 import com.google.common.collect.Sets;
 import com.hellblazer.delos.archipelago.*;
 import com.hellblazer.delos.comm.grpc.ClientContextSupplier;
@@ -21,6 +20,7 @@ import com.hellblazer.delos.cryptography.ssl.CertificateValidator;
 import com.hellblazer.delos.fireflies.*;
 import com.hellblazer.delos.fireflies.View.Participant;
 import com.hellblazer.delos.fireflies.View.Seed;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.membership.stereotomy.ControlledIdentifierMember;
 import com.hellblazer.delos.stereotomy.*;
@@ -96,7 +96,7 @@ public class MtlsThreeTierBootstrapTest {
     private Map<Digest, ControlledIdentifierMember> members;
     private List<View> views;
     private ExecutorService executor;
-    private MetricRegistry registry;
+    private SimpleMeterRegistry registry;
 
     @BeforeAll
     public static void beforeClass() throws Exception {
@@ -277,7 +277,7 @@ public class MtlsThreeTierBootstrapTest {
         log.info("Initializing {} MTLS nodes", TOTAL_NODES);
 
         executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
-        registry = new MetricRegistry();
+        registry = new SimpleMeterRegistry();
 
         members = identities.values().stream()
             .map(ControlledIdentifierMember::new)
@@ -295,14 +295,14 @@ public class MtlsThreeTierBootstrapTest {
 
         var cacheBuilder = ServerConnectionCache.newBuilder()
             .setTarget(30)
-            .setMetrics(new ServerConnectionCacheMetricsImpl(registry));
+            .setMetrics(new MicrometerServerConnectionCacheMetrics(registry));
 
         var clientCtxSupplier = clientContextSupplier();
         var first = new AtomicBoolean(true);
 
         views = members.values().stream().map(node -> {
             DynamicContext<Participant> context = ctxBuilder.build();
-            var metrics = new FireflyMetricsImpl(context.getId(), registry);
+            var metrics = new MicrometerFireflyMetrics(context.getId(), registry);
 
             // Create endpoint provider for this node
             EndpointProvider ep = new StandardEpProvider(

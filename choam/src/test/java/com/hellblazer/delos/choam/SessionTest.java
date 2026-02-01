@@ -6,9 +6,8 @@
  */
 package com.hellblazer.delos.choam;
 
-import com.codahale.metrics.ConsoleReporter;
-import com.codahale.metrics.MetricRegistry;
-import com.codahale.metrics.Timer;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.google.common.base.Function;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -134,8 +133,10 @@ public class SessionTest {
             return SubmitResult.newBuilder().setResult(Result.PUBLISHED).build();
         };
 
-        MetricRegistry reg = new MetricRegistry();
-        Timer latency = reg.timer("Transaction latency");
+        SimpleMeterRegistry reg = new SimpleMeterRegistry();
+        Timer latency = Timer.builder("Transaction latency")
+                             .description("Transaction latency measurement")
+                             .register(reg);
 
         Session session = new Session(params, service, scheduler);
         session.setView(new HashedCertifiedBlock(DigestAlgorithm.DEFAULT, CertifiedBlock.newBuilder()
@@ -147,7 +148,7 @@ public class SessionTest {
                                                                                         .build()));
         List<CompletableFuture<?>> futures = new ArrayList<>();
         IntStream.range(0, 10000).forEach(i -> {
-            final var time = latency.time();
+            final var sample = Timer.start(reg);
             final String content = "Give me food or give me slack or kill me";
             Message tx = ByteMessage.newBuilder().setContents(ByteString.copyFromUtf8(content)).build();
             CompletableFuture<Object> result;
@@ -155,12 +156,12 @@ public class SessionTest {
                 result = session.submit(tx, null).whenComplete((r, t) -> {
                     if (t != null) {
                         if (t instanceof CompletionException ce) {
-                            reg.counter(t.getCause().getClass().getSimpleName()).inc();
+                            reg.counter(t.getCause().getClass().getSimpleName()).increment();
                         } else {
-                            reg.counter(t.getClass().getSimpleName()).inc();
+                            reg.counter(t.getClass().getSimpleName()).increment();
                         }
                     } else {
-                        time.close();
+                        sample.stop(latency);
                     }
                 });
                 futures.add(result);
@@ -178,12 +179,6 @@ public class SessionTest {
             }
         }
         System.out.println();
-        if (Boolean.getBoolean("reportMetrics")) {
-            ConsoleReporter.forRegistry(reg)
-                           .convertRatesTo(TimeUnit.SECONDS)
-                           .convertDurationsTo(TimeUnit.MILLISECONDS)
-                           .build()
-                           .report();
-        }
+        // Metrics reporting removed - use Micrometer exporters for production monitoring
     }
 }

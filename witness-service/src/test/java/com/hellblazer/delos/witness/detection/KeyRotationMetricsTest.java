@@ -7,9 +7,9 @@
  */
 package com.hellblazer.delos.witness.detection;
 
-import com.codahale.metrics.MetricRegistry;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -31,15 +31,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class KeyRotationMetricsTest {
 
-    private ByzantineDetectionMetricsImpl metrics;
-    private MetricRegistry registry;
+    private ByzantineDetectionMetrics metrics;
+    private SimpleMeterRegistry registry;
     private final AtomicInteger digestCounter = new AtomicInteger(0);
 
     @BeforeEach
     void setUp() {
-        metrics = new ByzantineDetectionMetricsImpl();
-        registry = new MetricRegistry();
-        metrics.register(registry);
+        registry = new SimpleMeterRegistry();
+        metrics = new MicrometerByzantineDetectionMetrics(registry);
         digestCounter.set(0);
     }
 

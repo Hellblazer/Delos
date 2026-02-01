@@ -6,7 +6,6 @@
  */
 package com.hellblazer.delos.examples.kvstore;
 
-import com.codahale.metrics.MetricRegistry;
 import com.hellblazer.delos.archipelago.LocalServer;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
@@ -15,8 +14,9 @@ import com.hellblazer.delos.choam.CHOAM;
 import com.hellblazer.delos.choam.Parameters;
 import com.hellblazer.delos.choam.Parameters.ProducerParameters;
 import com.hellblazer.delos.choam.Parameters.RuntimeParameters;
-import com.hellblazer.delos.choam.support.ChoamMetricsImpl;
+import com.hellblazer.delos.choam.support.MicrometerChoamMetrics;
 import com.hellblazer.delos.context.DynamicContextImpl;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.membership.Member;
@@ -90,13 +90,13 @@ public class SimpleKVStoreTest {
     private Map<Digest, Router>              routers;
     private ScheduledExecutorService         scheduler;
     private ExecutorService                  executor;
-    private MetricRegistry                   registry;
+    private SimpleMeterRegistry              registry;
 
     @BeforeEach
     public void before() throws Exception {
         scheduler = Executors.newScheduledThreadPool(10, Thread.ofVirtual().factory());
         executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
-        registry = new MetricRegistry();
+        registry = new SimpleMeterRegistry();
 
         checkpointDirBase = new File("target/kv-chkpoints-" + Entropy.nextBitsStreamLong());
         Utils.clean(checkpointDirBase);
@@ -107,7 +107,7 @@ public class SimpleKVStoreTest {
         var entropy = SecureRandom.getInstance("SHA1PRNG");
         entropy.setSeed(new byte[] { 6, 6, 6 });
         var context = new DynamicContextImpl<>(DigestAlgorithm.DEFAULT.getOrigin(), CARDINALITY, 0.2, 3);
-        var metrics = new ChoamMetricsImpl(context.getId(), registry);
+        var metrics = new MicrometerChoamMetrics(context.getId(), registry);
 
         var params = Parameters.newBuilder()
                                .setGenerateGenesis(true)
@@ -234,7 +234,7 @@ public class SimpleKVStoreTest {
 
 
     private CHOAM createNode(Random entropy, Parameters.Builder params, SigningMember m,
-                            DynamicContextImpl<Member> context, ChoamMetricsImpl metrics) {
+                            DynamicContextImpl<Member> context, MicrometerChoamMetrics metrics) {
         String url = String.format("jdbc:h2:mem:kvstore-%s-%s", m.getId(), entropy.nextLong());
         var store = new SimpleKVStore(url, new Properties(),
                                      new File(checkpointDirBase, m.getId().toString()));

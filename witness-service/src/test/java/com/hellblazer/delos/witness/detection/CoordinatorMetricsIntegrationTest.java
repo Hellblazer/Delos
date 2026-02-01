@@ -7,8 +7,8 @@
  */
 package com.hellblazer.delos.witness.detection;
 
-import com.codahale.metrics.MetricRegistry;
 import com.hellblazer.delos.cryptography.bls.BLSAggregate;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.cryptography.bls.BLSSignature;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
@@ -35,8 +35,8 @@ import static org.mockito.Mockito.*;
  */
 class CoordinatorMetricsIntegrationTest {
 
-    private ByzantineDetectionMetricsImpl metrics;
-    private MetricRegistry registry;
+    private ByzantineDetectionMetrics metrics;
+    private SimpleMeterRegistry registry;
     private ByzantineDetectorConfig detectorConfig;
     private GracefulDegradationConfig gracefulConfig;
     private Identifier testMemberId;
@@ -44,9 +44,8 @@ class CoordinatorMetricsIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        metrics = new ByzantineDetectionMetricsImpl();
-        registry = new MetricRegistry();
-        metrics.register(registry);
+        registry = new SimpleMeterRegistry();
+        metrics = new MicrometerByzantineDetectionMetrics(registry);
 
         // Use default configs
         detectorConfig = ByzantineDetectorConfig.defaults();

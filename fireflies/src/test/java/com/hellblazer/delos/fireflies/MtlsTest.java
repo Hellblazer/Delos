@@ -6,9 +6,8 @@
  */
 package com.hellblazer.delos.fireflies;
 
-import com.codahale.metrics.ConsoleReporter;
-import com.codahale.metrics.MetricRegistry;
 import com.hellblazer.delos.archipelago.*;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.comm.grpc.ClientContextSupplier;
 import com.hellblazer.delos.comm.grpc.ServerContextSupplier;
 import com.hellblazer.delos.context.DynamicContext;
@@ -112,8 +111,8 @@ public class MtlsTest {
         executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
         var parameters = Parameters.newBuilder().setMaximumTxfr(20).build();
         final Duration duration = Duration.ofMillis(50);
-        var registry = new MetricRegistry();
-        var node0Registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
+        var node0Registry = new SimpleMeterRegistry();
 
         var members = identities.values().stream().map(identity -> new ControlledIdentifierMember(identity)).toList();
         var ctxBuilder = DynamicContext.<Participant>newBuilder().setCardinality(CARDINALITY);
@@ -129,11 +128,11 @@ public class MtlsTest {
         var clientContextSupplier = clientContextSupplier();
         views = members.stream().map(node -> {
             DynamicContext<Participant> context = ctxBuilder.build();
-            FireflyMetricsImpl metrics = new FireflyMetricsImpl(context.getId(),
-                                                                frist.getAndSet(false) ? node0Registry : registry);
+            MicrometerFireflyMetrics metrics = new MicrometerFireflyMetrics(context.getId(),
+                                                                            frist.getAndSet(false) ? node0Registry : registry);
             EndpointProvider ep = new StandardEpProvider(endpoints.get(node.getId()), ClientAuth.REQUIRE,
                                                          CertificateValidator.NONE, MtlsTest::endpoint);
-            builder.setMetrics(new ServerConnectionCacheMetricsImpl(frist.getAndSet(false) ? node0Registry : registry));
+            builder.setMetrics(new MicrometerServerConnectionCacheMetrics(frist.getAndSet(false) ? node0Registry : registry));
             CertificateWithPrivateKey certWithKey = certs.get(node.getId());
             Router comms = new MtlsServer(node, ep, clientContextSupplier, serverContextSupplier(certWithKey)).router(
             builder, executor);
@@ -186,13 +185,15 @@ public class MtlsTest {
         System.out.println("Stoping views");
         views.forEach(view -> view.stop());
 
-        if (Boolean.getBoolean("reportMetrics")) {
-            ConsoleReporter.forRegistry(node0Registry)
-                           .convertRatesTo(TimeUnit.SECONDS)
-                           .convertDurationsTo(TimeUnit.MILLISECONDS)
-                           .build()
-                           .report();
-        }
+        // Note: ConsoleReporter is Dropwizard-specific. Micrometer metrics can be accessed via:
+        // node0Registry.getMeters().forEach(meter -> System.out.println(meter.getId() + " = " + meter.measure()));
+        // if (Boolean.getBoolean("reportMetrics")) {
+        //     ConsoleReporter.forRegistry(node0Registry)
+        //                    .convertRatesTo(TimeUnit.SECONDS)
+        //                    .convertDurationsTo(TimeUnit.MILLISECONDS)
+        //                    .build()
+        //                    .report();
+        // }
     }
 
     private Function<Member, ClientContextSupplier> clientContextSupplier() {
