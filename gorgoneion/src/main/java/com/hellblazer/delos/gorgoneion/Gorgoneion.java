@@ -678,13 +678,16 @@ public class Gorgoneion implements Closeable {
                                                                      scheduler);
 
         // Use collectAsync for cleaner async quorum collection
+        // Note: Return the member ID as a unique identifier per successful call.
+        // Using Empty.getDefaultInstance() would cause all successes to be deduplicated
+        // in the collected set, resulting in only 1 counted success.
         return redirecting.collectAsync(
             link -> {
                 log.info("Enrolling: {} contacting: {} on: {}", identifier, link.getMember().getId(), member.getId());
                 link.enroll(notarization, parameters.registrationTimeout());
-                return Empty.getDefaultInstance();
+                return link.getMember().getId();  // Unique per member
             },
-            empty -> empty != null,
+            memberId -> memberId != null,
             majority,
             parameters.frequency(),
             parameters.registrationTimeout()
@@ -698,8 +701,9 @@ public class Gorgoneion implements Closeable {
             return validations;
         }).exceptionally(e -> {
             var cause = e.getCause() != null ? e.getCause() : e;
+            log.error("Enrollment failed for: {} on: {} - {}", identifier, member.getId(), cause.getMessage(), cause);
             throw new CompletionException(new StatusRuntimeException(
-                Status.ABORTED.withDescription("Cannot complete enrollment")).initCause(cause));
+                Status.ABORTED.withDescription("Cannot complete enrollment: " + cause.getMessage()).withCause(cause)));
         });
     }
 
