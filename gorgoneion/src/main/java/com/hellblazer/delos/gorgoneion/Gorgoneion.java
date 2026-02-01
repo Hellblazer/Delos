@@ -34,10 +34,8 @@ import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.stereotomy.KeyState;
 import com.hellblazer.delos.stereotomy.event.EstablishmentEvent;
 import com.hellblazer.delos.stereotomy.event.InceptionEvent;
-import com.hellblazer.delos.stereotomy.event.KeyEvent;
 import com.hellblazer.delos.stereotomy.event.proto.Ident;
 import com.hellblazer.delos.stereotomy.event.proto.KERL_;
-import com.hellblazer.delos.stereotomy.event.proto.KeyEventWithAttachments;
 import com.hellblazer.delos.stereotomy.event.proto.Validation_;
 import com.hellblazer.delos.stereotomy.event.proto.Validations;
 import com.hellblazer.delos.stereotomy.event.protobuf.ProtobufEventFactory;
@@ -56,11 +54,8 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.time.Instant;
 import java.io.Closeable;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.*;
 import java.util.function.BiFunction;
@@ -329,31 +324,7 @@ public class Gorgoneion implements Closeable {
         }
     }
 
-    private boolean completeEndorsement(Optional<MemberSignature> futureSailor, Set<MemberSignature> validations) {
-        if (futureSailor.isEmpty()) {
-            return true;
-        }
-        validations.add(futureSailor.get());
-        return true;
-    }
-
-    private boolean completeEnrollment(Optional<Empty> futureSailor, Member m, HashSet<Member> completed) {
-        if (futureSailor.isEmpty()) {
-            return true;
-        }
-        completed.add(m);
-        return true;
-    }
-
-    private boolean completeVerification(Optional<Validation_> futureSailor, Member m,
-                                         HashSet<Validation_> verifications) {
-        if (futureSailor.isEmpty()) {
-            return false;
-        }
-        var v = futureSailor.get();
-        verifications.add(v);
-        return true;
-    }
+    // Helper methods removed - replaced by collectAsync() pattern
 
     private MemberSignature endorse(Nonce request) {
         return MemberSignature.newBuilder()
@@ -420,44 +391,43 @@ public class Gorgoneion implements Closeable {
         final var majority = context.size() == 1 ? 1 : context.majority();
         final var redirecting = new SliceIterator<>("Nonce Endorsement", member, successors, endorsementComm,
                                                     scheduler);
-        Set<MemberSignature> endorsements = Collections.newSetFromMap(new ConcurrentHashMap<>());
-        var generated = new CompletableFuture<SignedNonce>();
-        redirecting.iterate((link) -> {
-            log.info("Request signing nonce for: {} contacting: {} on: {}", identifier, link.getMember().getId(),
-                     member.getId());
-            return link.endorse(nonce, parameters.registrationTimeout());
-        }, (futureSailor, _, _, _) -> completeEndorsement(futureSailor, endorsements), () -> {
-            if (endorsements.size() < majority) {
-                generated.completeExceptionally(new StatusRuntimeException(Status.ABORTED.withDescription(
-                "Cannot gather required nonce endorsements: %s required: %s on: %s".formatted(endorsements.size(),
-                                                                                              majority,
-                                                                                              member.getId()))));
-            } else {
-                generated.complete(SignedNonce.newBuilder()
-                                              .addSignatures(MemberSignature.newBuilder()
-                                                                            .setId(member.getId().toDigeste())
-                                                                            .setSignature(
-                                                                            member.sign(nonce.toByteString()).toSig())
-                                                                            .build())
-                                              .setNonce(nonce)
-                                              .addAllSignatures(endorsements)
-                                              .build());
-                log.info("Generated nonce for: {} signatures: {} on: {}", identifier, endorsements.size(),
+
+        // Use collectAsync for cleaner async quorum collection
+        var endorsementsFuture = redirecting.collectAsync(
+            link -> {
+                log.info("Request signing nonce for: {} contacting: {} on: {}", identifier, link.getMember().getId(),
                          member.getId());
-            }
-        }, parameters.frequency());
+                return link.endorse(nonce, parameters.registrationTimeout());
+            },
+            sig -> sig != null,
+            majority,
+            parameters.frequency(),
+            parameters.registrationTimeout()
+        );
+
         try {
-            return generated.get();
+            var endorsements = endorsementsFuture.get();
+            log.info("Generated nonce for: {} signatures: {} on: {}", identifier, endorsements.size(), member.getId());
+            return SignedNonce.newBuilder()
+                              .addSignatures(MemberSignature.newBuilder()
+                                                            .setId(member.getId().toDigeste())
+                                                            .setSignature(member.sign(nonce.toByteString()).toSig())
+                                                            .build())
+                              .setNonce(nonce)
+                              .addAllSignatures(endorsements)
+                              .build();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.error("Nonce generation interrupted for identifier: {} on: {}", identifier, member.getId(), e);
             return null;
         } catch (ExecutionException e) {
-            log.error("Nonce generation failed for identifier: {} on: {}", identifier, member.getId(), e.getCause());
-            if (e.getCause() instanceof StatusRuntimeException sre) {
+            var cause = e.getCause();
+            log.error("Nonce generation failed for identifier: {} on: {}", identifier, member.getId(), cause);
+            if (cause instanceof StatusRuntimeException sre) {
                 throw sre;
             }
-            throw new RuntimeException(e.getCause());
+            throw new StatusRuntimeException(Status.ABORTED.withDescription(
+                "Cannot gather required nonce endorsements on: %s".formatted(member.getId())).withCause(cause));
         }
     }
 
@@ -485,28 +455,31 @@ public class Gorgoneion implements Closeable {
         final var majority = context.size() == 1 ? 1 : context.majority();
         SliceIterator<Endorsement> redirecting = new SliceIterator<>("Enrollment", member, successors, endorsementComm,
                                                                      scheduler);
-        var completed = new HashSet<Member>();
-        var result = new CompletableFuture<Validations>();
-        redirecting.iterate((link) -> {
-            log.info("Enrolling: {} contacting: {} on: {}", identifier, link.getMember().getId(), member.getId());
-            link.enroll(notarization, parameters.registrationTimeout());
-            return Empty.getDefaultInstance();
-        }, (futureSailor, _, _, member) -> completeEnrollment(futureSailor, member, completed), () -> {
-            if (completed.size() < majority) {
-                // Complete the future exceptionally and return normally
-                // Exception will be propagated when caller invokes .get() on the future
-                result.completeExceptionally(new StatusRuntimeException(Status.ABORTED.withDescription("Cannot complete enrollment")));
-            } else {
-                // Also enroll locally on the coordinating member to publish to its own KERL
-                try {
-                    enroll(notarization);
-                } catch (Exception e) {
-                    log.error("Failed to enroll notarization locally for: {} on: {}", identifier, member.getId(), e);
-                }
-                result.complete(validations);
+
+        // Use collectAsync for cleaner async quorum collection
+        return redirecting.collectAsync(
+            link -> {
+                log.info("Enrolling: {} contacting: {} on: {}", identifier, link.getMember().getId(), member.getId());
+                link.enroll(notarization, parameters.registrationTimeout());
+                return Empty.getDefaultInstance();
+            },
+            empty -> empty != null,
+            majority,
+            parameters.frequency(),
+            parameters.registrationTimeout()
+        ).thenApply(completed -> {
+            // Also enroll locally on the coordinating member to publish to its own KERL
+            try {
+                enroll(notarization);
+            } catch (Exception e) {
+                log.error("Failed to enroll notarization locally for: {} on: {}", identifier, member.getId(), e);
             }
-        }, parameters.frequency());
-        return result;
+            return validations;
+        }).exceptionally(e -> {
+            var cause = e.getCause() != null ? e.getCause() : e;
+            throw new CompletionException(new StatusRuntimeException(
+                Status.ABORTED.withDescription("Cannot complete enrollment")).initCause(cause));
+        });
     }
 
     private CompletableFuture<Establishment> registerAsync(Credentials request) {
@@ -517,8 +490,6 @@ public class Gorgoneion implements Closeable {
         }
         log.debug("Validating credentials for: {} nonce signatures: {} on: {}", identifier,
                   request.getNonce().getSignaturesCount(), member.getId());
-
-        var validated = new CompletableFuture<Validations>();
 
         var successors = context.bftSubset(digestOf(identifier.toIdent(), parameters.digestAlgorithm()));
         if (context.size() == 1) {
@@ -543,31 +514,31 @@ public class Gorgoneion implements Closeable {
         final var majority = context.size() == 1 ? 1 : context.majority();
         final var redirecting = new SliceIterator<>("Credential verification", member, successors, endorsementComm,
                                                     scheduler);
-        var verifications = new HashSet<Validation_>();
-        redirecting.iterate((link) -> {
-            log.debug("Validating  credentials for: {} contacting: {} on: {}", identifier, link.getMember().getId(),
-                      member.getId());
-            return link.validate(request, parameters.registrationTimeout());
-        }, (futureSailor, _, _, member) -> completeVerification(futureSailor, member, verifications), () -> {
-            if (verifications.size() < majority) {
-                validated.completeExceptionally(new StatusRuntimeException(
-                Status.ABORTED.withDescription("Cannot gather required credential validations")));
-            } else {
-                validated.complete(Validations.newBuilder()
-                                              .setCoordinates(
-                                              ProtobufEventFactory.from(kerl.getEvents(kerl.getEventsCount() - 1))
-                                                                  .event()
-                                                                  .getCoordinates()
-                                                                  .toEventCoords())
-                                              .addAllValidations(verifications)
-                                              .build());
-                log.debug("Validated credentials for: {} verifications: {} on: {}", identifier, verifications.size(),
+
+        // Use collectAsync for cleaner async quorum collection
+        return redirecting.collectAsync(
+            link -> {
+                log.debug("Validating credentials for: {} contacting: {} on: {}", identifier, link.getMember().getId(),
                           member.getId());
-            }
-        }, parameters.frequency());
-        // Return the chained future without blocking
-        return validated.thenCompose(v -> notarize(request, v))
-                       .thenApply(v -> establish(request, v));
+                return link.validate(request, parameters.registrationTimeout());
+            },
+            v -> v != null,
+            majority,
+            parameters.frequency(),
+            parameters.registrationTimeout()
+        ).thenApply(verifications -> {
+            log.debug("Validated credentials for: {} verifications: {} on: {}", identifier, verifications.size(),
+                      member.getId());
+            return Validations.newBuilder()
+                              .setCoordinates(
+                                  ProtobufEventFactory.from(kerl.getEvents(kerl.getEventsCount() - 1))
+                                                      .event()
+                                                      .getCoordinates()
+                                                      .toEventCoords())
+                              .addAllValidations(verifications)
+                              .build();
+        }).thenCompose(v -> notarize(request, v))
+          .thenApply(v -> establish(request, v));
     }
 
     private Establishment register(Credentials request) {
