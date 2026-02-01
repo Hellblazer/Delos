@@ -145,8 +145,8 @@ public class ChoamMetricsImpl extends EndpointMetricsImpl implements ChoamMetric
     }
 
     @Override
-    public Timer transactionLatency() {
-        return transactionLatency;
+    public void recordTransactionLatencyDuration(long nanos) {
+        transactionLatency.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
