@@ -40,6 +40,7 @@ public class Adder {
 
     private static final Logger                     log                = LoggerFactory.getLogger(Adder.class);
     private static final int                        MAX_COLLECTION_SIZE = 100_000; // Prevent DoS via collection exhaustion
+    private static final int                        DEFAULT_CACHE_SIZE = 10_000;  // CRITICAL (Delos-0s4b): Bound signature caches
 
     private final        Map<Digest, Set<Short>>    commits         = new TreeMap<>();
     private final        Config                     conf;
@@ -50,8 +51,9 @@ public class Adder {
     private final        int                        maxSize;
     private final        Map<Long, List<Waiting>>   missing         = new TreeMap<>();
     private final        Map<Digest, Set<Short>>    prevotes        = new TreeMap<>();
-    private final        Map<Digest, SignedCommit>  signedCommits   = new TreeMap<>();
-    private final        Map<Digest, SignedPreVote> signedPrevotes  = new TreeMap<>();
+    // CRITICAL (Delos-0s4b): Bounded LRU caches prevent Byzantine DoS via signature flooding
+    private final        Map<Digest, SignedCommit>  signedCommits;
+    private final        Map<Digest, SignedPreVote> signedPrevotes;
     private final        int                        threshold;
     private final        Verifier[]                 verifiers;
     private final        Map<Digest, Waiting>       waiting         = new TreeMap<>();
@@ -65,6 +67,8 @@ public class Adder {
     // CRITICAL (Delos-d1gy): Blacklist store is shared across epochs and persisted
     // Once equivocation detected, all future units/votes from that creator are rejected
     private final        BlacklistStore             blacklistStore;
+    // CASCADE FAILURE RECOVERY (Delos-7p41): Track units with transient failures to retry before cascading
+    private final        Set<Digest>                transientFailures = new HashSet<>();
 
     public Adder(int epoch, Dag dag, int maxSize, Config conf, Set<Digest> failed, Verifier[] verifiers,
                  BlacklistStore blacklistStore) {
@@ -76,6 +80,10 @@ public class Adder {
         this.threshold = Dag.threshold(conf.nProc());
         this.maxSize = maxSize;
         this.blacklistStore = blacklistStore;
+
+        // CRITICAL (Delos-0s4b): Initialize bounded LRU caches to prevent Byzantine DoS
+        this.signedCommits = new BoundedLRUCache<>(DEFAULT_CACHE_SIZE);
+        this.signedPrevotes = new BoundedLRUCache<>(DEFAULT_CACHE_SIZE);
     }
 
     public static Signed<SignedCommit> commit(final Long id, final Digest hash, final short pid, Signer signer,
@@ -107,6 +115,7 @@ public class Adder {
             prevotes.clear();
             missing.clear();
             unitsByCreatorHeight.clear();
+            transientFailures.clear();
             // CRITICAL (Delos-d1gy): Do NOT clear blacklist - it persists across epochs
             // Equivocators remain blacklisted for the lifetime of the consensus instance
         });
@@ -944,6 +953,77 @@ public class Adder {
         for (var ch : wp.children()) {
             removeFailed(ch);
         }
+    }
+
+    /**
+     * CASCADE FAILURE RECOVERY (Delos-7p41): Mark a unit as experiencing transient failure.
+     * This is used for missing parents that may become available soon (network blip).
+     * If the failure persists beyond parentFailureRetryTimeoutMillis, it will be promoted
+     * to permanent failure with cascade to children.
+     *
+     * Package-private for testing.
+     *
+     * @param wp the waiting unit experiencing transient failure
+     */
+    void markTransientFailure(Waiting wp) {
+        locked(() -> {
+            wp.markTransientFailure();
+            transientFailures.add(wp.hash());
+            log.debug("Marked transient failure (attempt {}): {} on: {}", wp.getTransientFailureCount(), wp,
+                      conf.logLabel());
+            return null;
+        });
+    }
+
+    /**
+     * CASCADE FAILURE RECOVERY (Delos-7p41): Resolve a transient failure.
+     * Called when a previously missing parent becomes available.
+     *
+     * Package-private for testing.
+     *
+     * @param wp the waiting unit whose failure was resolved
+     */
+    void resolveTransientFailure(Waiting wp) {
+        locked(() -> {
+            wp.clearTransientFailure();
+            transientFailures.remove(wp.hash());
+            log.debug("Resolved transient failure: {} on: {}", wp, conf.logLabel());
+            return null;
+        });
+    }
+
+    /**
+     * CASCADE FAILURE RECOVERY (Delos-7p41): Process transient failures and promote
+     * timed-out failures to permanent with cascade to children.
+     *
+     * Should be called periodically (e.g., by the same mechanism as runTimeoutCheck).
+     *
+     * Package-private for testing.
+     */
+    void processFailureTimeouts() {
+        locked(() -> {
+            var timedOut = new ArrayList<Waiting>();
+            var timeout = conf.parentFailureRetryTimeoutMillis();
+
+            // Find units whose transient failures have timed out
+            for (var hash : transientFailures) {
+                var wp = waiting.get(hash);
+                if (wp != null && wp.isTransientFailureTimedOut(timeout)) {
+                    timedOut.add(wp);
+                    log.warn(
+                    "Transient failure timeout exceeded ({}ms, {} attempts): {} - promoting to permanent failure on: {}",
+                    timeout, wp.getTransientFailureCount(), wp, conf.logLabel());
+                }
+            }
+
+            // Promote to permanent failure and cascade
+            for (var wp : timedOut) {
+                transientFailures.remove(wp.hash());
+                removeFailed(wp, "Transient failure timeout");
+            }
+
+            return null;
+        });
     }
 
     /**
