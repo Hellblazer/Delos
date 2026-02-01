@@ -129,7 +129,7 @@ public class CommonKERLClient implements ProtoKERLService {
         var request = KERLContext.newBuilder().setKerl(kerl).build();
         final var bsize = request.getSerializedSize();
         if (metrics != null) {
-            metrics.outboundBandwidth().mark(bsize);
+            metrics.recordOutboundBandwidth(bsize);
             metrics.outboundAppendKERLRequest().mark(bsize);
         }
         var ks = client.appendKERL(request);
@@ -139,7 +139,7 @@ public class CommonKERLClient implements ProtoKERLService {
 
         if (timer != null) {
             final var serializedSize = ks.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundAppendKERLResponse().mark(serializedSize);
         }
 
@@ -156,7 +156,7 @@ public class CommonKERLClient implements ProtoKERLService {
         KeyEventsContext request = KeyEventsContext.newBuilder().addAllKeyEvent(keyEventList).build();
         final var bsize = request.getSerializedSize();
         if (metrics != null) {
-            metrics.outboundBandwidth().mark(bsize);
+            metrics.recordOutboundBandwidth(bsize);
             metrics.outboundAppendEventsRequest().mark(bsize);
         }
         var result = client.append(request);
@@ -167,7 +167,7 @@ public class CommonKERLClient implements ProtoKERLService {
         ks = result;
         if (timer != null) {
             final var serializedSize = ks.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundAppendEventsResponse().mark(serializedSize);
         }
         if (ks.getKeyStatesCount() == 0) {
@@ -186,7 +186,7 @@ public class CommonKERLClient implements ProtoKERLService {
                                                     .build();
         final var bsize = request.getSerializedSize();
         if (metrics != null) {
-            metrics.outboundBandwidth().mark(bsize);
+            metrics.recordOutboundBandwidth(bsize);
             metrics.outboundAppendWithAttachmentsRequest().mark(bsize);
         }
         var result = client.appendWithAttachments(request);
@@ -196,7 +196,7 @@ public class CommonKERLClient implements ProtoKERLService {
         KeyStates ks = result;
         if (timer != null) {
             final var serializedSize = ks.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundAppendWithAttachmentsResponse().mark(serializedSize);
         }
         return ks.getKeyStatesList();
@@ -208,7 +208,7 @@ public class CommonKERLClient implements ProtoKERLService {
         var request = AttachmentsContext.newBuilder().addAllAttachments(attachments).build();
         final var bsize = request.getSerializedSize();
         if (metrics != null) {
-            metrics.outboundBandwidth().mark(bsize);
+            metrics.recordOutboundBandwidth(bsize);
             metrics.outboundAppendWithAttachmentsRequest().mark(bsize);
         }
         client.appendAttachments(request);
@@ -219,7 +219,7 @@ public class CommonKERLClient implements ProtoKERLService {
     public Empty appendValidations(Validations validations) {
         Context timer = metrics == null ? null : metrics.appendWithAttachmentsClient().time();
         if (metrics != null) {
-            metrics.outboundBandwidth().mark(validations.getSerializedSize());
+            metrics.recordOutboundBandwidth(validations.getSerializedSize());
             metrics.outboundAppendWithAttachmentsRequest().mark(validations.getSerializedSize());
         }
         var result = client.appendValidations(validations);
@@ -234,7 +234,7 @@ public class CommonKERLClient implements ProtoKERLService {
         Context timer = metrics == null ? null : metrics.getAttachmentClient().time();
         if (metrics != null) {
             final var bsize = coordinates.getSerializedSize();
-            metrics.outboundBandwidth().mark(bsize);
+            metrics.recordOutboundBandwidth(bsize);
             metrics.outboundGetAttachmentRequest().mark(bsize);
         }
         var attachment = client.getAttachment(coordinates);
@@ -243,7 +243,7 @@ public class CommonKERLClient implements ProtoKERLService {
         }
         final var serializedSize = attachment.getSerializedSize();
         if (metrics != null) {
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGetAttachmentResponse().mark(serializedSize);
         }
         return attachment.equals(Attachment.getDefaultInstance()) ? null : attachment;
@@ -254,7 +254,7 @@ public class CommonKERLClient implements ProtoKERLService {
         Context timer = metrics == null ? null : metrics.getKERLClient().time();
         if (metrics != null) {
             final var bsize = identifier.getSerializedSize();
-            metrics.outboundBandwidth().mark(bsize);
+            metrics.recordOutboundBandwidth(bsize);
             metrics.outboundGetKERLRequest().mark(bsize);
         }
         if (timer != null) {
@@ -263,7 +263,7 @@ public class CommonKERLClient implements ProtoKERLService {
         var kerl = client.getKERL(identifier);
         final var serializedSize = kerl.getSerializedSize();
         if (metrics != null) {
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGetKERLResponse().mark(serializedSize);
         }
         return kerl.equals(KERL_.getDefaultInstance()) ? null : kerl;
@@ -274,7 +274,7 @@ public class CommonKERLClient implements ProtoKERLService {
         Context timer = metrics == null ? null : metrics.getKeyEventCoordsClient().time();
         if (metrics != null) {
             final var bsize = coordinates.getSerializedSize();
-            metrics.outboundBandwidth().mark(bsize);
+            metrics.recordOutboundBandwidth(bsize);
             metrics.outboundGetKeyEventCoordsRequest().mark(bsize);
         }
         var result = client.getKeyEventCoords(coordinates);
@@ -285,7 +285,7 @@ public class CommonKERLClient implements ProtoKERLService {
         ks = result;
         if (timer != null) {
             final var serializedSize = ks.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGetKeyEventResponse().mark(serializedSize);
         }
         return ks.equals(KeyEvent_.getDefaultInstance()) ? null : ks;
@@ -296,7 +296,7 @@ public class CommonKERLClient implements ProtoKERLService {
         Context timer = metrics == null ? null : metrics.getKeyStateCoordsClient().time();
         if (metrics != null) {
             final var bs = coordinates.getSerializedSize();
-            metrics.outboundBandwidth().mark(bs);
+            metrics.recordOutboundBandwidth(bs);
             metrics.outboundGetKeyStateCoordsRequest().mark(bs);
         }
         var result = client.getKeyStateCoords(coordinates);
@@ -308,7 +308,7 @@ public class CommonKERLClient implements ProtoKERLService {
         if (timer != null) {
             final var serializedSize = ks.getSerializedSize();
             timer.stop();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGetKeyStateCoordsResponse().mark(serializedSize);
         }
         return ks.equals(KeyState_.getDefaultInstance()) ? null : ks;
@@ -323,7 +323,7 @@ public class CommonKERLClient implements ProtoKERLService {
                                      .build();
         if (metrics != null) {
             final var bs = identAndSeq.getSerializedSize();
-            metrics.outboundBandwidth().mark(bs);
+            metrics.recordOutboundBandwidth(bs);
             metrics.outboundGetKeyStateRequest().mark(bs);
         }
         var result = client.getKeyStateSeqNum(identAndSeq);
@@ -335,7 +335,7 @@ public class CommonKERLClient implements ProtoKERLService {
         if (timer != null) {
             final var serializedSize = ks.getSerializedSize();
             timer.stop();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGetKeyStateCoordsResponse().mark(serializedSize);
         }
         return ks.equals(KeyState_.getDefaultInstance()) ? null : ks;
@@ -346,7 +346,7 @@ public class CommonKERLClient implements ProtoKERLService {
         Context timer = metrics == null ? null : metrics.getKeyStateClient().time();
         if (metrics != null) {
             final var bs = identifier.getSerializedSize();
-            metrics.outboundBandwidth().mark(bs);
+            metrics.recordOutboundBandwidth(bs);
             metrics.outboundGetKeyStateRequest().mark(bs);
         }
         var result = client.getKeyState(identifier);
@@ -358,7 +358,7 @@ public class CommonKERLClient implements ProtoKERLService {
         if (timer != null) {
             final var serializedSize = ks.getSerializedSize();
             timer.stop();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGetKeyStateCoordsResponse().mark(serializedSize);
         }
         return ks.equals(KeyState_.getDefaultInstance()) ? null : ks;
@@ -369,7 +369,7 @@ public class CommonKERLClient implements ProtoKERLService {
         Context timer = metrics == null ? null : metrics.getKeyStateClient().time();
         if (metrics != null) {
             final var bs = request.getSerializedSize();
-            metrics.outboundBandwidth().mark(bs);
+            metrics.recordOutboundBandwidth(bs);
             metrics.outboundGetKeyStateRequest().mark(bs);
         }
         var result = client.getKeyStateSeqNum(request);
@@ -381,7 +381,7 @@ public class CommonKERLClient implements ProtoKERLService {
         if (timer != null) {
             final var serializedSize = ks.getSerializedSize();
             timer.stop();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGetKeyStateCoordsResponse().mark(serializedSize);
         }
         return ks.equals(KeyState_.getDefaultInstance()) ? null : ks;
@@ -392,7 +392,7 @@ public class CommonKERLClient implements ProtoKERLService {
         Context timer = metrics == null ? null : metrics.getKeyStateCoordsClient().time();
         if (metrics != null) {
             final var bs = coords.getSerializedSize();
-            metrics.outboundBandwidth().mark(bs);
+            metrics.recordOutboundBandwidth(bs);
             metrics.outboundGetKeyStateCoordsRequest().mark(bs);
         }
         var result = client.getKeyStateWithAttachments(coords);
@@ -404,7 +404,7 @@ public class CommonKERLClient implements ProtoKERLService {
         if (timer != null) {
             final var serializedSize = ks.getSerializedSize();
             timer.stop();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGetKeyStateCoordsResponse().mark(serializedSize);
         }
         return ks.equals(KeyStateWithAttachments_.getDefaultInstance()) ? null : ks;
@@ -415,7 +415,7 @@ public class CommonKERLClient implements ProtoKERLService {
         Context timer = metrics == null ? null : metrics.getKeyStateCoordsClient().time();
         if (metrics != null) {
             final var bs = coords.getSerializedSize();
-            metrics.outboundBandwidth().mark(bs);
+            metrics.recordOutboundBandwidth(bs);
             metrics.outboundGetKeyStateCoordsRequest().mark(bs);
         }
         var result = client.getKeyStateWithEndorsementsAndValidations(coords);
@@ -432,7 +432,7 @@ public class CommonKERLClient implements ProtoKERLService {
         Context timer = metrics == null ? null : metrics.getAttachmentClient().time();
         if (metrics != null) {
             final var bsize = coords.getSerializedSize();
-            metrics.outboundBandwidth().mark(bsize);
+            metrics.recordOutboundBandwidth(bsize);
             metrics.outboundGetAttachmentRequest().mark(bsize);
         }
         if (timer != null) {
@@ -441,7 +441,7 @@ public class CommonKERLClient implements ProtoKERLService {
         var validations = client.getValidations(coords);
         final var serializedSize = validations.getSerializedSize();
         if (metrics != null) {
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGetAttachmentResponse().mark(serializedSize);
         }
         return validations.equals(Validations.getDefaultInstance()) ? null : validations;

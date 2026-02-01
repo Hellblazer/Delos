@@ -36,7 +36,7 @@ public class AdmissionsServer extends AdmissionsImplBase {
     public void apply(KERL_ application, StreamObserver<SignedNonce> responseObserver) {
         if (metrics != null) {
             var serializedSize = application.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundApplication().update(serializedSize);
         }
         Digest from = identity.getFrom();
@@ -54,7 +54,7 @@ public class AdmissionsServer extends AdmissionsImplBase {
         var timer = metrics == null ? null : metrics.registerDuration().time();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundCredentials().update(serializedSize);
         }
         Digest from = identity.getFrom();

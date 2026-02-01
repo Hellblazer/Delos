@@ -34,7 +34,7 @@ public class OuterContextServer extends OuterContextImplBase {
         Context timer = metrics != null ? metrics.inboundSign().time() : null;
         if (metrics != null) {
             final var serializedSize = context.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundDeregister().mark(serializedSize);
         }
         try {
@@ -56,7 +56,7 @@ public class OuterContextServer extends OuterContextImplBase {
         Context timer = metrics != null ? metrics.inboundSign().time() : null;
         if (metrics != null) {
             final var serializedSize = context.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundRegister().mark(serializedSize);
         }
         try {

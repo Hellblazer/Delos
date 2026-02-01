@@ -7,20 +7,25 @@
  */
 package com.hellblazer.delos.ethereal.memberships.comm;
 
-import static com.codahale.metrics.MetricRegistry.name;
-
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Timer;
 import com.hellblazer.delos.cryptography.Digest;
-import com.hellblazer.delos.protocols.EndpointMetrics;
 import com.hellblazer.delos.protocols.EndpointMetricsImpl;
 
+import java.util.concurrent.TimeUnit;
+
+import static com.codahale.metrics.MetricRegistry.name;
+
 /**
- * @author hal.hildebrand
+ * Dropwizard Metrics implementation of EtherealMetrics.
+ * <p>
+ * Note: This implementation will be replaced with Micrometer in Phase 2.
  *
+ * @author hal.hildebrand
  */
-public class EtherealMetricsImpl extends EndpointMetricsImpl implements EtherealMetrics, EndpointMetrics {
+public class EtherealMetricsImpl extends EndpointMetricsImpl implements EtherealMetrics {
+
     private final Histogram gossipReply;
     private final Histogram gossipResponse;
     private final Timer     gossipRoundDuration;
@@ -42,7 +47,7 @@ public class EtherealMetricsImpl extends EndpointMetricsImpl implements Ethereal
         inboundUpdate = registry.histogram(name(context.shortString(), system, "ethereal.update.inbound.bytes"));
 
         outboundGossipTimer = registry.timer(name(context.shortString(), system, "ethereal.gossip.outbound.duration"));
-        outboundGossip = registry.histogram(name(context.shortString(), system, "ethereal.gossip.oubound.bytes"));
+        outboundGossip = registry.histogram(name(context.shortString(), system, "ethereal.gossip.outbound.bytes"));
         gossipResponse = registry.histogram(name(context.shortString(), system, "ethereal.gossip.response.bytes"));
 
         inboundGossipTimer = registry.timer(name(context.shortString(), system, "ethereal.gossip.inbound.duration"));
@@ -50,61 +55,60 @@ public class EtherealMetricsImpl extends EndpointMetricsImpl implements Ethereal
         gossipReply = registry.histogram(name(context.shortString(), system, "ethereal.gossip.reply.bytes"));
 
         gossipRoundDuration = registry.timer(name(context.shortString(), system, "ethereal.gossip.round.duration"));
-
     }
 
     @Override
-    public Histogram gossipReply() {
-        return gossipReply;
+    public void recordGossipReplySize(int bytes) {
+        gossipReply.update(bytes);
     }
 
     @Override
-    public Histogram gossipResponse() {
-        return gossipResponse;
+    public void recordGossipResponseSize(int bytes) {
+        gossipResponse.update(bytes);
     }
 
     @Override
-    public Timer gossipRoundDuration() {
-        return gossipRoundDuration;
+    public void recordGossipRoundDuration(long nanos) {
+        gossipRoundDuration.update(nanos, TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Histogram inboundGossip() {
-        return inboundGossip;
+    public void recordInboundGossipSize(int bytes) {
+        inboundGossip.update(bytes);
     }
 
     @Override
-    public Timer inboundGossipTimer() {
-        return inboundGossipTimer;
+    public void recordInboundGossipDuration(long nanos) {
+        inboundGossipTimer.update(nanos, TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Histogram inboundUpdate() {
-        return inboundUpdate;
+    public void recordInboundUpdateSize(int bytes) {
+        inboundUpdate.update(bytes);
     }
 
     @Override
-    public Timer inboundUpdateTimer() {
-        return inboundUpdateTimer;
+    public void recordInboundUpdateDuration(long nanos) {
+        inboundUpdateTimer.update(nanos, TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Histogram outboundGossip() {
-        return outboundGossip;
+    public void recordOutboundGossipSize(int bytes) {
+        outboundGossip.update(bytes);
     }
 
     @Override
-    public Timer outboundGossipTimer() {
-        return outboundGossipTimer;
+    public void recordOutboundGossipDuration(long nanos) {
+        outboundGossipTimer.update(nanos, TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Histogram outboundUpdate() {
-        return outboundUpdate;
+    public void recordOutboundUpdateSize(int bytes) {
+        outboundUpdate.update(bytes);
     }
 
     @Override
-    public Timer outboundUpdateTimer() {
-        return outboundUpdateTimer;
+    public void recordOutboundUpdateDuration(long nanos) {
+        outboundUpdateTimer.update(nanos, TimeUnit.NANOSECONDS);
     }
 }

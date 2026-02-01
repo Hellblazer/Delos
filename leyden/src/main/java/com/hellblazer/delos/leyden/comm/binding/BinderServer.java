@@ -39,7 +39,7 @@ public class BinderServer extends BinderGrpc.BinderImplBase {
         Timer.Context timer = metrics == null ? null : metrics.inboundBindTimer().time();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundBind().update(serializedSize);
         }
         Digest from = identity.getFrom();
@@ -65,7 +65,7 @@ public class BinderServer extends BinderGrpc.BinderImplBase {
         Timer.Context timer = metrics == null ? null : metrics.inboundGetTimer().time();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGet().update(serializedSize);
         }
         Digest from = identity.getFrom();
@@ -91,7 +91,7 @@ public class BinderServer extends BinderGrpc.BinderImplBase {
         Timer.Context timer = metrics == null ? null : metrics.inboundUnbindTimer().time();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundUnbind().update(serializedSize);
         }
         Digest from = identity.getFrom();

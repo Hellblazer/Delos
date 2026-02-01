@@ -36,7 +36,7 @@ public class EventValidationServer extends ValidatorImplBase {
     public void validate(KeyEventContext request, StreamObserver<BoolValue> responseObserver) {
         Context timer = metrics != null ? metrics.validatorService().time() : null;
         if (metrics != null) {
-            metrics.inboundBandwidth().mark(request.getSerializedSize());
+            metrics.recordInboundBandwidth(request.getSerializedSize());
             metrics.inboundValidatorRequest().mark(request.getSerializedSize());
         }
         routing.evaluate(responseObserver, s -> {

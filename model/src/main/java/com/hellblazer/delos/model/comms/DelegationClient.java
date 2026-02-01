@@ -45,14 +45,14 @@ public class DelegationClient implements Delegation {
         Context timer = metrics != null ? metrics.gossip().time() : null;
         if (metrics != null) {
             final var serializedSize = identifiers.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
             metrics.outboundGossip().mark(serializedSize);
         }
         var update = client.gossip(identifiers);
         if (timer != null) {
             timer.stop();
             final var serializedSize = update.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.outboundUpdate().mark(serializedSize);
         }
         return update;
@@ -63,7 +63,7 @@ public class DelegationClient implements Delegation {
         Context timer = metrics != null ? metrics.updateOutbound().time() : null;
         if (metrics != null) {
             final var serializedSize = update.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
             metrics.outboundUpdate().mark(serializedSize);
         }
         var ret = client.update(update);

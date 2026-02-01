@@ -39,7 +39,7 @@ public class EventObserverServer extends EventObserverImplBase {
     public void publish(KERLContext request, StreamObserver<Empty> responseObserver) {
         Context timer = metrics != null ? metrics.publishKERLService().time() : null;
         if (metrics != null) {
-            metrics.inboundBandwidth().mark(request.getSerializedSize());
+            metrics.recordInboundBandwidth(request.getSerializedSize());
             metrics.inboundPublishKERLRequest().mark(request.getSerializedSize());
         }
         Digest from = identity.getFrom();
@@ -59,7 +59,7 @@ public class EventObserverServer extends EventObserverImplBase {
     public void publishAttachments(AttachmentsContext request, StreamObserver<Empty> responseObserver) {
         Context timer = metrics != null ? metrics.publishAttachmentsService().time() : null;
         if (metrics != null) {
-            metrics.inboundBandwidth().mark(request.getSerializedSize());
+            metrics.recordInboundBandwidth(request.getSerializedSize());
             metrics.inboundPublishAttachmentsRequest().mark(request.getSerializedSize());
         }
         Digest from = identity.getFrom();
@@ -79,7 +79,7 @@ public class EventObserverServer extends EventObserverImplBase {
     public void publishEvents(KeyEventsContext request, StreamObserver<Empty> responseObserver) {
         Context timer = metrics != null ? metrics.publishEventsService().time() : null;
         if (metrics != null) {
-            metrics.inboundBandwidth().mark(request.getSerializedSize());
+            metrics.recordInboundBandwidth(request.getSerializedSize());
             metrics.inboundPublishEventsRequest().mark(request.getSerializedSize());
         }
         Digest from = identity.getFrom();

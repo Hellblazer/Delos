@@ -47,7 +47,7 @@ public class BinderClient implements BinderService {
     public CompletableFuture<Boolean> bind(com.hellblazer.delos.stereotomy.event.proto.Binding binding) {
         Context timer = metrics == null ? null : metrics.bindClient().time();
         if (metrics != null) {
-            metrics.outboundBandwidth().mark(binding.getSerializedSize());
+            metrics.recordOutboundBandwidth(binding.getSerializedSize());
             metrics.outboundBindRequest().mark(binding.getSerializedSize());
         }
         CompletableFuture<Boolean> f = new CompletableFuture<>();
@@ -84,7 +84,7 @@ public class BinderClient implements BinderService {
     public CompletableFuture<Boolean> unbind(Ident identifier) {
         Context timer = metrics == null ? null : metrics.unbindClient().time();
         if (metrics != null) {
-            metrics.outboundBandwidth().mark(identifier.getSerializedSize());
+            metrics.recordOutboundBandwidth(identifier.getSerializedSize());
             metrics.outboundUnbindRequest().mark(identifier.getSerializedSize());
         }
         CompletableFuture<Boolean> f = new CompletableFuture<>();

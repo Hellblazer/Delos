@@ -55,14 +55,14 @@ public class ResolverClient implements ResolverService {
     public Optional<Binding> lookup(Ident prefix) {
         Context timer = metrics == null ? null : metrics.lookupClient().time();
         if (metrics != null) {
-            metrics.outboundBandwidth().mark(prefix.getSerializedSize());
+            metrics.recordOutboundBandwidth(prefix.getSerializedSize());
             metrics.outboundLookupRequest().mark(prefix.getSerializedSize());
         }
         var result = client.lookup(prefix);
         var serializedSize = result.getSerializedSize();
         if (timer != null) {
             timer.stop();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundLookupResponse().mark(serializedSize);
         }
         return Optional.ofNullable(result);

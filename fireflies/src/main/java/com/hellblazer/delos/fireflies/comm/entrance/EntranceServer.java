@@ -42,7 +42,7 @@ public class EntranceServer extends EntranceImplBase {
         Context timer = metrics == null ? null : metrics.inboundJoinDuration().time();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundJoin().update(serializedSize);
         }
         Digest from = identity.getFrom();
@@ -74,7 +74,7 @@ public class EntranceServer extends EntranceImplBase {
         Context timer = metrics == null ? null : metrics.inboundSeedDuration().time();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundSeed().update(serializedSize);
         }
         Digest from = identity.getFrom();
@@ -102,7 +102,7 @@ public class EntranceServer extends EntranceImplBase {
             log.info("EntranceServer.seed() completed successfully from: {}", from);
             if (timer != null) {
                 var serializedSize = r.getSerializedSize();
-                metrics.outboundBandwidth().mark(serializedSize);
+                metrics.recordOutboundBandwidth(serializedSize);
                 metrics.outboundRedirect().update(serializedSize);
                 timer.stop();
             }

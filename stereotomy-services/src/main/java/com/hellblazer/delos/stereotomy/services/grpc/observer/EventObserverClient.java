@@ -92,7 +92,7 @@ public class EventObserverClient implements EventObserverService {
         Context timer = metrics == null ? null : metrics.publishKERLClient().time();
         var request = KERLContext.newBuilder().setKerl(kerl).addAllValidations(validations).build();
         if (metrics != null) {
-            metrics.outboundBandwidth().mark(request.getSerializedSize());
+            metrics.recordOutboundBandwidth(request.getSerializedSize());
             metrics.outboundPublishKERLRequest().mark(request.getSerializedSize());
         }
         client.publish(request);
@@ -106,7 +106,7 @@ public class EventObserverClient implements EventObserverService {
         Context timer = metrics == null ? null : metrics.publishAttachmentsClient().time();
         var request = AttachmentsContext.newBuilder().addAllAttachments(attachments).build();
         if (metrics != null) {
-            metrics.outboundBandwidth().mark(request.getSerializedSize());
+            metrics.recordOutboundBandwidth(request.getSerializedSize());
             metrics.outboundPublishAttachmentsRequest().mark(request.getSerializedSize());
         }
         client.publishAttachments(request);
@@ -120,7 +120,7 @@ public class EventObserverClient implements EventObserverService {
                                                    .addAllValidations(validations)
                                                    .build();
         if (metrics != null) {
-            metrics.outboundBandwidth().mark(request.getSerializedSize());
+            metrics.recordOutboundBandwidth(request.getSerializedSize());
             metrics.outboundPublishEventsRequest().mark(request.getSerializedSize());
         }
         client.publishEvents(request);

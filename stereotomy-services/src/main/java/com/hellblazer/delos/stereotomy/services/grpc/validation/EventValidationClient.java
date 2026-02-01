@@ -80,7 +80,7 @@ public class EventValidationClient implements EventValidationService {
         Context timer = metrics == null ? null : metrics.validatorClient().time();
         var request = KeyEventContext.newBuilder().setKeyEvent(event).build();
         if (metrics != null) {
-            metrics.outboundBandwidth().mark(request.getSerializedSize());
+            metrics.recordOutboundBandwidth(request.getSerializedSize());
             metrics.outboundValidatorRequest().mark(request.getSerializedSize());
         }
         CompletableFuture<Boolean> f = new CompletableFuture<>();

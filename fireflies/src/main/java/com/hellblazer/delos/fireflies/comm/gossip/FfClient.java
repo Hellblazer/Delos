@@ -58,13 +58,13 @@ public class FfClient implements Fireflies {
     public Gossip gossip(SayWhat sw) {
         if (metrics != null) {
             var serializedSize = sw.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
             metrics.outboundGossip().update(serializedSize);
         }
         var result = client.gossip(sw);
         if (metrics != null) {
             var serializedSize = result.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.gossipResponse().update(serializedSize);
         }
         return result;
@@ -89,7 +89,7 @@ public class FfClient implements Fireflies {
         client.update(state);
         if (metrics != null) {
             var serializedSize = state.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
             metrics.outboundUpdate().update(serializedSize);
             timer.stop();
         }

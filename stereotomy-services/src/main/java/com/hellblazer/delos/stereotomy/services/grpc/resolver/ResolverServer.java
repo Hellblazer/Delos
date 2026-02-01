@@ -36,7 +36,7 @@ public class ResolverServer extends ResolverImplBase {
     public void lookup(Ident request, StreamObserver<Binding> responseObserver) {
         Context timer = metrics != null ? metrics.lookupService().time() : null;
         if (metrics != null) {
-            metrics.inboundBandwidth().mark(request.getSerializedSize());
+            metrics.recordInboundBandwidth(request.getSerializedSize());
             metrics.inboundLookupRequest().mark(request.getSerializedSize());
         }
         routing.evaluate(responseObserver, s -> {
@@ -52,7 +52,7 @@ public class ResolverServer extends ResolverImplBase {
 
             if (timer != null) {
                 timer.stop();
-                metrics.outboundBandwidth().mark(response.get().getSerializedSize());
+                metrics.recordOutboundBandwidth(response.get().getSerializedSize());
                 metrics.outboundLookupResponse().mark(response.get().getSerializedSize());
             }
             responseObserver.onNext(response.get());

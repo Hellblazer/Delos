@@ -42,14 +42,14 @@ public class AdmissionsClient implements Admissions {
     public SignedNonce apply(KERL_ application, Duration timeout) {
         if (metrics != null) {
             var serializedSize = application.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
             metrics.outboundApplication().update(serializedSize);
         }
 
         SignedNonce result = client.withDeadlineAfter(timeout.toNanos(), TimeUnit.NANOSECONDS).apply(application);
         if (metrics != null) {
             var serializedSize = result.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundApplication().update(serializedSize);
         }
         return result;
@@ -69,7 +69,7 @@ public class AdmissionsClient implements Admissions {
     public Establishment register(Credentials credentials, Duration timeout) {
         if (metrics != null) {
             var serializedSize = credentials.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
             metrics.outboundCredentials().update(serializedSize);
         }
 
@@ -77,7 +77,7 @@ public class AdmissionsClient implements Admissions {
         if (metrics != null) {
             try {
                 var serializedSize = result.getSerializedSize();
-                metrics.inboundBandwidth().mark(serializedSize);
+                metrics.recordInboundBandwidth(serializedSize);
                 metrics.inboundInvitation().update(serializedSize);
             } catch (Throwable e) {
                 // nothing

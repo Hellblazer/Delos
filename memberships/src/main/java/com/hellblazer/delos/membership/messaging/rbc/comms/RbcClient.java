@@ -54,14 +54,14 @@ public class RbcClient implements ReliableBroadcast {
         Context timer = metrics == null ? null : metrics.outboundGossipTimer().time();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
             metrics.outboundGossip().update(serializedSize);
         }
         var result = client.gossip(request);
         if (metrics != null) {
             timer.stop();
             var serializedSize = result.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.gossipResponse().update(serializedSize);
         }
         return result;
@@ -81,7 +81,7 @@ public class RbcClient implements ReliableBroadcast {
         Context timer = metrics == null ? null : metrics.outboundUpdateTimer().time();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
             metrics.outboundUpdate().update(serializedSize);
         }
         try {

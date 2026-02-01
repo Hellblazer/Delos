@@ -1,25 +1,40 @@
 /*
- * Copyright (c) 2020, salesforce.com, inc.
+ * Copyright (c) 2026, Hal Hildebrand.
  * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
+ * GNU Affero General Public License
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
  */
 package com.hellblazer.delos.protocols;
 
-import com.codahale.metrics.Meter;
-
 /**
- * @author hal.hildebrand
+ * Framework-agnostic metrics interface for endpoint bandwidth tracking.
+ * <p>
+ * Implementations should use their preferred metrics library (Micrometer, Dropwizard, etc.)
+ * internally while exposing only semantic methods.
  *
+ * @author hal.hildebrand
  */
 public interface EndpointMetrics {
 
-    String INBOUND_BANDWIDTH  = "bandwidth.inbound.bytes";
-    String OUTBOUND_BANDWIDTH = "bandwidth.outbound.bytes";
+    /**
+     * Record inbound bandwidth consumption.
+     *
+     * @param bytes number of bytes received
+     */
+    void recordInboundBandwidth(long bytes);
 
-    Meter inboundBandwidth();
+    /**
+     * Record outbound bandwidth consumption.
+     *
+     * @param bytes number of bytes sent
+     */
+    void recordOutboundBandwidth(long bytes);
 
+    /**
+     * Get the limits registry for rate limiting metrics.
+     *
+     * @return the limits registry, or null if not configured
+     */
     LimitsRegistry limitsMetrics();
-
-    Meter outboundBandwidth();
 }

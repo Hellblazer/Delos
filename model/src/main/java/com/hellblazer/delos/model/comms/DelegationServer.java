@@ -36,7 +36,7 @@ public class DelegationServer extends DelegationImplBase {
     public void gossip(Biff request, StreamObserver<DelegationUpdate> responseObserver) {
         Context timer = metrics != null ? metrics.updateInbound().time() : null;
         if (metrics != null) {
-            metrics.inboundBandwidth().mark(request.getSerializedSize());
+            metrics.recordInboundBandwidth(request.getSerializedSize());
             metrics.inboundGossip().mark(request.getSerializedSize());
         }
         var from = identity.getAgent();
@@ -47,7 +47,7 @@ public class DelegationServer extends DelegationImplBase {
                 responseObserver.onCompleted();
                 final var serializedSize = update.getSerializedSize();
                 if (timer != null) {
-                    metrics.outboundBandwidth().mark(serializedSize);
+                    metrics.recordOutboundBandwidth(serializedSize);
                     metrics.outboundUpdate().mark(serializedSize);
                 }
             } finally {
@@ -62,7 +62,7 @@ public class DelegationServer extends DelegationImplBase {
     public void update(DelegationUpdate request, StreamObserver<Empty> responseObserver) {
         Context timer = metrics != null ? metrics.updateInbound().time() : null;
         if (metrics != null) {
-            metrics.inboundBandwidth().mark(request.getSerializedSize());
+            metrics.recordInboundBandwidth(request.getSerializedSize());
             metrics.inboundUpdate().mark(request.getSerializedSize());
         }
         var from = identity.getAgent();

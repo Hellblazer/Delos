@@ -138,13 +138,13 @@ public class ChRbcGossip {
         if (!started.get()) {
             return;
         }
-        var timer = metrics == null ? null : metrics.gossipRoundDuration().time();
+        long start = System.nanoTime();
         ring.iterate((link) -> gossipRound(link), (result, _, link, _) -> {
             handle(result, link);
             return true;
         }, () -> {
-            if (timer != null) {
-                timer.stop();
+            if (metrics != null) {
+                metrics.recordGossipRoundDuration(System.nanoTime() - start);
             }
             if (started.get()) {
                 try {

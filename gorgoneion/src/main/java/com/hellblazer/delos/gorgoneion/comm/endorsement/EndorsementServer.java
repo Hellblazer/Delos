@@ -39,7 +39,7 @@ public class EndorsementServer extends EndorsementImplBase {
         var timer = metrics == null ? null : metrics.registerDuration().time();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundEndorse().update(serializedSize);
         }
         Digest from = identity.getFrom();
@@ -62,7 +62,7 @@ public class EndorsementServer extends EndorsementImplBase {
         var timer = metrics == null ? null : metrics.enrollDuration().time();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundEnroll().update(serializedSize);
         }
         Digest from = identity.getFrom();
@@ -85,7 +85,7 @@ public class EndorsementServer extends EndorsementImplBase {
         var timer = metrics == null ? null : metrics.registerDuration().time();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundValidateCredentials().update(serializedSize);
         }
         Digest from = identity.getFrom();

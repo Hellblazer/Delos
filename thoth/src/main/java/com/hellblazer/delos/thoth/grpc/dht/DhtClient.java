@@ -134,7 +134,7 @@ public class DhtClient implements DhtService {
         var request = KERLContext.newBuilder().build();
         if (metrics != null) {
             final var serializedSize = request.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
             metrics.outboundAppendKERLRequest().mark(serializedSize);
         }
         var result = client.appendKERL(request);
@@ -149,7 +149,7 @@ public class DhtClient implements DhtService {
         Context timer = metrics == null ? null : metrics.appendEventsClient().time();
         KeyEventsContext request = KeyEventsContext.newBuilder().addAllKeyEvent(keyEventList).build();
         if (metrics != null) {
-            metrics.outboundBandwidth().mark(request.getSerializedSize());
+            metrics.recordOutboundBandwidth(request.getSerializedSize());
             metrics.outboundAppendEventsRequest().mark(request.getSerializedSize());
         }
         var result = client.append(request);
@@ -167,7 +167,7 @@ public class DhtClient implements DhtService {
                                                     .addAllAttachments(attachmentsList)
                                                     .build();
         if (metrics != null) {
-            metrics.outboundBandwidth().mark(request.getSerializedSize());
+            metrics.recordOutboundBandwidth(request.getSerializedSize());
             metrics.outboundAppendWithAttachmentsRequest().mark(request.getSerializedSize());
         }
         var result = client.appendWithAttachments(request);
@@ -182,7 +182,7 @@ public class DhtClient implements DhtService {
         Context timer = metrics == null ? null : metrics.appendWithAttachmentsClient().time();
         var request = AttachmentsContext.newBuilder().addAllAttachments(attachmentsList).build();
         if (metrics != null) {
-            metrics.outboundBandwidth().mark(request.getSerializedSize());
+            metrics.recordOutboundBandwidth(request.getSerializedSize());
             metrics.outboundAppendWithAttachmentsRequest().mark(request.getSerializedSize());
         }
         var result = client.appendAttachments(request);
@@ -197,7 +197,7 @@ public class DhtClient implements DhtService {
         Context timer = metrics == null ? null : metrics.appendWithAttachmentsClient().time();
         if (metrics != null) {
             final var serializedSize = validations.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
             metrics.outboundAppendWithAttachmentsRequest().mark(serializedSize);
         }
         var result = client.appendValidations(validations);
@@ -217,7 +217,7 @@ public class DhtClient implements DhtService {
         Context timer = metrics == null ? null : metrics.getAttachmentClient().time();
         if (metrics != null) {
             final var serializedSize = coordinates.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
             metrics.outboundGetAttachmentRequest().mark(serializedSize);
         }
         Attachment complete = client.getAttachment(coordinates);
@@ -226,7 +226,7 @@ public class DhtClient implements DhtService {
         }
         if (metrics != null) {
             final var serializedSize = complete.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGetAttachmentResponse().mark(serializedSize);
         }
         return complete;
@@ -237,7 +237,7 @@ public class DhtClient implements DhtService {
         Context timer = metrics == null ? null : metrics.getKERLClient().time();
         if (metrics != null) {
             final var bsize = identifier.getSerializedSize();
-            metrics.outboundBandwidth().mark(bsize);
+            metrics.recordOutboundBandwidth(bsize);
             metrics.outboundGetKERLRequest().mark(bsize);
         }
         KERL_ complete = client.getKERL(identifier);
@@ -246,7 +246,7 @@ public class DhtClient implements DhtService {
         }
         final var serializedSize = complete.getSerializedSize();
         if (metrics != null) {
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGetKERLResponse().mark(serializedSize);
         }
         return complete;
@@ -257,7 +257,7 @@ public class DhtClient implements DhtService {
         Context timer = metrics == null ? null : metrics.getKeyEventCoordsClient().time();
         if (metrics != null) {
             final var bsize = coordinates.getSerializedSize();
-            metrics.outboundBandwidth().mark(bsize);
+            metrics.recordOutboundBandwidth(bsize);
             metrics.outboundGetKeyEventCoordsRequest().mark(bsize);
         }
         var result = client.getKeyEventCoords(coordinates);
@@ -266,7 +266,7 @@ public class DhtClient implements DhtService {
         }
         if (timer != null) {
             final var serializedSize = result.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGetKeyEventResponse().mark(serializedSize);
         }
         return result;
@@ -277,7 +277,7 @@ public class DhtClient implements DhtService {
         Context timer = metrics == null ? null : metrics.getKeyStateCoordsClient().time();
         if (metrics != null) {
             final var bs = coordinates.getSerializedSize();
-            metrics.outboundBandwidth().mark(bs);
+            metrics.recordOutboundBandwidth(bs);
             metrics.outboundGetKeyStateCoordsRequest().mark(bs);
         }
         var result = client.getKeyStateCoords(coordinates);
@@ -287,7 +287,7 @@ public class DhtClient implements DhtService {
         if (timer != null) {
             final var serializedSize = result.getSerializedSize();
             timer.stop();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGetKeyStateCoordsResponse().mark(serializedSize);
         }
         return result;
@@ -298,7 +298,7 @@ public class DhtClient implements DhtService {
         Context timer = metrics == null ? null : metrics.getKeyStateClient().time();
         if (metrics != null) {
             final var bs = identifier.getSerializedSize();
-            metrics.outboundBandwidth().mark(bs);
+            metrics.recordOutboundBandwidth(bs);
             metrics.outboundGetKeyStateRequest().mark(bs);
         }
         var result = client.getKeyState(identifier);
@@ -308,7 +308,7 @@ public class DhtClient implements DhtService {
         if (timer != null) {
             final var serializedSize = result.getSerializedSize();
             timer.stop();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGetKeyStateCoordsResponse().mark(serializedSize);
         }
         return result;
@@ -319,7 +319,7 @@ public class DhtClient implements DhtService {
         Context timer = metrics == null ? null : metrics.getKeyStateClient().time();
         if (metrics != null) {
             final var bs = identAndSeq.getSerializedSize();
-            metrics.outboundBandwidth().mark(bs);
+            metrics.recordOutboundBandwidth(bs);
             metrics.outboundGetKeyStateRequest().mark(bs);
         }
         var result = client.getKeyStateSeqNum(identAndSeq);
@@ -329,7 +329,7 @@ public class DhtClient implements DhtService {
         if (timer != null) {
             final var serializedSize = result.getSerializedSize();
             timer.stop();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGetKeyStateCoordsResponse().mark(serializedSize);
         }
         return result;
@@ -340,7 +340,7 @@ public class DhtClient implements DhtService {
         Context timer = metrics == null ? null : metrics.getAttachmentClient().time();
         if (metrics != null) {
             final var serializedSize = coordinates.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
             metrics.outboundGetAttachmentRequest().mark(serializedSize);
         }
         KeyStateWithAttachments_ complete = client.getKeyStateWithAttachments(coordinates);
@@ -349,7 +349,7 @@ public class DhtClient implements DhtService {
         }
         if (metrics != null) {
             final var serializedSize = complete.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGetAttachmentResponse().mark(serializedSize);
         }
         return complete;
@@ -360,7 +360,7 @@ public class DhtClient implements DhtService {
         Context timer = metrics == null ? null : metrics.getAttachmentClient().time();
         if (metrics != null) {
             final var serializedSize = coordinates.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
             metrics.outboundGetAttachmentRequest().mark(serializedSize);
         }
         KeyStateWithEndorsementsAndValidations_ complete = client.getKeyStateWithEndorsementsAndValidations(
@@ -370,7 +370,7 @@ public class DhtClient implements DhtService {
         }
         if (metrics != null) {
             final var serializedSize = complete.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGetAttachmentResponse().mark(serializedSize);
         }
         return complete;
@@ -386,7 +386,7 @@ public class DhtClient implements DhtService {
         Context timer = metrics == null ? null : metrics.getAttachmentClient().time();
         if (metrics != null) {
             final var serializedSize = coordinates.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
             metrics.outboundGetAttachmentRequest().mark(serializedSize);
         }
         Validations complete = client.getValidations(coordinates);
@@ -395,7 +395,7 @@ public class DhtClient implements DhtService {
         }
         if (metrics != null) {
             final var serializedSize = complete.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGetAttachmentResponse().mark(serializedSize);
         }
         return complete;

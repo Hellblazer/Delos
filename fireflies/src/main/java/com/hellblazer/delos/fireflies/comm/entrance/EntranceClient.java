@@ -58,7 +58,7 @@ public class EntranceClient implements Entrance {
     public ListenableFuture<Gateway> join(Join join, Duration timeout) {
         if (metrics != null) {
             var serializedSize = join.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
             metrics.outboundJoin().update(serializedSize);
         }
 
@@ -79,7 +79,7 @@ public class EntranceClient implements Entrance {
                     if (metrics != null) {
                         try {
                             var serializedSize = gateway.getSerializedSize();
-                            metrics.inboundBandwidth().mark(serializedSize);
+                            metrics.recordInboundBandwidth(serializedSize);
                             metrics.inboundGateway().update(serializedSize);
                         } catch (Throwable e) {
                             // ignore
@@ -110,14 +110,14 @@ public class EntranceClient implements Entrance {
     public Redirect seed(Registration registration) {
         if (metrics != null) {
             var serializedSize = registration.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
             metrics.outboundSeed().update(serializedSize);
         }
         Redirect result = client.seed(registration);
         if (metrics != null) {
             try {
                 var serializedSize = result.getSerializedSize();
-                metrics.inboundBandwidth().mark(serializedSize);
+                metrics.recordInboundBandwidth(serializedSize);
                 metrics.inboundRedirect().update(serializedSize);
             } catch (Throwable e) {
                 // nothing

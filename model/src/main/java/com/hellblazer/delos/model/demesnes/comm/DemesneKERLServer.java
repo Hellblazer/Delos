@@ -34,7 +34,7 @@ public class DemesneKERLServer extends KERLServiceImplBase {
     public void append(KeyEventsContext request, StreamObserver<KeyStates> responseObserver) {
         Context timer = metrics != null ? metrics.appendEventsService().time() : null;
         if (metrics != null) {
-            metrics.inboundBandwidth().mark(request.getSerializedSize());
+            metrics.recordInboundBandwidth(request.getSerializedSize());
             metrics.inboundAppendEventsRequest().mark(request.getSerializedSize());
         }
         var result = service.append(request.getKeyEventList());
@@ -51,7 +51,7 @@ public class DemesneKERLServer extends KERLServiceImplBase {
             responseObserver.onCompleted();
             if (metrics != null) {
                 final var serializedSize = states.getSerializedSize();
-                metrics.outboundBandwidth().mark(serializedSize);
+                metrics.recordOutboundBandwidth(serializedSize);
                 metrics.outboundAppendEventsResponse().mark(serializedSize);
             }
         }
@@ -61,7 +61,7 @@ public class DemesneKERLServer extends KERLServiceImplBase {
     public void appendAttachments(AttachmentsContext request, StreamObserver<Empty> responseObserver) {
         Context timer = metrics != null ? metrics.appendEventsService().time() : null;
         if (metrics != null) {
-            metrics.inboundBandwidth().mark(request.getSerializedSize());
+            metrics.recordInboundBandwidth(request.getSerializedSize());
             metrics.inboundAppendEventsRequest().mark(request.getSerializedSize());
         }
         var result = service.appendAttachments(request.getAttachmentsList());
@@ -81,7 +81,7 @@ public class DemesneKERLServer extends KERLServiceImplBase {
     public void appendKERL(KERLContext request, StreamObserver<KeyStates> responseObserver) {
         Context timer = metrics != null ? metrics.appendKERLService().time() : null;
         if (metrics != null) {
-            metrics.inboundBandwidth().mark(request.getSerializedSize());
+            metrics.recordInboundBandwidth(request.getSerializedSize());
             metrics.inboundAppendKERLRequest().mark(request.getSerializedSize());
         }
         var result = service.append(request.getKerl());
@@ -98,7 +98,7 @@ public class DemesneKERLServer extends KERLServiceImplBase {
             responseObserver.onCompleted();
             if (metrics != null) {
                 final var serializedSize = results.getSerializedSize();
-                metrics.outboundBandwidth().mark(serializedSize);
+                metrics.recordOutboundBandwidth(serializedSize);
                 metrics.outboundAppendKERLResponse().mark(serializedSize);
             }
         }
@@ -108,7 +108,7 @@ public class DemesneKERLServer extends KERLServiceImplBase {
     public void appendValidations(Validations request, StreamObserver<Empty> responseObserver) {
         Context timer = metrics != null ? metrics.appendEventsService().time() : null;
         if (metrics != null) {
-            metrics.inboundBandwidth().mark(request.getSerializedSize());
+            metrics.recordInboundBandwidth(request.getSerializedSize());
             metrics.inboundAppendEventsRequest().mark(request.getSerializedSize());
         }
         var result = service.appendValidations(request);
@@ -129,7 +129,7 @@ public class DemesneKERLServer extends KERLServiceImplBase {
                                       StreamObserver<KeyStates> responseObserver) {
         Context timer = metrics != null ? metrics.appendWithAttachmentsService().time() : null;
         if (metrics != null) {
-            metrics.inboundBandwidth().mark(request.getSerializedSize());
+            metrics.recordInboundBandwidth(request.getSerializedSize());
             metrics.inboundAppendWithAttachmentsRequest().mark(request.getSerializedSize());
         }
         List<KeyState_> result = service.append(request.getEventsList(), request.getAttachmentsList());
@@ -143,7 +143,7 @@ public class DemesneKERLServer extends KERLServiceImplBase {
             responseObserver.onCompleted();
             if (metrics != null) {
                 final var serializedSize = states.getSerializedSize();
-                metrics.outboundBandwidth().mark(serializedSize);
+                metrics.recordOutboundBandwidth(serializedSize);
                 metrics.outboundAppendWithAttachmentsResponse().mark(serializedSize);
             }
         }
@@ -154,7 +154,7 @@ public class DemesneKERLServer extends KERLServiceImplBase {
         Context timer = metrics != null ? metrics.getAttachmentService().time() : null;
         if (metrics != null) {
             final var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGetAttachmentRequest().mark(serializedSize);
         }
         var response = service.getAttachment(request);
@@ -173,7 +173,7 @@ public class DemesneKERLServer extends KERLServiceImplBase {
             responseObserver.onCompleted();
             if (metrics != null) {
                 final var serializedSize = attachment.getSerializedSize();
-                metrics.outboundBandwidth().mark(serializedSize);
+                metrics.recordOutboundBandwidth(serializedSize);
                 metrics.outboundGetAttachmentResponse().mark(serializedSize);
             }
         }
@@ -184,7 +184,7 @@ public class DemesneKERLServer extends KERLServiceImplBase {
         Context timer = metrics != null ? metrics.getKERLService().time() : null;
         if (metrics != null) {
             final var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGetKERLRequest().mark(serializedSize);
         }
         var response = service.getKERL(request);
@@ -203,7 +203,7 @@ public class DemesneKERLServer extends KERLServiceImplBase {
             responseObserver.onCompleted();
             if (metrics != null) {
                 final var serializedSize = kerl.getSerializedSize();
-                metrics.outboundBandwidth().mark(serializedSize);
+                metrics.recordOutboundBandwidth(serializedSize);
                 metrics.outboundGetKERLResponse().mark(serializedSize);
             }
         }
@@ -213,7 +213,7 @@ public class DemesneKERLServer extends KERLServiceImplBase {
     public void getKeyEventCoords(EventCoords request, StreamObserver<KeyEvent_> responseObserver) {
         Context timer = metrics != null ? metrics.getKeyEventCoordsService().time() : null;
         if (metrics != null) {
-            metrics.inboundBandwidth().mark(request.getSerializedSize());
+            metrics.recordInboundBandwidth(request.getSerializedSize());
             metrics.inboundGetKeyEventCoordsRequest().mark(request.getSerializedSize());
         }
         var response = service.getKeyEvent(request);
@@ -232,7 +232,7 @@ public class DemesneKERLServer extends KERLServiceImplBase {
             responseObserver.onCompleted();
             if (metrics != null) {
                 final var serializedSize = event.getSerializedSize();
-                metrics.outboundBandwidth().mark(serializedSize);
+                metrics.recordOutboundBandwidth(serializedSize);
                 metrics.outboundGetKeyEventCoordsResponse().mark(serializedSize);
             }
         }
@@ -243,7 +243,7 @@ public class DemesneKERLServer extends KERLServiceImplBase {
         Context timer = metrics != null ? metrics.getKeyStateService().time() : null;
         if (metrics != null) {
             final var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGetKeyStateRequest().mark(serializedSize);
         }
         var response = service.getKeyState(request);
@@ -261,7 +261,7 @@ public class DemesneKERLServer extends KERLServiceImplBase {
             responseObserver.onNext(state);
             responseObserver.onCompleted();
             if (metrics != null) {
-                metrics.outboundBandwidth().mark(state.getSerializedSize());
+                metrics.recordOutboundBandwidth(state.getSerializedSize());
                 metrics.outboundGetKeyStateResponse().mark(state.getSerializedSize());
             }
         }
@@ -272,7 +272,7 @@ public class DemesneKERLServer extends KERLServiceImplBase {
         Context timer = metrics != null ? metrics.getKeyStateCoordsService().time() : null;
         if (metrics != null) {
             final var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGetKeyStateCoordsRequest().mark(serializedSize);
         }
         var response = service.getKeyState(request);
@@ -291,7 +291,7 @@ public class DemesneKERLServer extends KERLServiceImplBase {
         responseObserver.onCompleted();
         if (metrics != null) {
             final var serializedSize = state.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
             metrics.outboundGetKeyStateCoordsResponse().mark(serializedSize);
         }
     }
@@ -302,7 +302,7 @@ public class DemesneKERLServer extends KERLServiceImplBase {
         Context timer = metrics != null ? metrics.getKeyStateService().time() : null;
         if (metrics != null) {
             final var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGetKeyStateRequest().mark(serializedSize);
         }
         var response = service.getKeyStateWithAttachments(request);
@@ -320,7 +320,7 @@ public class DemesneKERLServer extends KERLServiceImplBase {
             responseObserver.onNext(state);
             responseObserver.onCompleted();
             if (metrics != null) {
-                metrics.outboundBandwidth().mark(state.getSerializedSize());
+                metrics.recordOutboundBandwidth(state.getSerializedSize());
                 metrics.outboundGetKeyStateResponse().mark(state.getSerializedSize());
             }
         }
@@ -331,7 +331,7 @@ public class DemesneKERLServer extends KERLServiceImplBase {
         Context timer = metrics != null ? metrics.getAttachmentService().time() : null;
         if (metrics != null) {
             final var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGetAttachmentRequest().mark(serializedSize);
         }
         var response = service.getValidations(request);
@@ -350,7 +350,7 @@ public class DemesneKERLServer extends KERLServiceImplBase {
             responseObserver.onCompleted();
             if (metrics != null) {
                 final var serializedSize = validations.getSerializedSize();
-                metrics.outboundBandwidth().mark(serializedSize);
+                metrics.recordOutboundBandwidth(serializedSize);
                 metrics.outboundGetAttachmentResponse().mark(serializedSize);
             }
         }

@@ -43,7 +43,7 @@ public class RbcServer extends RBCImplBase {
         Context timer = metrics == null ? null : metrics.inboundGossipTimer().time();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundGossip().update(serializedSize);
         }
         Digest from = identity.getFrom();
@@ -58,7 +58,7 @@ public class RbcServer extends RBCImplBase {
                 responseObserver.onCompleted();
                 if (metrics != null) {
                     var serializedSize = response.getSerializedSize();
-                    metrics.outboundBandwidth().mark(serializedSize);
+                    metrics.recordOutboundBandwidth(serializedSize);
                     metrics.gossipReply().update(serializedSize);
                 }
             } finally {
@@ -74,7 +74,7 @@ public class RbcServer extends RBCImplBase {
         Context timer = metrics == null ? null : metrics.inboundUpdateTimer().time();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundUpdate().update(serializedSize);
         }
         Digest from = identity.getFrom();

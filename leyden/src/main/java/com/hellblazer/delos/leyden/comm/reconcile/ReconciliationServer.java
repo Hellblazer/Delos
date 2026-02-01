@@ -38,7 +38,7 @@ public class ReconciliationServer extends ReconciliationGrpc.ReconciliationImplB
         Timer.Context timer = metrics == null ? null : metrics.inboundReconcileTimer().time();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundReconcile().update(serializedSize);
         }
         Digest from = identity.getFrom();
@@ -53,7 +53,7 @@ public class ReconciliationServer extends ReconciliationGrpc.ReconciliationImplB
                 responseObserver.onCompleted();
                 if (metrics != null) {
                     var serializedSize = response.getSerializedSize();
-                    metrics.outboundBandwidth().mark(serializedSize);
+                    metrics.recordOutboundBandwidth(serializedSize);
                     metrics.reconcileReply().update(serializedSize);
                 }
             } finally {
@@ -69,7 +69,7 @@ public class ReconciliationServer extends ReconciliationGrpc.ReconciliationImplB
         Timer.Context timer = metrics == null ? null : metrics.inboundUpdateTimer().time();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
             metrics.inboundReconcile().update(serializedSize);
         }
         Digest from = identity.getFrom();

@@ -1080,7 +1080,7 @@ public class ViewManagement {
         }
         if (timer != null) {
             var serializedSize = gateway.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
             metrics.outboundGateway().update(serializedSize);
             timer.stop();
         }

@@ -7,35 +7,45 @@
  */
 package com.hellblazer.delos.ethereal.memberships.comm;
 
-import com.codahale.metrics.Histogram;
-import com.codahale.metrics.Timer;
 import com.hellblazer.delos.protocols.EndpointMetrics;
 
 /**
- * @author hal.hildebrand
+ * Framework-agnostic metrics interface for Ethereal gossip operations.
  *
+ * @author hal.hildebrand
  */
 public interface EtherealMetrics extends EndpointMetrics {
 
-    Histogram gossipReply();
+    /** Record gossip reply message size in bytes */
+    void recordGossipReplySize(int bytes);
 
-    Histogram gossipResponse();
+    /** Record gossip response message size in bytes */
+    void recordGossipResponseSize(int bytes);
 
-    Timer gossipRoundDuration();
+    /** Record gossip round duration in nanoseconds */
+    void recordGossipRoundDuration(long nanos);
 
-    Histogram inboundGossip();
+    /** Record inbound gossip message size in bytes */
+    void recordInboundGossipSize(int bytes);
 
-    Timer inboundGossipTimer();
+    /** Record inbound gossip processing duration in nanoseconds */
+    void recordInboundGossipDuration(long nanos);
 
-    Histogram inboundUpdate();
+    /** Record inbound update message size in bytes */
+    void recordInboundUpdateSize(int bytes);
 
-    Timer inboundUpdateTimer();
+    /** Record inbound update processing duration in nanoseconds */
+    void recordInboundUpdateDuration(long nanos);
 
-    Histogram outboundGossip();
+    /** Record outbound gossip message size in bytes */
+    void recordOutboundGossipSize(int bytes);
 
-    Timer outboundGossipTimer();
+    /** Record outbound gossip processing duration in nanoseconds */
+    void recordOutboundGossipDuration(long nanos);
 
-    Histogram outboundUpdate();
+    /** Record outbound update message size in bytes */
+    void recordOutboundUpdateSize(int bytes);
 
-    Timer outboundUpdateTimer();
+    /** Record outbound update processing duration in nanoseconds */
+    void recordOutboundUpdateDuration(long nanos);
 }

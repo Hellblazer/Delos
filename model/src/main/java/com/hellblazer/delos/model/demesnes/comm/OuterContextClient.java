@@ -32,7 +32,7 @@ public class OuterContextClient implements OuterContextService {
         Context timer = metrics != null ? metrics.deregister().time() : null;
         if (metrics != null) {
             final var serializedSize = context.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
             metrics.outboundDeregister().mark(serializedSize);
         }
 
@@ -47,7 +47,7 @@ public class OuterContextClient implements OuterContextService {
         Context timer = metrics != null ? metrics.register().time() : null;
         if (metrics != null) {
             final var serializedSize = context.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
             metrics.outboundRegister().mark(serializedSize);
         }
 

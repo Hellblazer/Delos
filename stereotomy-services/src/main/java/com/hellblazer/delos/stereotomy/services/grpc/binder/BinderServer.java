@@ -38,7 +38,7 @@ public class BinderServer extends BinderImplBase {
     public void bind(Binding request, StreamObserver<Empty> responseObserver) {
         Context timer = metrics != null ? metrics.bindService().time() : null;
         if (metrics != null) {
-            metrics.inboundBandwidth().mark(request.getSerializedSize());
+            metrics.recordInboundBandwidth(request.getSerializedSize());
             metrics.inboundBindRequest().mark(request.getSerializedSize());
         }
         Digest from = identity.getFrom();
@@ -65,7 +65,7 @@ public class BinderServer extends BinderImplBase {
     public void unbind(Ident request, StreamObserver<Empty> responseObserver) {
         Context timer = metrics != null ? metrics.unbindService().time() : null;
         if (metrics != null) {
-            metrics.inboundBandwidth().mark(request.getSerializedSize());
+            metrics.recordInboundBandwidth(request.getSerializedSize());
             metrics.inboundUnbindRequest().mark(request.getSerializedSize());
         }
         Digest from = identity.getFrom();
