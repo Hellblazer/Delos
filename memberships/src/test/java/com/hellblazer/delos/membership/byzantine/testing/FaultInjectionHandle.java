@@ -9,6 +9,7 @@ package com.hellblazer.delos.membership.byzantine.testing;
 
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.function.BiConsumer;
@@ -32,14 +33,17 @@ public class FaultInjectionHandle implements AutoCloseable {
     private final Identifier memberId;
     private final ByzantineFaultInjector.InjectedFault fault;
     private final BiConsumer<Identifier, ByzantineFaultInjector.InjectedFault> restorer;
+    private final Clock clock;
     private volatile boolean restored;
 
     FaultInjectionHandle(Identifier memberId,
                          ByzantineFaultInjector.InjectedFault fault,
-                         BiConsumer<Identifier, ByzantineFaultInjector.InjectedFault> restorer) {
+                         BiConsumer<Identifier, ByzantineFaultInjector.InjectedFault> restorer,
+                         Clock clock) {
         this.memberId = memberId;
         this.fault = fault;
         this.restorer = restorer;
+        this.clock = clock;
         this.restored = false;
     }
 
@@ -101,11 +105,14 @@ public class FaultInjectionHandle implements AutoCloseable {
 
     /**
      * Calculates elapsed time since fault injection.
+     * <p>
+     * Uses the injected clock for deterministic testing support.
+     * </p>
      *
      * @return elapsed duration
      */
     public Duration elapsed() {
-        return Duration.between(fault.injectedAt, Instant.now());
+        return Duration.between(fault.injectedAt, clock.instant());
     }
 
     /**

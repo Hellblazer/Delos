@@ -370,7 +370,13 @@ public class ByzantineMetricsCollector {
         detectionLatencies.clear();
         layerContributions.clear();
         faultTypeStats.clear();
-        // Note: LongAdder doesn't have reset, so we create new collector for clean slate
+
+        // Reset counters (LongAdder.reset() exists since Java 8)
+        totalInjections.reset();
+        truePositives.reset();
+        falsePositives.reset();
+        falseNegatives.reset();
+        trueNegatives.reset();
     }
 
     // ========== Internal Classes ==========

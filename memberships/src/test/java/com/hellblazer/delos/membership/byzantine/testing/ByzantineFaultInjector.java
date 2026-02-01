@@ -106,7 +106,7 @@ public class ByzantineFaultInjector implements ByzantineStateProvider {
         faultHistory.computeIfAbsent(memberId, k -> Collections.synchronizedList(new ArrayList<>())).add(fault);
 
         log.info("Injected {} fault for member {} (duration: {})", type, memberId, duration);
-        return new FaultInjectionHandle(memberId, fault, this::restoreFault);
+        return new FaultInjectionHandle(memberId, fault, this::restoreFault, clock);
     }
 
     /**
@@ -174,10 +174,22 @@ public class ByzantineFaultInjector implements ByzantineStateProvider {
 
     /**
      * Restores a fault (removes it from active set).
+     * <p>
+     * Thread-safe: Sets restored flag atomically before removal to prevent
+     * race conditions with concurrent restore calls.
+     * </p>
+     *
+     * @param memberId the member whose fault to restore
+     * @param fault    the fault to restore
      */
     private void restoreFault(Identifier memberId, InjectedFault fault) {
+        synchronized (fault) {
+            if (fault.restored) {
+                return; // Already restored by another thread
+            }
+            fault.restored = true;
+        }
         activeFaults.remove(memberId, fault);
-        fault.restored = true;
         log.info("Restored {} fault for member {}", fault.type, memberId);
     }
 
@@ -236,18 +248,16 @@ public class ByzantineFaultInjector implements ByzantineStateProvider {
         var now = clock.instant();
         var result = new HashMap<Identifier, LayerAnomalyState>();
 
-        // Clean expired faults and collect active ones
-        var iterator = activeFaults.entrySet().iterator();
-        while (iterator.hasNext()) {
-            var entry = iterator.next();
+        // Build result from active (non-expired) faults
+        for (var entry : activeFaults.entrySet()) {
             var fault = entry.getValue();
-
-            if (fault.isExpired(now)) {
-                iterator.remove();
-            } else {
+            if (!fault.isExpired(now)) {
                 result.put(entry.getKey(), createState(entry.getKey(), fault, now));
             }
         }
+
+        // Cleanup expired faults in separate pass (safer than iterator.remove during iteration)
+        activeFaults.entrySet().removeIf(e -> e.getValue().isExpired(now));
 
         return Collections.unmodifiableMap(result);
     }
