@@ -182,10 +182,20 @@ public class FirefliesWitnessAdapter {
      * @param eventCoordinates Event being witnessed
      * @param <T>              Member type
      * @return Deterministic set of witnesses for this event
+     * @throws NullPointerException if context or eventCoordinates is null
      */
     public <T extends Member> SequencedSet<T> selectWitnesses(Context<T> context, EventCoordinates eventCoordinates) {
+        Objects.requireNonNull(context, "context cannot be null");
+        Objects.requireNonNull(eventCoordinates, "eventCoordinates cannot be null");
+
         Digest eventHash = hashEventCoordinates(eventCoordinates);
-        return context.bftSubset(eventHash);
+        var witnesses = context.bftSubset(eventHash);
+
+        if (log.isDebugEnabled()) {
+            log.debug("Selected {} witnesses for event {}", witnesses.size(), eventCoordinates.getDigest());
+        }
+
+        return witnesses;
     }
 
     /**
@@ -193,8 +203,11 @@ public class FirefliesWitnessAdapter {
      *
      * @param witnesses Set of Member witnesses
      * @return List of Identifier for KERI KeyState
+     * @throws NullPointerException if witnesses is null
      */
     public List<Identifier> toWitnessIdentifiers(SequencedSet<? extends Member> witnesses) {
+        Objects.requireNonNull(witnesses, "witnesses cannot be null");
+
         return witnesses.stream()
             .map(Member::getId)
             .map(this::toIdentifier)
@@ -208,17 +221,26 @@ public class FirefliesWitnessAdapter {
      *
      * @param eventCoordinates Event to hash
      * @return Deterministic hash for ring iterator
+     * @throws NullPointerException if eventCoordinates is null
+     * @throws IllegalArgumentException if event coordinates are too large to hash
      */
     public Digest hashEventCoordinates(EventCoordinates eventCoordinates) {
+        Objects.requireNonNull(eventCoordinates, "eventCoordinates cannot be null");
+
         var identifierDigest = eventCoordinates.getIdentifier().getDigest(digestAlgorithm);
         var identifierBytes = identifierDigest.getBytes();
         var sequenceNumber = eventCoordinates.getSequenceNumber().longValue();
         var digestBytes = eventCoordinates.getDigest().getBytes();
         var ilkBytes = eventCoordinates.getIlk().getBytes();
 
-        var buffer = ByteBuffer.allocate(
-            identifierBytes.length + 8 + digestBytes.length + ilkBytes.length
-        );
+        // Buffer overflow protection
+        long totalSize = (long) identifierBytes.length + 8L + digestBytes.length + ilkBytes.length;
+        if (totalSize > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException(
+                "Event coordinates too large to hash: " + totalSize + " bytes");
+        }
+
+        var buffer = ByteBuffer.allocate((int) totalSize);
         buffer.put(identifierBytes);
         buffer.putLong(sequenceNumber);
         buffer.put(digestBytes);
@@ -250,6 +272,7 @@ public class FirefliesWitnessAdapter {
         sb.append("| Witnesses | Threshold | Bias | Tolerance | Majority (computed) |\n");
         sb.append("|-----------|-----------|------|-----------|---------------------|\n");
 
+        // Start at 4 witnesses (minimum for BFT with f=1 fault tolerance)
         for (int n = 4; n <= maxWitnesses; n++) {
             for (int t = (n / 2) + 1; t <= n; t++) {
                 int bias = computeBias(n, t);

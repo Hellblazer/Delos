@@ -261,6 +261,66 @@ class FirefliesWitnessAdapterTest {
         assertThat(witnesses1).isEqualTo(witnesses2);
     }
 
+    // ===== Witness Identifier Conversion Tests =====
+
+    @Test
+    void toWitnessIdentifiers_convertsDigestsToIdentifiers() {
+        var witnesses = new java.util.LinkedHashSet<Member>();
+        witnesses.add(createMockMember(0));
+        witnesses.add(createMockMember(1));
+        witnesses.add(createMockMember(2));
+
+        var identifiers = adapter.toWitnessIdentifiers(witnesses);
+
+        assertThat(identifiers)
+            .hasSize(3)
+            .allMatch(id -> id instanceof SelfAddressingIdentifier);
+    }
+
+    @Test
+    void toWitnessIdentifiers_emptySet_returnsEmptyList() {
+        var witnesses = new java.util.LinkedHashSet<Member>();
+
+        var identifiers = adapter.toWitnessIdentifiers(witnesses);
+
+        assertThat(identifiers).isEmpty();
+    }
+
+    @Test
+    void toWitnessIdentifiers_nullInput_throws() {
+        assertThatThrownBy(() -> adapter.toWitnessIdentifiers(null))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessageContaining("witnesses cannot be null");
+    }
+
+    // ===== Null Validation Tests =====
+
+    @Test
+    void selectWitnesses_nullContext_throws() {
+        var coords = createMockEventCoordinates();
+
+        assertThatThrownBy(() -> adapter.selectWitnesses(null, coords))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessageContaining("context cannot be null");
+    }
+
+    @Test
+    void selectWitnesses_nullEventCoordinates_throws() {
+        var contextId = DigestAlgorithm.DEFAULT.getOrigin();
+        var context = adapter.createContext(contextId, 5, 3, 0.1);
+
+        assertThatThrownBy(() -> adapter.selectWitnesses(context, null))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessageContaining("eventCoordinates cannot be null");
+    }
+
+    @Test
+    void hashEventCoordinates_nullInput_throws() {
+        assertThatThrownBy(() -> adapter.hashEventCoordinates(null))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessageContaining("eventCoordinates cannot be null");
+    }
+
     // ===== Mapping Table Generation =====
 
     @Test
