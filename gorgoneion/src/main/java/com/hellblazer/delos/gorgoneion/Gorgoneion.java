@@ -43,9 +43,8 @@ import com.hellblazer.delos.stereotomy.event.proto.Validations;
 import com.hellblazer.delos.stereotomy.event.protobuf.ProtobufEventFactory;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
-import com.hellblazer.delos.stereotomy.processing.InvalidKeyEventException;
-import com.hellblazer.delos.stereotomy.processing.KeyEventProcessor;
-import com.hellblazer.delos.stereotomy.processing.MissingEventException;
+import com.hellblazer.delos.stereotomy.processing.KerlValidationException;
+import com.hellblazer.delos.stereotomy.processing.KerlValidator;
 import com.hellblazer.delos.stereotomy.services.proto.ProtoEventObserver;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
@@ -607,14 +606,11 @@ public class Gorgoneion implements Closeable {
     }
 
     /**
-     * Validates the complete KERL event chain.
-     * Processes each event sequentially, validating:
+     * Validates the complete KERL event chain using KerlValidator.
+     * Delegates to the unified validation service for:
      * - KERL starts with InceptionEvent
      * - Event signatures against prior state
-     * - Sequence number monotonicity (exact increment by 1)
-     * - Digest chain integrity (each event's priorEventDigest matches hash of previous)
-     * - Pre-rotation commitments
-     * - Configuration traits
+     * - Sequence number monotonicity
      * - KERL ends with EstablishmentEvent
      *
      * @param kerl the KERL protobuf containing the event chain
@@ -622,85 +618,22 @@ public class Gorgoneion implements Closeable {
      * @throws StatusRuntimeException if validation fails
      */
     private KeyState validateChain(KERL_ kerl) throws StatusRuntimeException {
-        // Step 1: Check KERL is not empty
-        if (kerl.getEventsCount() == 0) {
-            throw new StatusRuntimeException(Status.UNAUTHENTICATED.withDescription("Empty KERL"));
-        }
-
-        // Step 2: Deserialize all events
-        List<KeyEvent> events = new ArrayList<>();
-        for (int i = 0; i < kerl.getEventsCount(); i++) {
-            try {
-                var eventWithAttach = ProtobufEventFactory.from(kerl.getEvents(i));
-                var event = eventWithAttach.event();
-                if (event == null) {
-                    throw new StatusRuntimeException(
-                        Status.INVALID_ARGUMENT.withDescription("Event " + i + " failed to deserialize"));
-                }
-                events.add(event);
-            } catch (Exception e) {
-                log.warn("Failed to deserialize event {} from KERL: {}", i, e.getMessage());
-                throw new StatusRuntimeException(
-                    Status.INVALID_ARGUMENT.withDescription("Invalid event at index " + i));
+        try {
+            var validator = new KerlValidator(parameters.kerl());
+            return validator.validateChain(kerl);
+        } catch (KerlValidationException e) {
+            log.warn("KERL validation failed: {}", e.getMessage());
+            // Map validation exceptions to appropriate gRPC status codes
+            if (e.getMessage().contains("Empty KERL")) {
+                throw new StatusRuntimeException(Status.UNAUTHENTICATED.withDescription(e.getMessage()));
+            } else if (e.getMessage().contains("Invalid event") || e.getMessage().contains("signature")) {
+                throw new StatusRuntimeException(Status.UNAUTHENTICATED.withDescription(e.getMessage()));
+            } else if (e.getMessage().contains("Incomplete")) {
+                throw new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription(e.getMessage()));
+            } else {
+                throw new StatusRuntimeException(Status.INVALID_ARGUMENT.withDescription(e.getMessage()));
             }
         }
-
-        // Step 2.5: Validate first event is InceptionEvent (ISSUE #5 FIX)
-        if (!(events.get(0) instanceof com.hellblazer.delos.stereotomy.event.InceptionEvent)) {
-            throw new StatusRuntimeException(Status.INVALID_ARGUMENT.withDescription(
-                "KERL must start with InceptionEvent"));
-        }
-
-        // Step 3: Create processor for sequential validation
-        KeyEventProcessor processor = new KeyEventProcessor(parameters.kerl());
-
-        // Step 4: Process each event sequentially
-        KeyState currentState = null;
-        for (int i = 0; i < events.size(); i++) {
-            KeyEvent event = events.get(i);
-            try {
-                currentState = processor.process(event);
-
-                // Validate sequence number progression
-                if (!currentState.getSequenceNumber().equals(ULong.valueOf(i))) {
-                    throw new StatusRuntimeException(Status.INVALID_ARGUMENT.withDescription(
-                        "Invalid sequence number at index " + i + ": expected " + i + " got "
-                        + currentState.getSequenceNumber()));
-                }
-
-                log.debug("Validated event {} in KERL chain: {}", i, event.getIlk());
-
-            } catch (InvalidKeyEventException e) {
-                // Signature verification failed
-                log.warn("Invalid signature at event {} in KERL: {}", i, e.getMessage());
-                throw new StatusRuntimeException(
-                    Status.UNAUTHENTICATED.withDescription("Invalid event signature: " + e.getMessage()));
-
-            } catch (MissingEventException e) {
-                // Previous event missing from KERL
-                log.warn("Missing previous event for event {}: {}", i, e.getMessage());
-                throw new StatusRuntimeException(
-                    Status.FAILED_PRECONDITION.withDescription("Incomplete KERL chain"));
-
-            } catch (StatusRuntimeException e) {
-                // Re-throw StatusRuntimeException as-is
-                throw e;
-
-            } catch (Exception e) {
-                log.error("Unexpected error validating event {} in KERL", i, e);
-                throw new StatusRuntimeException(
-                    Status.INTERNAL.withDescription("Error validating KERL chain"));
-            }
-        }
-
-        // Step 4.5: Validate final event is EstablishmentEvent (ISSUE #6 FIX)
-        if (!(events.get(events.size() - 1) instanceof EstablishmentEvent)) {
-            throw new StatusRuntimeException(Status.INVALID_ARGUMENT.withDescription(
-                "KERL must end with EstablishmentEvent"));
-        }
-
-        log.debug("Validated complete KERL chain with {} events", events.size());
-        return currentState; // Final state after all events validated
     }
 
     private boolean validate(Credentials credentials, Digest from) {
