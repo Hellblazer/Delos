@@ -56,6 +56,7 @@ import java.time.Instant;
 import java.io.Closeable;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.*;
 import java.util.function.BiFunction;
@@ -105,24 +106,18 @@ import static com.hellblazer.delos.stereotomy.event.protobuf.ProtobufEventFactor
  *   <li>Replay prevention: Nonce-based with timestamp freshness and cache-based deduplication</li>
  * </ul>
  *
- * <h2>Usage Example</h2>
+ * <h2>Usage Example (Builder Pattern - Recommended)</h2>
  * <pre>{@code
- * var parameters = Parameters.newBuilder()
- *     .setKerl(kerl)
- *     .setMaxDuration(Duration.ofSeconds(30))
- *     .setClockSkewTolerance(Duration.ofSeconds(5))
+ * var gorgoneion = Gorgoneion.builder()
+ *     .verifier(attestationVerifier)
+ *     .provisioner(myProvisioner)
+ *     .parameters(params)
+ *     .member(member)
+ *     .context(context)
+ *     .observer(observer)
+ *     .router(router)                    // Sets both admissions and endorsement routers
+ *     .metrics(metrics)                  // Optional, defaults to null
  *     .build();
- *
- * var gorgoneion = new Gorgoneion(
- *     attestationVerifier,
- *     provisioner,
- *     parameters,
- *     member,
- *     context,
- *     observer,
- *     router,
- *     metrics
- * );
  *
  * try {
  *     // Service is now running and handling admission requests
@@ -137,6 +132,228 @@ import static com.hellblazer.delos.stereotomy.event.protobuf.ProtobufEventFactor
  * @see ReplayCache
  */
 public class Gorgoneion implements Closeable {
+
+    /**
+     * Creates a new builder for constructing Gorgoneion instances.
+     * <p>
+     * The builder provides a fluent API for configuring all Gorgoneion parameters
+     * with sensible defaults for optional values:
+     * <ul>
+     *   <li>{@code metrics} - defaults to {@code null} (no metrics collection)</li>
+     *   <li>{@code endorsementRouter} - defaults to the admissions router</li>
+     * </ul>
+     * </p>
+     *
+     * @return a new Builder instance
+     */
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    /**
+     * Builder for creating Gorgoneion instances with a fluent API.
+     * <p>
+     * Required parameters (must be set before calling {@link #build()}):
+     * <ul>
+     *   <li>{@link #verifier(Predicate)} - attestation verification predicate</li>
+     *   <li>{@link #provisioner(BiFunction)} - provisioning data generator</li>
+     *   <li>{@link #parameters(Parameters)} - configuration parameters</li>
+     *   <li>{@link #member(ControlledIdentifierMember)} - local member identity</li>
+     *   <li>{@link #context(Context)} - membership context</li>
+     *   <li>{@link #observer(ProtoEventObserver)} - KERL event observer</li>
+     *   <li>{@link #router(Router)} or {@link #admissionsRouter(Router)} - GRPC router</li>
+     * </ul>
+     * </p>
+     * <p>
+     * Optional parameters with defaults:
+     * <ul>
+     *   <li>{@link #metrics(GorgoneionMetrics)} - defaults to {@code null}</li>
+     *   <li>{@link #endorsementRouter(Router)} - defaults to admissions router</li>
+     * </ul>
+     * </p>
+     */
+    public static class Builder {
+        private Predicate<SignedAttestation>          verifier;
+        private BiFunction<Credentials, Validations, Any> provisioner;
+        private Parameters                            parameters;
+        private ControlledIdentifierMember            member;
+        private Context<Member>                       context;
+        private ProtoEventObserver                    observer;
+        private Router                                admissionsRouter;
+        private Router                                endorsementRouter;
+        private GorgoneionMetrics                     metrics;
+
+        private Builder() {
+        }
+
+        /**
+         * Sets the attestation verifier predicate.
+         * <p>
+         * This predicate validates external attestations (e.g., AWS, GCP, Azure signatures).
+         * Return {@code true} if the attestation is valid, {@code false} otherwise.
+         * </p>
+         *
+         * @param verifier the attestation verification predicate (required)
+         * @return this builder
+         */
+        public Builder verifier(Predicate<SignedAttestation> verifier) {
+            this.verifier = verifier;
+            return this;
+        }
+
+        /**
+         * Sets the provisioner function.
+         * <p>
+         * This function generates provisioning data after successful credential validation.
+         * It receives the validated credentials and BFT validations, and returns
+         * application-specific provisioning data wrapped in {@link Any}.
+         * </p>
+         *
+         * @param provisioner the provisioning data generator (required)
+         * @return this builder
+         */
+        public Builder provisioner(BiFunction<Credentials, Validations, Any> provisioner) {
+            this.provisioner = provisioner;
+            return this;
+        }
+
+        /**
+         * Sets the configuration parameters.
+         *
+         * @param parameters the Gorgoneion configuration (required)
+         * @return this builder
+         * @see Parameters
+         */
+        public Builder parameters(Parameters parameters) {
+            this.parameters = parameters;
+            return this;
+        }
+
+        /**
+         * Sets the local member identity.
+         * <p>
+         * The member must be a controlled identifier with valid signing keys
+         * for participating in BFT consensus.
+         * </p>
+         *
+         * @param member the local member identity (required)
+         * @return this builder
+         */
+        public Builder member(ControlledIdentifierMember member) {
+            this.member = member;
+            return this;
+        }
+
+        /**
+         * Sets the membership context for BFT operations.
+         *
+         * @param context the membership context (required)
+         * @return this builder
+         */
+        public Builder context(Context<Member> context) {
+            this.context = context;
+            return this;
+        }
+
+        /**
+         * Sets the KERL event observer.
+         * <p>
+         * The observer receives validated KERLs for publication to the unified log.
+         * </p>
+         *
+         * @param observer the event observer (required)
+         * @return this builder
+         */
+        public Builder observer(ProtoEventObserver observer) {
+            this.observer = observer;
+            return this;
+        }
+
+        /**
+         * Sets a single router for both admissions and endorsement channels.
+         * <p>
+         * This is a convenience method equivalent to calling both
+         * {@link #admissionsRouter(Router)} and {@link #endorsementRouter(Router)}
+         * with the same router.
+         * </p>
+         *
+         * @param router the GRPC router for both channels (required)
+         * @return this builder
+         */
+        public Builder router(Router router) {
+            this.admissionsRouter = router;
+            this.endorsementRouter = router;
+            return this;
+        }
+
+        /**
+         * Sets the router for client-facing admissions operations.
+         * <p>
+         * Handles apply/register requests from clients.
+         * </p>
+         *
+         * @param admissionsRouter the GRPC router for admissions (required)
+         * @return this builder
+         */
+        public Builder admissionsRouter(Router admissionsRouter) {
+            this.admissionsRouter = admissionsRouter;
+            return this;
+        }
+
+        /**
+         * Sets the router for BFT consensus operations.
+         * <p>
+         * Handles endorse/validate/enroll requests between BFT members.
+         * If not set, defaults to the admissions router.
+         * </p>
+         *
+         * @param endorsementRouter the GRPC router for endorsement (optional)
+         * @return this builder
+         */
+        public Builder endorsementRouter(Router endorsementRouter) {
+            this.endorsementRouter = endorsementRouter;
+            return this;
+        }
+
+        /**
+         * Sets the metrics collector.
+         * <p>
+         * If not set, defaults to {@code null} (no metrics collection).
+         * </p>
+         *
+         * @param metrics the metrics collector (optional)
+         * @return this builder
+         */
+        public Builder metrics(GorgoneionMetrics metrics) {
+            this.metrics = metrics;
+            return this;
+        }
+
+        /**
+         * Builds a new Gorgoneion instance with the configured parameters.
+         *
+         * @return a new Gorgoneion instance
+         * @throws NullPointerException if any required parameter is null
+         * @throws IllegalStateException if admissionsRouter is not set
+         */
+        public Gorgoneion build() {
+            Objects.requireNonNull(verifier, "verifier is required");
+            Objects.requireNonNull(provisioner, "provisioner is required");
+            Objects.requireNonNull(parameters, "parameters is required");
+            Objects.requireNonNull(member, "member is required");
+            Objects.requireNonNull(context, "context is required");
+            Objects.requireNonNull(observer, "observer is required");
+            if (admissionsRouter == null) {
+                throw new IllegalStateException("admissionsRouter is required (use router() or admissionsRouter())");
+            }
+
+            // Default endorsementRouter to admissionsRouter if not set
+            var effectiveEndorsementRouter = endorsementRouter != null ? endorsementRouter : admissionsRouter;
+
+            return new Gorgoneion(verifier, provisioner, parameters, member, context,
+                                  observer, admissionsRouter, metrics, effectiveEndorsementRouter);
+        }
+    }
     public static final Logger log = LoggerFactory.getLogger(Gorgoneion.class);
 
     @SuppressWarnings("unused")
@@ -191,7 +408,9 @@ public class Gorgoneion implements Closeable {
      * @param router      the GRPC router for both admissions and endorsement channels
      * @param metrics     metrics collector for monitoring admission operations
      * @throws NullPointerException if any parameter is null
+     * @deprecated Use {@link #builder()} instead for clearer API and optional parameter defaults.
      */
+    @Deprecated(since = "2026.02", forRemoval = false)
     public Gorgoneion(Predicate<SignedAttestation> verifier, BiFunction<Credentials, Validations, Any> provisioner,
                       Parameters parameters, ControlledIdentifierMember member, Context<Member> context,
                       ProtoEventObserver observer, Router router, GorgoneionMetrics metrics) {
@@ -250,7 +469,9 @@ public class Gorgoneion implements Closeable {
      * @param metrics           metrics collector for monitoring admission operations
      * @param endorsementRouter the GRPC router for BFT consensus operations (endorse/validate/enroll)
      * @throws NullPointerException if any parameter is null
+     * @deprecated Use {@link #builder()} instead for clearer API and optional parameter defaults.
      */
+    @Deprecated(since = "2026.02", forRemoval = false)
     public Gorgoneion(Predicate<SignedAttestation> verifier, BiFunction<Credentials, Validations, Any> provisioner,
                       Parameters parameters, ControlledIdentifierMember member, Context<Member> context,
                       ProtoEventObserver observer, Router admissionsRouter, GorgoneionMetrics metrics,
