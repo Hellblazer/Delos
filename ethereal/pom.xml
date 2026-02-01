@@ -17,6 +17,10 @@
 			<artifactId>memberships</artifactId>
 			<optional>true</optional>
 		</dependency>
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-core</artifactId>
+		</dependency>
 
 		<!-- Test Only Deps below this line -->
 		<dependency>

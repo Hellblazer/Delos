@@ -7,6 +7,8 @@
  */
 package com.hellblazer.delos.protocols;
 
+import com.netflix.concurrency.limits.MetricRegistry;
+
 /**
  * Framework-agnostic metrics interface for endpoint bandwidth tracking.
  * <p>
@@ -36,5 +38,5 @@ public interface EndpointMetrics {
      *
      * @return the limits registry, or null if not configured
      */
-    LimitsRegistry limitsMetrics();
+    MetricRegistry limitsMetrics();
 }

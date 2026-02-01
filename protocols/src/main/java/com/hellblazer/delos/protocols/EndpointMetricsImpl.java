@@ -22,9 +22,9 @@ public class EndpointMetricsImpl implements EndpointMetrics {
     private static final String INBOUND_BANDWIDTH  = "bandwidth.inbound.bytes";
     private static final String OUTBOUND_BANDWIDTH = "bandwidth.outbound.bytes";
 
-    private final Meter          inboundBandwidth;
-    private final Meter          outboundBandwidth;
-    private final LimitsRegistry limits;
+    private final Meter                                       inboundBandwidth;
+    private final Meter                                       outboundBandwidth;
+    private final com.netflix.concurrency.limits.MetricRegistry limits;
 
     public EndpointMetricsImpl(MetricRegistry registry) {
         inboundBandwidth = registry.meter(INBOUND_BANDWIDTH);
@@ -43,7 +43,7 @@ public class EndpointMetricsImpl implements EndpointMetrics {
     }
 
     @Override
-    public LimitsRegistry limitsMetrics() {
+    public com.netflix.concurrency.limits.MetricRegistry limitsMetrics() {
         return limits;
     }
 }

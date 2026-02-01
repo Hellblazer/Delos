@@ -30,6 +30,10 @@
             <groupId>org.scijava</groupId>
             <artifactId>native-lib-loader</artifactId>
         </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+        </dependency>
 
         <!-- Test only deps below this line -->
 
