@@ -7,7 +7,6 @@
  */
 package com.hellblazer.delos.model.demesnes.comm;
 
-import com.codahale.metrics.Timer.Context;
 import com.hellblazer.delos.demesne.proto.OuterContextGrpc;
 import com.hellblazer.delos.demesne.proto.OuterContextGrpc.OuterContextBlockingStub;
 import com.hellblazer.delos.demesne.proto.SubContext;
@@ -29,31 +28,31 @@ public class OuterContextClient implements OuterContextService {
 
     @Override
     public void deregister(Digeste context) {
-        Context timer = metrics != null ? metrics.deregister().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
             final var serializedSize = context.getSerializedSize();
             metrics.recordOutboundBandwidth(serializedSize);
-            metrics.outboundDeregister().mark(serializedSize);
+            metrics.recordOutboundDeregister(serializedSize);
         }
 
         client.deregister(context);
-        if (timer != null) {
-            timer.close();
+        if (metrics != null) {
+            metrics.recordDeregisterDuration(System.nanoTime() - start);
         }
     }
 
     @Override
     public void register(SubContext context) {
-        Context timer = metrics != null ? metrics.register().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
             final var serializedSize = context.getSerializedSize();
             metrics.recordOutboundBandwidth(serializedSize);
-            metrics.outboundRegister().mark(serializedSize);
+            metrics.recordOutboundRegister(serializedSize);
         }
 
         client.register(context);
-        if (timer != null) {
-            timer.close();
+        if (metrics != null) {
+            metrics.recordRegisterDuration(System.nanoTime() - start);
         }
     }
 }

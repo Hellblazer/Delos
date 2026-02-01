@@ -7,34 +7,86 @@
  */
 package com.hellblazer.delos.model.comms;
 
-import com.codahale.metrics.Meter;
-import com.codahale.metrics.Timer;
 import com.hellblazer.delos.protocols.EndpointMetrics;
 
 /**
- * @author hal.hildebrand
+ * Framework-agnostic metrics interface for outer server operations.
+ * <p>
+ * Implementations should use their preferred metrics library (Micrometer, Dropwizard, etc.)
+ * internally while exposing only semantic methods.
  *
+ * @author hal.hildebrand
  */
 public interface OuterServerMetrics extends EndpointMetrics {
 
-    Timer gossip();
+    /**
+     * Record gossip operation duration.
+     *
+     * @param nanos duration in nanoseconds
+     */
+    void recordGossipDuration(long nanos);
 
-    Meter inboundDeregister();
+    /**
+     * Record inbound sign operation duration.
+     *
+     * @param nanos duration in nanoseconds
+     */
+    void recordInboundSignDuration(long nanos);
 
-    Meter inboundGossip();
+    /**
+     * Record update inbound operation duration.
+     *
+     * @param nanos duration in nanoseconds
+     */
+    void recordUpdateInboundDuration(long nanos);
 
-    Meter inboundRegister();
+    /**
+     * Record update outbound operation duration.
+     *
+     * @param nanos duration in nanoseconds
+     */
+    void recordUpdateOutboundDuration(long nanos);
 
-    Timer inboundSign();
+    /**
+     * Record inbound deregister message size.
+     *
+     * @param bytes message size in bytes
+     */
+    void recordInboundDeregister(int bytes);
 
-    Meter inboundUpdate();
+    /**
+     * Record inbound gossip message size.
+     *
+     * @param bytes message size in bytes
+     */
+    void recordInboundGossip(int bytes);
 
-    Meter outboundGossip();
+    /**
+     * Record inbound register message size.
+     *
+     * @param bytes message size in bytes
+     */
+    void recordInboundRegister(int bytes);
 
-    Meter outboundUpdate();
+    /**
+     * Record inbound update message size.
+     *
+     * @param bytes message size in bytes
+     */
+    void recordInboundUpdate(int bytes);
 
-    Timer updateInbound();
+    /**
+     * Record outbound gossip message size.
+     *
+     * @param bytes message size in bytes
+     */
+    void recordOutboundGossip(int bytes);
 
-    Timer updateOutbound();
+    /**
+     * Record outbound update message size.
+     *
+     * @param bytes message size in bytes
+     */
+    void recordOutboundUpdate(int bytes);
 
 }

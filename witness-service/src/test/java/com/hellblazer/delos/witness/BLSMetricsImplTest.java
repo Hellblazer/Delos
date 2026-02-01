@@ -158,16 +158,10 @@ class BLSMetricsImplTest {
 
     @Test
     void testSignatureVerifyTimer() {
-        var timer = metrics.signatureVerifyTimer();
+        metrics.recordVerifyLatency(1000);
+
+        var timer = registry.getTimers().get("bls.signature.verify.latency");
         assertNotNull(timer);
-
-        try (var context = timer.time()) {
-            // Simulate work
-            Thread.sleep(1);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-
         assertTrue(metrics.getVerifyCount() > 0);
     }
 
@@ -194,14 +188,7 @@ class BLSMetricsImplTest {
 
     @Test
     void testAggregationTimer() {
-        var timer = metrics.aggregationTimer();
-        assertNotNull(timer);
-
-        try (var context = timer.time()) {
-            Thread.sleep(1);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        metrics.recordAggregationLatency(1000);
 
         var registeredTimer = registry.getTimers().get("bls.aggregation.create.latency");
         assertNotNull(registeredTimer);
@@ -229,19 +216,10 @@ class BLSMetricsImplTest {
 
     @Test
     void testThresholdTimer() {
-        var timer = metrics.thresholdTimer();
-        assertNotNull(timer);
-
-        var context = timer.time();
-        try {
-            Thread.sleep(10);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        } finally {
-            context.stop();
-        }
+        metrics.recordThresholdTime(10000);
 
         var registeredTimer = registry.getTimers().get("bls.threshold.time");
+        assertNotNull(registeredTimer);
         assertTrue(registeredTimer.getCount() > 0);
     }
 
@@ -308,7 +286,8 @@ class BLSMetricsImplTest {
         metrics.incrementRejectedEpoch();
         metrics.incrementRejectedEpoch();
 
-        assertEquals(2, metrics.rejectedEpochCounter().getCount());
+        var counter = (Counter) registry.getCounters().get("bls.signatures.rejected.epoch");
+        assertEquals(2, counter.getCount());
     }
 
     @Test
@@ -317,21 +296,24 @@ class BLSMetricsImplTest {
         metrics.incrementRejectedViewRef();
         metrics.incrementRejectedViewRef();
 
-        assertEquals(3, metrics.rejectedViewRefCounter().getCount());
+        var counter = (Counter) registry.getCounters().get("bls.signatures.rejected.viewRef");
+        assertEquals(3, counter.getCount());
     }
 
     @Test
     void testIncrementRejectedLate() {
         IntStream.range(0, 5).forEach(i -> metrics.incrementRejectedLate());
 
-        assertEquals(5, metrics.rejectedLateCounter().getCount());
+        var counter = (Counter) registry.getCounters().get("bls.signatures.rejected.late");
+        assertEquals(5, counter.getCount());
     }
 
     @Test
     void testIncrementRejectedDuplicate() {
         IntStream.range(0, 10).forEach(i -> metrics.incrementRejectedDuplicate());
 
-        assertEquals(10, metrics.rejectedDuplicateCounter().getCount());
+        var counter = (Counter) registry.getCounters().get("bls.signatures.rejected.duplicate");
+        assertEquals(10, counter.getCount());
     }
 
     @Test
@@ -341,10 +323,15 @@ class BLSMetricsImplTest {
         metrics.incrementRejectedLate();
         metrics.incrementRejectedDuplicate();
 
-        assertEquals(1, metrics.rejectedEpochCounter().getCount());
-        assertEquals(1, metrics.rejectedViewRefCounter().getCount());
-        assertEquals(1, metrics.rejectedLateCounter().getCount());
-        assertEquals(1, metrics.rejectedDuplicateCounter().getCount());
+        var epochCounter = (Counter) registry.getCounters().get("bls.signatures.rejected.epoch");
+        var viewRefCounter = (Counter) registry.getCounters().get("bls.signatures.rejected.viewRef");
+        var lateCounter = (Counter) registry.getCounters().get("bls.signatures.rejected.late");
+        var duplicateCounter = (Counter) registry.getCounters().get("bls.signatures.rejected.duplicate");
+
+        assertEquals(1, epochCounter.getCount());
+        assertEquals(1, viewRefCounter.getCount());
+        assertEquals(1, lateCounter.getCount());
+        assertEquals(1, duplicateCounter.getCount());
     }
 
     // =============================
@@ -376,7 +363,7 @@ class BLSMetricsImplTest {
     void testRecordCompletedAccumulation() {
         IntStream.range(0, 20).forEach(i -> metrics.recordCompletedAccumulation());
 
-        var meter = metrics.completedAccumulationsMeter();
+        var meter = registry.getMeters().get("bls.accumulator.completed");
         assertEquals(20, meter.getCount());
     }
 
@@ -440,10 +427,15 @@ class BLSMetricsImplTest {
 
         // Each counter type should have exactly 1/4 of total operations (16 threads, 4 counter types)
         var expectedPerCounter = (threadCount * operationsPerThread) / 4;
-        assertEquals(expectedPerCounter, metrics.rejectedEpochCounter().getCount());
-        assertEquals(expectedPerCounter, metrics.rejectedViewRefCounter().getCount());
-        assertEquals(expectedPerCounter, metrics.rejectedLateCounter().getCount());
-        assertEquals(expectedPerCounter, metrics.rejectedDuplicateCounter().getCount());
+        var epochCounter = (Counter) registry.getCounters().get("bls.signatures.rejected.epoch");
+        var viewRefCounter = (Counter) registry.getCounters().get("bls.signatures.rejected.viewRef");
+        var lateCounter = (Counter) registry.getCounters().get("bls.signatures.rejected.late");
+        var duplicateCounter = (Counter) registry.getCounters().get("bls.signatures.rejected.duplicate");
+
+        assertEquals(expectedPerCounter, epochCounter.getCount());
+        assertEquals(expectedPerCounter, viewRefCounter.getCount());
+        assertEquals(expectedPerCounter, lateCounter.getCount());
+        assertEquals(expectedPerCounter, duplicateCounter.getCount());
     }
 
     @Test
@@ -553,10 +545,15 @@ class BLSMetricsImplTest {
         metrics.reset();
 
         // Counters should be zero
-        assertEquals(0, metrics.rejectedEpochCounter().getCount());
-        assertEquals(0, metrics.rejectedViewRefCounter().getCount());
-        assertEquals(0, metrics.rejectedLateCounter().getCount());
-        assertEquals(0, metrics.rejectedDuplicateCounter().getCount());
+        var epochCounter = (Counter) registry.getCounters().get("bls.signatures.rejected.epoch");
+        var viewRefCounter = (Counter) registry.getCounters().get("bls.signatures.rejected.viewRef");
+        var lateCounter = (Counter) registry.getCounters().get("bls.signatures.rejected.late");
+        var duplicateCounter = (Counter) registry.getCounters().get("bls.signatures.rejected.duplicate");
+
+        assertEquals(0, epochCounter.getCount());
+        assertEquals(0, viewRefCounter.getCount());
+        assertEquals(0, lateCounter.getCount());
+        assertEquals(0, duplicateCounter.getCount());
 
         // Gauge should be zero
         assertEquals(0, metrics.getActiveAccumulators());
@@ -601,14 +598,12 @@ class BLSMetricsImplTest {
     void testTimerWithoutRegistrationReturnsNoOp() {
         var m = new BLSMetricsImpl();
 
-        var timer = m.signatureVerifyTimer();
-        assertNotNull(timer);
-
-        // Should not throw
+        // Should not throw when recording without registration
         assertDoesNotThrow(() -> {
-            try (var context = timer.time()) {
-                Thread.sleep(1);
-            }
+            m.recordVerifyLatency(1000);
         });
+
+        // Verify count remains zero without registry
+        assertEquals(0, m.getVerifyCount());
     }
 }

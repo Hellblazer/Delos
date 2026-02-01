@@ -7,16 +7,39 @@
  */
 package com.hellblazer.delos.leyden.comm.reconcile;
 
-import com.codahale.metrics.Histogram;
-import com.codahale.metrics.Timer;
 import com.hellblazer.delos.protocols.EndpointMetrics;
 
+/**
+ * Metrics interface for reconciliation operations.
+ * Abstracts metric recording to allow migration from Dropwizard to Micrometer.
+ */
 public interface ReconciliationMetrics extends EndpointMetrics {
-    Histogram inboundReconcile();
 
-    Timer inboundReconcileTimer();
+    /**
+     * Record the size of an inbound reconcile request
+     *
+     * @param bytes size in bytes
+     */
+    void recordInboundReconcileSize(int bytes);
 
-    Timer inboundUpdateTimer();
+    /**
+     * Record the duration of an inbound reconcile operation
+     *
+     * @param nanos duration in nanoseconds
+     */
+    void recordInboundReconcileDuration(long nanos);
 
-    Histogram reconcileReply();
+    /**
+     * Record the duration of an inbound update operation
+     *
+     * @param nanos duration in nanoseconds
+     */
+    void recordInboundUpdateDuration(long nanos);
+
+    /**
+     * Record the size of a reconcile reply
+     *
+     * @param bytes size in bytes
+     */
+    void recordReconcileReplySize(int bytes);
 }

@@ -436,83 +436,79 @@ class AntiFeedbackStressTest {
         final LongAdder deduplicatedSignals = new LongAdder();
         final LongAdder responsesPerInterval = new LongAdder();
 
-        private final com.codahale.metrics.Timer timer = new com.codahale.metrics.Timer();
-        private final com.codahale.metrics.Histogram histogram =
-            new com.codahale.metrics.Histogram(new com.codahale.metrics.UniformReservoir());
-        private final com.codahale.metrics.Counter counter = new com.codahale.metrics.Counter();
-        private final com.codahale.metrics.Meter meter = new com.codahale.metrics.Meter();
-
         @Override
-        public com.codahale.metrics.Timer layerPollDuration() { return timer; }
-
-        @Override
-        public com.codahale.metrics.Timer evaluationCycleDuration() { return timer; }
-
-        @Override
-        public com.codahale.metrics.Histogram aggregatedScoreDistribution() { return histogram; }
-
-        @Override
-        public com.codahale.metrics.Counter warningDetections() { return counter; }
-
-        @Override
-        public com.codahale.metrics.Counter criticalDetections() { return counter; }
-
-        @Override
-        public com.codahale.metrics.Meter responsesTriggered() { return meter; }
-
-        @Override
-        public com.codahale.metrics.Counter pendingResponses() { return counter; }
-
-        @Override
-        public com.codahale.metrics.Counter failedResponses() { return counter; }
-
-        @Override
-        public com.codahale.metrics.Counter cooldownSkips() {
-            return new com.codahale.metrics.Counter() {
-                @Override public void inc() { cooldownSkips.increment(); }
-                @Override public void inc(long n) { cooldownSkips.add(n); }
-                @Override public void dec() {}
-                @Override public void dec(long n) {}
-                @Override public long getCount() { return cooldownSkips.sum(); }
-            };
+        public void recordLayerPollDuration(long nanos) {
+            // no-op for this test
         }
 
         @Override
-        public com.codahale.metrics.Histogram trackedMemberCount() { return histogram; }
-
-        @Override
-        public com.codahale.metrics.Counter providerErrors() { return counter; }
-
-        @Override
-        public com.codahale.metrics.Counter rateLimitedSkips() {
-            return new com.codahale.metrics.Counter() {
-                @Override public void inc() { rateLimitedSkips.increment(); }
-                @Override public void inc(long n) { rateLimitedSkips.add(n); }
-                @Override public void dec() {}
-                @Override public void dec(long n) {}
-                @Override public long getCount() { return rateLimitedSkips.sum(); }
-            };
+        public void recordEvaluationCycleDuration(long nanos) {
+            // no-op for this test
         }
 
         @Override
-        public com.codahale.metrics.Counter deduplicatedSignals() {
-            return new com.codahale.metrics.Counter() {
-                @Override public void inc() { deduplicatedSignals.increment(); }
-                @Override public void inc(long n) { deduplicatedSignals.add(n); }
-                @Override public void dec() {}
-                @Override public void dec(long n) {}
-                @Override public long getCount() { return deduplicatedSignals.sum(); }
-            };
+        public void recordAggregatedScore(double score) {
+            // no-op for this test
         }
 
         @Override
-        public com.codahale.metrics.Histogram responsesPerInterval() {
-            return new com.codahale.metrics.Histogram(new com.codahale.metrics.UniformReservoir()) {
-                @Override
-                public void update(long value) {
-                    responsesPerInterval.add(value);
-                }
-            };
+        public void incrementWarningDetections() {
+            // no-op for this test
+        }
+
+        @Override
+        public void incrementCriticalDetections() {
+            // no-op for this test
+        }
+
+        @Override
+        public void recordResponseTriggered() {
+            // no-op for this test
+        }
+
+        @Override
+        public void incrementPendingResponses() {
+            // no-op for this test
+        }
+
+        @Override
+        public void decrementPendingResponses() {
+            // no-op for this test
+        }
+
+        @Override
+        public void incrementFailedResponses() {
+            // no-op for this test
+        }
+
+        @Override
+        public void incrementCooldownSkips() {
+            cooldownSkips.increment();
+        }
+
+        @Override
+        public void recordTrackedMemberCount(int count) {
+            // no-op for this test
+        }
+
+        @Override
+        public void incrementProviderErrors() {
+            // no-op for this test
+        }
+
+        @Override
+        public void incrementRateLimitedSkips() {
+            rateLimitedSkips.increment();
+        }
+
+        @Override
+        public void incrementDeduplicatedSignals() {
+            deduplicatedSignals.increment();
+        }
+
+        @Override
+        public void recordResponsesPerInterval(int count) {
+            responsesPerInterval.add(count);
         }
     }
 

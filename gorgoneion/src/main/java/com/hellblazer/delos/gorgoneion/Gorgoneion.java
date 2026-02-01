@@ -6,7 +6,6 @@
  */
 package com.hellblazer.delos.gorgoneion;
 
-import com.codahale.metrics.Timer;
 import com.google.protobuf.Any;
 import com.google.protobuf.Empty;
 import com.google.protobuf.Timestamp;
@@ -361,6 +360,7 @@ public class Gorgoneion implements Closeable {
     private final Context<Member>                                       context;
     private final CommonCommunications<Endorsement, EndorsementService> endorsementComm;
     private final ControlledIdentifierMember                            member;
+    private final GorgoneionMetrics                                     metrics;
     private final ProtoEventObserver                                    observer;
     private final Parameters                                            parameters;
     private final Predicate<SignedAttestation>                          verifier;
@@ -482,6 +482,7 @@ public class Gorgoneion implements Closeable {
         this.parameters = parameters;
         this.observer = observer;
         this.provisioner = provisioner;
+        this.metrics = metrics;
         this.scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
         this.replayCache = new ReplayCache(10000, parameters.maxDuration(), Duration.ofSeconds(5));
         this.credentialValidator = new CredentialValidator(context, parameters, member.getId());
@@ -963,7 +964,7 @@ public class Gorgoneion implements Closeable {
 
         @Override
         public void apply(KERL_ request, Digest from, StreamObserver<SignedNonce> responseObserver,
-                          Timer.Context time) {
+                          long start) {
             if (!validate(request, from)) {
                 log.warn("Invalid application from: {} on: {}", from, member.getId());
                 responseObserver.onError(
@@ -989,11 +990,14 @@ public class Gorgoneion implements Closeable {
 
         @Override
         public void register(Credentials request, Digest from, StreamObserver<Establishment> responseObserver,
-                             Timer.Context timer) {
+                             long start) {
             if (!Gorgoneion.this.validate(request, from)) {
                 log.warn("Invalid credentials from: {} on: {}", from, member.getId());
                 responseObserver.onError(
                 new StatusRuntimeException(Status.UNAUTHENTICATED.withDescription("Invalid credentials")));
+                if (start > 0 && metrics != null) {
+                    metrics.recordRegisterDuration(System.nanoTime() - start);
+                }
                 return;
             }
             // Start async registration without blocking the gRPC handler thread
@@ -1020,6 +1024,9 @@ public class Gorgoneion implements Closeable {
                                } else {
                                    responseObserver.onNext(establishment);
                                    responseObserver.onCompleted();
+                               }
+                               if (start > 0 && metrics != null) {
+                                   metrics.recordRegisterDuration(System.nanoTime() - start);
                                }
                            }, scheduler);
         }

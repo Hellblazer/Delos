@@ -86,9 +86,6 @@ class BLSMetricsTest {
         @Test
         @DisplayName("should define verification methods")
         void shouldDefineVerificationMethods() throws NoSuchMethodException {
-            Method timerMethod = BLSMetrics.class.getMethod("signatureVerifyTimer");
-            assertThat(timerMethod.getReturnType()).isEqualTo(Timer.class);
-
             Method recordLatency = BLSMetrics.class.getMethod("recordVerifyLatency", long.class);
             assertThat(recordLatency.getReturnType()).isEqualTo(void.class);
 
@@ -99,9 +96,6 @@ class BLSMetricsTest {
         @Test
         @DisplayName("should define aggregation methods")
         void shouldDefineAggregationMethods() throws NoSuchMethodException {
-            Method timerMethod = BLSMetrics.class.getMethod("aggregationTimer");
-            assertThat(timerMethod.getReturnType()).isEqualTo(Timer.class);
-
             Method recordLatency = BLSMetrics.class.getMethod("recordAggregationLatency", long.class);
             assertThat(recordLatency.getReturnType()).isEqualTo(void.class);
         }
@@ -109,9 +103,6 @@ class BLSMetricsTest {
         @Test
         @DisplayName("should define threshold timing methods")
         void shouldDefineThresholdMethods() throws NoSuchMethodException {
-            Method timerMethod = BLSMetrics.class.getMethod("thresholdTimer");
-            assertThat(timerMethod.getReturnType()).isEqualTo(Timer.class);
-
             Method recordTime = BLSMetrics.class.getMethod("recordThresholdTime", long.class);
             assertThat(recordTime.getReturnType()).isEqualTo(void.class);
         }
@@ -131,19 +122,6 @@ class BLSMetricsTest {
 
             Method incrementDuplicate = BLSMetrics.class.getMethod("incrementRejectedDuplicate");
             assertThat(incrementDuplicate.getReturnType()).isEqualTo(void.class);
-
-            // Counter accessor methods
-            Method epochCounter = BLSMetrics.class.getMethod("rejectedEpochCounter");
-            assertThat(epochCounter.getReturnType()).isEqualTo(Counter.class);
-
-            Method viewRefCounter = BLSMetrics.class.getMethod("rejectedViewRefCounter");
-            assertThat(viewRefCounter.getReturnType()).isEqualTo(Counter.class);
-
-            Method lateCounter = BLSMetrics.class.getMethod("rejectedLateCounter");
-            assertThat(lateCounter.getReturnType()).isEqualTo(Counter.class);
-
-            Method duplicateCounter = BLSMetrics.class.getMethod("rejectedDuplicateCounter");
-            assertThat(duplicateCounter.getReturnType()).isEqualTo(Counter.class);
         }
 
         @Test
@@ -157,9 +135,6 @@ class BLSMetricsTest {
 
             Method recordCompleted = BLSMetrics.class.getMethod("recordCompletedAccumulation");
             assertThat(recordCompleted.getReturnType()).isEqualTo(void.class);
-
-            Method getMeter = BLSMetrics.class.getMethod("completedAccumulationsMeter");
-            assertThat(getMeter.getReturnType()).isEqualTo(Meter.class);
         }
 
         @Test
@@ -228,40 +203,43 @@ class BLSMetricsTest {
         }
 
         @Test
-        @DisplayName("should provide verify timer")
-        void shouldProvideVerifyTimer() {
-            var timer = metrics.signatureVerifyTimer();
+        @DisplayName("should record verify timing")
+        void shouldRecordVerifyTiming() {
+            // Use semantic method to record verification timing
+            metrics.recordVerifyLatency(50L);
+            assertThat(metrics.getVerifyCount()).isEqualTo(1);
+
+            metrics.recordVerifyLatency(75L);
+            assertThat(metrics.getVerifyCount()).isEqualTo(2);
+
+            // Verify timer was registered in the registry
+            var timer = registry.getTimers().get("bls.signature.verify.latency");
             assertThat(timer).isNotNull();
-
-            try (var ctx = timer.time()) {
-                // Simulate verification work
-                Thread.sleep(1);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-
-            assertThat(timer.getCount()).isEqualTo(1);
+            assertThat(timer.getCount()).isEqualTo(2);
         }
 
         @Test
         @DisplayName("should record aggregation latency")
         void shouldRecordAggregationLatency() {
-            var timer = metrics.aggregationTimer();
-            assertThat(timer).isNotNull();
-
             metrics.recordAggregationLatency(150L);
-            // Timer should have recorded via manual method
-            assertThatNoException().isThrownBy(() -> metrics.recordAggregationLatency(200L));
+            metrics.recordAggregationLatency(200L);
+
+            // Verify timer was registered in the registry
+            var timer = registry.getTimers().get("bls.aggregation.create.latency");
+            assertThat(timer).isNotNull();
+            assertThat(timer.getCount()).isEqualTo(2);
         }
 
         @Test
         @DisplayName("should record threshold timing")
         void shouldRecordThresholdTiming() {
-            var timer = metrics.thresholdTimer();
-            assertThat(timer).isNotNull();
-
             metrics.recordThresholdTime(5000L);
-            assertThatNoException().isThrownBy(() -> metrics.recordThresholdTime(6000L));
+            metrics.recordThresholdTime(6000L);
+
+            // Verify timer was registered in the registry
+            var timer = registry.getTimers().get("bls.threshold.time");
+            assertThat(timer).isNotNull();
+            assertThat(timer.getCount()).isEqualTo(2);
         }
 
         @Test
@@ -272,15 +250,21 @@ class BLSMetricsTest {
             metrics.incrementRejectedLate();
             metrics.incrementRejectedDuplicate();
 
-            assertThat(metrics.rejectedEpochCounter()).isNotNull();
-            assertThat(metrics.rejectedViewRefCounter()).isNotNull();
-            assertThat(metrics.rejectedLateCounter()).isNotNull();
-            assertThat(metrics.rejectedDuplicateCounter()).isNotNull();
+            // Verify counters via registry
+            var epochCounter = (Counter) registry.getCounters().get("bls.signatures.rejected.epoch");
+            var viewRefCounter = (Counter) registry.getCounters().get("bls.signatures.rejected.viewRef");
+            var lateCounter = (Counter) registry.getCounters().get("bls.signatures.rejected.late");
+            var duplicateCounter = (Counter) registry.getCounters().get("bls.signatures.rejected.duplicate");
 
-            assertThat(metrics.rejectedEpochCounter().getCount()).isEqualTo(1);
-            assertThat(metrics.rejectedViewRefCounter().getCount()).isEqualTo(1);
-            assertThat(metrics.rejectedLateCounter().getCount()).isEqualTo(1);
-            assertThat(metrics.rejectedDuplicateCounter().getCount()).isEqualTo(1);
+            assertThat(epochCounter).isNotNull();
+            assertThat(viewRefCounter).isNotNull();
+            assertThat(lateCounter).isNotNull();
+            assertThat(duplicateCounter).isNotNull();
+
+            assertThat(epochCounter.getCount()).isEqualTo(1);
+            assertThat(viewRefCounter.getCount()).isEqualTo(1);
+            assertThat(lateCounter.getCount()).isEqualTo(1);
+            assertThat(duplicateCounter.getCount()).isEqualTo(1);
         }
 
         @Test
@@ -302,7 +286,8 @@ class BLSMetricsTest {
             metrics.recordCompletedAccumulation();
             metrics.recordCompletedAccumulation();
 
-            var meter = metrics.completedAccumulationsMeter();
+            // Verify meter via registry
+            var meter = (Meter) registry.getMeters().get("bls.accumulator.completed");
             assertThat(meter).isNotNull();
             assertThat(meter.getCount()).isEqualTo(2);
         }
@@ -318,8 +303,11 @@ class BLSMetricsTest {
 
             // After reset, counters and gauges should be zero
             // Note: Histograms/Timers cannot be fully reset in Dropwizard without re-registration
-            assertThat(metrics.rejectedEpochCounter().getCount()).isEqualTo(0);
-            assertThat(metrics.rejectedViewRefCounter().getCount()).isEqualTo(0);
+            var epochCounter = (Counter) registry.getCounters().get("bls.signatures.rejected.epoch");
+            var viewRefCounter = (Counter) registry.getCounters().get("bls.signatures.rejected.viewRef");
+
+            assertThat(epochCounter.getCount()).isEqualTo(0);
+            assertThat(viewRefCounter.getCount()).isEqualTo(0);
             assertThat(metrics.getActiveAccumulators()).isEqualTo(0);
         }
 
@@ -395,10 +383,16 @@ class BLSMetricsTest {
             executor.shutdown();
 
             // Each rejection type should have been called by 2-3 threads
-            var totalRejections = metrics.rejectedEpochCounter().getCount()
-                + metrics.rejectedViewRefCounter().getCount()
-                + metrics.rejectedLateCounter().getCount()
-                + metrics.rejectedDuplicateCounter().getCount();
+            // Verify via registry
+            var epochCounter = (Counter) registry.getCounters().get("bls.signatures.rejected.epoch");
+            var viewRefCounter = (Counter) registry.getCounters().get("bls.signatures.rejected.viewRef");
+            var lateCounter = (Counter) registry.getCounters().get("bls.signatures.rejected.late");
+            var duplicateCounter = (Counter) registry.getCounters().get("bls.signatures.rejected.duplicate");
+
+            var totalRejections = epochCounter.getCount()
+                + viewRefCounter.getCount()
+                + lateCounter.getCount()
+                + duplicateCounter.getCount();
 
             assertThat(totalRejections).isEqualTo(threadCount * operationsPerThread);
         }
@@ -443,11 +437,15 @@ class BLSMetricsTest {
                 executor.submit(() -> {
                     try {
                         for (int j = 0; j < operationsPerThread; j++) {
-                            try (var ctx = metrics.signatureVerifyTimer().time()) {
+                            // Use semantic method to record timing
+                            var startNanos = System.nanoTime();
+                            try {
                                 Thread.sleep(1);
                             } catch (InterruptedException e) {
                                 Thread.currentThread().interrupt();
                             }
+                            var latencyMicros = (System.nanoTime() - startNanos) / 1000;
+                            metrics.recordVerifyLatency(latencyMicros);
                         }
                     } finally {
                         latch.countDown();
@@ -458,7 +456,7 @@ class BLSMetricsTest {
             assertThat(latch.await(30, TimeUnit.SECONDS)).isTrue();
             executor.shutdown();
 
-            assertThat(metrics.signatureVerifyTimer().getCount()).isEqualTo(threadCount * operationsPerThread);
+            assertThat(metrics.getVerifyCount()).isEqualTo(threadCount * operationsPerThread);
         }
     }
 
@@ -545,7 +543,7 @@ class BLSMetricsTest {
             signaturesAccepted.inc();
         }
 
-        @Override
+        // No longer in interface - kept for internal use by recordVerifyLatency
         public Timer signatureVerifyTimer() {
             return verifyTimer;
         }
@@ -560,7 +558,7 @@ class BLSMetricsTest {
             return verifyTimer.getCount();
         }
 
-        @Override
+        // No longer in interface - kept for internal use by recordAggregationLatency
         public Timer aggregationTimer() {
             return aggregationTimer;
         }
@@ -570,7 +568,7 @@ class BLSMetricsTest {
             aggregationTimer.update(latencyMicros, TimeUnit.MICROSECONDS);
         }
 
-        @Override
+        // No longer in interface - kept for internal use by recordThresholdTime
         public Timer thresholdTimer() {
             return thresholdTimer;
         }
@@ -580,7 +578,7 @@ class BLSMetricsTest {
             thresholdTimer.update(durationMicros, TimeUnit.MICROSECONDS);
         }
 
-        @Override
+        // No longer in interface - returns new instance for testing
         public Timer bufferDrainTimer() {
             return new Timer();
         }
@@ -591,7 +589,7 @@ class BLSMetricsTest {
         @Override
         public int getBufferedSignatures() { return 0; }
 
-        @Override
+        // No longer in interface - returns new instance for testing
         public Histogram thresholdPercentageHistogram() {
             return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
         }
@@ -619,22 +617,19 @@ class BLSMetricsTest {
             rejectedDuplicate.inc();
         }
 
-        @Override
+        // No longer in interface - kept for internal access
         public Counter rejectedEpochCounter() {
             return rejectedEpoch;
         }
 
-        @Override
         public Counter rejectedViewRefCounter() {
             return rejectedViewRef;
         }
 
-        @Override
         public Counter rejectedLateCounter() {
             return rejectedLate;
         }
 
-        @Override
         public Counter rejectedDuplicateCounter() {
             return rejectedDuplicate;
         }
@@ -644,7 +639,6 @@ class BLSMetricsTest {
             rejectedInvalid.inc();
         }
 
-        @Override
         public Counter rejectedInvalidCounter() {
             return rejectedInvalid;
         }
@@ -664,7 +658,7 @@ class BLSMetricsTest {
             completedAccumulations.mark();
         }
 
-        @Override
+        // No longer in interface - kept for internal access
         public Meter completedAccumulationsMeter() {
             return completedAccumulations;
         }
@@ -682,7 +676,7 @@ class BLSMetricsTest {
         @Override
         public void recordAggregationBatchSize(int batchSize) {}
 
-        @Override
+        // No longer in interface - returns new instance for testing
         public Histogram aggregationBatchSizeHistogram() {
             return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
         }
@@ -690,7 +684,6 @@ class BLSMetricsTest {
         @Override
         public void recordAggregateSize(int sizeBytes) {}
 
-        @Override
         public Histogram aggregateSizeHistogram() {
             return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
         }
@@ -698,7 +691,6 @@ class BLSMetricsTest {
         @Override
         public void recordCompressionRatio(double ratio) {}
 
-        @Override
         public Histogram compressionRatioHistogram() {
             return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
         }
@@ -709,7 +701,6 @@ class BLSMetricsTest {
         @Override
         public void recordCommitteeParticipation(int signerCount) {}
 
-        @Override
         public Histogram committeeParticipationHistogram() {
             return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
         }
@@ -717,12 +708,13 @@ class BLSMetricsTest {
         @Override
         public void recordSignerBitmapOverhead(int bitmapBytes) {}
 
-        @Override
         public Histogram signerBitmapOverheadHistogram() {
             return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
         }
 
         @Override
+        public void recordEmptyAccumulatorCleanup() {}
+
         public Meter emptyAccumulatorCleanupMeter() {
             return new Meter();
         }
@@ -736,7 +728,7 @@ class BLSMetricsTest {
             return 0;
         }
 
-        @Override
+        // No longer in interface - returns new instance for testing
         public Timer viewChangeDurationTimer() {
             return new Timer();
         }
@@ -760,7 +752,6 @@ class BLSMetricsTest {
         @Override
         public void recordCommitteeReconfiguration() {}
 
-        @Override
         public Meter committeeReconfigurationsMeter() {
             return new Meter();
         }
@@ -768,7 +759,6 @@ class BLSMetricsTest {
         @Override
         public void recordThresholdRecalculation() {}
 
-        @Override
         public Meter thresholdRecalculationsMeter() {
             return new Meter();
         }
@@ -776,7 +766,6 @@ class BLSMetricsTest {
         @Override
         public void recordThresholdRecalculationTime(long recalcTimeMicros) {}
 
-        @Override
         public Timer thresholdRecalculationTimer() {
             return new Timer();
         }
@@ -792,7 +781,6 @@ class BLSMetricsTest {
         @Override
         public void recordTimeInDegradationState(String state, long timeMs) {}
 
-        @Override
         public Histogram timeInDegradationStateHistogram(String state) {
             return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
         }
@@ -800,7 +788,6 @@ class BLSMetricsTest {
         @Override
         public void recordBufferCreated() {}
 
-        @Override
         public Meter buffersCreatedMeter() {
             return new Meter();
         }
@@ -808,7 +795,6 @@ class BLSMetricsTest {
         @Override
         public void recordBufferedSignaturesDrained(int count) {}
 
-        @Override
         public Meter bufferedSignaturesDrainedMeter() {
             return new Meter();
         }
@@ -816,7 +802,6 @@ class BLSMetricsTest {
         @Override
         public void recordThresholdCalculationDelta(int delta) {}
 
-        @Override
         public Histogram thresholdCalculationDeltaHistogram() {
             return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
         }
@@ -840,7 +825,6 @@ class BLSMetricsTest {
         @Override
         public void recordReceiptProcessingLatencyDuringDegradation(String state, long latencyMicros) {}
 
-        @Override
         public Timer receiptProcessingLatencyDuringDegradationTimer(String state) {
             return new Timer();
         }
@@ -848,7 +832,6 @@ class BLSMetricsTest {
         @Override
         public void recordBufferDrainTime(long drainTimeMicros) {}
 
-        @Override
         public Timer bufferDrainTimeTimer() {
             return new Timer();
         }
@@ -856,7 +839,6 @@ class BLSMetricsTest {
         @Override
         public void recordSignatureReplayLatency(long replayLatencyMicros) {}
 
-        @Override
         public Timer signatureReplayTimer() {
             return new Timer();
         }

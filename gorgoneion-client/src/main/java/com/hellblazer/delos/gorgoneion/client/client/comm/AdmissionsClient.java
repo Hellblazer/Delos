@@ -43,14 +43,14 @@ public class AdmissionsClient implements Admissions {
         if (metrics != null) {
             var serializedSize = application.getSerializedSize();
             metrics.recordOutboundBandwidth(serializedSize);
-            metrics.outboundApplication().update(serializedSize);
+            metrics.recordOutboundApplication(serializedSize);
         }
 
         SignedNonce result = client.withDeadlineAfter(timeout.toNanos(), TimeUnit.NANOSECONDS).apply(application);
         if (metrics != null) {
             var serializedSize = result.getSerializedSize();
             metrics.recordInboundBandwidth(serializedSize);
-            metrics.inboundApplication().update(serializedSize);
+            metrics.recordInboundApplication(serializedSize);
         }
         return result;
     }
@@ -70,7 +70,7 @@ public class AdmissionsClient implements Admissions {
         if (metrics != null) {
             var serializedSize = credentials.getSerializedSize();
             metrics.recordOutboundBandwidth(serializedSize);
-            metrics.outboundCredentials().update(serializedSize);
+            metrics.recordOutboundCredentials(serializedSize);
         }
 
         var result = client.withDeadlineAfter(timeout.toNanos(), TimeUnit.NANOSECONDS).register(credentials);
@@ -78,7 +78,7 @@ public class AdmissionsClient implements Admissions {
             try {
                 var serializedSize = result.getSerializedSize();
                 metrics.recordInboundBandwidth(serializedSize);
-                metrics.inboundInvitation().update(serializedSize);
+                metrics.recordInboundInvitation(serializedSize);
             } catch (Throwable e) {
                 // nothing
             }

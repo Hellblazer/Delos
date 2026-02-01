@@ -65,7 +65,7 @@ class ViewChangeMetricsTest {
     @Test
     void shouldRecordViewChangeDuration() {
         // Given: Timer for view change duration
-        var timer = metrics.viewChangeDurationTimer();
+        var timer = (Timer) registry.getTimers().get("bls.view.change.duration");
 
         // When: Record view change with timer context
         try (var ctx = timer.time()) {
@@ -86,8 +86,9 @@ class ViewChangeMetricsTest {
         metrics.recordViewChangeDuration(durationMicros);
 
         // Then: Duration recorded correctly
+        var timer = (Timer) registry.getTimers().get("bls.view.change.duration");
         assertThat(metrics.getViewChangeDurationCount()).isEqualTo(1);
-        assertThat(metrics.viewChangeDurationTimer().getSnapshot().getMax())
+        assertThat(timer.getSnapshot().getMax())
             .isGreaterThanOrEqualTo(TimeUnit.MICROSECONDS.toNanos(durationMicros));
     }
 
@@ -123,7 +124,7 @@ class ViewChangeMetricsTest {
     @Test
     void shouldTrackCommitteeReconfigurations() {
         // Given: No reconfigurations initially
-        var meter = metrics.committeeReconfigurationsMeter();
+        var meter = registry.getMeters().get("bls.view.reconfigurations");
         assertThat(meter.getCount()).isEqualTo(0);
 
         // When: Multiple reconfigurations occur
@@ -138,7 +139,7 @@ class ViewChangeMetricsTest {
     @Test
     void shouldTrackThresholdRecalculationEvents() {
         // Given: No recalculations initially
-        var meter = metrics.thresholdRecalculationsMeter();
+        var meter = registry.getMeters().get("bls.view.threshold.recalculations");
         assertThat(meter.getCount()).isEqualTo(0);
 
         // When: Threshold recalculated multiple times
@@ -229,8 +230,8 @@ class ViewChangeMetricsTest {
 
         // Then: All events tracked
         assertThat(metrics.getViewChangesInitiated()).isEqualTo(5);
-        assertThat(metrics.committeeReconfigurationsMeter().getCount()).isEqualTo(5);
-        assertThat(metrics.thresholdRecalculationsMeter().getCount()).isEqualTo(5);
+        assertThat(registry.getMeters().get("bls.view.reconfigurations").getCount()).isEqualTo(5);
+        assertThat(registry.getMeters().get("bls.view.threshold.recalculations").getCount()).isEqualTo(5);
         assertThat(metrics.getActiveView()).isEqualTo(initialView + 5);
         assertThat(metrics.getViewChangeDurationCount()).isEqualTo(5);
     }
@@ -243,7 +244,8 @@ class ViewChangeMetricsTest {
 
         // When: View change occurs during signature processing
         metrics.incrementViewChangesInitiated();
-        try (var ctx = metrics.viewChangeDurationTimer().time()) {
+        var timer = (Timer) registry.getTimers().get("bls.view.change.duration");
+        try (var ctx = timer.time()) {
             metrics.incrementSignaturesReceived();
             simulateViewChange();
         }
@@ -279,9 +281,9 @@ class ViewChangeMetricsTest {
         // - Counters use LongAdder internally which doesn't support reliable reset
         // - Timers and Meters accumulate forever (no reset API)
         // These are verified to exist but values are not checked after reset
-        assertThat(metrics.committeeReconfigurationsMeter()).isNotNull();
-        assertThat(metrics.thresholdRecalculationsMeter()).isNotNull();
-        assertThat(metrics.viewChangeDurationTimer()).isNotNull();
+        assertThat(registry.getMeters().get("bls.view.reconfigurations")).isNotNull();
+        assertThat(registry.getMeters().get("bls.view.threshold.recalculations")).isNotNull();
+        assertThat(registry.getTimers().get("bls.view.change.duration")).isNotNull();
     }
 
     @Test

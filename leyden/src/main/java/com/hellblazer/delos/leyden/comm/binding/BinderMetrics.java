@@ -7,23 +7,55 @@
  */
 package com.hellblazer.delos.leyden.comm.binding;
 
-import com.codahale.metrics.Histogram;
-import com.codahale.metrics.Timer;
 import com.hellblazer.delos.protocols.EndpointMetrics;
 
 /**
+ * Metrics interface for binding operations.
+ * Abstracts metric recording to allow migration from Dropwizard to Micrometer.
+ *
  * @author hal.hildebrand
- **/
+ */
 public interface BinderMetrics extends EndpointMetrics {
-    Histogram inboundBind();
 
-    Timer inboundBindTimer();
+    /**
+     * Record the size of an inbound bind request
+     *
+     * @param bytes size in bytes
+     */
+    void recordInboundBindSize(int bytes);
 
-    Histogram inboundGet();
+    /**
+     * Record the duration of an inbound bind operation
+     *
+     * @param nanos duration in nanoseconds
+     */
+    void recordInboundBindDuration(long nanos);
 
-    Timer inboundGetTimer();
+    /**
+     * Record the size of an inbound get request
+     *
+     * @param bytes size in bytes
+     */
+    void recordInboundGetSize(int bytes);
 
-    Histogram inboundUnbind();
+    /**
+     * Record the duration of an inbound get operation
+     *
+     * @param nanos duration in nanoseconds
+     */
+    void recordInboundGetDuration(long nanos);
 
-    Timer inboundUnbindTimer();
+    /**
+     * Record the size of an inbound unbind request
+     *
+     * @param bytes size in bytes
+     */
+    void recordInboundUnbindSize(int bytes);
+
+    /**
+     * Record the duration of an inbound unbind operation
+     *
+     * @param nanos duration in nanoseconds
+     */
+    void recordInboundUnbindDuration(long nanos);
 }

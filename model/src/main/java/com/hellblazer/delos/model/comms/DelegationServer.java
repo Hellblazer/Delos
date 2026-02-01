@@ -7,7 +7,6 @@
  */
 package com.hellblazer.delos.model.comms;
 
-import com.codahale.metrics.Timer.Context;
 import com.google.protobuf.Empty;
 import com.hellblazer.delos.demesne.proto.DelegationGrpc.DelegationImplBase;
 import com.hellblazer.delos.demesne.proto.DelegationUpdate;
@@ -34,10 +33,10 @@ public class DelegationServer extends DelegationImplBase {
 
     @Override
     public void gossip(Biff request, StreamObserver<DelegationUpdate> responseObserver) {
-        Context timer = metrics != null ? metrics.updateInbound().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
             metrics.recordInboundBandwidth(request.getSerializedSize());
-            metrics.inboundGossip().mark(request.getSerializedSize());
+            metrics.recordInboundGossip(request.getSerializedSize());
         }
         var from = identity.getAgent();
         router.evaluate(responseObserver, delegation -> {
@@ -45,14 +44,14 @@ public class DelegationServer extends DelegationImplBase {
                 var update = delegation.gossip(request, from);
                 responseObserver.onNext(update);
                 responseObserver.onCompleted();
-                final var serializedSize = update.getSerializedSize();
-                if (timer != null) {
+                if (metrics != null) {
+                    final var serializedSize = update.getSerializedSize();
                     metrics.recordOutboundBandwidth(serializedSize);
-                    metrics.outboundUpdate().mark(serializedSize);
+                    metrics.recordOutboundUpdate(serializedSize);
                 }
             } finally {
-                if (timer != null) {
-                    timer.close();
+                if (metrics != null) {
+                    metrics.recordUpdateInboundDuration(System.nanoTime() - start);
                 }
             }
         });
@@ -60,10 +59,10 @@ public class DelegationServer extends DelegationImplBase {
 
     @Override
     public void update(DelegationUpdate request, StreamObserver<Empty> responseObserver) {
-        Context timer = metrics != null ? metrics.updateInbound().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
             metrics.recordInboundBandwidth(request.getSerializedSize());
-            metrics.inboundUpdate().mark(request.getSerializedSize());
+            metrics.recordInboundUpdate(request.getSerializedSize());
         }
         var from = identity.getAgent();
         router.evaluate(responseObserver, delegation -> {
@@ -72,8 +71,8 @@ public class DelegationServer extends DelegationImplBase {
                 responseObserver.onNext(Empty.getDefaultInstance());
                 responseObserver.onCompleted();
             } finally {
-                if (timer != null) {
-                    timer.close();
+                if (metrics != null) {
+                    metrics.recordUpdateInboundDuration(System.nanoTime() - start);
                 }
             }
         });

@@ -324,7 +324,7 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
             return;
         }
 
-        var timer = metrics.layerPollDuration().time();
+        var startTime = System.nanoTime();
         try {
             var layerStates = provider.getMemberAnomalyStates();
             for (var entry : layerStates.entrySet()) {
@@ -342,10 +342,10 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
                 provider.getLayerName(), layerStates.size());
 
         } catch (Exception e) {
-            metrics.providerErrors().inc();
+            metrics.incrementProviderErrors();
             log.error("Error polling layer {}: {}", provider.getLayerName(), e.getMessage(), e);
         } finally {
-            timer.stop();
+            metrics.recordLayerPollDuration(System.nanoTime() - startTime);
         }
     }
 
@@ -361,13 +361,13 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
             return;
         }
 
-        var timer = metrics.evaluationCycleDuration().time();
+        var startTime = System.nanoTime();
         try {
             // Phase 5: Reset rate limit counter and record previous interval
             var previousResponses = responsesThisInterval.getAndSet(0);
-            metrics.responsesPerInterval().update(previousResponses);
+            metrics.recordResponsesPerInterval(previousResponses);
 
-            metrics.trackedMemberCount().update(memberProfiles.size());
+            metrics.recordTrackedMemberCount(memberProfiles.size());
 
             for (var entry : memberProfiles.entrySet()) {
                 var memberId = entry.getKey();
@@ -390,17 +390,17 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
         } catch (Exception e) {
             log.error("Error during response evaluation: {}", e.getMessage(), e);
         } finally {
-            timer.stop();
+            metrics.recordEvaluationCycleDuration(System.nanoTime() - startTime);
         }
     }
 
     private void evaluateMember(Identifier memberId, MemberRiskProfile profile) {
         // Record score distribution
-        metrics.aggregatedScoreDistribution().update((long) (profile.getAggregatedScore() * 1000));
+        metrics.recordAggregatedScore(profile.getAggregatedScore());
 
         // Phase 5: Check rate limit before processing
         if (responsesThisInterval.get() >= config.maxResponsesPerInterval()) {
-            metrics.rateLimitedSkips().inc();
+            metrics.incrementRateLimitedSkips();
             return; // Rate limit reached
         }
 
@@ -418,7 +418,7 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
             if (elapsed.compareTo(config.responseCooldown()) < 0) {
                 // Within cooldown - release the pending slot and skip
                 pendingResponses.remove(memberId);
-                metrics.cooldownSkips().inc();
+                metrics.incrementCooldownSkips();
                 return;
             }
         }
@@ -426,7 +426,7 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
         // Phase 5: Check signal deduplication
         if (isSignalDuplicate(memberId, profile)) {
             pendingResponses.remove(memberId);
-            metrics.deduplicatedSignals().inc();
+            metrics.incrementDeduplicatedSignals();
             return;
         }
 
@@ -448,9 +448,9 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
         // Phase 5: Increment rate limit counter
         responsesThisInterval.incrementAndGet();
 
-        metrics.criticalDetections().inc();
-        metrics.responsesTriggered().mark();
-        metrics.pendingResponses().inc();
+        metrics.incrementCriticalDetections();
+        metrics.recordResponseTriggered();
+        metrics.incrementPendingResponses();
 
         // Atomically claim cooldown slot to prevent duplicate responses
         // This fixes HIGH #3: race condition on cooldown check
@@ -460,8 +460,8 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
             if (elapsed.compareTo(config.responseCooldown()) < 0) {
                 // Another thread just triggered response - back off
                 pendingResponses.remove(memberId);
-                metrics.pendingResponses().dec();
-                metrics.cooldownSkips().inc();
+                metrics.decrementPendingResponses();
+                metrics.incrementCooldownSkips();
                 return;
             }
             // Cooldown expired, update the timestamp
@@ -471,7 +471,7 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
         responseHandler.handleCritical(memberId, profile)
             .thenAccept(success -> {
                 pendingResponses.remove(memberId);
-                metrics.pendingResponses().dec();
+                metrics.decrementPendingResponses();
                 if (success) {
                     log.info("Critical response completed for {}", memberId);
                 } else {
@@ -480,8 +480,8 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
             })
             .exceptionally(e -> {
                 pendingResponses.remove(memberId);
-                metrics.pendingResponses().dec();
-                metrics.failedResponses().inc();
+                metrics.decrementPendingResponses();
+                metrics.incrementFailedResponses();
                 log.error("Failed to handle critical response for {}: {}", memberId, e.getMessage());
                 return null;
             });
@@ -494,9 +494,9 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
         // Phase 5: Increment rate limit counter
         responsesThisInterval.incrementAndGet();
 
-        metrics.warningDetections().inc();
-        metrics.responsesTriggered().mark();
-        metrics.pendingResponses().inc();
+        metrics.incrementWarningDetections();
+        metrics.recordResponseTriggered();
+        metrics.incrementPendingResponses();
 
         // Atomically claim cooldown slot
         var previousResponse = recentResponses.putIfAbsent(memberId, now);
@@ -504,8 +504,8 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
             var elapsed = Duration.between(previousResponse, now);
             if (elapsed.compareTo(config.responseCooldown()) < 0) {
                 pendingResponses.remove(memberId);
-                metrics.pendingResponses().dec();
-                metrics.cooldownSkips().inc();
+                metrics.decrementPendingResponses();
+                metrics.incrementCooldownSkips();
                 return;
             }
             recentResponses.put(memberId, now);
@@ -514,13 +514,13 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
         responseHandler.handleWarning(memberId, profile)
             .thenRun(() -> {
                 pendingResponses.remove(memberId);
-                metrics.pendingResponses().dec();
+                metrics.decrementPendingResponses();
                 log.debug("Warning response completed for {}", memberId);
             })
             .exceptionally(e -> {
                 pendingResponses.remove(memberId);
-                metrics.pendingResponses().dec();
-                metrics.failedResponses().inc();
+                metrics.decrementPendingResponses();
+                metrics.incrementFailedResponses();
                 log.error("Failed to handle warning response for {}: {}", memberId, e.getMessage());
                 return null;
             });

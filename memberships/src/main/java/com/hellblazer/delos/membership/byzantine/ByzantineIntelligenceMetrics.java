@@ -7,16 +7,12 @@
  */
 package com.hellblazer.delos.membership.byzantine;
 
-import com.codahale.metrics.Counter;
-import com.codahale.metrics.Histogram;
-import com.codahale.metrics.Meter;
-import com.codahale.metrics.Timer;
-
 /**
  * Metrics for Byzantine intelligence coordination.
  * <p>
  * Provides observability into the cross-layer detection system including
  * polling performance, response rates, and score distributions.
+ * Abstracted from underlying metrics implementation (Dropwizard/Micrometer).
  * </p>
  *
  * @author hal.hildebrand
@@ -24,114 +20,104 @@ import com.codahale.metrics.Timer;
 public interface ByzantineIntelligenceMetrics {
 
     /**
-     * Timer for polling a single layer.
+     * Record duration of polling a single layer.
      *
-     * @return Timer tracking poll duration
+     * @param nanos Duration in nanoseconds
      */
-    Timer layerPollDuration();
+    void recordLayerPollDuration(long nanos);
 
     /**
-     * Timer for full evaluation cycle across all members.
+     * Record duration of full evaluation cycle across all members.
      *
-     * @return Timer tracking evaluation duration
+     * @param nanos Duration in nanoseconds
      */
-    Timer evaluationCycleDuration();
+    void recordEvaluationCycleDuration(long nanos);
 
     /**
-     * Histogram of aggregated scores when evaluated.
+     * Record an aggregated score when evaluated.
+     * <p>
+     * Score values are in range [0.0, 1.0].
+     * </p>
      *
-     * @return Histogram of score values [0.0, 1.0] scaled to integer
+     * @param score Aggregated score value
      */
-    Histogram aggregatedScoreDistribution();
+    void recordAggregatedScore(double score);
 
     /**
-     * Counter of warning-level detections.
-     *
-     * @return Counter for warning events
+     * Increment warning-level detection counter.
      */
-    Counter warningDetections();
+    void incrementWarningDetections();
 
     /**
-     * Counter of critical-level detections.
-     *
-     * @return Counter for critical events
+     * Increment critical-level detection counter.
      */
-    Counter criticalDetections();
+    void incrementCriticalDetections();
 
     /**
-     * Meter of responses triggered (both warning and critical).
-     *
-     * @return Meter for response actions
+     * Record a response triggered (warning or critical).
      */
-    Meter responsesTriggered();
+    void recordResponseTriggered();
 
     /**
-     * Counter of responses currently pending (async not completed).
-     *
-     * @return Counter for in-flight responses
+     * Increment pending response counter.
      */
-    Counter pendingResponses();
+    void incrementPendingResponses();
 
     /**
-     * Counter of responses that failed (exceptionally completed).
-     *
-     * @return Counter for failed responses
+     * Decrement pending response counter.
      */
-    Counter failedResponses();
+    void decrementPendingResponses();
 
     /**
-     * Counter of responses skipped due to cooldown.
-     *
-     * @return Counter for cooldown skips
+     * Increment failed response counter.
      */
-    Counter cooldownSkips();
+    void incrementFailedResponses();
 
     /**
-     * Histogram of member count per evaluation.
-     *
-     * @return Histogram of tracked member counts
+     * Increment cooldown skip counter.
      */
-    Histogram trackedMemberCount();
+    void incrementCooldownSkips();
 
     /**
-     * Counter of provider errors during polling.
+     * Record the number of tracked members in an evaluation.
      *
-     * @return Counter for provider errors
+     * @param count Number of members tracked
      */
-    Counter providerErrors();
+    void recordTrackedMemberCount(int count);
 
     /**
-     * Counter of responses skipped due to rate limiting.
+     * Increment provider error counter.
+     */
+    void incrementProviderErrors();
+
+    /**
+     * Increment rate-limited skip counter.
      * <p>
      * Phase 5: Anti-feedback mechanism tracks when responses are
      * skipped because maxResponsesPerInterval was exceeded.
      * </p>
-     *
-     * @return Counter for rate-limited skips
      */
-    Counter rateLimitedSkips();
+    void incrementRateLimitedSkips();
 
     /**
-     * Counter of signals deduplicated (same event from multiple layers).
+     * Increment deduplicated signal counter.
      * <p>
      * Phase 5: Tracks signal deduplication to prevent amplification
      * when multiple layers detect the same underlying event.
      * </p>
-     *
-     * @return Counter for deduplicated signals
      */
-    Counter deduplicatedSignals();
+    void incrementDeduplicatedSignals();
 
     /**
-     * Histogram of responses per evaluation interval.
+     * Record number of responses in an evaluation interval.
      * <p>
      * Phase 5: Tracks distribution of response counts per interval
      * to monitor rate limiting effectiveness.
      * </p>
      *
-     * @return Histogram of response counts
+     * @param count Number of responses in the interval
      */
-    Histogram responsesPerInterval();
+    void recordResponsesPerInterval(int count);
 
     /**
      * No-op implementation for testing.
@@ -146,80 +132,80 @@ public interface ByzantineIntelligenceMetrics {
      * No-op implementation that does nothing.
      */
     class NoOpMetrics implements ByzantineIntelligenceMetrics {
-        private static final Timer NO_OP_TIMER = new Timer();
-        private static final Histogram NO_OP_HISTOGRAM = new Histogram(
-            new com.codahale.metrics.UniformReservoir());
-        private static final Counter NO_OP_COUNTER = new Counter();
-        private static final Meter NO_OP_METER = new Meter();
 
         @Override
-        public Timer layerPollDuration() {
-            return NO_OP_TIMER;
+        public void recordLayerPollDuration(long nanos) {
+            // no-op
         }
 
         @Override
-        public Timer evaluationCycleDuration() {
-            return NO_OP_TIMER;
+        public void recordEvaluationCycleDuration(long nanos) {
+            // no-op
         }
 
         @Override
-        public Histogram aggregatedScoreDistribution() {
-            return NO_OP_HISTOGRAM;
+        public void recordAggregatedScore(double score) {
+            // no-op
         }
 
         @Override
-        public Counter warningDetections() {
-            return NO_OP_COUNTER;
+        public void incrementWarningDetections() {
+            // no-op
         }
 
         @Override
-        public Counter criticalDetections() {
-            return NO_OP_COUNTER;
+        public void incrementCriticalDetections() {
+            // no-op
         }
 
         @Override
-        public Meter responsesTriggered() {
-            return NO_OP_METER;
+        public void recordResponseTriggered() {
+            // no-op
         }
 
         @Override
-        public Counter pendingResponses() {
-            return NO_OP_COUNTER;
+        public void incrementPendingResponses() {
+            // no-op
         }
 
         @Override
-        public Counter failedResponses() {
-            return NO_OP_COUNTER;
+        public void decrementPendingResponses() {
+            // no-op
         }
 
         @Override
-        public Counter cooldownSkips() {
-            return NO_OP_COUNTER;
+        public void incrementFailedResponses() {
+            // no-op
         }
 
         @Override
-        public Histogram trackedMemberCount() {
-            return NO_OP_HISTOGRAM;
+        public void incrementCooldownSkips() {
+            // no-op
         }
 
         @Override
-        public Counter providerErrors() {
-            return NO_OP_COUNTER;
+        public void recordTrackedMemberCount(int count) {
+            // no-op
         }
 
         @Override
-        public Counter rateLimitedSkips() {
-            return NO_OP_COUNTER;
+        public void incrementProviderErrors() {
+            // no-op
         }
 
         @Override
-        public Counter deduplicatedSignals() {
-            return NO_OP_COUNTER;
+        public void incrementRateLimitedSkips() {
+            // no-op
         }
 
         @Override
-        public Histogram responsesPerInterval() {
-            return NO_OP_HISTOGRAM;
+        public void incrementDeduplicatedSignals() {
+            // no-op
+        }
+
+        @Override
+        public void recordResponsesPerInterval(int count) {
+            // no-op
         }
     }
 }

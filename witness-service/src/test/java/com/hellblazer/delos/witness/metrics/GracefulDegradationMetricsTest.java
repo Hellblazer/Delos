@@ -93,7 +93,7 @@ class GracefulDegradationMetricsTest {
         metrics.recordTimeInDegradationState("STABLE", timeMs);
 
         // Then: Time recorded in histogram
-        var histogram = metrics.timeInDegradationStateHistogram("STABLE");
+        var histogram = registry.getHistograms().get("bls.degradation.state.time.STABLE");
         assertThat(histogram.getCount()).isEqualTo(1);
         assertThat(histogram.getSnapshot().getMax()).isGreaterThanOrEqualTo(timeMs);
     }
@@ -107,7 +107,7 @@ class GracefulDegradationMetricsTest {
         metrics.recordTimeInDegradationState("DRAINING", timeMs);
 
         // Then: Time recorded
-        var histogram = metrics.timeInDegradationStateHistogram("DRAINING");
+        var histogram = registry.getHistograms().get("bls.degradation.state.time.DRAINING");
         assertThat(histogram.getCount()).isEqualTo(1);
         assertThat(histogram.getSnapshot().getMax()).isGreaterThanOrEqualTo(timeMs);
     }
@@ -121,7 +121,7 @@ class GracefulDegradationMetricsTest {
         metrics.recordTimeInDegradationState("TRANSITIONING", timeMs);
 
         // Then: Time recorded
-        var histogram = metrics.timeInDegradationStateHistogram("TRANSITIONING");
+        var histogram = registry.getHistograms().get("bls.degradation.state.time.TRANSITIONING");
         assertThat(histogram.getCount()).isEqualTo(1);
         assertThat(histogram.getSnapshot().getMax()).isGreaterThanOrEqualTo(timeMs);
     }
@@ -137,7 +137,7 @@ class GracefulDegradationMetricsTest {
     @Test
     void shouldTrackBuffersCreated() {
         // Given: No buffers initially
-        var meter = metrics.buffersCreatedMeter();
+        var meter = registry.getMeters().get("bls.degradation.buffers.created");
         assertThat(meter.getCount()).isEqualTo(0);
 
         // When: Buffers created during degradation
@@ -185,7 +185,7 @@ class GracefulDegradationMetricsTest {
         metrics.recordBufferedSignaturesDrained(100);
 
         // Then: Drain meter increments
-        var meter = metrics.bufferedSignaturesDrainedMeter();
+        var meter = registry.getMeters().get("bls.degradation.buffered.signatures.drained");
         assertThat(meter.getCount()).isEqualTo(100);
         assertThat(meter.getMeanRate()).isGreaterThan(0);
     }
@@ -201,7 +201,7 @@ class GracefulDegradationMetricsTest {
         metrics.recordThresholdCalculationDelta(delta);
 
         // Then: Delta recorded in histogram
-        var histogram = metrics.thresholdCalculationDeltaHistogram();
+        var histogram = registry.getHistograms().get("bls.degradation.threshold.delta");
         assertThat(histogram.getCount()).isEqualTo(1);
         assertThat(histogram.getSnapshot().getMax()).isEqualTo(delta);
     }
@@ -215,7 +215,7 @@ class GracefulDegradationMetricsTest {
         metrics.recordThresholdCalculationDelta(delta);
 
         // Then: Negative delta recorded
-        var histogram = metrics.thresholdCalculationDeltaHistogram();
+        var histogram = registry.getHistograms().get("bls.degradation.threshold.delta");
         assertThat(histogram.getCount()).isEqualTo(1);
         assertThat(histogram.getSnapshot().getMin()).isEqualTo(delta);
     }
@@ -256,7 +256,7 @@ class GracefulDegradationMetricsTest {
         metrics.recordReceiptProcessingLatencyDuringDegradation("DRAINING", latencyMicros);
 
         // Then: Latency recorded for DRAINING state
-        var timer = metrics.receiptProcessingLatencyDuringDegradationTimer("DRAINING");
+        var timer = registry.getTimers().get("bls.degradation.receipt.latency.DRAINING");
         assertThat(timer.getCount()).isEqualTo(1);
         assertThat(timer.getSnapshot().getMax())
             .isGreaterThanOrEqualTo(TimeUnit.MICROSECONDS.toNanos(latencyMicros));
@@ -275,9 +275,9 @@ class GracefulDegradationMetricsTest {
         metrics.recordReceiptProcessingLatencyDuringDegradation("TRANSITIONING", transitioningLatency);
 
         // Then: Different latencies per state
-        var stableTimer = metrics.receiptProcessingLatencyDuringDegradationTimer("STABLE");
-        var drainingTimer = metrics.receiptProcessingLatencyDuringDegradationTimer("DRAINING");
-        var transitioningTimer = metrics.receiptProcessingLatencyDuringDegradationTimer("TRANSITIONING");
+        var stableTimer = registry.getTimers().get("bls.degradation.receipt.latency.STABLE");
+        var drainingTimer = registry.getTimers().get("bls.degradation.receipt.latency.DRAINING");
+        var transitioningTimer = registry.getTimers().get("bls.degradation.receipt.latency.TRANSITIONING");
 
         assertThat(stableTimer.getSnapshot().getMax())
             .isLessThan(drainingTimer.getSnapshot().getMax());
@@ -297,7 +297,7 @@ class GracefulDegradationMetricsTest {
     @Test
     void shouldTrackBufferDrainTime() {
         // Given: Buffer drain operation
-        var timer = metrics.bufferDrainTimer();
+        var timer = registry.getTimers().get("bls.buffer.drain.latency");
 
         // When: Time buffer drain
         try (var ctx = timer.time()) {
@@ -318,8 +318,9 @@ class GracefulDegradationMetricsTest {
         metrics.recordBufferDrainTime(drainTimeMicros);
 
         // Then: Drain time recorded
-        assertThat(metrics.bufferDrainTimeTimer().getCount()).isEqualTo(1);
-        assertThat(metrics.bufferDrainTimeTimer().getSnapshot().getMax())
+        var timer = registry.getTimers().get("bls.degradation.buffer.drain.time");
+        assertThat(timer.getCount()).isEqualTo(1);
+        assertThat(timer.getSnapshot().getMax())
             .isGreaterThanOrEqualTo(TimeUnit.MICROSECONDS.toNanos(drainTimeMicros));
     }
 
@@ -340,7 +341,7 @@ class GracefulDegradationMetricsTest {
         metrics.recordSignatureReplayLatency(replayLatencyMicros);
 
         // Then: Replay latency recorded
-        var timer = metrics.signatureReplayTimer();
+        var timer = registry.getTimers().get("bls.degradation.signature.replay.latency");
         assertThat(timer.getCount()).isEqualTo(1);
         assertThat(timer.getSnapshot().getMax())
             .isGreaterThanOrEqualTo(TimeUnit.MICROSECONDS.toNanos(replayLatencyMicros));
@@ -357,7 +358,7 @@ class GracefulDegradationMetricsTest {
     @Test
     void shouldTrackThresholdRecalculationTime() {
         // Given: Threshold recalculation operation
-        var timer = metrics.thresholdRecalculationTimer();
+        var timer = registry.getTimers().get("bls.degradation.threshold.recalculation.time");
 
         // When: Time threshold recalculation
         try (var ctx = timer.time()) {
@@ -378,8 +379,9 @@ class GracefulDegradationMetricsTest {
         metrics.recordThresholdRecalculationTime(recalcTimeMicros);
 
         // Then: Time recorded
-        assertThat(metrics.thresholdRecalculationTimer().getCount()).isEqualTo(1);
-        assertThat(metrics.thresholdRecalculationTimer().getSnapshot().getMax())
+        var timer = registry.getTimers().get("bls.degradation.threshold.recalculation.time");
+        assertThat(timer.getCount()).isEqualTo(1);
+        assertThat(timer.getSnapshot().getMax())
             .isGreaterThanOrEqualTo(TimeUnit.MICROSECONDS.toNanos(recalcTimeMicros));
     }
 
@@ -444,9 +446,9 @@ class GracefulDegradationMetricsTest {
         latch.await(5, TimeUnit.SECONDS);
 
         // Then: All operations recorded (thread-safe)
-        assertThat(metrics.buffersCreatedMeter().getCount())
+        assertThat(registry.getMeters().get("bls.degradation.buffers.created").getCount())
             .isEqualTo(threadCount * iterationsPerThread);
-        assertThat(metrics.bufferedSignaturesDrainedMeter().getCount())
+        assertThat(registry.getMeters().get("bls.degradation.buffered.signatures.drained").getCount())
             .isEqualTo(threadCount * iterationsPerThread);
     }
 
@@ -492,8 +494,8 @@ class GracefulDegradationMetricsTest {
         assertThat(metrics.getDegradationStateTransitions("TRANSITIONING_TO_STABLE")).isEqualTo(1);
         assertThat(metrics.getByzantineExclusions()).isEqualTo(1);
         assertThat(metrics.getMemberRecoveries()).isEqualTo(1);
-        assertThat(metrics.buffersCreatedMeter().getCount()).isEqualTo(1);
-        assertThat(metrics.thresholdCalculationDeltaHistogram().getCount()).isEqualTo(2);
+        assertThat(registry.getMeters().get("bls.degradation.buffers.created").getCount()).isEqualTo(1);
+        assertThat(registry.getHistograms().get("bls.degradation.threshold.delta").getCount()).isEqualTo(2);
     }
 
     @Test
@@ -515,7 +517,7 @@ class GracefulDegradationMetricsTest {
         assertThat(metrics.getByzantineExclusions()).isEqualTo(0);
         assertThat(metrics.getMemberRecoveries()).isEqualTo(0);
         // Meters retain internal state; verify they exist after reset but don't check count
-        assertThat(metrics.buffersCreatedMeter()).isNotNull();
+        assertThat(registry.getMeters().get("bls.degradation.buffers.created")).isNotNull();
     }
 
     @Test

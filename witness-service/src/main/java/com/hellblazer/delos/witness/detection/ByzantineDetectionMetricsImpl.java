@@ -421,24 +421,15 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
     }
 
     @Override
-    public Meter anomalyDetectionMeter(DetectorType detectorType) {
-        return anomalyDetectionMeters.getOrDefault(detectorType, new Meter());
+    public long getAnomalyDetectionCount(DetectorType detectorType) {
+        var meter = anomalyDetectionMeters.get(detectorType);
+        return meter != null ? meter.getCount() : 0L;
     }
 
     @Override
-    public Histogram anomalyScoreHistogram(DetectorType detectorType) {
-        return anomalyScoreHistograms.getOrDefault(detectorType,
-            new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS)));
-    }
-
-    @Override
-    public Timer detectionLatencyTimer(DetectorType detectorType) {
-        return detectionLatencyTimers.getOrDefault(detectorType, new Timer());
-    }
-
-    @Override
-    public Counter falsePositiveCounter(DetectorType detectorType) {
-        return falsePositiveCounters.getOrDefault(detectorType, new Counter());
+    public long getFalsePositiveCount(DetectorType detectorType) {
+        var counter = falsePositiveCounters.get(detectorType);
+        return counter != null ? counter.getCount() : 0L;
     }
 
     // ===========================
@@ -509,45 +500,29 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
     }
 
     @Override
-    public Histogram ensembleVoteHistogram() {
-        return ensembleVoteHistogram != null ? ensembleVoteHistogram :
-            new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+    public long getQuorumReachedCount() {
+        return quorumReachedCounter != null ? quorumReachedCounter.getCount() : 0L;
     }
 
     @Override
-    public Counter quorumReachedCounter() {
-        return quorumReachedCounter != null ? quorumReachedCounter : new Counter();
+    public long getQuarantineEventsCount() {
+        return quarantineEventsCounter != null ? quarantineEventsCounter.getCount() : 0L;
     }
 
     @Override
-    public Counter quarantineEventsCounter() {
-        return quarantineEventsCounter != null ? quarantineEventsCounter : new Counter();
+    public int getActiveQuarantines() {
+        return activeQuarantinesValue.get();
     }
 
     @Override
-    public Histogram quarantineDurationHistogram() {
-        return quarantineDurationHistogram != null ? quarantineDurationHistogram :
-            new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+    public long getQuarantineRecoveryCount() {
+        return quarantineRecoveryCounter != null ? quarantineRecoveryCounter.getCount() : 0L;
     }
 
     @Override
-    public Gauge<Integer> activeQuarantinesGauge() {
-        return activeQuarantinesGauge != null ? activeQuarantinesGauge : () -> 0;
-    }
-
-    @Override
-    public Counter quarantineRecoveryCounter() {
-        return quarantineRecoveryCounter != null ? quarantineRecoveryCounter : new Counter();
-    }
-
-    @Override
-    public Counter escalationActionCounter(ResponseAction action) {
-        return escalationActionCounters.getOrDefault(action, new Counter());
-    }
-
-    @Override
-    public Timer escalationLatencyTimer() {
-        return escalationLatencyTimer != null ? escalationLatencyTimer : new Timer();
+    public long getEscalationActionCount(ResponseAction action) {
+        var counter = escalationActionCounters.get(action);
+        return counter != null ? counter.getCount() : 0L;
     }
 
     // ===========================
@@ -591,31 +566,13 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
     }
 
     @Override
-    public Gauge<Integer> membersExcludedGauge() {
-        return membersExcludedGauge != null ? membersExcludedGauge : () -> 0;
+    public int getMembersExcluded() {
+        return membersExcludedValue.get();
     }
 
     @Override
-    public Gauge<Double> consensusImpactGauge() {
-        return consensusImpactGauge != null ? consensusImpactGauge : () -> 0.0;
-    }
-
-    @Override
-    public Histogram falseAlarmDurationHistogram() {
-        return falseAlarmDurationHistogram != null ? falseAlarmDurationHistogram :
-            new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
-    }
-
-    @Override
-    public Histogram timeToClearAnomaliesHistogram() {
-        return timeToClearAnomaliesHistogram != null ? timeToClearAnomaliesHistogram :
-            new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
-    }
-
-    @Override
-    public Histogram dualKeyValidationTimeHistogram() {
-        return dualKeyValidationTimeHistogram != null ? dualKeyValidationTimeHistogram :
-            new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+    public double getConsensusImpact() {
+        return consensusImpactValue.get();
     }
 
     // ===========================
@@ -631,8 +588,9 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
     }
 
     @Override
-    public Counter thresholdBreachCounter(DetectorType detectorType) {
-        return thresholdBreachCounters.getOrDefault(detectorType, new Counter());
+    public long getThresholdBreachCount(DetectorType detectorType) {
+        var counter = thresholdBreachCounters.get(detectorType);
+        return counter != null ? counter.getCount() : 0L;
     }
 
     // ===========================
@@ -869,105 +827,67 @@ public class ByzantineDetectionMetricsImpl implements ByzantineDetectionMetrics 
     }
 
     @Override
-    public Gauge<Integer> rotationsInProgressGauge() {
-        return rotationsInProgressGauge != null ? rotationsInProgressGauge : () -> 0;
+    public int getRotationsInProgress() {
+        return rotationsInProgressValue.get();
     }
 
     @Override
-    public Gauge<Double> graceOldNewSignatureRatioGauge(String rotationId) {
+    public double getGraceOldNewSignatureRatio(String rotationId) {
         if (rotationId == null) {
             throw new NullPointerException("rotationId cannot be null");
         }
 
-        return () -> {
-            var stats = graceStatsMap.get(rotationId);
-            return stats != null ? stats.calculateOldRatio() : 0.0;
-        };
+        var stats = graceStatsMap.get(rotationId);
+        return stats != null ? stats.calculateOldRatio() : 0.0;
     }
 
     @Override
-    public Meter rotationInitiatedMeter() {
-        return rotationInitiatedMeter != null ? rotationInitiatedMeter : new Meter();
+    public long getRotationInitiatedCount() {
+        return rotationInitiatedCounter != null ? rotationInitiatedCounter.getCount() : 0L;
     }
 
     @Override
-    public Meter rotationFailureMeter() {
-        return rotationFailuresMeter != null ? rotationFailuresMeter : new Meter();
+    public long getRotationFailuresCount() {
+        return rotationFailuresCounter != null ? rotationFailuresCounter.getCount() : 0L;
     }
 
     @Override
-    public Counter rotationInitiatedCounter() {
-        return rotationInitiatedCounter != null ? rotationInitiatedCounter : new Counter();
+    public long getRotationFailuresPreRotationCount() {
+        return rotationFailuresPreRotationCounter != null ? rotationFailuresPreRotationCounter.getCount() : 0L;
     }
 
     @Override
-    public Counter rotationFailuresCounter() {
-        return rotationFailuresCounter != null ? rotationFailuresCounter : new Counter();
+    public long getRotationFailuresGracePeriodCount() {
+        return rotationFailuresGracePeriodCounter != null ? rotationFailuresGracePeriodCounter.getCount() : 0L;
     }
 
     @Override
-    public Counter rotationFailuresPreRotationCounter() {
-        return rotationFailuresPreRotationCounter != null ? rotationFailuresPreRotationCounter : new Counter();
+    public long getRotationFailuresActivationCount() {
+        return rotationFailuresActivationCounter != null ? rotationFailuresActivationCounter.getCount() : 0L;
     }
 
     @Override
-    public Counter rotationFailuresGracePeriodCounter() {
-        return rotationFailuresGracePeriodCounter != null ? rotationFailuresGracePeriodCounter : new Counter();
+    public long getRotationRecoveryAttemptsCount() {
+        return rotationRecoveryAttemptsCounter != null ? rotationRecoveryAttemptsCounter.getCount() : 0L;
     }
 
     @Override
-    public Counter rotationFailuresActivationCounter() {
-        return rotationFailuresActivationCounter != null ? rotationFailuresActivationCounter : new Counter();
-    }
-
-    @Override
-    public Counter rotationRecoveryAttemptsCounter() {
-        return rotationRecoveryAttemptsCounter != null ? rotationRecoveryAttemptsCounter : new Counter();
-    }
-
-    @Override
-    public Counter graceOldSignaturesAcceptedCounter(String rotationId) {
+    public long getGraceOldSignaturesAcceptedCount(String rotationId) {
         if (rotationId == null) {
             throw new NullPointerException("rotationId cannot be null");
         }
 
-        return graceOldSignatureCounters.getOrDefault(rotationId, new Counter());
+        var counter = graceOldSignatureCounters.get(rotationId);
+        return counter != null ? counter.getCount() : 0L;
     }
 
     @Override
-    public Counter graceNewSignaturesAcceptedCounter(String rotationId) {
+    public long getGraceNewSignaturesAcceptedCount(String rotationId) {
         if (rotationId == null) {
             throw new NullPointerException("rotationId cannot be null");
         }
 
-        return graceNewSignatureCounters.getOrDefault(rotationId, new Counter());
-    }
-
-    @Override
-    public Histogram phasePreRotationDurationHistogram() {
-        return phasePreRotationDurationHistogram != null ? phasePreRotationDurationHistogram :
-            new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
-    }
-
-    @Override
-    public Histogram phaseGracePeriodDurationHistogram() {
-        return phaseGracePeriodDurationHistogram != null ? phaseGracePeriodDurationHistogram :
-            new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
-    }
-
-    @Override
-    public Histogram graceAcceptanceLatency() {
-        return graceAcceptanceLatencyHistogram != null ? graceAcceptanceLatencyHistogram :
-            new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
-    }
-
-    @Override
-    public Timer rotationOrchestrationLatency() {
-        return rotationOrchestrationLatencyTimer != null ? rotationOrchestrationLatencyTimer : new Timer();
-    }
-
-    @Override
-    public Timer keriPublishLatency() {
-        return keriPublishLatencyTimer != null ? keriPublishLatencyTimer : new Timer();
+        var counter = graceNewSignatureCounters.get(rotationId);
+        return counter != null ? counter.getCount() : 0L;
     }
 }

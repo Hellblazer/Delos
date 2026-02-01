@@ -71,72 +71,77 @@ public class ByzantineIntelligenceMetricsImpl implements ByzantineIntelligenceMe
     }
 
     @Override
-    public Timer layerPollDuration() {
-        return layerPollDuration;
+    public void recordLayerPollDuration(long nanos) {
+        layerPollDuration.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer evaluationCycleDuration() {
-        return evaluationCycleDuration;
+    public void recordEvaluationCycleDuration(long nanos) {
+        evaluationCycleDuration.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Histogram aggregatedScoreDistribution() {
-        return aggregatedScoreDistribution;
+    public void recordAggregatedScore(double score) {
+        aggregatedScoreDistribution.update((long) (score * 1000));
     }
 
     @Override
-    public Counter warningDetections() {
-        return warningDetections;
+    public void incrementWarningDetections() {
+        warningDetections.inc();
     }
 
     @Override
-    public Counter criticalDetections() {
-        return criticalDetections;
+    public void incrementCriticalDetections() {
+        criticalDetections.inc();
     }
 
     @Override
-    public Meter responsesTriggered() {
-        return responsesTriggered;
+    public void recordResponseTriggered() {
+        responsesTriggered.mark();
     }
 
     @Override
-    public Counter pendingResponses() {
-        return pendingResponses;
+    public void incrementPendingResponses() {
+        pendingResponses.inc();
     }
 
     @Override
-    public Counter failedResponses() {
-        return failedResponses;
+    public void decrementPendingResponses() {
+        pendingResponses.dec();
     }
 
     @Override
-    public Counter cooldownSkips() {
-        return cooldownSkips;
+    public void incrementFailedResponses() {
+        failedResponses.inc();
     }
 
     @Override
-    public Histogram trackedMemberCount() {
-        return trackedMemberCount;
+    public void incrementCooldownSkips() {
+        cooldownSkips.inc();
     }
 
     @Override
-    public Counter providerErrors() {
-        return providerErrors;
+    public void recordTrackedMemberCount(int count) {
+        trackedMemberCount.update(count);
     }
 
     @Override
-    public Counter rateLimitedSkips() {
-        return rateLimitedSkips;
+    public void incrementProviderErrors() {
+        providerErrors.inc();
     }
 
     @Override
-    public Counter deduplicatedSignals() {
-        return deduplicatedSignals;
+    public void incrementRateLimitedSkips() {
+        rateLimitedSkips.inc();
     }
 
     @Override
-    public Histogram responsesPerInterval() {
-        return responsesPerInterval;
+    public void incrementDeduplicatedSignals() {
+        deduplicatedSignals.inc();
+    }
+
+    @Override
+    public void recordResponsesPerInterval(int count) {
+        responsesPerInterval.update(count);
     }
 }

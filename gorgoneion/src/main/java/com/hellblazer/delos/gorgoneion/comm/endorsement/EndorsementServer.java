@@ -36,11 +36,11 @@ public class EndorsementServer extends EndorsementImplBase {
 
     @Override
     public void endorse(Nonce request, StreamObserver<MemberSignature> responseObserver) {
-        var timer = metrics == null ? null : metrics.registerDuration().time();
+        long start = metrics == null ? 0 : System.nanoTime();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
             metrics.recordInboundBandwidth(serializedSize);
-            metrics.inboundEndorse().update(serializedSize);
+            metrics.recordInboundEndorse(serializedSize);
         }
         Digest from = identity.getFrom();
         if (from == null) {
@@ -51,19 +51,19 @@ public class EndorsementServer extends EndorsementImplBase {
             MemberSignature v = s.endorse(request, from);
             responseObserver.onNext(v);
             responseObserver.onCompleted();
-            if (timer != null) {
-                timer.close();
+            if (start > 0 && metrics != null) {
+                metrics.recordRegisterDuration(System.nanoTime() - start);
             }
         });
     }
 
     @Override
     public void enroll(Notarization request, StreamObserver<Empty> responseObserver) {
-        var timer = metrics == null ? null : metrics.enrollDuration().time();
+        long start = metrics == null ? 0 : System.nanoTime();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
             metrics.recordInboundBandwidth(serializedSize);
-            metrics.inboundEnroll().update(serializedSize);
+            metrics.recordInboundEnroll(serializedSize);
         }
         Digest from = identity.getFrom();
         if (from == null) {
@@ -74,19 +74,19 @@ public class EndorsementServer extends EndorsementImplBase {
             s.enroll(request, from);
             responseObserver.onNext(Empty.getDefaultInstance());
             responseObserver.onCompleted();
-            if (timer != null) {
-                timer.close();
+            if (start > 0 && metrics != null) {
+                metrics.recordEnrollDuration(System.nanoTime() - start);
             }
         });
     }
 
     @Override
     public void validate(Credentials request, StreamObserver<Validation_> responseObserver) {
-        var timer = metrics == null ? null : metrics.registerDuration().time();
+        long start = metrics == null ? 0 : System.nanoTime();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
             metrics.recordInboundBandwidth(serializedSize);
-            metrics.inboundValidateCredentials().update(serializedSize);
+            metrics.recordInboundValidateCredentials(serializedSize);
         }
         Digest from = identity.getFrom();
         if (from == null) {
@@ -97,8 +97,8 @@ public class EndorsementServer extends EndorsementImplBase {
             Validation_ v = s.validate(request, from);
             responseObserver.onNext(v);
             responseObserver.onCompleted();
-            if (timer != null) {
-                timer.close();
+            if (start > 0 && metrics != null) {
+                metrics.recordRegisterDuration(System.nanoTime() - start);
             }
         });
     }

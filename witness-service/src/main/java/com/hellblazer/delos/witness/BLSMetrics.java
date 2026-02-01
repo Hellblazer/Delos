@@ -241,20 +241,6 @@ public interface BLSMetrics {
     // =============================
 
     /**
-     * Get the timer for BLS signature verification operations.
-     * <p>
-     * Use with try-with-resources for automatic timing:
-     * <pre>{@code
-     * try (Timer.Context ctx = metrics.signatureVerifyTimer().time()) {
-     *     verifyBLSSignature(signature, publicKey);
-     * }
-     * }</pre>
-     *
-     * @return Timer for BLS verification operations
-     */
-    Timer signatureVerifyTimer();
-
-    /**
      * Record the latency of a signature verification operation.
      * <p>
      * Alternative to using {@link #signatureVerifyTimer()} when manual timing is needed.
@@ -278,21 +264,6 @@ public interface BLSMetrics {
     // =============================
 
     /**
-     * Get the timer for BLS aggregate signature creation.
-     * <p>
-     * Measures time to combine multiple BLS signatures into a single aggregate.
-     * Use with try-with-resources for automatic timing:
-     * <pre>{@code
-     * try (Timer.Context ctx = metrics.aggregationTimer().time()) {
-     *     aggregate = BLSAggregate.create(signatures);
-     * }
-     * }</pre>
-     *
-     * @return Timer for aggregation operations
-     */
-    Timer aggregationTimer();
-
-    /**
      * Record the latency of an aggregation operation.
      * <p>
      * Alternative to using {@link #aggregationTimer()} when manual timing is needed.
@@ -305,23 +276,6 @@ public interface BLSMetrics {
     // =============================
     // Threshold Timing
     // =============================
-
-    /**
-     * Get the timer for threshold achievement duration.
-     * <p>
-     * Measures time from first signature receipt to M-of-N threshold met.
-     * Critical metric for consensus latency.
-     * <p>
-     * Use with try-with-resources for automatic timing:
-     * <pre>{@code
-     * Timer.Context ctx = metrics.thresholdTimer().time();
-     * // ... wait for threshold ...
-     * ctx.stop();
-     * }</pre>
-     *
-     * @return Timer for threshold achievement
-     */
-    Timer thresholdTimer();
 
     /**
      * Record the time taken to achieve threshold.
@@ -370,36 +324,6 @@ public interface BLSMetrics {
      */
     void incrementRejectedDuplicate();
 
-    /**
-     * Get the counter for epoch rejection reasons.
-     * <p>
-     * Useful for direct access to underlying Counter for batch updates or inspection.
-     *
-     * @return Counter for epoch rejections
-     */
-    Counter rejectedEpochCounter();
-
-    /**
-     * Get the counter for viewRef rejection reasons.
-     *
-     * @return Counter for viewRef rejections
-     */
-    Counter rejectedViewRefCounter();
-
-    /**
-     * Get the counter for late arrival rejections.
-     *
-     * @return Counter for late rejections
-     */
-    Counter rejectedLateCounter();
-
-    /**
-     * Get the counter for duplicate rejections.
-     *
-     * @return Counter for duplicate rejections
-     */
-    Counter rejectedDuplicateCounter();
-
     // =============================
     // Accumulator Health
     // =============================
@@ -432,15 +356,6 @@ public interface BLSMetrics {
      */
     void recordCompletedAccumulation();
 
-    /**
-     * Get the meter for completed accumulations.
-     * <p>
-     * Provides access to rate statistics (1-min, 5-min, 15-min moving averages).
-     *
-     * @return Meter for completed accumulations
-     */
-    Meter completedAccumulationsMeter();
-
     // ===================================
     // Accumulator Lifecycle Metrics
     // ===================================
@@ -472,15 +387,6 @@ public interface BLSMetrics {
     void recordThresholdPercentage(double percentage);
 
     /**
-     * Get histogram for threshold achievement percentages.
-     * <p>
-     * Tracks distribution of how close accumulators get to threshold before closing.
-     *
-     * @return Histogram for threshold percentages
-     */
-    Histogram thresholdPercentageHistogram();
-
-    /**
      * Set current number of buffered signatures across all events.
      * <p>
      * Call this to update gauge tracking signatures held during view transitions.
@@ -491,27 +397,11 @@ public interface BLSMetrics {
     void setBufferedSignatures(int count);
 
     /**
-     * Get the timer for buffer drain operations.
-     * <p>
-     * Measures time to replay buffered signatures after view change completes.
-     *
-     * @return Timer for drain operations
-     */
-    Timer bufferDrainTimer();
-
-    /**
      * Increment counter for signatures rejected due to invalid format.
      * <p>
      * Call when signature fails cryptographic validation or format checks.
      */
     void incrementRejectedInvalid();
-
-    /**
-     * Get the counter for invalid signature rejections.
-     *
-     * @return Counter for invalid rejections
-     */
-    Counter rejectedInvalidCounter();
 
     // ===================================
     // Aggregation Metrics
@@ -536,13 +426,6 @@ public interface BLSMetrics {
     void recordAggregationBatchSize(int batchSize);
 
     /**
-     * Get histogram for aggregation batch sizes.
-     *
-     * @return Histogram for batch sizes
-     */
-    Histogram aggregationBatchSizeHistogram();
-
-    /**
      * Record aggregate size in bytes.
      * <p>
      * Tracks size of final BLS aggregate signature.
@@ -551,13 +434,6 @@ public interface BLSMetrics {
      * @throws IllegalArgumentException if sizeBytes < 0
      */
     void recordAggregateSize(int sizeBytes);
-
-    /**
-     * Get histogram for aggregate sizes.
-     *
-     * @return Histogram for aggregate sizes in bytes
-     */
-    Histogram aggregateSizeHistogram();
 
     /**
      * Record compression ratio for aggregation.
@@ -569,13 +445,6 @@ public interface BLSMetrics {
      * @throws IllegalArgumentException if ratio <= 0
      */
     void recordCompressionRatio(double ratio);
-
-    /**
-     * Get histogram for compression ratios.
-     *
-     * @return Histogram for compression ratios
-     */
-    Histogram compressionRatioHistogram();
 
     /**
      * Increment counter for aggregation errors.
@@ -595,13 +464,6 @@ public interface BLSMetrics {
     void recordCommitteeParticipation(int signerCount);
 
     /**
-     * Get histogram for committee participation counts.
-     *
-     * @return Histogram for signer counts
-     */
-    Histogram committeeParticipationHistogram();
-
-    /**
      * Record signer bitmap overhead in bytes.
      * <p>
      * Tracks size of bitmap used to indicate which members signed.
@@ -612,20 +474,11 @@ public interface BLSMetrics {
     void recordSignerBitmapOverhead(int bitmapBytes);
 
     /**
-     * Get histogram for signer bitmap overhead.
-     *
-     * @return Histogram for bitmap sizes in bytes
-     */
-    Histogram signerBitmapOverheadHistogram();
-
-    /**
-     * Get the meter for empty accumulator cleanup operations.
+     * Record empty accumulator cleanup operation.
      * <p>
      * Tracks rate at which expired empty accumulators are cleaned up.
-     *
-     * @return Meter for cleanup operations
      */
-    Meter emptyAccumulatorCleanupMeter();
+    void recordEmptyAccumulatorCleanup();
 
     // ===================================
     // View Change Metrics
@@ -644,15 +497,6 @@ public interface BLSMetrics {
      * @return total number of view changes
      */
     long getViewChangesInitiated();
-
-    /**
-     * Get timer for view change duration tracking.
-     * <p>
-     * Measures time from view change initiation to completion.
-     *
-     * @return Timer for view change duration
-     */
-    Timer viewChangeDurationTimer();
 
     /**
      * Record view change duration manually.
@@ -692,25 +536,11 @@ public interface BLSMetrics {
     void recordCommitteeReconfiguration();
 
     /**
-     * Get the meter for committee reconfigurations.
-     *
-     * @return Meter for reconfigurations
-     */
-    Meter committeeReconfigurationsMeter();
-
-    /**
      * Record a threshold recalculation event.
      * <p>
      * Call when consensus threshold is recalculated due to degradation.
      */
     void recordThresholdRecalculation();
-
-    /**
-     * Get the meter for threshold recalculations.
-     *
-     * @return Meter for threshold recalculations
-     */
-    Meter thresholdRecalculationsMeter();
 
     // ===================================
     // Graceful Degradation Metrics
@@ -743,26 +573,11 @@ public interface BLSMetrics {
     void recordTimeInDegradationState(String state, long timeMs);
 
     /**
-     * Get histogram for time in degradation state.
-     *
-     * @param state state name
-     * @return Histogram for time in state
-     */
-    Histogram timeInDegradationStateHistogram(String state);
-
-    /**
      * Record buffer creation event.
      * <p>
      * Call when a SignatureBuffer is created during degradation.
      */
     void recordBufferCreated();
-
-    /**
-     * Get the meter for buffers created.
-     *
-     * @return Meter for buffer creation
-     */
-    Meter buffersCreatedMeter();
 
     /**
      * Get current count of buffered signatures.
@@ -782,13 +597,6 @@ public interface BLSMetrics {
     void recordBufferedSignaturesDrained(int count);
 
     /**
-     * Get the meter for buffered signatures drained.
-     *
-     * @return Meter for drained signatures
-     */
-    Meter bufferedSignaturesDrainedMeter();
-
-    /**
      * Record threshold calculation delta.
      * <p>
      * Delta = original_threshold - degraded_threshold.
@@ -797,13 +605,6 @@ public interface BLSMetrics {
      * @param delta threshold difference
      */
     void recordThresholdCalculationDelta(int delta);
-
-    /**
-     * Get histogram for threshold calculation deltas.
-     *
-     * @return Histogram for threshold deltas
-     */
-    Histogram thresholdCalculationDeltaHistogram();
 
     /**
      * Increment counter for Byzantine member exclusions.
@@ -845,27 +646,12 @@ public interface BLSMetrics {
     void recordReceiptProcessingLatencyDuringDegradation(String state, long latencyMicros);
 
     /**
-     * Get timer for receipt processing latency during degradation.
-     *
-     * @param state degradation state
-     * @return Timer for latency in specified state
-     */
-    Timer receiptProcessingLatencyDuringDegradationTimer(String state);
-
-    /**
      * Record buffer drain time manually.
      *
      * @param drainTimeMicros drain time in microseconds
      * @throws IllegalArgumentException if drainTimeMicros is negative
      */
     void recordBufferDrainTime(long drainTimeMicros);
-
-    /**
-     * Get timer for buffer drain time operations.
-     *
-     * @return Timer for drain time
-     */
-    Timer bufferDrainTimeTimer();
 
     /**
      * Record signature replay latency.
@@ -876,20 +662,6 @@ public interface BLSMetrics {
      * @throws IllegalArgumentException if replayLatencyMicros is negative
      */
     void recordSignatureReplayLatency(long replayLatencyMicros);
-
-    /**
-     * Get timer for signature replay operations.
-     *
-     * @return Timer for replay latency
-     */
-    Timer signatureReplayTimer();
-
-    /**
-     * Get timer for threshold recalculation operations.
-     *
-     * @return Timer for threshold recalculation
-     */
-    Timer thresholdRecalculationTimer();
 
     /**
      * Record threshold recalculation time manually.

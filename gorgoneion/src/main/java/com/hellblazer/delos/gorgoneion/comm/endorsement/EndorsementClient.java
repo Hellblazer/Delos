@@ -47,7 +47,7 @@ public class EndorsementClient implements Endorsement {
         if (metrics != null) {
             var serializedSize = nonce.getSerializedSize();
             metrics.recordOutboundBandwidth(serializedSize);
-            metrics.outboundEndorseNonce().update(serializedSize);
+            metrics.recordOutboundEndorseNonce(serializedSize);
         }
 
         var result = client.withDeadlineAfter(timeout.toNanos(), TimeUnit.NANOSECONDS).endorse(nonce);
@@ -55,7 +55,7 @@ public class EndorsementClient implements Endorsement {
             try {
                 var serializedSize = result.getSerializedSize();
                 metrics.recordInboundBandwidth(serializedSize);
-                metrics.inboundValidation().update(serializedSize);
+                metrics.recordInboundValidation(serializedSize);
             } catch (Throwable e) {
                 // nothing
             }
@@ -68,7 +68,7 @@ public class EndorsementClient implements Endorsement {
         if (metrics != null) {
             var serializedSize = notarization.getSerializedSize();
             metrics.recordOutboundBandwidth(serializedSize);
-            metrics.outboundNotarization().update(serializedSize);
+            metrics.recordOutboundNotarization(serializedSize);
         }
 
         client.withDeadlineAfter(timeout.toNanos(), TimeUnit.NANOSECONDS).enroll(notarization);
@@ -84,7 +84,7 @@ public class EndorsementClient implements Endorsement {
         if (metrics != null) {
             var serializedSize = credentials.getSerializedSize();
             metrics.recordOutboundBandwidth(serializedSize);
-            metrics.outboundValidateCredentials().update(serializedSize);
+            metrics.recordOutboundValidateCredentials(serializedSize);
         }
 
         var result = client.withDeadlineAfter(timeout.toNanos(), TimeUnit.NANOSECONDS).validate(credentials);
@@ -92,7 +92,7 @@ public class EndorsementClient implements Endorsement {
             try {
                 var serializedSize = result.getSerializedSize();
                 metrics.recordInboundBandwidth(serializedSize);
-                metrics.inboundCredentialValidation().update(serializedSize);
+                metrics.recordInboundCredentialValidation(serializedSize);
             } catch (Throwable e) {
                 // nothing
             }

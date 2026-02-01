@@ -403,15 +403,6 @@ public class BLSMetricsImpl implements BLSMetrics {
     // =============================
 
     @Override
-    public Timer signatureVerifyTimer() {
-        if (verifyTimer == null) {
-            // Return no-op timer if not registered
-            return new Timer();
-        }
-        return verifyTimer;
-    }
-
-    @Override
     public void recordVerifyLatency(long latencyMicros) {
         if (latencyMicros < 0) {
             throw new IllegalArgumentException("Latency cannot be negative: " + latencyMicros);
@@ -431,14 +422,6 @@ public class BLSMetricsImpl implements BLSMetrics {
     // =============================
 
     @Override
-    public Timer aggregationTimer() {
-        if (aggregationTimer == null) {
-            return new Timer();
-        }
-        return aggregationTimer;
-    }
-
-    @Override
     public void recordAggregationLatency(long latencyMicros) {
         if (latencyMicros < 0) {
             throw new IllegalArgumentException("Latency cannot be negative: " + latencyMicros);
@@ -451,14 +434,6 @@ public class BLSMetricsImpl implements BLSMetrics {
     // =============================
     // Threshold Timing
     // =============================
-
-    @Override
-    public Timer thresholdTimer() {
-        if (thresholdTimer == null) {
-            return new Timer();
-        }
-        return thresholdTimer;
-    }
 
     @Override
     public void recordThresholdTime(long durationMicros) {
@@ -502,26 +477,6 @@ public class BLSMetricsImpl implements BLSMetrics {
         }
     }
 
-    @Override
-    public Counter rejectedEpochCounter() {
-        return rejectedEpochCounter != null ? rejectedEpochCounter : new Counter();
-    }
-
-    @Override
-    public Counter rejectedViewRefCounter() {
-        return rejectedViewRefCounter != null ? rejectedViewRefCounter : new Counter();
-    }
-
-    @Override
-    public Counter rejectedLateCounter() {
-        return rejectedLateCounter != null ? rejectedLateCounter : new Counter();
-    }
-
-    @Override
-    public Counter rejectedDuplicateCounter() {
-        return rejectedDuplicateCounter != null ? rejectedDuplicateCounter : new Counter();
-    }
-
     // =============================
     // Accumulator Health
     // =============================
@@ -544,11 +499,6 @@ public class BLSMetricsImpl implements BLSMetrics {
         if (completedAccumulationsMeter != null) {
             completedAccumulationsMeter.mark();
         }
-    }
-
-    @Override
-    public Meter completedAccumulationsMeter() {
-        return completedAccumulationsMeter != null ? completedAccumulationsMeter : new Meter();
     }
 
     // =============================
@@ -581,12 +531,6 @@ public class BLSMetricsImpl implements BLSMetrics {
     }
 
     @Override
-    public Histogram thresholdPercentageHistogram() {
-        return thresholdPercentageHistogram != null ? thresholdPercentageHistogram : new Histogram(
-            new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
-    }
-
-    @Override
     public void setBufferedSignatures(int count) {
         if (count < 0) {
             throw new IllegalArgumentException("Buffered signature count cannot be negative: " + count);
@@ -595,20 +539,10 @@ public class BLSMetricsImpl implements BLSMetrics {
     }
 
     @Override
-    public Timer bufferDrainTimer() {
-        return bufferDrainTimer != null ? bufferDrainTimer : new Timer();
-    }
-
-    @Override
     public void incrementRejectedInvalid() {
         if (rejectedInvalidCounter != null) {
             rejectedInvalidCounter.inc();
         }
-    }
-
-    @Override
-    public Counter rejectedInvalidCounter() {
-        return rejectedInvalidCounter != null ? rejectedInvalidCounter : new Counter();
     }
 
     // =============================
@@ -633,12 +567,6 @@ public class BLSMetricsImpl implements BLSMetrics {
     }
 
     @Override
-    public Histogram aggregationBatchSizeHistogram() {
-        return aggregationBatchSizeHistogram != null ? aggregationBatchSizeHistogram : new Histogram(
-            new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
-    }
-
-    @Override
     public void recordAggregateSize(int sizeBytes) {
         if (sizeBytes < 0) {
             throw new IllegalArgumentException("Aggregate size cannot be negative: " + sizeBytes);
@@ -646,12 +574,6 @@ public class BLSMetricsImpl implements BLSMetrics {
         if (aggregateSizeHistogram != null) {
             aggregateSizeHistogram.update(sizeBytes);
         }
-    }
-
-    @Override
-    public Histogram aggregateSizeHistogram() {
-        return aggregateSizeHistogram != null ? aggregateSizeHistogram : new Histogram(
-            new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
     }
 
     @Override
@@ -663,12 +585,6 @@ public class BLSMetricsImpl implements BLSMetrics {
             // Convert to integer percentage (multiply by 100) for histogram
             compressionRatioHistogram.update((long) (ratio * 100));
         }
-    }
-
-    @Override
-    public Histogram compressionRatioHistogram() {
-        return compressionRatioHistogram != null ? compressionRatioHistogram : new Histogram(
-            new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
     }
 
     @Override
@@ -689,12 +605,6 @@ public class BLSMetricsImpl implements BLSMetrics {
     }
 
     @Override
-    public Histogram committeeParticipationHistogram() {
-        return committeeParticipationHistogram != null ? committeeParticipationHistogram : new Histogram(
-            new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
-    }
-
-    @Override
     public void recordSignerBitmapOverhead(int bitmapBytes) {
         if (bitmapBytes < 0) {
             throw new IllegalArgumentException("Bitmap overhead cannot be negative: " + bitmapBytes);
@@ -705,14 +615,10 @@ public class BLSMetricsImpl implements BLSMetrics {
     }
 
     @Override
-    public Histogram signerBitmapOverheadHistogram() {
-        return signerBitmapOverheadHistogram != null ? signerBitmapOverheadHistogram : new Histogram(
-            new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
-    }
-
-    @Override
-    public Meter emptyAccumulatorCleanupMeter() {
-        return emptyAccumulatorCleanupMeter != null ? emptyAccumulatorCleanupMeter : new Meter();
+    public void recordEmptyAccumulatorCleanup() {
+        if (emptyAccumulatorCleanupMeter != null) {
+            emptyAccumulatorCleanupMeter.mark();
+        }
     }
 
     // =============================
@@ -729,11 +635,6 @@ public class BLSMetricsImpl implements BLSMetrics {
     @Override
     public long getViewChangesInitiated() {
         return viewChangesInitiatedCounter != null ? viewChangesInitiatedCounter.getCount() : 0;
-    }
-
-    @Override
-    public Timer viewChangeDurationTimer() {
-        return viewChangeDurationTimer != null ? viewChangeDurationTimer : new Timer();
     }
 
     @Override
@@ -772,20 +673,10 @@ public class BLSMetricsImpl implements BLSMetrics {
     }
 
     @Override
-    public Meter committeeReconfigurationsMeter() {
-        return committeeReconfigurationsMeter != null ? committeeReconfigurationsMeter : new Meter();
-    }
-
-    @Override
     public void recordThresholdRecalculation() {
         if (thresholdRecalculationsMeter != null) {
             thresholdRecalculationsMeter.mark();
         }
-    }
-
-    @Override
-    public Meter thresholdRecalculationsMeter() {
-        return thresholdRecalculationsMeter != null ? thresholdRecalculationsMeter : new Meter();
     }
 
     // =============================
@@ -821,21 +712,10 @@ public class BLSMetricsImpl implements BLSMetrics {
     }
 
     @Override
-    public Histogram timeInDegradationStateHistogram(String state) {
-        var histogram = timeInDegradationStateHistograms.get(state);
-        return histogram != null ? histogram : new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
-    }
-
-    @Override
     public void recordBufferCreated() {
         if (buffersCreatedMeter != null) {
             buffersCreatedMeter.mark();
         }
-    }
-
-    @Override
-    public Meter buffersCreatedMeter() {
-        return buffersCreatedMeter != null ? buffersCreatedMeter : new Meter();
     }
 
     @Override
@@ -854,21 +734,10 @@ public class BLSMetricsImpl implements BLSMetrics {
     }
 
     @Override
-    public Meter bufferedSignaturesDrainedMeter() {
-        return bufferedSignaturesDrainedMeter != null ? bufferedSignaturesDrainedMeter : new Meter();
-    }
-
-    @Override
     public void recordThresholdCalculationDelta(int delta) {
         if (thresholdCalculationDeltaHistogram != null) {
             thresholdCalculationDeltaHistogram.update(delta);
         }
-    }
-
-    @Override
-    public Histogram thresholdCalculationDeltaHistogram() {
-        return thresholdCalculationDeltaHistogram != null ? thresholdCalculationDeltaHistogram :
-            new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
     }
 
     @Override
@@ -909,12 +778,6 @@ public class BLSMetricsImpl implements BLSMetrics {
     }
 
     @Override
-    public Timer receiptProcessingLatencyDuringDegradationTimer(String state) {
-        var timer = receiptProcessingDuringDegradationTimers.get(state);
-        return timer != null ? timer : new Timer();
-    }
-
-    @Override
     public void recordBufferDrainTime(long drainTimeMicros) {
         if (drainTimeMicros < 0) {
             throw new IllegalArgumentException("Drain time cannot be negative: " + drainTimeMicros);
@@ -925,11 +788,6 @@ public class BLSMetricsImpl implements BLSMetrics {
     }
 
     @Override
-    public Timer bufferDrainTimeTimer() {
-        return bufferDrainTimeTimer != null ? bufferDrainTimeTimer : new Timer();
-    }
-
-    @Override
     public void recordSignatureReplayLatency(long replayLatencyMicros) {
         if (replayLatencyMicros < 0) {
             throw new IllegalArgumentException("Replay latency cannot be negative: " + replayLatencyMicros);
@@ -937,16 +795,6 @@ public class BLSMetricsImpl implements BLSMetrics {
         if (signatureReplayTimer != null) {
             signatureReplayTimer.update(replayLatencyMicros, TimeUnit.MICROSECONDS);
         }
-    }
-
-    @Override
-    public Timer signatureReplayTimer() {
-        return signatureReplayTimer != null ? signatureReplayTimer : new Timer();
-    }
-
-    @Override
-    public Timer thresholdRecalculationTimer() {
-        return thresholdRecalculationTimer != null ? thresholdRecalculationTimer : new Timer();
     }
 
     @Override
