@@ -16,8 +16,13 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * Per-member anomaly score with sliding window history.
  * <p>
- * Uses exponential moving average to weight recent events more heavily.
+ * Uses exponential moving average (EMA) to weight recent events more heavily.
  * Thread-safe implementation for concurrent access.
+ * </p>
+ * <p>
+ * <b>Performance (Phase 0 Fix)</b>: Uses O(1) incremental EMA update instead of
+ * O(N) full recalculation. With constant alpha (default 0.1), each recordEvent()
+ * simply computes: ema = alpha * contribution + (1 - alpha) * ema
  * </p>
  *
  * @author hal.hildebrand
@@ -25,22 +30,48 @@ import java.util.concurrent.atomic.AtomicReference;
 public class AnomalyScore {
 
     private static final int DEFAULT_HISTORY_SIZE = 1000;
+    private static final double DEFAULT_ALPHA = 0.1;
 
     private final Identifier memberId;
     private final int historySize;
+    private final double alpha;
     private final Deque<ScoredEvent> history;
     private final AtomicReference<Double> currentScore;
     private final Object lock = new Object();
 
+    // Running EMA value for O(1) updates
+    private double ema = 0.0;
+
+    /**
+     * Create AnomalyScore with default alpha (0.1).
+     *
+     * @param memberId    Member identifier
+     * @param historySize Maximum history size for event tracking
+     */
     public AnomalyScore(Identifier memberId, int historySize) {
+        this(memberId, historySize, DEFAULT_ALPHA);
+    }
+
+    /**
+     * Create AnomalyScore with configurable alpha.
+     *
+     * @param memberId    Member identifier
+     * @param historySize Maximum history size for event tracking
+     * @param alpha       EMA smoothing factor (0.0-1.0). Higher = more weight on recent events.
+     */
+    public AnomalyScore(Identifier memberId, int historySize, double alpha) {
         this.memberId = Objects.requireNonNull(memberId, "memberId cannot be null");
         this.historySize = historySize > 0 ? historySize : DEFAULT_HISTORY_SIZE;
+        this.alpha = (alpha > 0 && alpha <= 1.0) ? alpha : DEFAULT_ALPHA;
         this.history = new ArrayDeque<>();
         this.currentScore = new AtomicReference<>(0.0);
     }
 
     /**
      * Record a new event affecting anomaly score.
+     * <p>
+     * O(1) operation - uses incremental EMA update instead of full recalculation.
+     * </p>
      *
      * @param scoreContribution Score contribution (can be negative for recovery)
      * @param eventDescription  Human-readable event description
@@ -58,8 +89,8 @@ public class AnomalyScore {
                 history.removeFirst();
             }
 
-            // Recalculate exponential moving average
-            recalculateScore();
+            // O(1) incremental EMA update
+            updateEmaIncremental(scoreContribution);
         }
     }
 
@@ -70,8 +101,8 @@ public class AnomalyScore {
      */
     public void applyDecay(double decayRate) {
         synchronized (lock) {
-            var decayedScore = currentScore.get() * decayRate;
-            currentScore.set(Math.max(0.0, decayedScore));
+            ema = ema * decayRate;
+            currentScore.set(Math.max(0.0, ema));
         }
     }
 
@@ -105,21 +136,27 @@ public class AnomalyScore {
         return memberId;
     }
 
-    private void recalculateScore() {
-        if (history.isEmpty()) {
-            currentScore.set(0.0);
-            return;
-        }
-
-        // Exponential moving average (weight recent events more)
-        double ema = 0.0;
-        double alpha = 2.0 / (history.size() + 1);
-
-        for (var event : history) {
-            ema = alpha * event.scoreContribution() + (1 - alpha) * ema;
-        }
-
+    /**
+     * O(1) incremental EMA update.
+     * <p>
+     * Phase 0 Fix: Replaces O(N) recalculateScore() which iterated entire history.
+     * Formula: ema = alpha * contribution + (1 - alpha) * ema
+     * </p>
+     *
+     * @param scoreContribution New event's score contribution
+     */
+    private void updateEmaIncremental(double scoreContribution) {
+        ema = alpha * scoreContribution + (1 - alpha) * ema;
         currentScore.set(Math.max(0.0, ema));
+    }
+
+    /**
+     * Get the configured alpha value.
+     *
+     * @return EMA smoothing factor
+     */
+    public double getAlpha() {
+        return alpha;
     }
 
     /**
