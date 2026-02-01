@@ -6,6 +6,8 @@
  */
 package com.hellblazer.delos.ring;
 
+import com.google.common.collect.HashMultiset;
+import com.google.common.collect.Multiset;
 import com.hellblazer.delos.archipelago.Link;
 import com.hellblazer.delos.archipelago.RouterImpl.CommonCommunications;
 import com.hellblazer.delos.membership.Member;
@@ -23,6 +25,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 /**
  * @author hal.hildebrand
@@ -83,6 +86,155 @@ public class SliceIterator<Comm extends Link> {
 
     public <T> void iterate(Function<Comm, T> round, SlicePredicateHandler<T, Comm> handler, Duration frequency) {
         iterate(round, handler, null, frequency);
+    }
+
+    /**
+     * Asynchronously collect valid responses from slice members until the required count is reached.
+     *
+     * @param round         function to invoke on each member's communication link
+     * @param isValid       predicate to determine if a response should be collected
+     * @param requiredCount minimum number of valid responses needed for success
+     * @param frequency     delay between iteration attempts
+     * @param timeout       maximum time to wait for quorum
+     * @param <T>           the response type
+     * @return a CompletableFuture that completes with the collected responses on success,
+     *         or completes exceptionally with QuorumException if quorum not reached,
+     *         or TimeoutException if timeout exceeded
+     */
+    public <T> CompletableFuture<Set<T>> collectAsync(Function<Comm, T> round, Predicate<T> isValid, int requiredCount,
+                                                      Duration frequency, Duration timeout) {
+        if (requiredCount <= 0) {
+            throw new IllegalArgumentException("requiredCount must be positive: " + requiredCount);
+        }
+        if (timeout.isNegative() || timeout.isZero()) {
+            throw new IllegalArgumentException("timeout must be positive: " + timeout);
+        }
+
+        var future = new CompletableFuture<Set<T>>();
+        var collected = ConcurrentHashMap.<T>newKeySet();
+
+        // Set up timeout
+        var timeoutTask = scheduler.schedule(() -> {
+            if (!future.isDone()) {
+                future.completeExceptionally(
+                new TimeoutException("Collect timed out after " + timeout));
+            }
+        }, timeout.toNanos(), TimeUnit.NANOSECONDS);
+
+        // Cancel timeout when future completes
+        future.whenComplete((result, error) -> timeoutTask.cancel(false));
+
+        SlicePredicateHandler<T, Comm> handler = (result, tally, link, m) -> {
+            if (future.isDone()) {
+                return false; // Stop iteration
+            }
+
+            result.filter(isValid).ifPresent(r -> {
+                if (collected.add(r)) {
+                    tally.incrementAndGet();
+                }
+            });
+
+            if (collected.size() >= requiredCount) {
+                future.complete(Set.copyOf(collected));
+                return false; // Stop iteration
+            }
+
+            return true; // Continue
+        };
+
+        Runnable onComplete = () -> {
+            if (!future.isDone()) {
+                future.completeExceptionally(new QuorumException(requiredCount, collected.size()));
+            }
+        };
+
+        iterate(round, handler, onComplete, frequency);
+
+        return future;
+    }
+
+    /**
+     * Asynchronously collect votes from slice members and return the winner by plurality.
+     *
+     * @param round         function to invoke on each member's communication link
+     * @param requiredCount minimum number of votes needed before determining winner
+     * @param frequency     delay between iteration attempts
+     * @param timeout       maximum time to wait for votes
+     * @param <T>           the vote type (must have proper equals/hashCode)
+     * @return a CompletableFuture that completes with the winning vote on success,
+     *         or completes exceptionally with QuorumException if quorum not reached,
+     *         or TimeoutException if timeout exceeded
+     */
+    public <T> CompletableFuture<T> voteAsync(Function<Comm, T> round, int requiredCount, Duration frequency,
+                                              Duration timeout) {
+        if (requiredCount <= 0) {
+            throw new IllegalArgumentException("requiredCount must be positive: " + requiredCount);
+        }
+        if (timeout.isNegative() || timeout.isZero()) {
+            throw new IllegalArgumentException("timeout must be positive: " + timeout);
+        }
+
+        var future = new CompletableFuture<T>();
+        // HashMultiset is not thread-safe, but iterations are sequential (scheduled one-at-a-time),
+        // so synchronization is defensive for future-proofing
+        Multiset<T> votes = HashMultiset.create();
+        var lock = new Object();
+
+        // Set up timeout
+        var timeoutTask = scheduler.schedule(() -> {
+            if (!future.isDone()) {
+                future.completeExceptionally(new TimeoutException("Vote timed out after " + timeout));
+            }
+        }, timeout.toNanos(), TimeUnit.NANOSECONDS);
+
+        // Cancel timeout when future completes
+        future.whenComplete((result, error) -> timeoutTask.cancel(false));
+
+        SlicePredicateHandler<T, Comm> handler = (result, tally, link, m) -> {
+            if (future.isDone()) {
+                return false; // Stop iteration
+            }
+
+            result.ifPresent(vote -> {
+                int totalVotes;
+                synchronized (lock) {
+                    votes.add(vote);
+                    totalVotes = votes.size();
+                }
+                tally.incrementAndGet();
+
+                if (totalVotes >= requiredCount) {
+                    // Find the winner by plurality
+                    T winner;
+                    synchronized (lock) {
+                        winner = votes.entrySet()
+                                      .stream()
+                                      .max(Comparator.comparingInt(Multiset.Entry::getCount))
+                                      .map(Multiset.Entry::getElement)
+                                      .orElse(null);
+                    }
+                    if (winner != null) {
+                        future.complete(winner);
+                    }
+                }
+            });
+
+            return !future.isDone(); // Continue if not done
+        };
+
+        Runnable onComplete = () -> {
+            if (!future.isDone()) {
+                synchronized (lock) {
+                    // Quorum not reached - fail consistently with collectAsync behavior
+                    future.completeExceptionally(new QuorumException(requiredCount, votes.size()));
+                }
+            }
+        };
+
+        iterate(round, handler, onComplete, frequency);
+
+        return future;
     }
 
     private <T> void internalIterate(Function<Comm, T> round, Runnable onMajority,

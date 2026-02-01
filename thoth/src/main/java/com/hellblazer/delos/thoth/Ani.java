@@ -8,8 +8,6 @@
 package com.hellblazer.delos.thoth;
 
 import com.hellblazer.delos.cryptography.Digest;
-import com.hellblazer.delos.cryptography.JohnHancock;
-import com.hellblazer.delos.cryptography.SignatureAlgorithm;
 import com.hellblazer.delos.cryptography.Verifier;
 import com.hellblazer.delos.cryptography.ssl.CertificateValidator;
 import com.hellblazer.delos.stereotomy.*;
@@ -17,13 +15,11 @@ import com.hellblazer.delos.stereotomy.KEL.KeyStateWithAttachments;
 import com.hellblazer.delos.stereotomy.event.EstablishmentEvent;
 import com.hellblazer.delos.stereotomy.event.KeyEvent;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
-import com.hellblazer.delos.utils.BbBackedInputStream;
+import com.hellblazer.delos.stereotomy.processing.KerlValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.security.PublicKey;
 import java.time.Duration;
-import java.util.HashMap;
 import java.util.Optional;
 
 /**
@@ -88,43 +84,12 @@ public class Ani {
     private boolean kerlValidate(Duration timeout, KeyStateWithAttachments ksa, KeyEvent event) {
         // TODO Multisig
         var state = ksa.state();
-        boolean witnessed = false;
-        if (state.getWitnesses().isEmpty()) {
-            witnessed = true; // no witnesses for event
-        } else {
-            SignatureAlgorithm algo = null;
-            var witnesses = new HashMap<Integer, PublicKey>();
-            for (var i = 0; i < state.getWitnesses().size(); i++) {
-                final PublicKey publicKey = state.getWitnesses().get(i).getPublicKey();
-                witnesses.put(i, publicKey);
-                if (algo == null) {
-                    algo = SignatureAlgorithm.lookup(publicKey);
-                }
-            }
-            byte[][] signatures = new byte[state.getWitnesses().size()][];
-            final var endorsements = ksa.attachments().endorsements();
-            int endorsementCount = 0;
-            if (!endorsements.isEmpty()) {
-                for (var entry : endorsements.entrySet()) {
-                    if (entry.getKey() >= 0 && entry.getKey() < signatures.length) {
-                        signatures[entry.getKey()] = entry.getValue().getBytes()[0];
-                        endorsementCount++;
-                    } else {
-                        log.warn("Endorsement index {} out of bounds (0-{}) for witnesses on: {}",
-                                entry.getKey(), signatures.length - 1, member);
-                    }
-                }
-            }
-            if (endorsementCount == 0 && !state.getWitnesses().isEmpty()) {
-                log.warn("No valid endorsements found for event: {} with {} witnesses on: {}",
-                        state.getCoordinates(), state.getWitnesses().size(), member);
-            }
-            witnessed = new JohnHancock(algo, signatures, state.getSequenceNumber()).verify(state.getSigningThreshold(),
-                                                                                            witnesses,
-                                                                                            BbBackedInputStream.aggregate(
-                                                                                            event.toKeyEvent_()
-                                                                                                 .toByteString()));
-        }
+        var endorsements = ksa.attachments().endorsements();
+
+        // Delegate to unified KerlValidator for witness endorsement validation
+        var validator = new KerlValidator(kerl);
+        boolean witnessed = validator.validateWitnessEndorsements(state, event, endorsements);
+
         log.trace("Kerl validation: {} for: {} on: {}", witnessed, ksa.state().getCoordinates(), member);
         return witnessed;
     }

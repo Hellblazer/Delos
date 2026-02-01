@@ -318,16 +318,19 @@ class AggregateWitnessReceiptCompressorTest {
             "test"
         );
 
-        // Create BLS aggregate (96-byte signature for BLS, 64-byte for Ed25519)
-        var sigBytes = format == SignatureFormat.BLS_12_381 ? new byte[96] : new byte[64];
+        // Create BLS aggregate (always 96 bytes - BLSSignature carrier requirement)
+        // The SignatureFormat field indicates original format, not carrier size
+        var sigBytes = new byte[96];
         for (int i = 0; i < sigBytes.length; i++) {
             sigBytes[i] = (byte) (i % 256);
         }
-        // Create bitmap for signers (need at least ceil(signerCount/8) bytes)
+        // Create bitmap for signers - only set bits for actual signers
         var bitmapSize = (signerCount + 7) / 8;
         var bitmap = new byte[Math.max(1, bitmapSize)];
-        for (int i = 0; i < bitmap.length; i++) {
-            bitmap[i] = (byte) 0xFF; // All bits set for simplicity
+        for (int i = 0; i < signerCount; i++) {
+            int byteIdx = i / 8;
+            int bitIdx = i % 8;
+            bitmap[byteIdx] |= (byte) (1 << bitIdx);
         }
         var aggregate = new BLSAggregate(new BLSSignature(sigBytes), bitmap);
 

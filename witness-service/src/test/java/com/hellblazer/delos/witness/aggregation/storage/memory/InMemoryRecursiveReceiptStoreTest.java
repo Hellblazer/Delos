@@ -93,10 +93,11 @@ class InMemoryRecursiveReceiptStoreTest extends ReceiptStoreContract<RecursiveAg
         store.store(getKey(receipt2), receipt2);
         store.store(getKey(receipt3), receipt3);
 
-        // Query range [0, 5] should return receipt1
+        // Query range [0, 5] should return receipt1 AND receipt2 (receipt2 startEpoch=3 overlaps)
         var range05 = store.getReceiptsByEpochRange(0, 5);
-        assertEquals(1, range05.size());
+        assertEquals(2, range05.size());
         assertTrue(range05.contains(receipt1));
+        assertTrue(range05.contains(receipt2));
 
         // Query range [3, 8] should return receipt1 and receipt2 (overlapping)
         var range38 = store.getReceiptsByEpochRange(3, 8);
@@ -201,7 +202,7 @@ class InMemoryRecursiveReceiptStoreTest extends ReceiptStoreContract<RecursiveAg
             signature,     // aggregatedSignature
             100,           // signerCount
             bitmap,        // signerBitmap
-            0,             // depth
+            1,             // depth (must be >= 1)
             0,             // index
             java.util.Optional.empty() // parent
         );

@@ -111,32 +111,44 @@ class ByzantineDetectorCoordinatorTest {
 
         coordinator.registerDetector(detector);
 
-        coordinator.recordValidationResult(
-            memberId,
-            receiptCoords,
-            new ValidationResult.InvalidSignature("member", "reason"),
-            100
-        );
+        // With constant alpha EMA (default 0.1), we need multiple events to build up score
+        // to critical threshold (0.9). Each event contributes: ema = 0.1 * 0.95 + 0.9 * ema
+        // After ~25 events, EMA converges close to 0.95
+        for (int i = 0; i < 30; i++) {
+            coordinator.recordValidationResult(
+                memberId,
+                receiptCoords,
+                new ValidationResult.InvalidSignature("member", "reason"),
+                100
+            );
+        }
 
-        verify(responseOrchestrator).handleCriticalAnomaly(eq(memberId), anyDouble());
+        verify(responseOrchestrator, atLeastOnce()).handleCriticalAnomaly(eq(memberId), anyDouble());
     }
 
     @Test
     void shouldTriggerWarningResponse() {
         var detector = mock(ByzantineDetector.class);
         when(detector.getDetectorName()).thenReturn("TestDetector");
-        when(detector.getAnomalyScore(memberId)).thenReturn(0.75);  // Warning threshold
+        // Use 0.8 to ensure we exceed warning (0.7) but stay below critical (0.9)
+        when(detector.getAnomalyScore(memberId)).thenReturn(0.8);
 
         coordinator.registerDetector(detector);
 
-        coordinator.recordValidationResult(
-            memberId,
-            receiptCoords,
-            new ValidationResult.InvalidSignature("member", "reason"),
-            100
-        );
+        // With constant alpha EMA (default 0.1), we need multiple events to build up score
+        // to warning threshold (0.7). Formula: EMA ≈ 0.8 * (1 - 0.9^n)
+        // After 25 events: EMA ≈ 0.8 * 0.93 = 0.74 (exceeds 0.7 warning, below 0.9 critical)
+        for (int i = 0; i < 30; i++) {
+            coordinator.recordValidationResult(
+                memberId,
+                receiptCoords,
+                new ValidationResult.InvalidSignature("member", "reason"),
+                100
+            );
+        }
 
-        verify(responseOrchestrator).handleWarningAnomaly(eq(memberId), anyDouble());
+        // Should trigger warning but not critical (score converges to 0.8, below 0.9)
+        verify(responseOrchestrator, atLeastOnce()).handleWarningAnomaly(eq(memberId), anyDouble());
     }
 
     @Test

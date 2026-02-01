@@ -13,6 +13,7 @@
 package com.hellblazer.delos.witness;
 
 import com.hellblazer.delos.context.Context;
+import com.hellblazer.delos.context.DynamicContext;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.cryptography.bls.impl.TekuBLSProvider;
@@ -26,7 +27,6 @@ import com.hellblazer.delos.witness.committee.InMemoryCommitteeBLSKeyStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
@@ -65,6 +65,9 @@ public class WitnessContext {
     private final ReadWriteLock lock;
     private final CommitteeBLSKeyStore committeeBLSKeyStore;
     private final CommitteeKeyCache committeeKeyCache;
+
+    // Phase 6: Delegate hash computation to adapter to reduce code duplication
+    private final FirefliesWitnessAdapter witnessAdapter;
 
     // Phase 1A-3-B: KERL integration for committee member verification
     private volatile WitnessKerlIntegration kerlIntegration;
@@ -125,11 +128,59 @@ public class WitnessContext {
         // Initialize CommitteeKeyCache with default BLS provider
         this.committeeKeyCache = new CommitteeKeyCache(TekuBLSProvider.getInstance());
 
+        // Phase 6: Initialize adapter for delegating hash computations
+        this.witnessAdapter = new FirefliesWitnessAdapter(digestAlgorithm);
+
         // Initialize current members from Fireflies context
         this.currentMembers = firefliesContext.allMembers()
             .map(Member::getId)
             .map(this::toIdentifier)
             .collect(Collectors.toSet());
+    }
+
+    /**
+     * Create a WitnessContext with Fireflies context configured for KERI threshold semantics.
+     * <p>
+     * Uses {@link FirefliesWitnessAdapter} to compute the proper Fireflies bias that maps
+     * KERI witness threshold (k witnesses, threshold signatures) to Fireflies majority semantics.
+     * <p>
+     * Phase 6 Integration: This factory method bridges KERI witness requirements with
+     * Fireflies BFT committee selection, ensuring threshold compatibility.
+     *
+     * @param contextId       Fireflies context identifier
+     * @param parameters      Witness configuration (k, threshold, epoch, drainPeriod)
+     * @param pByz            Probability of Byzantine member (typically 0.1)
+     * @param digestAlgorithm Algorithm for event hashing
+     * @param <T>             Member type
+     * @return WitnessContext with properly configured Fireflies context
+     */
+    public static <T extends Member> WitnessContext createWithAdapter(
+            Digest contextId,
+            WitnessParameters parameters,
+            double pByz,
+            DigestAlgorithm digestAlgorithm) {
+        var adapter = new FirefliesWitnessAdapter(digestAlgorithm);
+        DynamicContext<T> firefliesContext = adapter.createContext(
+            contextId, parameters.k(), parameters.threshold(), pByz);
+        return new WitnessContext(firefliesContext, parameters, digestAlgorithm);
+    }
+
+    /**
+     * Create a WitnessContext with default digest algorithm.
+     * <p>
+     * Convenience overload of {@link #createWithAdapter(Digest, WitnessParameters, double, DigestAlgorithm)}.
+     *
+     * @param contextId  Fireflies context identifier
+     * @param parameters Witness configuration
+     * @param pByz       Probability of Byzantine member
+     * @param <T>        Member type
+     * @return WitnessContext with properly configured Fireflies context
+     */
+    public static <T extends Member> WitnessContext createWithAdapter(
+            Digest contextId,
+            WitnessParameters parameters,
+            double pByz) {
+        return createWithAdapter(contextId, parameters, pByz, DigestAlgorithm.DEFAULT);
     }
 
     /**
@@ -300,6 +351,9 @@ public class WitnessContext {
     /**
      * Hash event coordinates deterministically for committee selection.
      * <p>
+     * Phase 6 Migration: Delegates to {@link FirefliesWitnessAdapter#hashEventCoordinates}
+     * to eliminate code duplication and ensure consistent hashing across the codebase.
+     * <p>
      * Combines:
      * - Event identifier
      * - Sequence number
@@ -311,23 +365,7 @@ public class WitnessContext {
      * @return Deterministic hash for ring iterator
      */
     private Digest hashEventCoordinates(EventCoordinates eventCoordinates) {
-        // Extract components
-        var identifierDigest = eventCoordinates.getIdentifier().getDigest(digestAlgorithm);
-        var identifierBytes = identifierDigest.getBytes();
-        var sequenceNumber = eventCoordinates.getSequenceNumber().longValue();
-        var digestBytes = eventCoordinates.getDigest().getBytes();
-        var ilkBytes = eventCoordinates.getIlk().getBytes();
-
-        // Combine into deterministic hash
-        var buffer = ByteBuffer.allocate(
-            identifierBytes.length + 8 + digestBytes.length + ilkBytes.length
-        );
-        buffer.put(identifierBytes);
-        buffer.putLong(sequenceNumber);
-        buffer.put(digestBytes);
-        buffer.put(ilkBytes);
-
-        return digestAlgorithm.digest(buffer.array());
+        return witnessAdapter.hashEventCoordinates(eventCoordinates);
     }
 
     /**
@@ -486,5 +524,25 @@ public class WitnessContext {
      */
     public WitnessKerlIntegration getKerlIntegration() {
         return kerlIntegration;
+    }
+
+    /**
+     * Get the internal FirefliesWitnessAdapter.
+     * <p>
+     * Phase 6 Migration: Provides direct access to the adapter for advanced operations
+     * that require Member-level access (e.g., selectWitnesses returning SequencedSet&lt;Member&gt;).
+     * <p>
+     * For most use cases, prefer using WitnessContext's methods which work with Identifiers.
+     * Use the adapter directly when:
+     * <ul>
+     *   <li>You need SequencedSet&lt;Member&gt; instead of Set&lt;Identifier&gt;</li>
+     *   <li>You need access to production metrics and health checks</li>
+     *   <li>You're performing low-level Fireflies context operations</li>
+     * </ul>
+     *
+     * @return The internal FirefliesWitnessAdapter instance
+     */
+    public FirefliesWitnessAdapter getAdapter() {
+        return witnessAdapter;
     }
 }

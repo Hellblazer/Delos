@@ -232,15 +232,19 @@ public class CompressionEffectivenessTest {
         var identifier = new SelfAddressingIdentifier(digest);
         var event = new EventCoordinates(identifier, org.joou.ULong.valueOf(0), digest, "icp");
 
-        var sigBytes = format == SignatureFormat.BLS_12_381 ? new byte[96] : new byte[64];
+        // Always use 96 bytes for BLSSignature carrier (regardless of original format)
+        var sigBytes = new byte[96];
         for (int i = 0; i < sigBytes.length; i++) {
             sigBytes[i] = (byte) (i % 256); // Deterministic pattern (compressible)
         }
 
+        // Create accurate bitmap for signerCount (only set bits for actual signers)
         var bitmapSize = (signerCount + 7) / 8;
         var bitmap = new byte[Math.max(1, bitmapSize)];
-        for (int i = 0; i < bitmap.length; i++) {
-            bitmap[i] = (byte) 0xFF;
+        for (int i = 0; i < signerCount; i++) {
+            int byteIdx = i / 8;
+            int bitIdx = i % 8;
+            bitmap[byteIdx] |= (byte) (1 << bitIdx);
         }
 
         var aggregate = new BLSAggregate(new BLSSignature(sigBytes), bitmap);

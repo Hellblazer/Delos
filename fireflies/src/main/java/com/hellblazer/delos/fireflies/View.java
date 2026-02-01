@@ -429,6 +429,60 @@ public class View {
         return node;
     }
 
+    /**
+     * Get the set of shunned member IDs.
+     * <p>
+     * Shunned members have been garbage collected and cannot recover.
+     * This returns a snapshot copy for thread safety.
+     * </p>
+     *
+     * @return Unmodifiable set of shunned member Digest IDs
+     */
+    public Set<Digest> getShunnedMembers() {
+        return Set.copyOf(shunned);
+    }
+
+    /**
+     * Get a stream of participants that have active accusations.
+     * <p>
+     * Accused participants have one or more accusations pending on gossip rings.
+     * They may still be active but are under suspicion.
+     * </p>
+     *
+     * @return Stream of accused participants (snapshot at time of call)
+     */
+    public Stream<Participant> getAccusedMembers() {
+        return context.active().filter(p -> p.getAccusationCount() > 0);
+    }
+
+    /**
+     * Shun a member, preventing further communication.
+     * <p>
+     * This is the public API for Byzantine response actions. The member will be
+     * garbage collected and added to the shunned set. This operation is idempotent;
+     * shunning an already-shunned member returns false.
+     * </p>
+     *
+     * @param memberId The Digest ID of the member to shun
+     * @return CompletableFuture completing with true if member was shunned, false if already shunned or not found
+     */
+    public CompletableFuture<Boolean> shun(Digest memberId) {
+        return CompletableFuture.supplyAsync(() -> {
+            if (shunned.contains(memberId)) {
+                log.debug("Member already shunned: {} on: {}", memberId, node.getId());
+                return false;
+            }
+            var member = context.getMember(memberId);
+            if (member == null) {
+                log.debug("Member not found for shunning: {} on: {}", memberId, node.getId());
+                return false;
+            }
+            gc(member);
+            log.info("Shunned member: {} on: {}", memberId, node.getId());
+            return true;
+        }, scheduler);
+    }
+
     boolean hasMajorityObservations(boolean bootstrap) {
         return bootstrap && context.size() == 1 || observations.size() >= context.majority();
     }
