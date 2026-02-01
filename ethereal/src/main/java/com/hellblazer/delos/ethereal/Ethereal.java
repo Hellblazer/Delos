@@ -37,6 +37,8 @@ import static java.util.concurrent.Executors.newSingleThreadScheduledExecutor;
 public class Ethereal {
 
     private static final Logger                          log          = LoggerFactory.getLogger(Ethereal.class);
+    // CRITICAL (Delos-d1gy): Blacklist store persists across epochs and restarts
+    private final        BlacklistStore                  blacklistStore;
     private final        Config                          config;
     private final        ThreadPoolExecutor              consumer;
     private final        Creator                         creator;
@@ -54,16 +56,24 @@ public class Ethereal {
 
     public Ethereal(Config config, int maxSerializedSize, DataSource ds, BiConsumer<List<ByteString>, Boolean> blocker,
                     Consumer<Integer> newEpochAction, String label, Verifier[] verifiers) {
-        this(label, config, maxSerializedSize, ds, blocker(blocker, config), newEpochAction, verifiers);
+        this(label, config, maxSerializedSize, ds, blocker(blocker, config), newEpochAction, verifiers,
+             new BlacklistStore.InMemoryBlacklistStore());
+    }
+
+    public Ethereal(Config config, int maxSerializedSize, DataSource ds, BiConsumer<List<ByteString>, Boolean> blocker,
+                    Consumer<Integer> newEpochAction, String label, Verifier[] verifiers,
+                    BlacklistStore blacklistStore) {
+        this(label, config, maxSerializedSize, ds, blocker(blocker, config), newEpochAction, verifiers, blacklistStore);
     }
 
     private Ethereal(String label, Config conf, int maxSerializedSize, DataSource ds,
                      BiConsumer<Boolean, List<Unit>> toPreblock, Consumer<Integer> newEpochAction,
-                     Verifier[] verifiers) {
+                     Verifier[] verifiers, BlacklistStore blacklistStore) {
         if (!Dag.validate(conf.nProc())) {
             throw new IllegalArgumentException("Invalid # of processes, unable to build quorum: " + conf.nProc());
         }
         this.config = conf;
+        this.blacklistStore = blacklistStore != null ? blacklistStore : new BlacklistStore.InMemoryBlacklistStore();
         this.lastTiming = new LinkedBlockingDeque<>();
         this.toPreblock = toPreblock;
         this.newEpochAction = newEpochAction;
@@ -317,7 +327,7 @@ public class Ethereal {
             }
 
         });
-        final var adder = new Adder(epoch, dg, maxSerializedSize, config, failed, verifiers);
+        final var adder = new Adder(epoch, dg, maxSerializedSize, config, failed, verifiers, blacklistStore);
         return new epoch(epoch, dg, adder, new AtomicBoolean(true));
     }
 

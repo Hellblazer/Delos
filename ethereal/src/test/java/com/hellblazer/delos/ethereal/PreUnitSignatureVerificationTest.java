@@ -66,7 +66,8 @@ public class PreUnitSignatureVerificationTest {
 
         dag = new DagImpl(config, 0);
         failedSet = new ConcurrentSkipListSet<>();
-        adder = new Adder(0, dag, 1024 * 1024, config, failedSet, verifiers);
+        adder = new Adder(0, dag, 1024 * 1024, config, failedSet, verifiers,
+                          new BlacklistStore.InMemoryBlacklistStore());
     }
 
     /**

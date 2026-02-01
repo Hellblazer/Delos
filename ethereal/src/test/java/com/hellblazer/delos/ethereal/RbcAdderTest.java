@@ -70,7 +70,8 @@ public class RbcAdderTest {
     public void dealingAllPids() throws Exception {
         final var dag = new DagImpl(config, 0);
 
-        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>(), null);
+        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>(), null,
+                          new BlacklistStore.InMemoryBlacklistStore());
 
         // PID 0
         var u = unit(0, 0);
@@ -185,7 +186,8 @@ public class RbcAdderTest {
     public void dealingPid0() throws Exception {
         final var dag = new DagImpl(config, 0);
 
-        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>(), null);
+        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>(), null,
+                          new BlacklistStore.InMemoryBlacklistStore());
 
         var prime = unit(0, 0);
         var u = prime;
@@ -237,7 +239,8 @@ public class RbcAdderTest {
     @Test
     public void round3() throws Exception {
         final var dag = new DagImpl(config, 0);
-        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>(), null);
+        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>(), null,
+                          new BlacklistStore.InMemoryBlacklistStore());
 
         round(0, adder);
         round(1, adder);
@@ -279,8 +282,10 @@ public class RbcAdderTest {
             .map(m -> (com.hellblazer.delos.cryptography.Verifier) m)
             .toArray(com.hellblazer.delos.cryptography.Verifier[]::new);
 
-        var adder1 = new Adder(0, dag1, 1024 * 1024, config, new ConcurrentSkipListSet<>(), verifiers);
-        var adder2 = new Adder(0, dag2, 1024 * 1024, config, new ConcurrentSkipListSet<>(), verifiers);
+        var adder1 = new Adder(0, dag1, 1024 * 1024, config, new ConcurrentSkipListSet<>(), verifiers,
+                               new BlacklistStore.InMemoryBlacklistStore());
+        var adder2 = new Adder(0, dag2, 1024 * 1024, config, new ConcurrentSkipListSet<>(), verifiers,
+                               new BlacklistStore.InMemoryBlacklistStore());
 
         // Produce dealing units on both adders
         var u0 = unit(0, 0);
@@ -380,7 +385,8 @@ public class RbcAdderTest {
     @Test
     public void waitingForParents() {
         final var dag = new DagImpl(config, 0);
-        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>(), null);
+        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>(), null,
+                          new BlacklistStore.InMemoryBlacklistStore());
         round(0, adder);
 
         // Units from 0, 2, 3 at level 1 proposed. Unit 1 from 0 is added to the DAG, as

@@ -22,7 +22,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Stream;
@@ -63,11 +62,12 @@ public class Adder {
     // CRITICAL (Delos-wfz7): Track units by (creator, height) to detect equivocation
     // Byzantine nodes may produce multiple units with same (creator, height) but different content
     private final        Map<Short, Map<Integer, Waiting>> unitsByCreatorHeight = new HashMap<>();
-    // CRITICAL (Delos-wfz7): Blacklist creators that have equivocated
+    // CRITICAL (Delos-d1gy): Blacklist store is shared across epochs and persisted
     // Once equivocation detected, all future units/votes from that creator are rejected
-    private final        Set<Short>                 blacklistedCreators = new ConcurrentSkipListSet<>();
+    private final        BlacklistStore             blacklistStore;
 
-    public Adder(int epoch, Dag dag, int maxSize, Config conf, Set<Digest> failed, Verifier[] verifiers) {
+    public Adder(int epoch, Dag dag, int maxSize, Config conf, Set<Digest> failed, Verifier[] verifiers,
+                 BlacklistStore blacklistStore) {
         this.epoch = epoch;
         this.dag = dag;
         this.conf = conf;
@@ -75,6 +75,7 @@ public class Adder {
         this.verifiers = verifiers;
         this.threshold = Dag.threshold(conf.nProc());
         this.maxSize = maxSize;
+        this.blacklistStore = blacklistStore;
     }
 
     public static Signed<SignedCommit> commit(final Long id, final Digest hash, final short pid, Signer signer,
@@ -106,7 +107,8 @@ public class Adder {
             prevotes.clear();
             missing.clear();
             unitsByCreatorHeight.clear();
-            blacklistedCreators.clear();
+            // CRITICAL (Delos-d1gy): Do NOT clear blacklist - it persists across epochs
+            // Equivocators remain blacklisted for the lifetime of the consensus instance
         });
     }
 
@@ -324,7 +326,7 @@ public class Adder {
      */
     void commit(Digest digest, short member) {
         // CRITICAL (Delos-wfz7): Reject commits from blacklisted creators
-        if (blacklistedCreators.contains(member)) {
+        if (blacklistStore != null && blacklistStore.isBlacklisted(member)) {
             log.trace("Ignoring commit from blacklisted creator: {} on: {}", member, conf.logLabel());
             return;
         }
@@ -416,8 +418,8 @@ public class Adder {
         return waitingForRound;
     }
 
-    Set<Short> getBlacklistedCreators() {
-        return blacklistedCreators;
+    BlacklistStore getBlacklistStore() {
+        return blacklistStore;
     }
 
     /**
@@ -428,7 +430,7 @@ public class Adder {
      */
     void prevote(Digest digest, short member) {
         // CRITICAL (Delos-wfz7): Reject prevotes from blacklisted creators
-        if (blacklistedCreators.contains(member)) {
+        if (blacklistStore != null && blacklistStore.isBlacklisted(member)) {
             log.trace("Ignoring prevote from blacklisted creator: {} on: {}", member, conf.logLabel());
             return;
         }
@@ -524,7 +526,7 @@ public class Adder {
         }
 
         // CRITICAL (Delos-wfz7): Check if creator is blacklisted for equivocation
-        if (blacklistedCreators.contains(decoded.creator())) {
+        if (blacklistStore != null && blacklistStore.isBlacklisted(decoded.creator())) {
             log.debug("Rejecting unit from blacklisted creator: {} on: {}", decoded, conf.logLabel());
             return;
         }
@@ -562,7 +564,10 @@ public class Adder {
             if (!existingAtHeight.hash().equals(digest)) {
                 // EQUIVOCATION DETECTED: Different unit at same (creator, height)
                 // This is definitive proof of Byzantine behavior
-                blacklistedCreators.add(decoded.creator());
+                // CRITICAL (Delos-d1gy): Persist blacklist entry immediately (write-through)
+                if (blacklistStore != null) {
+                    blacklistStore.blacklist(decoded.creator());
+                }
                 failed.add(digest);
 
                 // Cleanup: remove from waiting if it was added (defensive - ensures no partial state)
