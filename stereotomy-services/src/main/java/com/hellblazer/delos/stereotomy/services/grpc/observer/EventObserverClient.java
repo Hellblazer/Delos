@@ -7,7 +7,6 @@
  */
 package com.hellblazer.delos.stereotomy.services.grpc.observer;
 
-import com.codahale.metrics.Timer.Context;
 import com.hellblazer.delos.archipelago.ManagedServerChannel;
 import com.hellblazer.delos.archipelago.ServerConnectionCache.CreateClientCommunications;
 import com.hellblazer.delos.membership.Member;
@@ -89,40 +88,46 @@ public class EventObserverClient implements EventObserverService {
 
     @Override
     public void publish(KERL_ kerl, List<Validations> validations) {
-        Context timer = metrics == null ? null : metrics.publishKERLClient().time();
+        var start = metrics == null ? 0L : System.nanoTime();
         var request = KERLContext.newBuilder().setKerl(kerl).addAllValidations(validations).build();
         if (metrics != null) {
             metrics.recordOutboundBandwidth(request.getSerializedSize());
-            metrics.outboundPublishKERLRequest().mark(request.getSerializedSize());
+            metrics.recordOutboundPublishKERLRequest(request.getSerializedSize());
         }
         client.publish(request);
-        if (timer != null) {
-            timer.stop();
+        if (metrics != null) {
+            metrics.recordPublishKERLClientDuration(System.nanoTime() - start);
         }
     }
 
     @Override
     public void publishAttachments(List<AttachmentEvent> attachments) {
-        Context timer = metrics == null ? null : metrics.publishAttachmentsClient().time();
+        var start = metrics == null ? 0L : System.nanoTime();
         var request = AttachmentsContext.newBuilder().addAllAttachments(attachments).build();
         if (metrics != null) {
             metrics.recordOutboundBandwidth(request.getSerializedSize());
-            metrics.outboundPublishAttachmentsRequest().mark(request.getSerializedSize());
+            metrics.recordOutboundPublishAttachmentsRequest(request.getSerializedSize());
         }
         client.publishAttachments(request);
+        if (metrics != null) {
+            metrics.recordPublishAttachmentsClientDuration(System.nanoTime() - start);
+        }
     }
 
     @Override
     public void publishEvents(List<KeyEvent_> events, List<Validations> validations) {
-        Context timer = metrics == null ? null : metrics.publishEventsClient().time();
+        var start = metrics == null ? 0L : System.nanoTime();
         KeyEventsContext request = KeyEventsContext.newBuilder()
                                                    .addAllKeyEvent(events)
                                                    .addAllValidations(validations)
                                                    .build();
         if (metrics != null) {
             metrics.recordOutboundBandwidth(request.getSerializedSize());
-            metrics.outboundPublishEventsRequest().mark(request.getSerializedSize());
+            metrics.recordOutboundPublishEventsRequest(request.getSerializedSize());
         }
         client.publishEvents(request);
+        if (metrics != null) {
+            metrics.recordPublishEventsClientDuration(System.nanoTime() - start);
+        }
     }
 }

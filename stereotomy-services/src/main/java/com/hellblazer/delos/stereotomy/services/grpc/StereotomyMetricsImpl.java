@@ -237,442 +237,442 @@ public class StereotomyMetricsImpl extends EndpointMetricsImpl implements Stereo
     }
 
     @Override
-    public Timer appendEventsClient() {
-        return appendEventsClient;
+    public void recordAppendEventsClientDuration(long nanos) {
+        appendEventsClient.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer appendEventsService() {
-        return appendEventsService;
+    public void recordAppendEventsServiceDuration(long nanos) {
+        appendEventsService.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer appendKERLClient() {
-        return appendKERLClient;
+    public void recordAppendKERLClientDuration(long nanos) {
+        appendKERLClient.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer appendKERLService() {
-        return appendKERLService;
+    public void recordAppendKERLServiceDuration(long nanos) {
+        appendKERLService.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer appendWithAttachmentsClient() {
-        return appendWithAttachmentsClient;
+    public void recordAppendWithAttachmentsClientDuration(long nanos) {
+        appendWithAttachmentsClient.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer appendWithAttachmentsService() {
-        return appendWithAttachmentsService;
+    public void recordAppendWithAttachmentsServiceDuration(long nanos) {
+        appendWithAttachmentsService.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer bindClient() {
-        return bindClient;
+    public void recordBindClientDuration(long nanos) {
+        bindClient.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer bindService() {
-        return bindService;
+    public void recordBindServiceDuration(long nanos) {
+        bindService.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer getAttachmentClient() {
-        return getAttachmentClient;
+    public void recordGetAttachmentClientDuration(long nanos) {
+        getAttachmentClient.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer getAttachmentService() {
-        return getAttachmentService;
+    public void recordGetAttachmentServiceDuration(long nanos) {
+        getAttachmentService.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer getKERLClient() {
-        return getKERLClient;
+    public void recordGetKERLClientDuration(long nanos) {
+        getKERLClient.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer getKERLService() {
-        return getKERLService;
+    public void recordGetKERLServiceDuration(long nanos) {
+        getKERLService.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer getKeyEventClient() {
-        return getKeyEventClient;
+    public void recordGetKeyEventClientDuration(long nanos) {
+        getKeyEventClient.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer getKeyEventCoordsClient() {
-        return getKeyEventCoordsClient;
+    public void recordGetKeyEventCoordsClientDuration(long nanos) {
+        getKeyEventCoordsClient.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer getKeyEventCoordsService() {
-        return getKeyEventCoordsService;
+    public void recordGetKeyEventCoordsServiceDuration(long nanos) {
+        getKeyEventCoordsService.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer getKeyEventService() {
-        return getKeyEventService;
+    public void recordGetKeyEventServiceDuration(long nanos) {
+        getKeyEventService.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer getKeyStateClient() {
-        return getKeyStateClient;
+    public void recordGetKeyStateClientDuration(long nanos) {
+        getKeyStateClient.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer getKeyStateCoordsClient() {
-        return getKeyStateCoordsClient;
+    public void recordGetKeyStateCoordsClientDuration(long nanos) {
+        getKeyStateCoordsClient.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer getKeyStateCoordsService() {
-        return getKeyStateCoordsService;
+    public void recordGetKeyStateCoordsServiceDuration(long nanos) {
+        getKeyStateCoordsService.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer getKeyStateService() {
-        return getKeyStateService;
+    public void recordGetKeyStateServiceDuration(long nanos) {
+        getKeyStateService.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Meter inboundAppendEventsRequest() {
-        return inboundAppendEventsRequest;
+    public void recordInboundAppendEventsRequest(int bytes) {
+        inboundAppendEventsRequest.mark(bytes);
     }
 
     @Override
-    public Meter inboundAppendEventsResponse() {
-        return inboundAppendEventsResponse;
+    public void recordInboundAppendEventsResponse(int bytes) {
+        inboundAppendEventsResponse.mark(bytes);
     }
 
     @Override
-    public Meter inboundAppendKERLRequest() {
-        return inboundAppendKERLRequest;
+    public void recordInboundAppendKERLRequest(int bytes) {
+        inboundAppendKERLRequest.mark(bytes);
     }
 
     @Override
-    public Meter inboundAppendKERLResponse() {
-        return inboundAppendKERLResponse;
+    public void recordInboundAppendKERLResponse(int bytes) {
+        inboundAppendKERLResponse.mark(bytes);
     }
 
     @Override
-    public Meter inboundAppendWithAttachmentsRequest() {
-        return inboundAppendWithAttachmentsRequest;
+    public void recordInboundAppendWithAttachmentsRequest(int bytes) {
+        inboundAppendWithAttachmentsRequest.mark(bytes);
     }
 
     @Override
-    public Meter inboundAppendWithAttachmentsResponse() {
-        return inboundAppendWithAttachmentsResponse;
+    public void recordInboundAppendWithAttachmentsResponse(int bytes) {
+        inboundAppendWithAttachmentsResponse.mark(bytes);
     }
 
     @Override
-    public Meter inboundBindRequest() {
-        return inboundBindRequest;
+    public void recordInboundBindRequest(int bytes) {
+        inboundBindRequest.mark(bytes);
     }
 
     @Override
-    public Meter inboundGetAttachmentRequest() {
-        return inboundGetAttachmentRequest;
+    public void recordInboundGetAttachmentRequest(int bytes) {
+        inboundGetAttachmentRequest.mark(bytes);
     }
 
     @Override
-    public Meter inboundGetAttachmentResponse() {
-        return inboundGetAttachmentResponse;
+    public void recordInboundGetAttachmentResponse(int bytes) {
+        inboundGetAttachmentResponse.mark(bytes);
     }
 
     @Override
-    public Meter inboundGetKERLRequest() {
-        return inboundGetKERLRequest;
+    public void recordInboundGetKERLRequest(int bytes) {
+        inboundGetKERLRequest.mark(bytes);
     }
 
     @Override
-    public Meter inboundGetKERLResponse() {
-        return inboundGetKERLResponse;
+    public void recordInboundGetKERLResponse(int bytes) {
+        inboundGetKERLResponse.mark(bytes);
     }
 
     @Override
-    public Meter inboundGetKeyEventCoordsRequest() {
-        return inboundGetKeyEventCoordsRequest;
+    public void recordInboundGetKeyEventCoordsRequest(int bytes) {
+        inboundGetKeyEventCoordsRequest.mark(bytes);
     }
 
     @Override
-    public Meter inboundGetKeyEventCoordsResponse() {
-        return inboundGetKeyEventCoordsResponse;
+    public void recordInboundGetKeyEventCoordsResponse(int bytes) {
+        inboundGetKeyEventCoordsResponse.mark(bytes);
     }
 
     @Override
-    public Meter inboundGetKeyEventRequest() {
-        return inboundGetKeyEventRequest;
+    public void recordInboundGetKeyEventRequest(int bytes) {
+        inboundGetKeyEventRequest.mark(bytes);
     }
 
     @Override
-    public Meter inboundGetKeyEventResponse() {
-        return inboundGetKeyEventResponse;
+    public void recordInboundGetKeyEventResponse(int bytes) {
+        inboundGetKeyEventResponse.mark(bytes);
     }
 
     @Override
-    public Meter inboundGetKeyStateCoordsRequest() {
-        return inboundGetKeyStateCoordsRequest;
+    public void recordInboundGetKeyStateCoordsRequest(int bytes) {
+        inboundGetKeyStateCoordsRequest.mark(bytes);
     }
 
     @Override
-    public Meter inboundGetKeyStateCoordsResponse() {
-        return inboundGetKeyStateCoordsResponse;
+    public void recordInboundGetKeyStateCoordsResponse(int bytes) {
+        inboundGetKeyStateCoordsResponse.mark(bytes);
     }
 
     @Override
-    public Meter inboundGetKeyStateRequest() {
-        return inboundGetKeyStateRequest;
+    public void recordInboundGetKeyStateRequest(int bytes) {
+        inboundGetKeyStateRequest.mark(bytes);
     }
 
     @Override
-    public Meter inboundGetKeyStateResponse() {
-        return inboundGetKeyStateResponse;
+    public void recordInboundGetKeyStateResponse(int bytes) {
+        inboundGetKeyStateResponse.mark(bytes);
     }
 
     @Override
-    public Meter inboundLookupRequest() {
-        return inboundLookupRequest;
+    public void recordInboundLookupRequest(int bytes) {
+        inboundLookupRequest.mark(bytes);
     }
 
     @Override
-    public Meter inboundLookupResponse() {
-        return inboundLookupResponse;
+    public void recordInboundLookupResponse(int bytes) {
+        inboundLookupResponse.mark(bytes);
     }
 
     @Override
-    public Meter inboundPublishAttachmentsRequest() {
-        return inboundPublishAttachmentsRequest;
+    public void recordInboundPublishAttachmentsRequest(int bytes) {
+        inboundPublishAttachmentsRequest.mark(bytes);
     }
 
     @Override
-    public Meter inboundPublishEventsRequest() {
-        return inboundPublishEventsRequest;
+    public void recordInboundPublishEventsRequest(int bytes) {
+        inboundPublishEventsRequest.mark(bytes);
     }
 
     @Override
-    public Meter inboundPublishEventsResponse() {
-        return inboundPublishEventsResponse;
+    public void recordInboundPublishEventsResponse(int bytes) {
+        inboundPublishEventsResponse.mark(bytes);
     }
 
     @Override
-    public Meter inboundPublishKERLRequest() {
-        return inboundPublishKERLRequest;
+    public void recordInboundPublishKERLRequest(int bytes) {
+        inboundPublishKERLRequest.mark(bytes);
     }
 
     @Override
-    public Meter inboundPublishKERLResponse() {
-        return inboundPublishKERLResponse;
+    public void recordInboundPublishKERLResponse(int bytes) {
+        inboundPublishKERLResponse.mark(bytes);
     }
 
     @Override
-    public Meter inboundUnbindRequest() {
-        return inboundUnbindRequest;
+    public void recordInboundUnbindRequest(int bytes) {
+        inboundUnbindRequest.mark(bytes);
     }
 
     @Override
-    public Meter inboundValidatorRequest() {
-        return inboundValidatorRequest;
+    public void recordInboundValidatorRequest(int bytes) {
+        inboundValidatorRequest.mark(bytes);
     }
 
     @Override
-    public Timer lookupClient() {
-        return lookupClient;
+    public void recordLookupClientDuration(long nanos) {
+        lookupClient.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer lookupService() {
-        return lookupService;
+    public void recordLookupServiceDuration(long nanos) {
+        lookupService.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Meter outboundAppendEventsRequest() {
-        return outboundAppendEventsRequest;
+    public void recordOutboundAppendEventsRequest(int bytes) {
+        outboundAppendEventsRequest.mark(bytes);
     }
 
     @Override
-    public Meter outboundAppendEventsResponse() {
-        return outboundAppendEventsResponse;
+    public void recordOutboundAppendEventsResponse(int bytes) {
+        outboundAppendEventsResponse.mark(bytes);
     }
 
     @Override
-    public Meter outboundAppendKERLRequest() {
-        return outboundAppendKERLRequest;
+    public void recordOutboundAppendKERLRequest(int bytes) {
+        outboundAppendKERLRequest.mark(bytes);
     }
 
     @Override
-    public Meter outboundAppendKERLResponse() {
-        return outboundAppendKERLResponse;
+    public void recordOutboundAppendKERLResponse(int bytes) {
+        outboundAppendKERLResponse.mark(bytes);
     }
 
     @Override
-    public Meter outboundAppendWithAttachmentsRequest() {
-        return outboundAppendWithAttachmentsRequest;
+    public void recordOutboundAppendWithAttachmentsRequest(int bytes) {
+        outboundAppendWithAttachmentsRequest.mark(bytes);
     }
 
     @Override
-    public Meter outboundAppendWithAttachmentsResponse() {
-        return outboundAppendWithAttachmentsResponse;
+    public void recordOutboundAppendWithAttachmentsResponse(int bytes) {
+        outboundAppendWithAttachmentsResponse.mark(bytes);
     }
 
     @Override
-    public Meter outboundBindRequest() {
-        return outboundBindRequest;
+    public void recordOutboundBindRequest(int bytes) {
+        outboundBindRequest.mark(bytes);
     }
 
     @Override
-    public Meter outboundGetAttachmentRequest() {
-        return outboundGetAttachmentRequest;
+    public void recordOutboundGetAttachmentRequest(int bytes) {
+        outboundGetAttachmentRequest.mark(bytes);
     }
 
     @Override
-    public Meter outboundGetAttachmentResponse() {
-        return outboundGetAttachmentResponse;
+    public void recordOutboundGetAttachmentResponse(int bytes) {
+        outboundGetAttachmentResponse.mark(bytes);
     }
 
     @Override
-    public Meter outboundGetKERLRequest() {
-        return outboundGetKERLRequest;
+    public void recordOutboundGetKERLRequest(int bytes) {
+        outboundGetKERLRequest.mark(bytes);
     }
 
     @Override
-    public Meter outboundGetKERLResponse() {
-        return outboundGetKERLResponse;
+    public void recordOutboundGetKERLResponse(int bytes) {
+        outboundGetKERLResponse.mark(bytes);
     }
 
     @Override
-    public Meter outboundGetKeyEventCoordsRequest() {
-        return outboundGetKeyEventCoordsRequest;
+    public void recordOutboundGetKeyEventCoordsRequest(int bytes) {
+        outboundGetKeyEventCoordsRequest.mark(bytes);
     }
 
     @Override
-    public Meter outboundGetKeyEventCoordsResponse() {
-        return outboundGetKeyEventCoordsResponse;
+    public void recordOutboundGetKeyEventCoordsResponse(int bytes) {
+        outboundGetKeyEventCoordsResponse.mark(bytes);
     }
 
     @Override
-    public Meter outboundGetKeyEventRequest() {
-        return outboundGetKeyEventRequest;
+    public void recordOutboundGetKeyEventRequest(int bytes) {
+        outboundGetKeyEventRequest.mark(bytes);
     }
 
     @Override
-    public Meter outboundGetKeyEventResponse() {
-        return outboundGetKeyEventResponse;
+    public void recordOutboundGetKeyEventResponse(int bytes) {
+        outboundGetKeyEventResponse.mark(bytes);
     }
 
     @Override
-    public Meter outboundGetKeyStateCoordsRequest() {
-        return outboundGetKeyStateCoordsRequest;
+    public void recordOutboundGetKeyStateCoordsRequest(int bytes) {
+        outboundGetKeyStateCoordsRequest.mark(bytes);
     }
 
     @Override
-    public Meter outboundGetKeyStateCoordsResponse() {
-        return outboundGetKeyStateCoordsResponse;
+    public void recordOutboundGetKeyStateCoordsResponse(int bytes) {
+        outboundGetKeyStateCoordsResponse.mark(bytes);
     }
 
     @Override
-    public Meter outboundGetKeyStateRequest() {
-        return outboundGetKeyStateRequest;
+    public void recordOutboundGetKeyStateRequest(int bytes) {
+        outboundGetKeyStateRequest.mark(bytes);
     }
 
     @Override
-    public Meter outboundGetKeyStateResponse() {
-        return outboundGetKeyStateResponse;
+    public void recordOutboundGetKeyStateResponse(int bytes) {
+        outboundGetKeyStateResponse.mark(bytes);
     }
 
     @Override
-    public Meter outboundLookupRequest() {
-        return outboundLookupRequest;
+    public void recordOutboundLookupRequest(int bytes) {
+        outboundLookupRequest.mark(bytes);
     }
 
     @Override
-    public Meter outboundLookupResponse() {
-        return outboundLookupResponse;
+    public void recordOutboundLookupResponse(int bytes) {
+        outboundLookupResponse.mark(bytes);
     }
 
     @Override
-    public Meter outboundPublishAttachmentsRequest() {
-        return outboundPublishAttachmentsRequest;
+    public void recordOutboundPublishAttachmentsRequest(int bytes) {
+        outboundPublishAttachmentsRequest.mark(bytes);
     }
 
     @Override
-    public Meter outboundPublishEventsRequest() {
-        return outboundPublishEventsRequest;
+    public void recordOutboundPublishEventsRequest(int bytes) {
+        outboundPublishEventsRequest.mark(bytes);
     }
 
     @Override
-    public Meter outboundPublishEventsResponse() {
-        return outboundPublishEventsResponse;
+    public void recordOutboundPublishEventsResponse(int bytes) {
+        outboundPublishEventsResponse.mark(bytes);
     }
 
     @Override
-    public Meter outboundPublishKERLRequest() {
-        return outboundPublishKERLRequest;
+    public void recordOutboundPublishKERLRequest(int bytes) {
+        outboundPublishKERLRequest.mark(bytes);
     }
 
     @Override
-    public Meter outboundPublishKERLResponse() {
-        return outboundPublishKERLResponse;
+    public void recordOutboundPublishKERLResponse(int bytes) {
+        outboundPublishKERLResponse.mark(bytes);
     }
 
     @Override
-    public Meter outboundUnbindRequest() {
-        return outboudUnbindRequest;
+    public void recordOutboundUnbindRequest(int bytes) {
+        outboudUnbindRequest.mark(bytes);
     }
 
     @Override
-    public Meter outboundValidatorRequest() {
-        return outboundValidatorRequest;
+    public void recordOutboundValidatorRequest(int bytes) {
+        outboundValidatorRequest.mark(bytes);
     }
 
     @Override
-    public Timer publishAttachmentsClient() {
-        return publishAttachmentsClient;
+    public void recordPublishAttachmentsClientDuration(long nanos) {
+        publishAttachmentsClient.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer publishAttachmentsService() {
-        return publishAttachmentsService;
+    public void recordPublishAttachmentsServiceDuration(long nanos) {
+        publishAttachmentsService.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer publishEventsClient() {
-        return publishEventsClient;
+    public void recordPublishEventsClientDuration(long nanos) {
+        publishEventsClient.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer publishEventsService() {
-        return publishEventsService;
+    public void recordPublishEventsServiceDuration(long nanos) {
+        publishEventsService.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer publishKERLClient() {
-        return publishKERLClient;
+    public void recordPublishKERLClientDuration(long nanos) {
+        publishKERLClient.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer publishKERLService() {
-        return publishKERLService;
+    public void recordPublishKERLServiceDuration(long nanos) {
+        publishKERLService.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer unbindClient() {
-        return unbindClient;
+    public void recordUnbindClientDuration(long nanos) {
+        unbindClient.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer unbindService() {
-        return unbindService;
+    public void recordUnbindServiceDuration(long nanos) {
+        unbindService.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer validatorClient() {
-        return validatorClient;
+    public void recordValidatorClientDuration(long nanos) {
+        validatorClient.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer validatorService() {
-        return validatorService;
+    public void recordValidatorServiceDuration(long nanos) {
+        validatorService.update(nanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 }

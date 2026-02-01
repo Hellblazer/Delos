@@ -7,7 +7,6 @@
  */
 package com.hellblazer.delos.stereotomy.services.grpc.validation;
 
-import com.codahale.metrics.Timer.Context;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.protobuf.BoolValue;
 import com.hellblazer.delos.archipelago.ManagedServerChannel;
@@ -77,11 +76,11 @@ public class EventValidationClient implements EventValidationService {
 
     @Override
     public CompletableFuture<Boolean> validate(KeyEvent_ event) {
-        Context timer = metrics == null ? null : metrics.validatorClient().time();
+        var start = metrics == null ? 0L : System.nanoTime();
         var request = KeyEventContext.newBuilder().setKeyEvent(event).build();
         if (metrics != null) {
             metrics.recordOutboundBandwidth(request.getSerializedSize());
-            metrics.outboundValidatorRequest().mark(request.getSerializedSize());
+            metrics.recordOutboundValidatorRequest(request.getSerializedSize());
         }
         CompletableFuture<Boolean> f = new CompletableFuture<>();
         ListenableFuture<BoolValue> result = client.validate(request);
@@ -96,8 +95,8 @@ public class EventValidationClient implements EventValidationService {
                 f.completeExceptionally(e.getCause());
                 return;
             }
-            if (timer != null) {
-                timer.stop();
+            if (metrics != null) {
+                metrics.recordValidatorClientDuration(System.nanoTime() - start);
             }
             f.complete(success);
         }, r -> r.run());

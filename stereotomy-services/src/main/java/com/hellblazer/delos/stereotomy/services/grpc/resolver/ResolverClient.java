@@ -7,7 +7,6 @@
  */
 package com.hellblazer.delos.stereotomy.services.grpc.resolver;
 
-import com.codahale.metrics.Timer.Context;
 import com.hellblazer.delos.archipelago.ManagedServerChannel;
 import com.hellblazer.delos.archipelago.ServerConnectionCache.CreateClientCommunications;
 import com.hellblazer.delos.membership.Member;
@@ -53,17 +52,17 @@ public class ResolverClient implements ResolverService {
 
     @Override
     public Optional<Binding> lookup(Ident prefix) {
-        Context timer = metrics == null ? null : metrics.lookupClient().time();
+        var start = metrics == null ? 0L : System.nanoTime();
         if (metrics != null) {
             metrics.recordOutboundBandwidth(prefix.getSerializedSize());
-            metrics.outboundLookupRequest().mark(prefix.getSerializedSize());
+            metrics.recordOutboundLookupRequest(prefix.getSerializedSize());
         }
         var result = client.lookup(prefix);
         var serializedSize = result.getSerializedSize();
-        if (timer != null) {
-            timer.stop();
+        if (metrics != null) {
+            metrics.recordLookupClientDuration(System.nanoTime() - start);
             metrics.recordInboundBandwidth(serializedSize);
-            metrics.inboundLookupResponse().mark(serializedSize);
+            metrics.recordInboundLookupResponse(serializedSize);
         }
         return Optional.ofNullable(result);
     }

@@ -9,7 +9,6 @@ package com.hellblazer.delos.stereotomy.services.grpc.validation;
 
 import java.util.concurrent.CompletableFuture;
 
-import com.codahale.metrics.Timer.Context;
 import com.google.protobuf.BoolValue;
 import com.hellblazer.delos.stereotomy.services.grpc.proto.KeyEventContext;
 import com.hellblazer.delos.stereotomy.services.grpc.proto.ValidatorGrpc.ValidatorImplBase;
@@ -34,16 +33,16 @@ public class EventValidationServer extends ValidatorImplBase {
 
     @Override
     public void validate(KeyEventContext request, StreamObserver<BoolValue> responseObserver) {
-        Context timer = metrics != null ? metrics.validatorService().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
             metrics.recordInboundBandwidth(request.getSerializedSize());
-            metrics.inboundValidatorRequest().mark(request.getSerializedSize());
+            metrics.recordInboundValidatorRequest(request.getSerializedSize());
         }
         routing.evaluate(responseObserver, s -> {
             CompletableFuture<Boolean> result = s.validate(request.getKeyEvent());
             result.whenComplete((r, t) -> {
-                if (timer != null) {
-                    timer.stop();
+                if (metrics != null) {
+                    metrics.recordValidatorServiceDuration(System.nanoTime() - start);
                 }
                 if (t != null) {
                     responseObserver.onError(t);

@@ -7,7 +7,6 @@
  */
 package com.hellblazer.delos.stereotomy.services.grpc.binder;
 
-import com.codahale.metrics.Timer.Context;
 import com.google.protobuf.Empty;
 import com.hellblazer.delos.archipelago.RoutableService;
 import com.hellblazer.delos.cryptography.Digest;
@@ -36,10 +35,10 @@ public class BinderServer extends BinderImplBase {
 
     @Override
     public void bind(Binding request, StreamObserver<Empty> responseObserver) {
-        Context timer = metrics != null ? metrics.bindService().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
             metrics.recordInboundBandwidth(request.getSerializedSize());
-            metrics.inboundBindRequest().mark(request.getSerializedSize());
+            metrics.recordInboundBindRequest(request.getSerializedSize());
         }
         Digest from = identity.getFrom();
         if (from == null) {
@@ -48,8 +47,8 @@ public class BinderServer extends BinderImplBase {
         }
         routing.evaluate(responseObserver, s -> {
             s.bind(request).whenComplete((b, t) -> {
-                if (timer != null) {
-                    timer.stop();
+                if (metrics != null) {
+                    metrics.recordBindServiceDuration(System.nanoTime() - start);
                 }
                 if (t != null) {
                     responseObserver.onError(t);
@@ -63,10 +62,10 @@ public class BinderServer extends BinderImplBase {
 
     @Override
     public void unbind(Ident request, StreamObserver<Empty> responseObserver) {
-        Context timer = metrics != null ? metrics.unbindService().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
             metrics.recordInboundBandwidth(request.getSerializedSize());
-            metrics.inboundUnbindRequest().mark(request.getSerializedSize());
+            metrics.recordInboundUnbindRequest(request.getSerializedSize());
         }
         Digest from = identity.getFrom();
         if (from == null) {
@@ -75,8 +74,8 @@ public class BinderServer extends BinderImplBase {
         }
         routing.evaluate(responseObserver, s -> {
             s.unbind(request).whenComplete((b, t) -> {
-                if (timer != null) {
-                    timer.stop();
+                if (metrics != null) {
+                    metrics.recordUnbindServiceDuration(System.nanoTime() - start);
                 }
                 if (t != null) {
                     responseObserver.onError(t);

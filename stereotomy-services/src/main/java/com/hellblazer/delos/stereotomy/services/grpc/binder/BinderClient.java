@@ -7,7 +7,6 @@
  */
 package com.hellblazer.delos.stereotomy.services.grpc.binder;
 
-import com.codahale.metrics.Timer.Context;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.protobuf.Empty;
 import com.hellblazer.delos.archipelago.ManagedServerChannel;
@@ -45,10 +44,10 @@ public class BinderClient implements BinderService {
 
     @Override
     public CompletableFuture<Boolean> bind(com.hellblazer.delos.stereotomy.event.proto.Binding binding) {
-        Context timer = metrics == null ? null : metrics.bindClient().time();
+        var start = metrics == null ? 0L : System.nanoTime();
         if (metrics != null) {
             metrics.recordOutboundBandwidth(binding.getSerializedSize());
-            metrics.outboundBindRequest().mark(binding.getSerializedSize());
+            metrics.recordOutboundBindRequest(binding.getSerializedSize());
         }
         CompletableFuture<Boolean> f = new CompletableFuture<>();
         ListenableFuture<Empty> result = client.bind(binding);
@@ -62,8 +61,8 @@ public class BinderClient implements BinderService {
                 f.completeExceptionally(e.getCause());
                 return;
             }
-            if (timer != null) {
-                timer.stop();
+            if (metrics != null) {
+                metrics.recordBindClientDuration(System.nanoTime() - start);
             }
             f.complete(true);
         }, r -> r.run());
@@ -82,10 +81,10 @@ public class BinderClient implements BinderService {
 
     @Override
     public CompletableFuture<Boolean> unbind(Ident identifier) {
-        Context timer = metrics == null ? null : metrics.unbindClient().time();
+        var start = metrics == null ? 0L : System.nanoTime();
         if (metrics != null) {
             metrics.recordOutboundBandwidth(identifier.getSerializedSize());
-            metrics.outboundUnbindRequest().mark(identifier.getSerializedSize());
+            metrics.recordOutboundUnbindRequest(identifier.getSerializedSize());
         }
         CompletableFuture<Boolean> f = new CompletableFuture<>();
         ListenableFuture<Empty> result = client.unbind(identifier);
@@ -99,8 +98,8 @@ public class BinderClient implements BinderService {
                 f.completeExceptionally(e.getCause());
                 return;
             }
-            if (timer != null) {
-                timer.stop();
+            if (metrics != null) {
+                metrics.recordUnbindClientDuration(System.nanoTime() - start);
             }
             f.complete(true);
         }, r -> r.run());

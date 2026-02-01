@@ -7,7 +7,6 @@
  */
 package com.hellblazer.delos.stereotomy.services.grpc.kerl;
 
-import com.codahale.metrics.Timer.Context;
 import com.google.protobuf.Empty;
 import com.hellblazer.delos.archipelago.RoutableService;
 import com.hellblazer.delos.stereotomy.event.proto.*;
@@ -31,10 +30,10 @@ public class KERLServer extends KERLServiceImplBase {
 
     @Override
     public void append(KeyEventsContext request, StreamObserver<KeyStates> responseObserver) {
-        Context timer = metrics != null ? metrics.appendEventsService().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
             metrics.recordInboundBandwidth(request.getSerializedSize());
-            metrics.inboundAppendEventsRequest().mark(request.getSerializedSize());
+            metrics.recordInboundAppendEventsRequest(request.getSerializedSize());
         }
         routing.evaluate(responseObserver, s -> {
             var result = s.append(request.getKeyEventList());
@@ -42,8 +41,8 @@ public class KERLServer extends KERLServiceImplBase {
                 responseObserver.onNext(KeyStates.getDefaultInstance());
                 responseObserver.onCompleted();
             } else {
-                if (timer != null) {
-                    timer.stop();
+                if (metrics != null) {
+                    metrics.recordAppendEventsServiceDuration(System.nanoTime() - start);
                 }
                 var states = result == null ? KeyStates.getDefaultInstance()
                                             : KeyStates.newBuilder().addAllKeyStates(result).build();
@@ -52,7 +51,7 @@ public class KERLServer extends KERLServiceImplBase {
                 if (metrics != null) {
                     final var serializedSize = states.getSerializedSize();
                     metrics.recordOutboundBandwidth(serializedSize);
-                    metrics.outboundAppendEventsResponse().mark(serializedSize);
+                    metrics.recordOutboundAppendEventsResponse(serializedSize);
                 }
             }
         });
@@ -60,15 +59,15 @@ public class KERLServer extends KERLServiceImplBase {
 
     @Override
     public void appendAttachments(AttachmentsContext request, StreamObserver<Empty> responseObserver) {
-        Context timer = metrics != null ? metrics.appendEventsService().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
             metrics.recordInboundBandwidth(request.getSerializedSize());
-            metrics.inboundAppendEventsRequest().mark(request.getSerializedSize());
+            metrics.recordInboundAppendEventsRequest(request.getSerializedSize());
         }
         routing.evaluate(responseObserver, s -> {
             var result = s.appendAttachments(request.getAttachmentsList());
-            if (timer != null) {
-                timer.stop();
+            if (metrics != null) {
+                metrics.recordAppendEventsServiceDuration(System.nanoTime() - start);
             }
             responseObserver.onNext(result);
             responseObserver.onCompleted();
@@ -77,15 +76,15 @@ public class KERLServer extends KERLServiceImplBase {
 
     @Override
     public void appendKERL(KERLContext request, StreamObserver<KeyStates> responseObserver) {
-        Context timer = metrics != null ? metrics.appendKERLService().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
             metrics.recordInboundBandwidth(request.getSerializedSize());
-            metrics.inboundAppendKERLRequest().mark(request.getSerializedSize());
+            metrics.recordInboundAppendKERLRequest(request.getSerializedSize());
         }
         routing.evaluate(responseObserver, s -> {
             var result = s.append(request.getKerl());
-            if (timer != null) {
-                timer.stop();
+            if (metrics != null) {
+                metrics.recordAppendKERLServiceDuration(System.nanoTime() - start);
             }
             var results =
             result == null ? KeyStates.getDefaultInstance() : KeyStates.newBuilder().addAllKeyStates(result).build();
@@ -94,22 +93,22 @@ public class KERLServer extends KERLServiceImplBase {
             if (metrics != null) {
                 final var serializedSize = results.getSerializedSize();
                 metrics.recordOutboundBandwidth(serializedSize);
-                metrics.outboundAppendKERLResponse().mark(serializedSize);
+                metrics.recordOutboundAppendKERLResponse(serializedSize);
             }
         });
     }
 
     @Override
     public void appendValidations(Validations request, StreamObserver<Empty> responseObserver) {
-        Context timer = metrics != null ? metrics.appendEventsService().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
             metrics.recordInboundBandwidth(request.getSerializedSize());
-            metrics.inboundAppendEventsRequest().mark(request.getSerializedSize());
+            metrics.recordInboundAppendEventsRequest(request.getSerializedSize());
         }
         routing.evaluate(responseObserver, s -> {
             var result = s.appendValidations(request);
-            if (timer != null) {
-                timer.stop();
+            if (metrics != null) {
+                metrics.recordAppendEventsServiceDuration(System.nanoTime() - start);
             }
             responseObserver.onNext(result);
             responseObserver.onCompleted();
@@ -119,15 +118,15 @@ public class KERLServer extends KERLServiceImplBase {
     @Override
     public void appendWithAttachments(KeyEventWithAttachmentsContext request,
                                       StreamObserver<KeyStates> responseObserver) {
-        Context timer = metrics != null ? metrics.appendWithAttachmentsService().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
             metrics.recordInboundBandwidth(request.getSerializedSize());
-            metrics.inboundAppendWithAttachmentsRequest().mark(request.getSerializedSize());
+            metrics.recordInboundAppendWithAttachmentsRequest(request.getSerializedSize());
         }
         routing.evaluate(responseObserver, s -> {
             var result = s.append(request.getEventsList(), request.getAttachmentsList());
-            if (timer != null) {
-                timer.stop();
+            if (metrics != null) {
+                metrics.recordAppendWithAttachmentsServiceDuration(System.nanoTime() - start);
             }
             var states =
             result == null ? KeyStates.getDefaultInstance() : KeyStates.newBuilder().addAllKeyStates(result).build();
@@ -136,30 +135,30 @@ public class KERLServer extends KERLServiceImplBase {
             if (metrics != null) {
                 final var serializedSize = states.getSerializedSize();
                 metrics.recordOutboundBandwidth(serializedSize);
-                metrics.outboundAppendWithAttachmentsResponse().mark(serializedSize);
+                metrics.recordOutboundAppendWithAttachmentsResponse(serializedSize);
             }
         });
     }
 
     @Override
     public void getAttachment(EventCoords request, StreamObserver<Attachment> responseObserver) {
-        Context timer = metrics != null ? metrics.getAttachmentService().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
             final var serializedSize = request.getSerializedSize();
             metrics.recordInboundBandwidth(serializedSize);
-            metrics.inboundGetAttachmentRequest().mark(serializedSize);
+            metrics.recordInboundGetAttachmentRequest(serializedSize);
         }
         routing.evaluate(responseObserver, s -> {
             var response = s.getAttachment(request);
             if (response == null) {
-                if (timer != null) {
-                    timer.stop();
+                if (metrics != null) {
+                    metrics.recordGetAttachmentServiceDuration(System.nanoTime() - start);
                 }
                 responseObserver.onNext(Attachment.getDefaultInstance());
                 responseObserver.onCompleted();
             } else {
-                if (timer != null) {
-                    timer.stop();
+                if (metrics != null) {
+                    metrics.recordGetAttachmentServiceDuration(System.nanoTime() - start);
                 }
                 Attachment attachment = response == null ? Attachment.getDefaultInstance() : response;
                 responseObserver.onNext(attachment);
@@ -167,7 +166,7 @@ public class KERLServer extends KERLServiceImplBase {
                 if (metrics != null) {
                     final var serializedSize = attachment.getSerializedSize();
                     metrics.recordOutboundBandwidth(serializedSize);
-                    metrics.outboundGetAttachmentResponse().mark(serializedSize);
+                    metrics.recordOutboundGetAttachmentResponse(serializedSize);
                 }
             }
         });
@@ -175,16 +174,16 @@ public class KERLServer extends KERLServiceImplBase {
 
     @Override
     public void getKERL(Ident request, StreamObserver<KERL_> responseObserver) {
-        Context timer = metrics != null ? metrics.getKERLService().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
             final var serializedSize = request.getSerializedSize();
             metrics.recordInboundBandwidth(serializedSize);
-            metrics.inboundGetKERLRequest().mark(serializedSize);
+            metrics.recordInboundGetKERLRequest(serializedSize);
         }
         routing.evaluate(responseObserver, s -> {
             var response = s.getKERL(request);
-            if (timer != null) {
-                timer.stop();
+            if (metrics != null) {
+                metrics.recordGetKERLServiceDuration(System.nanoTime() - start);
             }
             var kerl = response == null ? KERL_.getDefaultInstance() : response;
             responseObserver.onNext(kerl);
@@ -192,22 +191,22 @@ public class KERLServer extends KERLServiceImplBase {
             if (metrics != null) {
                 final var serializedSize = kerl.getSerializedSize();
                 metrics.recordOutboundBandwidth(serializedSize);
-                metrics.outboundGetKERLResponse().mark(serializedSize);
+                metrics.recordOutboundGetKERLResponse(serializedSize);
             }
         });
     }
 
     @Override
     public void getKeyEventCoords(EventCoords request, StreamObserver<KeyEvent_> responseObserver) {
-        Context timer = metrics != null ? metrics.getKeyEventCoordsService().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
             metrics.recordInboundBandwidth(request.getSerializedSize());
-            metrics.inboundGetKeyEventCoordsRequest().mark(request.getSerializedSize());
+            metrics.recordInboundGetKeyEventCoordsRequest(request.getSerializedSize());
         }
         routing.evaluate(responseObserver, s -> {
             var response = s.getKeyEvent(request);
-            if (timer != null) {
-                timer.stop();
+            if (metrics != null) {
+                metrics.recordGetKeyEventCoordsServiceDuration(System.nanoTime() - start);
             }
             var event = response == null ? KeyEvent_.getDefaultInstance() : response;
             responseObserver.onNext(event);
@@ -215,46 +214,46 @@ public class KERLServer extends KERLServiceImplBase {
             if (metrics != null) {
                 final var serializedSize = event.getSerializedSize();
                 metrics.recordOutboundBandwidth(serializedSize);
-                metrics.outboundGetKeyEventCoordsResponse().mark(serializedSize);
+                metrics.recordOutboundGetKeyEventCoordsResponse(serializedSize);
             }
         });
     }
 
     @Override
     public void getKeyState(Ident request, StreamObserver<KeyState_> responseObserver) {
-        Context timer = metrics != null ? metrics.getKeyStateService().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
             final var serializedSize = request.getSerializedSize();
             metrics.recordInboundBandwidth(serializedSize);
-            metrics.inboundGetKeyStateRequest().mark(serializedSize);
+            metrics.recordInboundGetKeyStateRequest(serializedSize);
         }
         routing.evaluate(responseObserver, s -> {
             var response = s.getKeyState(request);
-            if (timer != null) {
-                timer.stop();
+            if (metrics != null) {
+                metrics.recordGetKeyStateServiceDuration(System.nanoTime() - start);
             }
             var state = response == null ? KeyState_.getDefaultInstance() : response;
             responseObserver.onNext(state);
             responseObserver.onCompleted();
             if (metrics != null) {
                 metrics.recordOutboundBandwidth(state.getSerializedSize());
-                metrics.outboundGetKeyStateResponse().mark(state.getSerializedSize());
+                metrics.recordOutboundGetKeyStateResponse(state.getSerializedSize());
             }
         });
     }
 
     @Override
     public void getKeyStateCoords(EventCoords request, StreamObserver<KeyState_> responseObserver) {
-        Context timer = metrics != null ? metrics.getKeyStateCoordsService().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
             final var serializedSize = request.getSerializedSize();
             metrics.recordInboundBandwidth(serializedSize);
-            metrics.inboundGetKeyStateCoordsRequest().mark(serializedSize);
+            metrics.recordInboundGetKeyStateCoordsRequest(serializedSize);
         }
         routing.evaluate(responseObserver, s -> {
             var response = s.getKeyState(request);
-            if (timer != null) {
-                timer.stop();
+            if (metrics != null) {
+                metrics.recordGetKeyStateCoordsServiceDuration(System.nanoTime() - start);
             }
             var state = response == null ? KeyState_.getDefaultInstance() : response;
             responseObserver.onNext(state);
@@ -262,30 +261,30 @@ public class KERLServer extends KERLServiceImplBase {
             if (metrics != null) {
                 final var serializedSize = state.getSerializedSize();
                 metrics.recordOutboundBandwidth(serializedSize);
-                metrics.outboundGetKeyStateCoordsResponse().mark(serializedSize);
+                metrics.recordOutboundGetKeyStateCoordsResponse(serializedSize);
             }
         });
     }
 
     @Override
     public void getKeyStateSeqNum(IdentAndSeq request, StreamObserver<KeyState_> responseObserver) {
-        Context timer = metrics != null ? metrics.getKeyStateService().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
             final var serializedSize = request.getSerializedSize();
             metrics.recordInboundBandwidth(serializedSize);
-            metrics.inboundGetKeyStateRequest().mark(serializedSize);
+            metrics.recordInboundGetKeyStateRequest(serializedSize);
         }
         routing.evaluate(responseObserver, s -> {
             var response = s.getKeyStateSeqNum(request);
-            if (timer != null) {
-                timer.stop();
+            if (metrics != null) {
+                metrics.recordGetKeyStateServiceDuration(System.nanoTime() - start);
             }
             var state = response == null ? KeyState_.getDefaultInstance() : response;
             responseObserver.onNext(state);
             responseObserver.onCompleted();
             if (metrics != null) {
                 metrics.recordOutboundBandwidth(state.getSerializedSize());
-                metrics.outboundGetKeyStateResponse().mark(state.getSerializedSize());
+                metrics.recordOutboundGetKeyStateResponse(state.getSerializedSize());
             }
         });
     }
@@ -293,39 +292,39 @@ public class KERLServer extends KERLServiceImplBase {
     @Override
     public void getKeyStateWithAttachments(EventCoords request,
                                            StreamObserver<KeyStateWithAttachments_> responseObserver) {
-        Context timer = metrics != null ? metrics.getKeyStateService().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
             final var serializedSize = request.getSerializedSize();
             metrics.recordInboundBandwidth(serializedSize);
-            metrics.inboundGetKeyStateRequest().mark(serializedSize);
+            metrics.recordInboundGetKeyStateRequest(serializedSize);
         }
         routing.evaluate(responseObserver, s -> {
             var response = s.getKeyStateWithAttachments(request);
-            if (timer != null) {
-                timer.stop();
+            if (metrics != null) {
+                metrics.recordGetKeyStateServiceDuration(System.nanoTime() - start);
             }
             var state = response == null ? KeyStateWithAttachments_.getDefaultInstance() : response;
             responseObserver.onNext(state);
             responseObserver.onCompleted();
             if (metrics != null) {
                 metrics.recordOutboundBandwidth(state.getSerializedSize());
-                metrics.outboundGetKeyStateResponse().mark(state.getSerializedSize());
+                metrics.recordOutboundGetKeyStateResponse(state.getSerializedSize());
             }
         });
     }
 
     @Override
     public void getValidations(EventCoords request, StreamObserver<Validations> responseObserver) {
-        Context timer = metrics != null ? metrics.getAttachmentService().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
             final var serializedSize = request.getSerializedSize();
             metrics.recordInboundBandwidth(serializedSize);
-            metrics.inboundGetAttachmentRequest().mark(serializedSize);
+            metrics.recordInboundGetAttachmentRequest(serializedSize);
         }
         routing.evaluate(responseObserver, s -> {
             var response = s.getValidations(request);
-            if (timer != null) {
-                timer.stop();
+            if (metrics != null) {
+                metrics.recordGetAttachmentServiceDuration(System.nanoTime() - start);
             }
             var validations = response == null ? Validations.getDefaultInstance() : response;
             responseObserver.onNext(validations);
@@ -333,7 +332,7 @@ public class KERLServer extends KERLServiceImplBase {
             if (metrics != null) {
                 final var serializedSize = validations.getSerializedSize();
                 metrics.recordOutboundBandwidth(serializedSize);
-                metrics.outboundGetAttachmentResponse().mark(serializedSize);
+                metrics.recordOutboundGetAttachmentResponse(serializedSize);
             }
         });
     }
