@@ -16,6 +16,7 @@ import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
+import com.hellblazer.delos.witness.metrics.WitnessAdapterMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -53,21 +54,35 @@ public class FirefliesWitnessAdapter {
     private static final Logger log = LoggerFactory.getLogger(FirefliesWitnessAdapter.class);
 
     private final DigestAlgorithm digestAlgorithm;
+    private final WitnessAdapterMetrics metrics;
 
     /**
-     * Create adapter with default digest algorithm.
+     * Create adapter with default digest algorithm and no metrics.
      */
     public FirefliesWitnessAdapter() {
-        this(DigestAlgorithm.DEFAULT);
+        this(DigestAlgorithm.DEFAULT, WitnessAdapterMetrics.NOOP);
     }
 
     /**
-     * Create adapter with specific digest algorithm.
+     * Create adapter with specific digest algorithm and no metrics.
      *
      * @param digestAlgorithm Algorithm for hashing event coordinates
      */
     public FirefliesWitnessAdapter(DigestAlgorithm digestAlgorithm) {
+        this(digestAlgorithm, WitnessAdapterMetrics.NOOP);
+    }
+
+    /**
+     * Create adapter with specific digest algorithm and metrics.
+     * <p>
+     * Phase 6: Production hardening with metrics support.
+     *
+     * @param digestAlgorithm Algorithm for hashing event coordinates
+     * @param metrics         Metrics collector for monitoring
+     */
+    public FirefliesWitnessAdapter(DigestAlgorithm digestAlgorithm, WitnessAdapterMetrics metrics) {
         this.digestAlgorithm = Objects.requireNonNull(digestAlgorithm, "digestAlgorithm cannot be null");
+        this.metrics = Objects.requireNonNull(metrics, "metrics cannot be null");
     }
 
     /**
@@ -144,6 +159,8 @@ public class FirefliesWitnessAdapter {
 
     /**
      * Create a DynamicContext configured for KERI witness requirements.
+     * <p>
+     * Phase 6: Records context creation latency and bias metrics.
      *
      * @param contextId    Context identifier
      * @param witnessCount Total witnesses (becomes ringCount)
@@ -154,22 +171,35 @@ public class FirefliesWitnessAdapter {
      */
     public <T extends Member> DynamicContext<T> createContext(Digest contextId, int witnessCount, int threshold,
                                                                double pByz) {
-        int bias = computeBias(witnessCount, threshold);
+        var startTime = System.nanoTime();
+        metrics.incrementContextCreations();
 
-        log.info("Creating Fireflies context for KERI: witnesses={}, threshold={}, bias={}, pByz={}",
-                 witnessCount, threshold, bias, pByz);
+        try {
+            int bias = computeBias(witnessCount, threshold);
+            metrics.recordBiasValue(bias);
 
-        var context = new DynamicContextImpl<T>(contextId, witnessCount, pByz, bias);
+            log.info("Creating Fireflies context for KERI: witnesses={}, threshold={}, bias={}, pByz={}",
+                     witnessCount, threshold, bias, pByz);
 
-        // Verify configuration
-        int actualMajority = context.majority();
-        if (actualMajority != threshold) {
-            log.warn("Majority mismatch: expected={}, actual={} (witnesses={}, bias={}). " +
-                     "This may be due to integer division in tolerance calculation.",
-                     threshold, actualMajority, witnessCount, bias);
+            var context = new DynamicContextImpl<T>(contextId, witnessCount, pByz, bias);
+
+            // Verify configuration
+            int actualMajority = context.majority();
+            if (actualMajority != threshold) {
+                log.warn("Majority mismatch: expected={}, actual={} (witnesses={}, bias={}). " +
+                         "This may be due to integer division in tolerance calculation.",
+                         threshold, actualMajority, witnessCount, bias);
+            }
+
+            // Record latency
+            var latencyMicros = (System.nanoTime() - startTime) / 1_000;
+            metrics.recordContextCreationLatency(latencyMicros);
+
+            return context;
+        } catch (Exception e) {
+            metrics.incrementContextCreationFailures();
+            throw e;
         }
-
-        return context;
     }
 
     /**
@@ -177,25 +207,47 @@ public class FirefliesWitnessAdapter {
      * <p>
      * Uses Fireflies' bftSubset() for deterministic committee selection.
      * The same event coordinates always produce the same witness set.
+     * <p>
+     * Phase 6: Records selection latency and committee size metrics.
      *
      * @param context          Fireflies context
      * @param eventCoordinates Event being witnessed
      * @param <T>              Member type
      * @return Deterministic set of witnesses for this event
      * @throws NullPointerException if context or eventCoordinates is null
+     * @throws IllegalStateException if circuit breaker is open (too many failures)
      */
     public <T extends Member> SequencedSet<T> selectWitnesses(Context<T> context, EventCoordinates eventCoordinates) {
         Objects.requireNonNull(context, "context cannot be null");
         Objects.requireNonNull(eventCoordinates, "eventCoordinates cannot be null");
 
-        Digest eventHash = hashEventCoordinates(eventCoordinates);
-        var witnesses = context.bftSubset(eventHash);
-
-        if (log.isDebugEnabled()) {
-            log.debug("Selected {} witnesses for event {}", witnesses.size(), eventCoordinates.getDigest());
+        // Check circuit breaker
+        if (metrics.isCircuitBreakerOpen()) {
+            metrics.incrementSelectionsFailed();
+            throw new IllegalStateException("Circuit breaker open - too many recent failures");
         }
 
-        return witnesses;
+        var startTime = System.nanoTime();
+        try {
+            Digest eventHash = hashEventCoordinates(eventCoordinates);
+            var witnesses = context.bftSubset(eventHash);
+
+            // Record metrics
+            var latencyMicros = (System.nanoTime() - startTime) / 1_000;
+            metrics.recordSelectionLatency(latencyMicros);
+            metrics.recordCommitteeSize(witnesses.size());
+            metrics.incrementSelectionsSuccessful();
+
+            if (log.isDebugEnabled()) {
+                log.debug("Selected {} witnesses for event {} in {}µs",
+                    witnesses.size(), eventCoordinates.getDigest(), latencyMicros);
+            }
+
+            return witnesses;
+        } catch (Exception e) {
+            metrics.incrementSelectionsFailed();
+            throw e;
+        }
     }
 
     /**
@@ -284,5 +336,41 @@ public class FirefliesWitnessAdapter {
         }
 
         return sb.toString();
+    }
+
+    /**
+     * Get the metrics collector for this adapter.
+     * <p>
+     * Phase 6: Access metrics for monitoring and health checks.
+     *
+     * @return Metrics collector
+     */
+    public WitnessAdapterMetrics getMetrics() {
+        return metrics;
+    }
+
+    /**
+     * Check if the adapter is healthy based on current metrics.
+     * <p>
+     * Health criteria:
+     * <ul>
+     *   <li>Selection latency p95 ≤ 100ms</li>
+     *   <li>Failure rate < 1%</li>
+     *   <li>Circuit breaker closed</li>
+     * </ul>
+     *
+     * @return true if adapter is operating within SLA
+     */
+    public boolean isHealthy() {
+        return metrics.getSnapshot().isHealthy();
+    }
+
+    /**
+     * Get a snapshot of current metrics for monitoring dashboards.
+     *
+     * @return Current metrics snapshot
+     */
+    public WitnessAdapterMetrics.Snapshot getMetricsSnapshot() {
+        return metrics.getSnapshot();
     }
 }
