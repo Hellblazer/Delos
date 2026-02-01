@@ -13,6 +13,7 @@
 package com.hellblazer.delos.witness;
 
 import com.hellblazer.delos.context.Context;
+import com.hellblazer.delos.context.DynamicContext;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.cryptography.bls.impl.TekuBLSProvider;
@@ -130,6 +131,51 @@ public class WitnessContext {
             .map(Member::getId)
             .map(this::toIdentifier)
             .collect(Collectors.toSet());
+    }
+
+    /**
+     * Create a WitnessContext with Fireflies context configured for KERI threshold semantics.
+     * <p>
+     * Uses {@link FirefliesWitnessAdapter} to compute the proper Fireflies bias that maps
+     * KERI witness threshold (k witnesses, threshold signatures) to Fireflies majority semantics.
+     * <p>
+     * Phase 6 Integration: This factory method bridges KERI witness requirements with
+     * Fireflies BFT committee selection, ensuring threshold compatibility.
+     *
+     * @param contextId       Fireflies context identifier
+     * @param parameters      Witness configuration (k, threshold, epoch, drainPeriod)
+     * @param pByz            Probability of Byzantine member (typically 0.1)
+     * @param digestAlgorithm Algorithm for event hashing
+     * @param <T>             Member type
+     * @return WitnessContext with properly configured Fireflies context
+     */
+    public static <T extends Member> WitnessContext createWithAdapter(
+            Digest contextId,
+            WitnessParameters parameters,
+            double pByz,
+            DigestAlgorithm digestAlgorithm) {
+        var adapter = new FirefliesWitnessAdapter(digestAlgorithm);
+        DynamicContext<T> firefliesContext = adapter.createContext(
+            contextId, parameters.k(), parameters.threshold(), pByz);
+        return new WitnessContext(firefliesContext, parameters, digestAlgorithm);
+    }
+
+    /**
+     * Create a WitnessContext with default digest algorithm.
+     * <p>
+     * Convenience overload of {@link #createWithAdapter(Digest, WitnessParameters, double, DigestAlgorithm)}.
+     *
+     * @param contextId  Fireflies context identifier
+     * @param parameters Witness configuration
+     * @param pByz       Probability of Byzantine member
+     * @param <T>        Member type
+     * @return WitnessContext with properly configured Fireflies context
+     */
+    public static <T extends Member> WitnessContext createWithAdapter(
+            Digest contextId,
+            WitnessParameters parameters,
+            double pByz) {
+        return createWithAdapter(contextId, parameters, pByz, DigestAlgorithm.DEFAULT);
     }
 
     /**

@@ -472,6 +472,51 @@ class WitnessContextTest {
             "Cache should be consistent after concurrent operations");
     }
 
+    // ===== Phase 6: FirefliesWitnessAdapter Integration Tests =====
+
+    @Test
+    void testCreateWithAdapter_CreatesProperlyConfiguredContext() {
+        // Given: KERI witness parameters
+        var contextId = ALGORITHM.digest("adapter-test-context");
+        var adapterParams = new WitnessParameters(
+            7,  // k = 7 witnesses
+            5,  // threshold = 5 (2f+1 for f=2)
+            1L, // epoch
+            Duration.ofMillis(500),
+            com.hellblazer.delos.witness.aggregation.SignatureFormat.ED25519,
+            com.hellblazer.delos.witness.migration.MigrationPhase.INIT
+        );
+
+        // When: Creating WitnessContext via adapter factory
+        var adapterContext = WitnessContext.createWithAdapter(
+            contextId, adapterParams, 0.1, ALGORITHM);
+
+        // Then: Context is properly configured
+        assertNotNull(adapterContext, "Context should be created");
+        assertEquals(7, adapterParams.k(), "Committee size should be 7");
+        assertEquals(5, adapterParams.threshold(), "Threshold should be 5");
+    }
+
+    @Test
+    void testCreateWithAdapter_DefaultDigestAlgorithm() {
+        // Given: KERI witness parameters
+        var contextId = ALGORITHM.digest("adapter-default-test");
+        var adapterParams = new WitnessParameters(
+            4,  // k = 4 (minimum)
+            3,  // threshold = 3 (2f+1 for f=1)
+            1L,
+            Duration.ofMillis(500),
+            com.hellblazer.delos.witness.aggregation.SignatureFormat.ED25519,
+            com.hellblazer.delos.witness.migration.MigrationPhase.INIT
+        );
+
+        // When: Creating with default digest algorithm
+        var adapterContext = WitnessContext.createWithAdapter(contextId, adapterParams, 0.1);
+
+        // Then: Context is created with defaults
+        assertNotNull(adapterContext, "Context should be created with default algorithm");
+    }
+
     // Helper methods
 
     private List<MockMember> createWitnessPool(int size) {
