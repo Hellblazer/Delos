@@ -8,6 +8,7 @@
 package com.hellblazer.delos.membership.byzantine.testing;
 
 import com.hellblazer.delos.membership.byzantine.IntelligenceConfig;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -86,6 +87,13 @@ class WeightTuningValidationTest {
             .build();
     }
 
+    @AfterEach
+    void tearDown() {
+        if (harness != null) {
+            harness.close();
+        }
+    }
+
     /**
      * Validates false positive rate is ≤10% under normal load.
      * <p>
@@ -111,8 +119,8 @@ class WeightTuningValidationTest {
         var metrics = harness.getMetrics();
         var fpRate = metrics.getFalsePositiveRate();
 
-        log.info("False positive rate: {:.2f}% (target: ≤{:.0f}%)",
-            fpRate * 100, MAX_FALSE_POSITIVE_RATE * 100);
+        log.info("False positive rate: {}% (target: ≤{}%)",
+            String.format("%.2f", fpRate * 100), String.format("%.0f", MAX_FALSE_POSITIVE_RATE * 100));
         log.info(metrics.getSummary());
 
         assertThat(fpRate)
@@ -154,8 +162,8 @@ class WeightTuningValidationTest {
         var metrics = harness.getMetrics();
         var detectionRate = metrics.getTruePositiveRate();
 
-        log.info("Byzantine detection rate: {:.2f}% (target: ≥{:.0f}%)",
-            detectionRate * 100, MIN_DETECTION_RATE * 100);
+        log.info("Byzantine detection rate: {}% (target: ≥{}%)",
+            String.format("%.2f", detectionRate * 100), String.format("%.0f", MIN_DETECTION_RATE * 100));
         log.info("Detection by fault type: {}", metrics.getDetectionRateByFaultType());
         log.info(metrics.getSummary());
 
@@ -202,16 +210,25 @@ class WeightTuningValidationTest {
                 ? (singleLayerFP - multiLayerFP) / singleLayerFP
                 : 1.0;  // If single-layer has no FPs, multi-layer is at least as good
 
-            log.info("Single-layer FP rate: {:.2f}%", singleLayerFP * 100);
-            log.info("Multi-layer FP rate:  {:.2f}%", multiLayerFP * 100);
-            log.info("FP reduction: {:.2f}% (target: ≥{:.0f}%)",
-                reduction * 100, MIN_MULTI_LAYER_IMPROVEMENT * 100);
+            log.info("Single-layer FP rate: {}%", String.format("%.2f", singleLayerFP * 100));
+            log.info("Multi-layer FP rate:  {}%", String.format("%.2f", multiLayerFP * 100));
+            log.info("FP reduction: {}% (target: ≥{}%)",
+                String.format("%.2f", reduction * 100), String.format("%.0f", MIN_MULTI_LAYER_IMPROVEMENT * 100));
 
-            // For this test, we verify the multi-layer approach performs at least as well
-            // In production, multi-layer correlation reduces noise through weighted aggregation
+            // Verify multi-layer performs at least as well as single-layer
             assertThat(multiLayerFP)
                 .as("Multi-layer FP rate should be ≤ single-layer FP rate")
                 .isLessThanOrEqualTo(singleLayerFP);
+
+            // Note: In test harness with zero FP for both approaches, reduction is 1.0 (100%)
+            // which exceeds the 30% target. In real deployments with noise, multi-layer
+            // correlation reduces false positives through weighted aggregation.
+            if (singleLayerFP > 0) {
+                assertThat(reduction)
+                    .as("Multi-layer should reduce FP by ≥%.0f%% (was %.2f%%)",
+                        MIN_MULTI_LAYER_IMPROVEMENT * 100, reduction * 100)
+                    .isGreaterThanOrEqualTo(MIN_MULTI_LAYER_IMPROVEMENT);
+            }
         }
     }
 
@@ -231,7 +248,7 @@ class WeightTuningValidationTest {
         harness.runPollingCycle();
 
         var rate = harness.getMetrics().getDetectionRateByFaultType().getOrDefault(FaultType.CRASH, 0.0);
-        log.info("CRASH detection rate: {:.2f}%", rate * 100);
+        log.info("CRASH detection rate: {}%", String.format("%.2f", rate * 100));
 
         assertThat(rate)
             .as("CRASH detection rate should be ≥95%%")
@@ -254,7 +271,7 @@ class WeightTuningValidationTest {
         harness.runPollingCycle();
 
         var rate = harness.getMetrics().getDetectionRateByFaultType().getOrDefault(FaultType.DELAY, 0.0);
-        log.info("DELAY detection rate: {:.2f}%", rate * 100);
+        log.info("DELAY detection rate: {}%", String.format("%.2f", rate * 100));
 
         assertThat(rate)
             .as("DELAY detection rate should be ≥95%%")
@@ -277,7 +294,7 @@ class WeightTuningValidationTest {
         harness.runPollingCycle();
 
         var rate = harness.getMetrics().getDetectionRateByFaultType().getOrDefault(FaultType.EQUIVOCATION, 0.0);
-        log.info("EQUIVOCATION detection rate: {:.2f}%", rate * 100);
+        log.info("EQUIVOCATION detection rate: {}%", String.format("%.2f", rate * 100));
 
         assertThat(rate)
             .as("EQUIVOCATION detection rate should be ≥95%%")
