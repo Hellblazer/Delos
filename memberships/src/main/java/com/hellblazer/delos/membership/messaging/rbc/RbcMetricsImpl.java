@@ -1,12 +1,11 @@
 /*
- * Copyright (c) 2021, salesforce.com, inc.
+ * Copyright (c) 2026, Hal Hildebrand.
  * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
+ * GNU Affero General Public License
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
  */
 package com.hellblazer.delos.membership.messaging.rbc;
-
-import static com.codahale.metrics.MetricRegistry.name;
 
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.MetricRegistry;
@@ -14,9 +13,16 @@ import com.codahale.metrics.Timer;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.protocols.EndpointMetricsImpl;
 
+import java.util.concurrent.TimeUnit;
+
+import static com.codahale.metrics.MetricRegistry.name;
+
 /**
- * @author hal.hildebrand
+ * Dropwizard Metrics implementation of RbcMetrics.
+ * <p>
+ * Note: This implementation will be replaced with Micrometer in Phase 2.
  *
+ * @author hal.hildebrand
  */
 public class RbcMetricsImpl extends EndpointMetricsImpl implements RbcMetrics {
     private final Histogram gossipReply;
@@ -47,58 +53,62 @@ public class RbcMetricsImpl extends EndpointMetricsImpl implements RbcMetrics {
         gossipRoundDuration = registry.timer(name(context.shortString(), system, "rbc.gossip.round.duration"));
     }
 
+    // === Size Recording (Histograms) ===
+
     @Override
-    public Histogram gossipReply() {
-        return gossipReply;
+    public void recordGossipReplySize(int bytes) {
+        gossipReply.update(bytes);
     }
 
     @Override
-    public Histogram gossipResponse() {
-        return gossipResponse;
+    public void recordGossipResponseSize(int bytes) {
+        gossipResponse.update(bytes);
     }
 
     @Override
-    public Timer gossipRoundDuration() {
-        return gossipRoundDuration;
+    public void recordInboundGossipSize(int bytes) {
+        inboundGossip.update(bytes);
     }
 
     @Override
-    public Histogram inboundGossip() {
-        return inboundGossip;
+    public void recordInboundUpdateSize(int bytes) {
+        inboundUpdate.update(bytes);
     }
 
     @Override
-    public Timer inboundGossipTimer() {
-        return inboundGossipTimer;
+    public void recordOutboundGossipSize(int bytes) {
+        outboundGossip.update(bytes);
     }
 
     @Override
-    public Histogram inboundUpdate() {
-        return inboundUpdate;
+    public void recordOutboundUpdateSize(int bytes) {
+        outboundUpdate.update(bytes);
+    }
+
+    // === Duration Recording (Timers) ===
+
+    @Override
+    public void recordGossipRoundDuration(long nanos) {
+        gossipRoundDuration.update(nanos, TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer inboundUpdateTimer() {
-        return inboundUpdateTimer;
+    public void recordInboundGossipDuration(long nanos) {
+        inboundGossipTimer.update(nanos, TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Histogram outboundGossip() {
-        return outboundGossip;
+    public void recordInboundUpdateDuration(long nanos) {
+        inboundUpdateTimer.update(nanos, TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Timer outboundGossipTimer() {
-        return outboundGossipTimer;
+    public void recordOutboundGossipDuration(long nanos) {
+        outboundGossipTimer.update(nanos, TimeUnit.NANOSECONDS);
     }
 
     @Override
-    public Histogram outboundUpdate() {
-        return outboundUpdate;
-    }
-
-    @Override
-    public Timer outboundUpdateTimer() {
-        return outboundUpdateTimer;
+    public void recordOutboundUpdateDuration(long nanos) {
+        outboundUpdateTimer.update(nanos, TimeUnit.NANOSECONDS);
     }
 }

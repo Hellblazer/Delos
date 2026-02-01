@@ -1,12 +1,12 @@
 /*
- * Copyright (c) 2020, salesforce.com, inc.
+ * Copyright (c) 2026, Hal Hildebrand.
  * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
+ * GNU Affero General Public License
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
  */
 package com.hellblazer.delos.membership.messaging.rbc.comms;
 
-import com.codahale.metrics.Timer.Context;
 import com.google.protobuf.Empty;
 import com.hellblazer.delos.messaging.proto.MessageBff;
 import com.hellblazer.delos.messaging.proto.RBCGrpc.RBCImplBase;
@@ -40,11 +40,11 @@ public class RbcServer extends RBCImplBase {
 
     @Override
     public void gossip(MessageBff request, StreamObserver<Reconcile> responseObserver) {
-        Context timer = metrics == null ? null : metrics.inboundGossipTimer().time();
+        long start = metrics != null ? System.nanoTime() : 0;
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
             metrics.recordInboundBandwidth(serializedSize);
-            metrics.inboundGossip().update(serializedSize);
+            metrics.recordInboundGossipSize(serializedSize);
         }
         Digest from = identity.getFrom();
         if (from == null) {
@@ -59,11 +59,11 @@ public class RbcServer extends RBCImplBase {
                 if (metrics != null) {
                     var serializedSize = response.getSerializedSize();
                     metrics.recordOutboundBandwidth(serializedSize);
-                    metrics.gossipReply().update(serializedSize);
+                    metrics.recordGossipReplySize(serializedSize);
                 }
             } finally {
-                if (timer != null) {
-                    timer.stop();
+                if (metrics != null) {
+                    metrics.recordInboundGossipDuration(System.nanoTime() - start);
                 }
             }
         });
@@ -71,11 +71,11 @@ public class RbcServer extends RBCImplBase {
 
     @Override
     public void update(ReconcileContext request, StreamObserver<Empty> responseObserver) {
-        Context timer = metrics == null ? null : metrics.inboundUpdateTimer().time();
+        long start = metrics != null ? System.nanoTime() : 0;
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
             metrics.recordInboundBandwidth(serializedSize);
-            metrics.inboundUpdate().update(serializedSize);
+            metrics.recordInboundUpdateSize(serializedSize);
         }
         Digest from = identity.getFrom();
         if (from == null) {
@@ -88,8 +88,8 @@ public class RbcServer extends RBCImplBase {
                 responseObserver.onNext(Empty.getDefaultInstance());
                 responseObserver.onCompleted();
             } finally {
-                if (timer != null) {
-                    timer.stop();
+                if (metrics != null) {
+                    metrics.recordInboundUpdateDuration(System.nanoTime() - start);
                 }
             }
         });
