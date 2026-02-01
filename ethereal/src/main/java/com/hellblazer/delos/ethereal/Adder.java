@@ -68,7 +68,8 @@ public class Adder {
     // Once equivocation detected, all future units/votes from that creator are rejected
     private final        BlacklistStore             blacklistStore;
     // CASCADE FAILURE RECOVERY (Delos-7p41): Track units with transient failures to retry before cascading
-    private final        Set<Digest>                transientFailures = new HashSet<>();
+    // Maps hash -> Waiting for units experiencing transient failures (missing parents, network issues)
+    private final        Map<Digest, Waiting>       transientFailures = new TreeMap<>();
 
     public Adder(int epoch, Dag dag, int maxSize, Config conf, Set<Digest> failed, Verifier[] verifiers,
                  BlacklistStore blacklistStore) {
@@ -968,7 +969,7 @@ public class Adder {
     void markTransientFailure(Waiting wp) {
         locked(() -> {
             wp.markTransientFailure();
-            transientFailures.add(wp.hash());
+            transientFailures.put(wp.hash(), wp);
             log.debug("Marked transient failure (attempt {}): {} on: {}", wp.getTransientFailureCount(), wp,
                       conf.logLabel());
             return null;
@@ -1006,9 +1007,9 @@ public class Adder {
             var timeout = conf.parentFailureRetryTimeoutMillis();
 
             // Find units whose transient failures have timed out
-            for (var hash : transientFailures) {
-                var wp = waiting.get(hash);
-                if (wp != null && wp.isTransientFailureTimedOut(timeout)) {
+            for (var entry : transientFailures.entrySet()) {
+                var wp = entry.getValue();
+                if (wp.isTransientFailureTimedOut(timeout)) {
                     timedOut.add(wp);
                     log.warn(
                     "Transient failure timeout exceeded ({}ms, {} attempts): {} - promoting to permanent failure on: {}",
