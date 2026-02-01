@@ -29,6 +29,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
+import static java.util.concurrent.Executors.newSingleThreadScheduledExecutor;
+
 /**
  * @author hal.hildebrand
  */
@@ -45,6 +47,7 @@ public class Ethereal {
     private final        int                             maxSerializedSize;
     private final        Consumer<Integer>               newEpochAction;
     private final        AtomicBoolean                   started      = new AtomicBoolean();
+    private final        ScheduledExecutorService        timeoutChecker;
     private final        BiConsumer<Boolean, List<Unit>> toPreblock;
     private final        Verifier[]                      verifiers;
     private volatile     boolean                         completeIt   = false;
@@ -73,6 +76,10 @@ public class Ethereal {
             log.trace("Sending: {} on: {}", u, config.logLabel());
             insert(u);
         }, epoch -> new epochProofImpl(config, epoch, new sharesDB(config, new ConcurrentHashMap<>())), verifiers);
+
+        // Create scheduler for periodic timeout checks (Byzantine withholding detection)
+        this.timeoutChecker = newSingleThreadScheduledExecutor(
+            Thread.ofVirtual().name("Ethereal Timeout Checker[" + label + "]").factory());
 
         log.trace("Configured {} processes {}", config.nProc(), config.logLabel());
     }
@@ -224,6 +231,11 @@ public class Ethereal {
         }
         newEpoch(0);
         creator.start();
+
+        // Schedule periodic timeout checks for Byzantine withholding detection
+        var interval = config.timeoutCheckIntervalMillis();
+        timeoutChecker.scheduleAtFixedRate(this::runTimeoutChecks, interval, interval, TimeUnit.MILLISECONDS);
+        log.trace("Started timeout checker with {}ms interval on: {}", interval, config.logLabel());
     }
 
     public void stop() {
@@ -232,6 +244,18 @@ public class Ethereal {
         }
         log.trace("Stopping Ethereal on: {}", config.logLabel());
         completeIt();
+
+        // Stop timeout checker first
+        timeoutChecker.shutdown();
+        try {
+            if (!timeoutChecker.awaitTermination(1000, TimeUnit.MILLISECONDS)) {
+                timeoutChecker.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            timeoutChecker.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+
         consumer.shutdown();
 
         // Gracefully drain pending units with timeout
@@ -252,7 +276,8 @@ public class Ethereal {
         }
 
         creator.stop();
-        epochs.values().forEach(epoch::close);
+        // Use snapshot iteration for defensive programming during concurrent close
+        new ArrayList<>(epochs.values()).forEach(epoch::close);
         epochs.clear();
         failed.clear();
         lastTiming.clear();
@@ -422,6 +447,27 @@ public class Ethereal {
             }
         }
         return epoch;
+    }
+
+    /**
+     * Run timeout checks on all active epochs to detect Byzantine parent withholding.
+     * Called periodically by the timeout checker scheduler.
+     */
+    private void runTimeoutChecks() {
+        if (!started.get()) {
+            return;
+        }
+        final var current = currentEpoch.get();
+        epochs.entrySet()
+              .stream()
+              .filter(e -> e.getKey() >= current)
+              .forEach(e -> {
+                  try {
+                      e.getValue().adder().runTimeoutCheck();
+                  } catch (Exception ex) {
+                      log.warn("Error running timeout check for epoch {} on: {}", e.getKey(), config.logLabel(), ex);
+                  }
+              });
     }
 
     record epoch(int id, Dag dag, Adder adder, AtomicBoolean more) {
