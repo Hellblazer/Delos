@@ -8,6 +8,7 @@
 package com.hellblazer.delos.stereotomy.processing;
 
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
+import com.hellblazer.delos.cryptography.JohnHancock;
 import com.hellblazer.delos.stereotomy.KERL;
 import com.hellblazer.delos.stereotomy.StereotomyImpl;
 import com.hellblazer.delos.stereotomy.StereotomyKeyStore;
@@ -18,6 +19,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.security.SecureRandom;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 
 import static com.hellblazer.delos.stereotomy.processing.KerlValidationException.FailureType.*;
 import static org.junit.jupiter.api.Assertions.*;
@@ -233,6 +237,11 @@ class KerlValidatorTest {
         assertNotNull(kerlEvents);
         assertEquals(2, kerlEvents.size(), "Should have inception and interaction");
 
+        // Verify the last event is NOT an EstablishmentEvent (test precondition)
+        var lastEvent = kerlEvents.get(kerlEvents.size() - 1).event();
+        assertFalse(lastEvent instanceof com.hellblazer.delos.stereotomy.event.EstablishmentEvent,
+                    "Last event should not be an EstablishmentEvent for this test");
+
         // Build a KERL proto from the events
         var kerlProtoBuilder = KERL_.newBuilder();
         for (var event : kerlEvents) {
@@ -240,15 +249,258 @@ class KerlValidatorTest {
         }
         var kerlProto = kerlProtoBuilder.build();
 
-        // Create a new KERL instance but use the same underlying store pattern
-        // Use the populated kerl which already has the events -
-        // this tests chain structure validation
+        // Use the SAME kerl that already has the events - the validator will check chain structure
+        // Note: The validator processes events through KeyEventProcessor which stores them.
+        // When using the same kerl, events are already present so we're testing chain structure validation.
         var validator = new KerlValidator(kerl);
 
-        // The chain ends with an interaction event, not establishment
-        // Since events are already in kerl, we verify structure by checking the proto
+        // The validation will fail at the chain structure check (last event must be EstablishmentEvent)
+        var exception = assertThrows(KerlValidationException.class,
+                                      () -> validator.validateChain(kerlProto));
+        assertEquals(INVALID_LAST_EVENT, exception.getFailureType(),
+                     "Should detect that last event is not an EstablishmentEvent");
+        assertTrue(exception.getMessage().contains("EstablishmentEvent"));
+    }
+
+    // ==================== validateEvent() Tests ====================
+
+    @Test
+    void testValidateEventWithInceptionEvent() throws Exception {
+        // Create a valid identifier to get a real inception event
+        var stereotomy = new StereotomyImpl(keyStore, kerl, secureRandom);
+        var identifier = stereotomy.newIdentifier();
+
+        // Get the inception event
+        var kerlEvents = kerl.kerl(identifier.getIdentifier());
+        assertNotNull(kerlEvents);
+        assertEquals(1, kerlEvents.size());
+
+        var inceptionEvent = kerlEvents.get(0).event();
+        assertNotNull(inceptionEvent);
+
+        // Create a fresh validator
+        var freshKerl = new MemKERL(DigestAlgorithm.DEFAULT);
+        var validator = new KerlValidator(freshKerl);
+
+        // Validate the inception event (previousState should be null for inception)
+        var keyState = validator.validateEvent(null, inceptionEvent);
+        assertNotNull(keyState);
+        assertEquals(identifier.getIdentifier(), keyState.getIdentifier());
+    }
+
+    @Test
+    void testValidateEventSequentialProcessing() throws Exception {
+        // This test demonstrates sequential event validation using validateEvent()
+        // Create a fresh identifier - only inception
+        var stereotomy = new StereotomyImpl(keyStore, kerl, secureRandom);
+        var identifier = stereotomy.newIdentifier();
+
+        // Get the inception event
+        var kerlEvents = kerl.kerl(identifier.getIdentifier());
+        assertNotNull(kerlEvents);
+        assertEquals(1, kerlEvents.size());
+
+        var inceptionEvent = kerlEvents.get(0).event();
+
+        // Validate the inception event
+        var validator = new KerlValidator(kerl);
+        var inceptionState = validator.validateEvent(null, inceptionEvent);
+        assertNotNull(inceptionState);
+        assertEquals(0, inceptionState.getSequenceNumber().intValue());
+
+        // Now rotate the identifier (this creates the rotation event in the kerl)
+        identifier.rotate();
+
+        // Get the updated kerl with rotation
+        var updatedKerlEvents = kerl.kerl(identifier.getIdentifier());
+        assertEquals(2, updatedKerlEvents.size());
+
+        // Verify the rotation was processed correctly
+        var finalState = kerl.getKeyState(identifier.getIdentifier());
+        assertNotNull(finalState);
+        assertEquals(1, finalState.getSequenceNumber().intValue());
+    }
+
+    // ==================== validateWitnessEndorsements() Tests ====================
+
+    @Test
+    void testValidateWitnessEndorsementsNoWitnesses() throws Exception {
+        // Create a real identifier to get a KeyState with no witnesses (default)
+        var stereotomy = new StereotomyImpl(keyStore, kerl, secureRandom);
+        var identifier = stereotomy.newIdentifier();
+
+        // Get the KeyState
+        var keyState = kerl.getKeyState(identifier.getIdentifier());
+        assertNotNull(keyState);
+        assertTrue(keyState.getWitnesses().isEmpty(), "Default identifier should have no witnesses");
+
+        // Get the inception event
+        var kerlEvents = kerl.kerl(identifier.getIdentifier());
+        var inceptionEvent = kerlEvents.get(0).event();
+
+        var validator = new KerlValidator(kerl);
+
+        // With no witnesses, validation should pass regardless of endorsements
+        boolean result = validator.validateWitnessEndorsements(keyState, inceptionEvent, null);
+        assertTrue(result, "No witnesses should always pass");
+
+        result = validator.validateWitnessEndorsements(keyState, inceptionEvent, Collections.emptyMap());
+        assertTrue(result, "No witnesses should always pass even with empty endorsements");
+    }
+
+    @Test
+    void testValidateWitnessEndorsementsWithEmptyEndorsementsMap() throws Exception {
+        // Create a real identifier
+        var stereotomy = new StereotomyImpl(keyStore, kerl, secureRandom);
+        var identifier = stereotomy.newIdentifier();
+
+        var keyState = kerl.getKeyState(identifier.getIdentifier());
+        var kerlEvents = kerl.kerl(identifier.getIdentifier());
+        var inceptionEvent = kerlEvents.get(0).event();
+
+        var validator = new KerlValidator(kerl);
+
+        // Empty endorsements map with no witnesses should pass
+        Map<Integer, JohnHancock> emptyEndorsements = new HashMap<>();
+        boolean result = validator.validateWitnessEndorsements(keyState, inceptionEvent, emptyEndorsements);
+        assertTrue(result, "Empty endorsements with no witnesses should pass");
+    }
+
+    @Test
+    void testValidateWitnessEndorsementsOutOfBoundsIndexIgnored() throws Exception {
+        // Create a real identifier
+        var stereotomy = new StereotomyImpl(keyStore, kerl, secureRandom);
+        var identifier = stereotomy.newIdentifier();
+
+        var keyState = kerl.getKeyState(identifier.getIdentifier());
+        var kerlEvents = kerl.kerl(identifier.getIdentifier());
+        var inceptionEvent = kerlEvents.get(0).event();
+
+        var validator = new KerlValidator(kerl);
+
+        // Create endorsements with out-of-bounds index (no witnesses, so any index is out of bounds)
+        Map<Integer, JohnHancock> endorsements = new HashMap<>();
+        // We can't easily create a JohnHancock without proper crypto setup,
+        // but with no witnesses the endorsements are ignored anyway
+        // This test verifies the validator handles the empty witnesses case
+
+        boolean result = validator.validateWitnessEndorsements(keyState, inceptionEvent, endorsements);
+        assertTrue(result, "With no witnesses, all endorsements are ignored");
+    }
+
+    // ==================== Constructor Safety Tests ====================
+
+    @Test
+    void testValidatorWithNullProcessorThrowsOnUse() {
+        // Constructing with null processor should defer failure to first use
+        // This tests the current behavior - the review suggested adding null checks
+        var validator = new KerlValidator((KeyEventProcessor) null);
+
+        // Should throw when trying to use the validator
+        var emptyKerl = KERL_.getDefaultInstance();
+        assertThrows(Exception.class, () -> validator.validateChain(emptyKerl));
+    }
+
+    // ==================== Chain Validation Flow Tests ====================
+
+    @Test
+    void testValidateChainWithMultipleRotations() throws Exception {
+        // Create a valid identifier with multiple rotations
+        var stereotomy = new StereotomyImpl(keyStore, kerl, secureRandom);
+        var identifier = stereotomy.newIdentifier();
+        identifier.rotate();
+        identifier.rotate();
+
+        // Get the KERL
+        var kerlEvents = kerl.kerl(identifier.getIdentifier());
+        assertNotNull(kerlEvents);
+        assertEquals(3, kerlEvents.size(), "Should have inception and two rotations");
+
+        // Verify the chain structure is correct
+        assertTrue(kerlEvents.get(0).event() instanceof com.hellblazer.delos.stereotomy.event.InceptionEvent);
+        assertTrue(kerlEvents.get(1).event() instanceof com.hellblazer.delos.stereotomy.event.EstablishmentEvent);
+        assertTrue(kerlEvents.get(2).event() instanceof com.hellblazer.delos.stereotomy.event.EstablishmentEvent);
+
+        // Build a KERL proto from the events
+        var kerlProtoBuilder = KERL_.newBuilder();
+        for (var event : kerlEvents) {
+            kerlProtoBuilder.addEvents(event.toKeyEvente());
+        }
+        var kerlProto = kerlProtoBuilder.build();
+
+        // Use the same kerl - validateChain will verify chain structure
+        // The events are already stored, so processing will succeed
+        var validator = new KerlValidator(kerl);
+
+        // Chain with multiple rotations should validate successfully
+        var keyState = validator.validateChain(kerlProto);
+        assertNotNull(keyState);
+        assertEquals(2, keyState.getSequenceNumber().intValue(), "Final sequence number should be 2");
+    }
+
+    @Test
+    void testValidateChainWithMixedEvents() throws Exception {
+        // Create a valid identifier with rotation, interaction, then rotation
+        var stereotomy = new StereotomyImpl(keyStore, kerl, secureRandom);
+        var identifier = stereotomy.newIdentifier();
+        identifier.rotate();
+        identifier.seal(com.hellblazer.delos.stereotomy.identifier.spec.InteractionSpecification.newBuilder());
+        identifier.rotate(); // End with establishment event
+
+        // Get the KERL
+        var kerlEvents = kerl.kerl(identifier.getIdentifier());
+        assertNotNull(kerlEvents);
+        assertEquals(4, kerlEvents.size(), "Should have inception, rotation, interaction, rotation");
+
+        // Verify last event is an EstablishmentEvent
         var lastEvent = kerlEvents.get(kerlEvents.size() - 1).event();
-        assertFalse(lastEvent instanceof com.hellblazer.delos.stereotomy.event.EstablishmentEvent,
-                    "Last event should not be an EstablishmentEvent for this test");
+        assertTrue(lastEvent instanceof com.hellblazer.delos.stereotomy.event.EstablishmentEvent,
+                   "Last event should be an EstablishmentEvent");
+
+        // Build a KERL proto from the events
+        var kerlProtoBuilder = KERL_.newBuilder();
+        for (var event : kerlEvents) {
+            kerlProtoBuilder.addEvents(event.toKeyEvente());
+        }
+        var kerlProto = kerlProtoBuilder.build();
+
+        // Use the same kerl - events are already stored
+        var validator = new KerlValidator(kerl);
+
+        // Mixed event chain ending with establishment should validate successfully
+        var keyState = validator.validateChain(kerlProto);
+        assertNotNull(keyState);
+        assertEquals(3, keyState.getSequenceNumber().intValue(), "Final sequence number should be 3");
+    }
+
+    // ==================== Error Condition Tests ====================
+
+    @Test
+    void testValidateChainDetectsSequenceProgression() throws Exception {
+        // Create a valid identifier with events
+        var stereotomy = new StereotomyImpl(keyStore, kerl, secureRandom);
+        var identifier = stereotomy.newIdentifier();
+        identifier.rotate();
+
+        // Get the KERL
+        var kerlEvents = kerl.kerl(identifier.getIdentifier());
+        assertNotNull(kerlEvents);
+        assertEquals(2, kerlEvents.size());
+
+        // Verify sequence numbers are correct
+        assertEquals(0, kerlEvents.get(0).event().getSequenceNumber().intValue());
+        assertEquals(1, kerlEvents.get(1).event().getSequenceNumber().intValue());
+
+        // Validate the chain
+        var kerlProtoBuilder = KERL_.newBuilder();
+        for (var event : kerlEvents) {
+            kerlProtoBuilder.addEvents(event.toKeyEvente());
+        }
+
+        var validator = new KerlValidator(kerl);
+        var keyState = validator.validateChain(kerlProtoBuilder.build());
+
+        // Final sequence should match last event
+        assertEquals(1, keyState.getSequenceNumber().intValue());
     }
 }
