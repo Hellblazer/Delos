@@ -997,11 +997,18 @@ public class Gorgoneion implements Closeable {
             Gorgoneion.this.registerAsync(request)
                            .whenCompleteAsync((establishment, throwable) -> {
                                if (throwable != null) {
-                                   if (throwable instanceof StatusRuntimeException sre) {
+                                   // Unwrap CompletionException to get the real cause
+                                   var cause = throwable;
+                                   while (cause instanceof CompletionException && cause.getCause() != null) {
+                                       cause = cause.getCause();
+                                   }
+                                   if (cause instanceof StatusRuntimeException sre) {
                                        responseObserver.onError(sre);
                                    } else {
+                                       log.error("Registration failed with unexpected exception: {}", cause.getMessage(), cause);
                                        responseObserver.onError(
-                                       new StatusRuntimeException(Status.INTERNAL.withCause(throwable)));
+                                       new StatusRuntimeException(Status.INTERNAL.withDescription(
+                                           cause.getMessage() != null ? cause.getMessage() : "Registration failed")));
                                    }
                                } else if (establishment == null) {
                                    responseObserver.onError(
