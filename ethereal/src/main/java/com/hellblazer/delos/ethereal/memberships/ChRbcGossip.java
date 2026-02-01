@@ -58,15 +58,27 @@ public class ChRbcGossip {
     private final    AtomicBoolean                                   started  = new AtomicBoolean();
     private final    Terminal                                        terminal = new Terminal();
     private final    ScheduledExecutorService                        scheduler;
+    private final    int                                             retryLimit;
+    private final    long                                            baseBackoffMs;
+    private final    long                                            maxBackoffMs;
     private volatile ScheduledFuture<?>                              scheduled;
 
     public ChRbcGossip(Digest id, SigningMember member, Collection<Member> membership, Processor processor,
                        Router communications, EtherealMetrics m, ScheduledExecutorService scheduler) {
+        this(id, member, membership, processor, communications, m, scheduler, 3, 100L, 5000L);
+    }
+
+    public ChRbcGossip(Digest id, SigningMember member, Collection<Member> membership, Processor processor,
+                       Router communications, EtherealMetrics m, ScheduledExecutorService scheduler,
+                       int retryLimit, long baseBackoffMs, long maxBackoffMs) {
         this.processor = processor;
         this.member = member;
         this.metrics = m;
         this.id = id;
         this.scheduler = scheduler;
+        this.retryLimit = retryLimit;
+        this.baseBackoffMs = baseBackoffMs;
+        this.maxBackoffMs = maxBackoffMs;
         comm = communications.create(member, id, terminal, getClass().getCanonicalName(),
                                      r -> new GossiperServer(communications.getClientIdentityProvider(), metrics, r),
                                      getCreate(metrics), Gossiper.getLocalLoopback(member));
@@ -154,16 +166,62 @@ public class ChRbcGossip {
             return null;
         }
         log.trace("gossiping[{}] with {} on {}", id, link.getMember(), member.getId());
-        try {
-            return link.gossip(processor.gossip(id));
-        } catch (StatusRuntimeException e) {
-            log.debug("gossiping[{}] failed: {} with: {} with {} on: {}", id, e.getMessage(), member.getId(),
-                      link.getMember().getId(), member.getId());
-            return null;
-        } catch (Throwable e) {
-            log.warn("gossiping:{} with: {} failed on: {}", id, link.getMember().getId(), member.getId(), e);
-            return null;
+
+        // Retry logic with exponential backoff
+        for (int attempt = 0; attempt <= retryLimit; attempt++) {
+            try {
+                return link.gossip(processor.gossip(id));
+            } catch (StatusRuntimeException e) {
+                if (attempt < retryLimit) {
+                    var backoffMs = calculateBackoff(attempt);
+                    log.debug("gossiping[{}] failed (attempt {}/{}): {} with: {} on: {} - retrying in {}ms",
+                             id, attempt + 1, retryLimit + 1, e.getMessage(), link.getMember().getId(),
+                             member.getId(), backoffMs);
+                    try {
+                        Thread.sleep(backoffMs);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        log.debug("gossiping[{}] retry interrupted with: {} on: {}", id,
+                                 link.getMember().getId(), member.getId());
+                        return null;
+                    }
+                } else {
+                    log.debug("gossiping[{}] failed after {} attempts: {} with: {} on: {}", id, retryLimit + 1,
+                             e.getMessage(), link.getMember().getId(), member.getId());
+                    return null;
+                }
+            } catch (Throwable e) {
+                if (attempt < retryLimit) {
+                    var backoffMs = calculateBackoff(attempt);
+                    log.warn("gossiping[{}] failed unexpectedly (attempt {}/{}): with: {} on: {} - retrying in {}ms",
+                            id, attempt + 1, retryLimit + 1, link.getMember().getId(), member.getId(), backoffMs, e);
+                    try {
+                        Thread.sleep(backoffMs);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        log.warn("gossiping[{}] retry interrupted with: {} on: {}", id,
+                                link.getMember().getId(), member.getId());
+                        return null;
+                    }
+                } else {
+                    log.warn("gossiping[{}] failed after {} attempts: with: {} on: {}", id, retryLimit + 1,
+                            link.getMember().getId(), member.getId(), e);
+                    return null;
+                }
+            }
         }
+        return null;
+    }
+
+    /**
+     * Calculate exponential backoff delay for retry attempt
+     *
+     * @param attempt The retry attempt number (0-based)
+     * @return Backoff delay in milliseconds, capped at maxBackoffMs
+     */
+    private long calculateBackoff(int attempt) {
+        var exponentialBackoff = baseBackoffMs * (1L << attempt);  // 2^attempt
+        return Math.min(exponentialBackoff, maxBackoffMs);
     }
 
     /**

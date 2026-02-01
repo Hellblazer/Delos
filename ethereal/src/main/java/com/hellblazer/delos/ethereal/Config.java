@@ -59,13 +59,19 @@ import java.util.Objects;
  * @param unitTimeoutMillis Timeout threshold for stale waiting units (1000-60000ms, default 5000ms)
  * @param timeoutCheckIntervalMillis Interval for running timeout check (100-10000ms, default 1000ms)
  * @param shutdownDrainTimeoutMillis Timeout for draining pending units during shutdown (1000-60000ms, default 5000ms)
+ * @param parentFailureRetryTimeoutMillis Timeout for retrying transient parent failures before cascading (1000-120000ms, default 30000ms)
  * @param consumerErrorHandler Error handler for consumer failures (null for default behavior)
+ * @param gossipRetryLimit Maximum number of retries for failed gossip RPC calls (1-10, default 3)
+ * @param gossipBaseBackoffMs Base backoff delay in milliseconds for gossip retry (50-1000ms, default 100ms)
+ * @param gossipMaxBackoffMs Maximum backoff delay in milliseconds for gossip retry (1000-30000ms, default 5000ms)
  * @author hal.hildebrand
  */
 public record Config(String label, short nProc, int epochLength, short pid, Signer signer,
                      DigestAlgorithm digestAlgorithm, int numberOfEpochs, WeakThresholdKey WTKey, double bias,
                      double fpr, long unitTimeoutMillis, long timeoutCheckIntervalMillis,
-                     long shutdownDrainTimeoutMillis, ConsumerErrorHandler consumerErrorHandler) {
+                     long shutdownDrainTimeoutMillis, long parentFailureRetryTimeoutMillis,
+                     ConsumerErrorHandler consumerErrorHandler, int gossipRetryLimit, long gossipBaseBackoffMs,
+                     long gossipMaxBackoffMs) {
 
     public static Builder newBuilder() {
         return new Builder();
@@ -92,10 +98,14 @@ public record Config(String label, short nProc, int epochLength, short pid, Sign
         private double                 pByz                         = -1;
         private short                  pid;
         private long                   shutdownDrainTimeoutMillis   = 5000L;  // Default 5 seconds
+        private long                   parentFailureRetryTimeoutMillis = 30000L;  // Default 30 seconds
         private Signer                 signer                       = new MockSigner(SignatureAlgorithm.DEFAULT,
                                                                                       ULong.MIN);
         private long                   timeoutCheckIntervalMillis   = 1000L;  // Default 1 second
         private long                   unitTimeoutMillis            = 5000L;  // Default 5 seconds
+        private int                    gossipRetryLimit             = 3;      // Default 3 retries
+        private long                   gossipBaseBackoffMs          = 100L;   // Default 100ms
+        private long                   gossipMaxBackoffMs           = 5000L;  // Default 5000ms
         private WeakThresholdKey       wtk;
 
         public Builder() {
@@ -135,9 +145,26 @@ public record Config(String label, short nProc, int epochLength, short pid, Sign
                 throw new IllegalArgumentException(
                     "shutdownDrainTimeoutMillis must be between 1000 and 60000 (1-60 seconds): " + shutdownDrainTimeoutMillis);
             }
+            if (parentFailureRetryTimeoutMillis < 1000 || parentFailureRetryTimeoutMillis > 120000) {
+                throw new IllegalArgumentException(
+                    "parentFailureRetryTimeoutMillis must be between 1000 and 120000 (1-120 seconds): " + parentFailureRetryTimeoutMillis);
+            }
+            if (gossipRetryLimit < 1 || gossipRetryLimit > 10) {
+                throw new IllegalArgumentException(
+                    "gossipRetryLimit must be between 1 and 10: " + gossipRetryLimit);
+            }
+            if (gossipBaseBackoffMs < 50 || gossipBaseBackoffMs > 1000) {
+                throw new IllegalArgumentException(
+                    "gossipBaseBackoffMs must be between 50 and 1000 (50ms-1s): " + gossipBaseBackoffMs);
+            }
+            if (gossipMaxBackoffMs < 1000 || gossipMaxBackoffMs > 30000) {
+                throw new IllegalArgumentException(
+                    "gossipMaxBackoffMs must be between 1000 and 30000 (1-30 seconds): " + gossipMaxBackoffMs);
+            }
             return new Config(label, nProc, epochLength, pid, signer, digestAlgorithm, numberOfEpochs, wtk, bias, fpr,
                               unitTimeoutMillis, timeoutCheckIntervalMillis, shutdownDrainTimeoutMillis,
-                              consumerErrorHandler);
+                              parentFailureRetryTimeoutMillis, consumerErrorHandler, gossipRetryLimit,
+                              gossipBaseBackoffMs, gossipMaxBackoffMs);
         }
 
         @Override
@@ -281,6 +308,42 @@ public record Config(String label, short nProc, int epochLength, short pid, Sign
 
         public Builder setConsumerErrorHandler(ConsumerErrorHandler consumerErrorHandler) {
             this.consumerErrorHandler = consumerErrorHandler;
+            return this;
+        }
+
+        public long getParentFailureRetryTimeoutMillis() {
+            return parentFailureRetryTimeoutMillis;
+        }
+
+        public Builder setParentFailureRetryTimeoutMillis(long parentFailureRetryTimeoutMillis) {
+            this.parentFailureRetryTimeoutMillis = parentFailureRetryTimeoutMillis;
+            return this;
+        }
+
+        public int getGossipRetryLimit() {
+            return gossipRetryLimit;
+        }
+
+        public Builder setGossipRetryLimit(int gossipRetryLimit) {
+            this.gossipRetryLimit = gossipRetryLimit;
+            return this;
+        }
+
+        public long getGossipBaseBackoffMs() {
+            return gossipBaseBackoffMs;
+        }
+
+        public Builder setGossipBaseBackoffMs(long gossipBaseBackoffMs) {
+            this.gossipBaseBackoffMs = gossipBaseBackoffMs;
+            return this;
+        }
+
+        public long getGossipMaxBackoffMs() {
+            return gossipMaxBackoffMs;
+        }
+
+        public Builder setGossipMaxBackoffMs(long gossipMaxBackoffMs) {
+            this.gossipMaxBackoffMs = gossipMaxBackoffMs;
             return this;
         }
     }
