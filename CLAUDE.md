@@ -158,6 +158,59 @@ Modules depend on each other through the local Maven repository. Always run `ins
 | delphinius | `Oracle.java` | Relation-based access control |
 | tron | `Fsm.java` | Finite state machine execution |
 | thoth | `Thoth.java` | DHT for key management |
+| witness-service | `WitnessContext.java` | KERI witness network with BLS aggregation |
+
+### FirefliesWitnessAdapter (KERI-Fireflies Integration)
+
+The `FirefliesWitnessAdapter` maps KERI witness thresholds to Fireflies context configuration.
+
+**Key formula:**
+```
+majority = rings - (rings - 1) / bias
+bias = (witnessCount - 1) / (witnessCount - threshold)
+```
+
+**Usage patterns:**
+
+```java
+// Create context with KERI threshold semantics
+var adapter = new FirefliesWitnessAdapter(DigestAlgorithm.DEFAULT);
+DynamicContext<Member> context = adapter.createContext(
+    contextId,
+    witnessCount,  // KERI N (total witnesses)
+    threshold,     // KERI T (required signatures)
+    pByz           // Byzantine probability (typically 0.1)
+);
+
+// Select witnesses deterministically for an event
+SequencedSet<Member> witnesses = adapter.selectWitnesses(context, eventCoordinates);
+
+// Or use WitnessContext factory method
+WitnessContext witnessCtx = WitnessContext.createWithAdapter(
+    contextId, parameters, pByz, DigestAlgorithm.DEFAULT);
+```
+
+**Common threshold configurations:**
+| Witnesses (N) | Threshold (T) | Bias | Description |
+|---------------|---------------|------|-------------|
+| 5 | 3 | 2 | Standard 2f+1 (f=1) |
+| 5 | 4 | 4 | Higher security 3f+1 |
+| 7 | 5 | 3 | Larger committee |
+
+**Production monitoring:**
+```java
+// With metrics (recommended for production)
+var metrics = new WitnessAdapterMetricsImpl(metricRegistry);
+var adapter = new FirefliesWitnessAdapter(DigestAlgorithm.DEFAULT, metrics);
+
+// Health check
+if (!adapter.isHealthy()) {
+    // Check metrics snapshot for SLA violations
+    var snapshot = adapter.getMetricsSnapshot();
+}
+```
+
+**SLA targets:** p95 latency ≤ 100ms, failure rate < 1%, circuit breaker closed
 
 ## Testing Structure
 
