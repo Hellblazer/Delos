@@ -103,6 +103,67 @@ class IntelligenceConfigTest {
     }
 
     @Test
+    void shouldRejectNegativeWeights() {
+        assertThatThrownBy(() -> new IntelligenceConfig(
+            Duration.ofSeconds(5),
+            Map.of(),
+            0.5,
+            0.8,
+            Map.of("LAYER", -0.1), // negative weight
+            Duration.ofSeconds(15),
+            0.95
+        )).isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("LAYER")
+            .hasMessageContaining(">= 0.0");
+    }
+
+    @Test
+    void shouldRejectZeroPollInterval() {
+        assertThatThrownBy(() -> new IntelligenceConfig(
+            Duration.ZERO, // zero interval
+            Map.of(),
+            0.5,
+            0.8,
+            Map.of(),
+            Duration.ofSeconds(15),
+            0.95
+        )).isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("positive");
+    }
+
+    @Test
+    void shouldValidateBuilderParameters() {
+        // Builder validates at set-time
+        assertThatThrownBy(() -> IntelligenceConfig.builder()
+            .warningThreshold(-0.1)
+        ).isInstanceOf(IllegalArgumentException.class);
+
+        assertThatThrownBy(() -> IntelligenceConfig.builder()
+            .criticalThreshold(1.5)
+        ).isInstanceOf(IllegalArgumentException.class);
+
+        assertThatThrownBy(() -> IntelligenceConfig.builder()
+            .layerWeights(Map.of("LAYER", -0.5))
+        ).isInstanceOf(IllegalArgumentException.class);
+
+        assertThatThrownBy(() -> IntelligenceConfig.builder()
+            .defaultPollInterval(Duration.ZERO)
+        ).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void shouldValidateCrossFieldInBuilder() {
+        // Cross-field validation happens at build() time
+        assertThatThrownBy(() -> IntelligenceConfig.builder()
+            .warningThreshold(0.8)
+            .criticalThreshold(0.5) // critical < warning
+            .build()
+        ).isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("criticalThreshold")
+            .hasMessageContaining("warningThreshold");
+    }
+
+    @Test
     void shouldBuildCustomConfig() {
         var config = IntelligenceConfig.builder()
             .defaultPollInterval(Duration.ofSeconds(10))

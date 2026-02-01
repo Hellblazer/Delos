@@ -58,8 +58,8 @@ public interface ByzantineStateProvider {
     /**
      * Get current Byzantine-relevant state for all members with anomalies.
      * <p>
-     * Implementations should only return members with non-zero suspicion to
-     * minimize coordinator overhead. Members with no anomalies should be
+     * Implementations MUST only return members with non-zero suspicion to
+     * minimize coordinator overhead. Members with no anomalies MUST be
      * excluded from the returned map.
      * </p>
      * <p>
@@ -67,7 +67,7 @@ public interface ByzantineStateProvider {
      * The returned map should not reflect changes made after the call.
      * </p>
      *
-     * @return Map of member ID to their current anomaly state (never null)
+     * @return Map of member ID to their current anomaly state (never null, may be empty)
      */
     Map<Identifier, LayerAnomalyState> getMemberAnomalyStates();
 
@@ -106,6 +106,9 @@ public interface ByzantineStateProvider {
      * </p>
      * <p>
      * <b>Thread Safety</b>: Must be safe to call while polling is active.
+     * The reset may complete asynchronously; subsequent polls may return
+     * cleared state or state from in-progress polls. Implementations should
+     * handle concurrent access gracefully.
      * </p>
      */
     void reset();

@@ -42,6 +42,13 @@ class LayerAnomalyStateTest {
     }
 
     @Test
+    void shouldRejectNullEvidenceSummary() {
+        assertThatThrownBy(() -> new LayerAnomalyState(
+            "TEST", 0.5, Instant.now(), List.of(), null
+        )).isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
     void shouldRejectInvalidScore() {
         assertThatThrownBy(() -> new LayerAnomalyState(
             "TEST", -0.1, Instant.now(), List.of(), "test"
@@ -69,6 +76,17 @@ class LayerAnomalyStateTest {
         assertThat(state.anomalyScore()).isEqualTo(0.0);
         assertThat(state.activeSignals()).isEmpty();
         assertThat(state.hasActiveSignals()).isFalse();
+    }
+
+    @Test
+    void shouldCreateNoAnomalyStateWithTimestamp() {
+        var timestamp = Instant.parse("2026-01-31T12:00:00Z");
+        var state = LayerAnomalyState.noAnomaly("THOTH", timestamp);
+
+        assertThat(state.layerName()).isEqualTo("THOTH");
+        assertThat(state.anomalyScore()).isEqualTo(0.0);
+        assertThat(state.lastUpdated()).isEqualTo(timestamp);
+        assertThat(state.activeSignals()).isEmpty();
     }
 
     @Test

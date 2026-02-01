@@ -28,6 +28,7 @@ public class ByzantineIntelligenceMetricsImpl implements ByzantineIntelligenceMe
     private final Counter failedResponses;
     private final Counter cooldownSkips;
     private final Histogram trackedMemberCount;
+    private final Counter providerErrors;
 
     /**
      * Create metrics registered with the given registry.
@@ -56,6 +57,8 @@ public class ByzantineIntelligenceMetricsImpl implements ByzantineIntelligenceMe
             name(prefix, "byzantine.cooldown.skips"));
         this.trackedMemberCount = registry.histogram(
             name(prefix, "byzantine.members.tracked"));
+        this.providerErrors = registry.counter(
+            name(prefix, "byzantine.provider.errors"));
     }
 
     @Override
@@ -106,5 +109,10 @@ public class ByzantineIntelligenceMetricsImpl implements ByzantineIntelligenceMe
     @Override
     public Histogram trackedMemberCount() {
         return trackedMemberCount;
+    }
+
+    @Override
+    public Counter providerErrors() {
+        return providerErrors;
     }
 }

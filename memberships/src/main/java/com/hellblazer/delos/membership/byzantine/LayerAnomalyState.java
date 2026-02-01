@@ -37,6 +37,7 @@ public record LayerAnomalyState(
         Objects.requireNonNull(layerName, "layerName cannot be null");
         Objects.requireNonNull(lastUpdated, "lastUpdated cannot be null");
         Objects.requireNonNull(activeSignals, "activeSignals cannot be null");
+        Objects.requireNonNull(evidenceSummary, "evidenceSummary cannot be null");
 
         if (anomalyScore < 0.0 || anomalyScore > 1.0) {
             throw new IllegalArgumentException("anomalyScore must be in range [0.0, 1.0]");
@@ -47,19 +48,30 @@ public record LayerAnomalyState(
     }
 
     /**
-     * Create a state indicating no anomaly.
+     * Create a state indicating no anomaly with the specified timestamp.
+     *
+     * @param layerName Layer name
+     * @param timestamp Timestamp for the state
+     * @return State with zero score and no signals
+     */
+    public static LayerAnomalyState noAnomaly(String layerName, Instant timestamp) {
+        return new LayerAnomalyState(
+            layerName,
+            0.0,
+            timestamp,
+            List.of(),
+            "No anomalies detected"
+        );
+    }
+
+    /**
+     * Create a state indicating no anomaly using current time.
      *
      * @param layerName Layer name
      * @return State with zero score and no signals
      */
     public static LayerAnomalyState noAnomaly(String layerName) {
-        return new LayerAnomalyState(
-            layerName,
-            0.0,
-            Instant.now(),
-            List.of(),
-            "No anomalies detected"
-        );
+        return noAnomaly(layerName, Instant.now());
     }
 
     /**

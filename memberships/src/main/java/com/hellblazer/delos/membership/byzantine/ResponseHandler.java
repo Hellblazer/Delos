@@ -46,6 +46,12 @@ public interface ResponseHandler {
      * such as shunning or quarantine.
      * </p>
      * <p>
+     * <b>Idempotence</b>: Implementations SHOULD be idempotent. If the same
+     * member is reported multiple times, subsequent calls should return
+     * {@code false} (no action taken) rather than failing or re-applying
+     * the action.
+     * </p>
+     * <p>
      * The returned future completes with:
      * <ul>
      *   <li>{@code true} if action was successfully taken</li>

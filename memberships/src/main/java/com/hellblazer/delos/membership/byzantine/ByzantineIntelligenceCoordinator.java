@@ -29,29 +29,23 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <b>Concurrency Model (Fix 3)</b><br>
  * Multiple layer pollers run concurrently, each with its own scheduled task and
  * independent poll interval. Concurrent updates to {@link MemberRiskProfile} are
- * safe (uses ConcurrentHashMap internally). The {@link #evaluateResponses()} method
+ * safe (uses synchronized methods internally). The {@link #evaluateResponses()} method
  * may see profile state mid-update during a layer poll - this is acceptable for
  * Byzantine detection as we're computing approximate risk, not exact values.
  * </p>
  * <p>
  * <b>Async Response Handling (Fix 1)</b><br>
- * Uses CompletableFuture for response actions. Pending responses are tracked to
- * prevent duplicate actions for the same member. The response cooldown further
- * prevents re-triggering within a configurable window.
+ * Uses CompletableFuture for response actions. Pending responses are tracked atomically
+ * to prevent duplicate actions for the same member. The response cooldown further
+ * prevents re-triggering within a configurable window using atomic compare-and-set.
  * </p>
- * <pre>
- * pendingResponses.add(memberId);
- * responseHandler.handleCritical(memberId, profile)
- *     .thenAccept(success -> {
- *         pendingResponses.remove(memberId);
- *         if (success) recentResponses.put(memberId, clock.instant());
- *     })
- *     .exceptionally(e -> {
- *         pendingResponses.remove(memberId);
- *         log.error("Failed to handle critical response");
- *         return null;
- *     });
- * </pre>
+ * <p>
+ * <b>Decay Behavior</b><br>
+ * Scores decay each evaluation cycle. Members whose scores decay below 0.01 are
+ * removed from tracking. If a layer temporarily stops reporting a member (e.g.,
+ * network partition), the member will be "forgotten" and may be re-detected when
+ * the partition heals. This is intentional - stale data should not persist.
+ * </p>
  *
  * @author hal.hildebrand
  * @see ByzantineStateProvider
@@ -61,6 +55,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class ByzantineIntelligenceCoordinator implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(ByzantineIntelligenceCoordinator.class);
+
+    /**
+     * Minimum thread pool size for scheduler.
+     */
+    private static final int MIN_THREAD_POOL_SIZE = 4;
 
     private final IntelligenceConfig config;
     private final ResponseHandler responseHandler;
@@ -75,11 +74,14 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
     // Member risk profiles (thread-safe)
     private final ConcurrentHashMap<Identifier, MemberRiskProfile> memberProfiles;
 
-    // Pending responses to avoid duplicates
+    // Pending responses to avoid duplicates (atomic add via Set.add() return value)
     private final Set<Identifier> pendingResponses;
 
-    // Recent responses for cooldown tracking
+    // Recent responses for cooldown tracking (atomic via putIfAbsent)
     private final ConcurrentHashMap<Identifier, Instant> recentResponses;
+
+    // Cached minimum poll interval (computed once at start)
+    private volatile Duration minPollInterval;
 
     // Lifecycle
     private final AtomicBoolean started;
@@ -106,8 +108,9 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
 
         this.providers = new CopyOnWriteArrayList<>();
         this.layerPollers = new ConcurrentHashMap<>();
+        // Thread pool scales with expected provider count, minimum 4
         this.scheduler = Executors.newScheduledThreadPool(
-            4, Thread.ofVirtual().name("byzantine-intel-", 0).factory());
+            MIN_THREAD_POOL_SIZE, Thread.ofVirtual().name("byzantine-intel-", 0).factory());
 
         this.memberProfiles = new ConcurrentHashMap<>();
         this.pendingResponses = ConcurrentHashMap.newKeySet();
@@ -164,21 +167,23 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
 
         log.info("Starting Byzantine Intelligence Coordinator with {} providers", providers.size());
 
+        // Cache minimum poll interval
+        minPollInterval = computeMinPollInterval();
+
         // Schedule per-layer pollers (Amendment 6)
         for (var provider : providers) {
             scheduleLayerPoller(provider);
         }
 
         // Schedule response evaluation (runs at fastest poll interval)
-        var evaluationInterval = getMinPollInterval();
         scheduler.scheduleAtFixedRate(
             this::evaluateResponses,
-            evaluationInterval.toMillis(),
-            evaluationInterval.toMillis(),
+            minPollInterval.toMillis(),
+            minPollInterval.toMillis(),
             TimeUnit.MILLISECONDS
         );
 
-        log.info("Coordinator started, evaluation interval: {}ms", evaluationInterval.toMillis());
+        log.info("Coordinator started, evaluation interval: {}ms", minPollInterval.toMillis());
     }
 
     /**
@@ -324,6 +329,7 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
                 provider.getLayerName(), layerStates.size());
 
         } catch (Exception e) {
+            metrics.providerErrors().inc();
             log.error("Error polling layer {}: {}", provider.getLayerName(), e.getMessage(), e);
         } finally {
             timer.stop();
@@ -371,30 +377,37 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
         // Record score distribution
         metrics.aggregatedScoreDistribution().update((long) (profile.getAggregatedScore() * 1000));
 
-        // Skip if already pending
-        if (pendingResponses.contains(memberId)) {
-            return;
+        // Atomically claim pending slot - if add() returns false, already pending
+        // This fixes HIGH #4: race condition on pending check
+        if (!pendingResponses.add(memberId)) {
+            return; // Already pending
         }
 
-        // Check cooldown
+        // Now we have exclusive claim on this member - check cooldown
+        var now = clock.instant();
         var lastResponse = recentResponses.get(memberId);
         if (lastResponse != null) {
-            var elapsed = Duration.between(lastResponse, clock.instant());
+            var elapsed = Duration.between(lastResponse, now);
             if (elapsed.compareTo(config.responseCooldown()) < 0) {
+                // Within cooldown - release the pending slot and skip
+                pendingResponses.remove(memberId);
                 metrics.cooldownSkips().inc();
                 return;
             }
         }
 
-        // Evaluate thresholds
+        // Evaluate thresholds - still holding pending slot
         if (profile.isCritical()) {
-            triggerCriticalResponse(memberId, profile);
+            triggerCriticalResponse(memberId, profile, now);
         } else if (profile.isWarning()) {
-            triggerWarningResponse(memberId, profile);
+            triggerWarningResponse(memberId, profile, now);
+        } else {
+            // Below thresholds - release pending slot
+            pendingResponses.remove(memberId);
         }
     }
 
-    private void triggerCriticalResponse(Identifier memberId, MemberRiskProfile profile) {
+    private void triggerCriticalResponse(Identifier memberId, MemberRiskProfile profile, Instant now) {
         log.warn("CRITICAL Byzantine detection for {}: score={}, sources={}",
             memberId, String.format("%.3f", profile.getAggregatedScore()), profile.getActiveSignalSources());
 
@@ -402,14 +415,27 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
         metrics.responsesTriggered().mark();
         metrics.pendingResponses().inc();
 
-        pendingResponses.add(memberId);
+        // Atomically claim cooldown slot to prevent duplicate responses
+        // This fixes HIGH #3: race condition on cooldown check
+        var previousResponse = recentResponses.putIfAbsent(memberId, now);
+        if (previousResponse != null) {
+            var elapsed = Duration.between(previousResponse, now);
+            if (elapsed.compareTo(config.responseCooldown()) < 0) {
+                // Another thread just triggered response - back off
+                pendingResponses.remove(memberId);
+                metrics.pendingResponses().dec();
+                metrics.cooldownSkips().inc();
+                return;
+            }
+            // Cooldown expired, update the timestamp
+            recentResponses.put(memberId, now);
+        }
 
         responseHandler.handleCritical(memberId, profile)
             .thenAccept(success -> {
                 pendingResponses.remove(memberId);
                 metrics.pendingResponses().dec();
                 if (success) {
-                    recentResponses.put(memberId, clock.instant());
                     log.info("Critical response completed for {}", memberId);
                 } else {
                     log.debug("Critical response skipped for {} (already handled)", memberId);
@@ -424,7 +450,7 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
             });
     }
 
-    private void triggerWarningResponse(Identifier memberId, MemberRiskProfile profile) {
+    private void triggerWarningResponse(Identifier memberId, MemberRiskProfile profile, Instant now) {
         log.info("WARNING Byzantine detection for {}: score={}, sources={}",
             memberId, String.format("%.3f", profile.getAggregatedScore()), profile.getActiveSignalSources());
 
@@ -432,13 +458,23 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
         metrics.responsesTriggered().mark();
         metrics.pendingResponses().inc();
 
-        pendingResponses.add(memberId);
+        // Atomically claim cooldown slot
+        var previousResponse = recentResponses.putIfAbsent(memberId, now);
+        if (previousResponse != null) {
+            var elapsed = Duration.between(previousResponse, now);
+            if (elapsed.compareTo(config.responseCooldown()) < 0) {
+                pendingResponses.remove(memberId);
+                metrics.pendingResponses().dec();
+                metrics.cooldownSkips().inc();
+                return;
+            }
+            recentResponses.put(memberId, now);
+        }
 
         responseHandler.handleWarning(memberId, profile)
             .thenRun(() -> {
                 pendingResponses.remove(memberId);
                 metrics.pendingResponses().dec();
-                recentResponses.put(memberId, clock.instant());
                 log.debug("Warning response completed for {}", memberId);
             })
             .exceptionally(e -> {
@@ -450,7 +486,7 @@ public class ByzantineIntelligenceCoordinator implements AutoCloseable {
             });
     }
 
-    private Duration getMinPollInterval() {
+    private Duration computeMinPollInterval() {
         var min = config.defaultPollInterval();
         for (var interval : config.layerPollIntervals().values()) {
             if (interval.compareTo(min) < 0) {

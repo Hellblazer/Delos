@@ -94,6 +94,13 @@ public interface ByzantineIntelligenceMetrics {
     Histogram trackedMemberCount();
 
     /**
+     * Counter of provider errors during polling.
+     *
+     * @return Counter for provider errors
+     */
+    Counter providerErrors();
+
+    /**
      * No-op implementation for testing.
      *
      * @return Metrics that record nothing
@@ -160,6 +167,11 @@ public interface ByzantineIntelligenceMetrics {
         @Override
         public Histogram trackedMemberCount() {
             return NO_OP_HISTOGRAM;
+        }
+
+        @Override
+        public Counter providerErrors() {
+            return NO_OP_COUNTER;
         }
     }
 }

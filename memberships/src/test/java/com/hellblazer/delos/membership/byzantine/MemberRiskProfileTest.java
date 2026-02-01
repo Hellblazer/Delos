@@ -180,4 +180,46 @@ class MemberRiskProfileTest {
         assertThat(profile.isNegligible(0.01)).isFalse();
         assertThat(profile.isNegligible(0.1)).isTrue();
     }
+
+    @Test
+    void shouldHandleConcurrentDecay() throws InterruptedException {
+        var profile = new MemberRiskProfile(memberId, config);
+        profile.updateLayerState(new LayerAnomalyState(
+            "FIREFLIES", 0.9, Instant.now(), List.of("SIG"), "test"
+        ));
+
+        var initialScore = profile.getAggregatedScore();
+        var threadCount = 10;
+        var decaysPerThread = 100;
+        var latch = new CountDownLatch(threadCount);
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+
+        for (int t = 0; t < threadCount; t++) {
+            executor.submit(() -> {
+                try {
+                    for (int i = 0; i < decaysPerThread; i++) {
+                        profile.applyDecay();
+                    }
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+
+        var completed = latch.await(10, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        assertThat(completed).isTrue();
+        // After many decays, score should be significantly lower
+        assertThat(profile.getAggregatedScore()).isLessThan(initialScore);
+        // Score should still be valid (>= 0)
+        assertThat(profile.getAggregatedScore()).isGreaterThanOrEqualTo(0.0);
+    }
+
+    @Test
+    void shouldHandleZeroTotalWeight() {
+        // Initial profile with no layer states should have zero score
+        var profile = new MemberRiskProfile(memberId, config);
+        assertThat(profile.getAggregatedScore()).isEqualTo(0.0);
+    }
 }
