@@ -56,6 +56,21 @@ class KeyRotationOrchestratorTest {
         scheduler.shutdownNow();
     }
 
+    /**
+     * Poll until the orchestrator reaches the expected phase, with timeout.
+     * This is more reliable than Thread.sleep with fixed delays in CI environments.
+     */
+    private void waitForPhase(String rotationId, KeyRotationPhase expected, long timeoutMs) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            if (orchestrator.getCurrentPhase(rotationId) == expected) {
+                return;
+            }
+            Thread.sleep(10); // Poll interval
+        }
+        // Final assertion will fail with useful message if not reached
+    }
+
     @Test
     void shouldTransitionThroughAllPhases() throws Exception {
         // Given: A rotation ID
@@ -68,24 +83,18 @@ class KeyRotationOrchestratorTest {
         assertThat(orchestrator.getCurrentPhase(rotationId))
             .isEqualTo(KeyRotationPhase.INITIATED);
 
-        // Wait for transition to PRE_ROTATION (10ms scheduled delay + scheduler overhead)
-        Thread.sleep(50);
-
-        // Should transition to PRE_ROTATION
+        // Wait for transition to PRE_ROTATION with polling (more CI-reliable than fixed sleep)
+        waitForPhase(rotationId, KeyRotationPhase.PRE_ROTATION, 200);
         assertThat(orchestrator.getCurrentPhase(rotationId))
             .isEqualTo(KeyRotationPhase.PRE_ROTATION);
 
-        // Wait for pre-rotation delay (100ms) + generous scheduler overhead buffer (50ms)
-        Thread.sleep(160);
-
-        // Should transition to GRACE_PERIOD
+        // Wait for transition to GRACE_PERIOD (preRotationDelay=100ms)
+        waitForPhase(rotationId, KeyRotationPhase.GRACE_PERIOD, 300);
         assertThat(orchestrator.getCurrentPhase(rotationId))
             .isEqualTo(KeyRotationPhase.GRACE_PERIOD);
 
-        // Wait for grace period (50ms) + generous scheduler overhead buffer (50ms)
-        Thread.sleep(110);
-
-        // Should transition to ACTIVATED
+        // Wait for transition to ACTIVATED (gracePeriodDuration=50ms)
+        waitForPhase(rotationId, KeyRotationPhase.ACTIVATED, 200);
         assertThat(orchestrator.getCurrentPhase(rotationId))
             .isEqualTo(KeyRotationPhase.ACTIVATED);
 
@@ -108,24 +117,18 @@ class KeyRotationOrchestratorTest {
         assertThat(orchestrator.getCurrentPhase(rotationId))
             .isEqualTo(KeyRotationPhase.INITIATED);
 
-        // Wait for immediate transition to PRE_ROTATION (10ms + overhead)
-        Thread.sleep(50);
-
-        // Should be in PRE_ROTATION
+        // Wait for transition to PRE_ROTATION with polling
+        waitForPhase(rotationId, KeyRotationPhase.PRE_ROTATION, 200);
         assertThat(orchestrator.getCurrentPhase(rotationId))
             .isEqualTo(KeyRotationPhase.PRE_ROTATION);
 
-        // Wait for less than pre-rotation delay (50ms of 100ms delay + buffer)
-        Thread.sleep(70);
-
-        // Still in PRE_ROTATION
+        // Verify still in PRE_ROTATION after a short wait (well before 100ms preRotationDelay)
+        Thread.sleep(30);
         assertThat(orchestrator.getCurrentPhase(rotationId))
             .isEqualTo(KeyRotationPhase.PRE_ROTATION);
 
-        // Wait for rest of pre-rotation delay to complete (50ms remaining + overhead)
-        Thread.sleep(90);
-
-        // Now in GRACE_PERIOD
+        // Wait for transition to GRACE_PERIOD (preRotationDelay=100ms)
+        waitForPhase(rotationId, KeyRotationPhase.GRACE_PERIOD, 300);
         assertThat(orchestrator.getCurrentPhase(rotationId))
             .isEqualTo(KeyRotationPhase.GRACE_PERIOD);
     }
@@ -372,27 +375,30 @@ class KeyRotationOrchestratorTest {
 
     @Test
     void shouldHandlePhaseCallbacks() throws Exception {
-        // Given: Track phase transition callbacks
-        var callbackCounter = new AtomicInteger(0);
-
-        // When: Start rotation with phase listener
+        // Given: A rotation ID
         var rotationId = "rotation-123";
+
+        // When: Start rotation
         orchestrator.startRotation(rotationId, testMemberId);
 
         // Then: Phases transition correctly (verified by phase queries)
-        Thread.sleep(5);
-        assertThat(orchestrator.getCurrentPhase(rotationId))
-            .isIn(KeyRotationPhase.INITIATED, KeyRotationPhase.PRE_ROTATION); // May have transitioned already
+        // Initially in INITIATED or may have already transitioned to PRE_ROTATION
+        var initialPhase = orchestrator.getCurrentPhase(rotationId);
+        assertThat(initialPhase)
+            .isIn(KeyRotationPhase.INITIATED, KeyRotationPhase.PRE_ROTATION);
 
-        Thread.sleep(50);
+        // Wait for PRE_ROTATION with polling
+        waitForPhase(rotationId, KeyRotationPhase.PRE_ROTATION, 200);
         assertThat(orchestrator.getCurrentPhase(rotationId))
             .isEqualTo(KeyRotationPhase.PRE_ROTATION);
 
-        Thread.sleep(160); // Wait for pre-rotation delay (100ms) + generous overhead
+        // Wait for GRACE_PERIOD with polling (preRotationDelay=100ms)
+        waitForPhase(rotationId, KeyRotationPhase.GRACE_PERIOD, 300);
         assertThat(orchestrator.getCurrentPhase(rotationId))
             .isEqualTo(KeyRotationPhase.GRACE_PERIOD);
 
-        Thread.sleep(110); // Wait for grace period (50ms) + generous overhead
+        // Wait for ACTIVATED with polling (gracePeriodDuration=50ms)
+        waitForPhase(rotationId, KeyRotationPhase.ACTIVATED, 200);
         assertThat(orchestrator.getCurrentPhase(rotationId))
             .isEqualTo(KeyRotationPhase.ACTIVATED);
     }

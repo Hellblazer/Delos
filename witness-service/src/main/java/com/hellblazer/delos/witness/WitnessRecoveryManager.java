@@ -259,6 +259,17 @@ public class WitnessRecoveryManager {
         Long lastProcessedHeight = null;
 
         for (long height = startHeight; height <= endHeight; height++) {
+            // Periodic timeout check during block replay
+            if (Duration.between(startTime, Instant.now()).compareTo(config.recoveryTimeout) > 0) {
+                log.error("Recovery timeout exceeded during block replay at height {}", height);
+                return new RecoveryResult(
+                    RecoveryStatus.TIMEOUT,
+                    blocksReplayed, gapsDetected, viewChangesProcessed, attemptNumber,
+                    Duration.between(startTime, Instant.now()),
+                    "Recovery timeout exceeded during block replay"
+                );
+            }
+
             var ulongHeight = ULong.valueOf(height);
             var certifiedBlock = blockStore.getCertifiedBlock(ulongHeight);
 

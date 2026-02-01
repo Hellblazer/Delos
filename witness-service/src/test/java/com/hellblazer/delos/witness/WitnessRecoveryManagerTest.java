@@ -268,7 +268,7 @@ class WitnessRecoveryManagerTest {
 
     @Test
     void testRecoveryTimeout() {
-        // Create config with very short timeout
+        // Create config with short but measurable timeout
         var config = new WitnessRecoveryManager.RecoveryConfig(
             10,                         // maxRetries
             Duration.ofMillis(10),      // initialRetryDelay
@@ -276,17 +276,23 @@ class WitnessRecoveryManagerTest {
             Duration.ofMillis(100),     // maxRetryDelay
             10,                         // maxGapsAllowed
             false,                      // failOnGaps
-            Duration.ofNanos(1)         // extremely short timeout
+            Duration.ofMillis(5)        // 5ms timeout (realistically measurable)
         );
         var manager = new WitnessRecoveryManager(config);
 
-        // Set up slow recovery
+        // Set up recovery that exceeds timeout
         when(mockCHOAM.getCheckpointManager()).thenReturn(mockCheckpointManager);
         when(mockCHOAM.getBlockStore()).thenReturn(mockBlockStore);
-        when(mockCHOAM.currentHeight()).thenReturn(ULong.valueOf(1000L));
+        when(mockCHOAM.currentHeight()).thenReturn(ULong.valueOf(20L)); // 21 blocks
         when(mockCheckpointManager.lastCheckpoint()).thenReturn(null);
 
-        // Any recovery attempt should timeout immediately
+        // Add delay to block retrieval to ensure timeout is exceeded
+        when(mockBlockStore.getCertifiedBlock(any())).thenAnswer(invocation -> {
+            Thread.sleep(1); // 1ms per block, 21 blocks = 21ms > 5ms timeout
+            return null;
+        });
+
+        // Recovery should timeout during block replay
         var result = manager.recover(mockCHOAM, mockWitnessCHOAM);
 
         assertEquals(WitnessRecoveryManager.RecoveryStatus.TIMEOUT, result.status());
