@@ -132,12 +132,15 @@ public record AggregateWitnessReceipt(
                 // Legacy Ed25519: preserve as individual signatures
                 // For Phase 1B-2-B, we use the BLS aggregate as carrier but mark format as Ed25519
                 // This allows hybrid mode during migration
+                // Store signature and bitmap; signer indices are computed from bitmap on deserialize
                 var ed25519Sig = com.hellblazer.delos.cryptography.proto.Sig.newBuilder()
                                                                              .setCode(0) // Ed25519 signature code
                                                                              .addSignatures(ByteString.copyFrom(
                                                                              aggregate.aggregatedSignature().toBytes()))
                                                                              .build();
                 builder.addSignatures(ed25519Sig);
+                // Store bitmap and signer indices for Ed25519 backward-compatible round-trip
+                builder.setSignerBitmap(ByteString.copyFrom(aggregate.signerBitmap()));
             }
         }
 
@@ -187,14 +190,32 @@ public record AggregateWitnessReceipt(
             // Legacy Ed25519 format
             var ed25519Sig = proto.getSignatures(0);
             var signatureBytes = ed25519Sig.getSignatures(0).toByteArray();
-            var signature = new BLSSignature(signatureBytes); // Use BLS as carrier
-            var bitmap = new byte[1]; // Minimal bitmap
+            // Pad Ed25519 signature to BLS size (96 bytes) for carrier compatibility
+            var paddedSig = new byte[96];
+            System.arraycopy(signatureBytes, 0, paddedSig, 0, Math.min(signatureBytes.length, 96));
+            var signature = new BLSSignature(paddedSig);
+
+            // Restore bitmap and compute signer indices from bitmap
+            var bitmap = proto.getSignerBitmap().toByteArray();
+            if (bitmap.length == 0) {
+                bitmap = new byte[1]; // Minimal bitmap fallback
+            }
             var aggregate = new BLSAggregate(signature, bitmap);
+
+            // Compute signer indices from bitmap
+            var signerIndices = new java.util.ArrayList<Integer>();
+            for (int byteIdx = 0; byteIdx < bitmap.length; byteIdx++) {
+                for (int bitIdx = 0; bitIdx < 8; bitIdx++) {
+                    if ((bitmap[byteIdx] & (1 << bitIdx)) != 0) {
+                        signerIndices.add(byteIdx * 8 + bitIdx);
+                    }
+                }
+            }
 
             return new AggregateWitnessReceipt(
                 eventCoords,
                 aggregate,
-                List.of(0), // Single signer for Ed25519
+                signerIndices,
                 SignatureFormat.ED25519,
                 timestamp,
                 epoch

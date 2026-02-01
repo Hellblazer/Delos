@@ -27,7 +27,6 @@ import com.hellblazer.delos.witness.committee.InMemoryCommitteeBLSKeyStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
@@ -66,6 +65,9 @@ public class WitnessContext {
     private final ReadWriteLock lock;
     private final CommitteeBLSKeyStore committeeBLSKeyStore;
     private final CommitteeKeyCache committeeKeyCache;
+
+    // Phase 6: Delegate hash computation to adapter to reduce code duplication
+    private final FirefliesWitnessAdapter witnessAdapter;
 
     // Phase 1A-3-B: KERL integration for committee member verification
     private volatile WitnessKerlIntegration kerlIntegration;
@@ -125,6 +127,9 @@ public class WitnessContext {
 
         // Initialize CommitteeKeyCache with default BLS provider
         this.committeeKeyCache = new CommitteeKeyCache(TekuBLSProvider.getInstance());
+
+        // Phase 6: Initialize adapter for delegating hash computations
+        this.witnessAdapter = new FirefliesWitnessAdapter(digestAlgorithm);
 
         // Initialize current members from Fireflies context
         this.currentMembers = firefliesContext.allMembers()
@@ -346,6 +351,9 @@ public class WitnessContext {
     /**
      * Hash event coordinates deterministically for committee selection.
      * <p>
+     * Phase 6 Migration: Delegates to {@link FirefliesWitnessAdapter#hashEventCoordinates}
+     * to eliminate code duplication and ensure consistent hashing across the codebase.
+     * <p>
      * Combines:
      * - Event identifier
      * - Sequence number
@@ -357,23 +365,7 @@ public class WitnessContext {
      * @return Deterministic hash for ring iterator
      */
     private Digest hashEventCoordinates(EventCoordinates eventCoordinates) {
-        // Extract components
-        var identifierDigest = eventCoordinates.getIdentifier().getDigest(digestAlgorithm);
-        var identifierBytes = identifierDigest.getBytes();
-        var sequenceNumber = eventCoordinates.getSequenceNumber().longValue();
-        var digestBytes = eventCoordinates.getDigest().getBytes();
-        var ilkBytes = eventCoordinates.getIlk().getBytes();
-
-        // Combine into deterministic hash
-        var buffer = ByteBuffer.allocate(
-            identifierBytes.length + 8 + digestBytes.length + ilkBytes.length
-        );
-        buffer.put(identifierBytes);
-        buffer.putLong(sequenceNumber);
-        buffer.put(digestBytes);
-        buffer.put(ilkBytes);
-
-        return digestAlgorithm.digest(buffer.array());
+        return witnessAdapter.hashEventCoordinates(eventCoordinates);
     }
 
     /**
@@ -532,5 +524,25 @@ public class WitnessContext {
      */
     public WitnessKerlIntegration getKerlIntegration() {
         return kerlIntegration;
+    }
+
+    /**
+     * Get the internal FirefliesWitnessAdapter.
+     * <p>
+     * Phase 6 Migration: Provides direct access to the adapter for advanced operations
+     * that require Member-level access (e.g., selectWitnesses returning SequencedSet&lt;Member&gt;).
+     * <p>
+     * For most use cases, prefer using WitnessContext's methods which work with Identifiers.
+     * Use the adapter directly when:
+     * <ul>
+     *   <li>You need SequencedSet&lt;Member&gt; instead of Set&lt;Identifier&gt;</li>
+     *   <li>You need access to production metrics and health checks</li>
+     *   <li>You're performing low-level Fireflies context operations</li>
+     * </ul>
+     *
+     * @return The internal FirefliesWitnessAdapter instance
+     */
+    public FirefliesWitnessAdapter getAdapter() {
+        return witnessAdapter;
     }
 }
