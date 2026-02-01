@@ -21,6 +21,8 @@ import org.joou.ULong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static com.hellblazer.delos.stereotomy.processing.KerlValidationException.FailureType.*;
+
 import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -30,6 +32,10 @@ import java.util.Map;
 /**
  * Unified KERL validation service that consolidates chain and event validation logic.
  * Provides a single source of truth for KERL validation across Gorgoneion, Thoth, and other components.
+ * <p>
+ * <b>Thread Safety:</b> This class is NOT thread-safe. Each instance wraps a KeyEventProcessor
+ * which maintains internal state during event processing. Create a new instance per validation
+ * operation or synchronize externally if sharing across threads.
  *
  * @author hal.hildebrand
  */
@@ -56,7 +62,7 @@ public class KerlValidator {
     public KeyState validateChain(KERL_ kerl) throws KerlValidationException {
         // Step 1: Check KERL is not empty
         if (kerl.getEventsCount() == 0) {
-            throw new KerlValidationException("Empty KERL");
+            throw new KerlValidationException(EMPTY_KERL, "Empty KERL");
         }
 
         // Step 2: Deserialize all events
@@ -64,7 +70,7 @@ public class KerlValidator {
 
         // Step 3: Validate first event is InceptionEvent
         if (!(events.getFirst() instanceof InceptionEvent)) {
-            throw new KerlValidationException("KERL must start with InceptionEvent");
+            throw new KerlValidationException(INVALID_FIRST_EVENT, "KERL must start with InceptionEvent");
         }
 
         // Step 4: Process each event sequentially
@@ -76,7 +82,7 @@ public class KerlValidator {
 
                 // Validate sequence number progression
                 if (!currentState.getSequenceNumber().equals(ULong.valueOf(i))) {
-                    throw new KerlValidationException(
+                    throw new KerlValidationException(SEQUENCE_VIOLATION,
                         "Invalid sequence number at index " + i + ": expected " + i + " got "
                         + currentState.getSequenceNumber());
                 }
@@ -85,24 +91,24 @@ public class KerlValidator {
 
             } catch (InvalidKeyEventException e) {
                 log.warn("Invalid event at index {} in KERL: {}", i, e.getMessage());
-                throw new KerlValidationException("Invalid event: " + e.getMessage(), e);
+                throw new KerlValidationException(INVALID_EVENT, "Invalid event: " + e.getMessage(), e);
 
             } catch (MissingEventException e) {
                 log.warn("Missing previous event for event {}: {}", i, e.getMessage());
-                throw new KerlValidationException("Incomplete KERL chain: " + e.getMessage(), e);
+                throw new KerlValidationException(INCOMPLETE_CHAIN, "Incomplete KERL chain: " + e.getMessage(), e);
 
             } catch (KerlValidationException e) {
                 throw e;
 
             } catch (Exception e) {
                 log.error("Unexpected error validating event {} in KERL", i, e);
-                throw new KerlValidationException("Error validating KERL chain", e);
+                throw new KerlValidationException(VALIDATION_ERROR, "Error validating KERL chain", e);
             }
         }
 
         // Step 5: Validate final event is EstablishmentEvent
         if (!(events.getLast() instanceof EstablishmentEvent)) {
-            throw new KerlValidationException("KERL must end with EstablishmentEvent");
+            throw new KerlValidationException(INVALID_LAST_EVENT, "KERL must end with EstablishmentEvent");
         }
 
         log.debug("Validated complete KERL chain with {} events", events.size());
@@ -121,7 +127,7 @@ public class KerlValidator {
         try {
             return processor.process(previousState, event);
         } catch (KeyEventProcessingException e) {
-            throw new KerlValidationException("Event validation failed: " + e.getMessage(), e);
+            throw new KerlValidationException(INVALID_EVENT, "Event validation failed: " + e.getMessage(), e);
         }
     }
 
@@ -162,8 +168,13 @@ public class KerlValidator {
         for (var entry : endorsements.entrySet()) {
             int idx = entry.getKey();
             if (idx >= 0 && idx < signatures.length) {
-                signatures[idx] = entry.getValue().getBytes()[0];
-                validCount++;
+                var sigBytes = entry.getValue().getBytes();
+                if (sigBytes != null && sigBytes.length > 0) {
+                    signatures[idx] = sigBytes[0];
+                    validCount++;
+                } else {
+                    log.warn("Endorsement at index {} has no signature bytes", idx);
+                }
             } else {
                 log.warn("Endorsement index {} out of bounds (0-{}) for witnesses",
                         idx, signatures.length - 1);
@@ -194,14 +205,14 @@ public class KerlValidator {
                 var eventWithAttach = ProtobufEventFactory.from(kerl.getEvents(i));
                 var event = eventWithAttach.event();
                 if (event == null) {
-                    throw new KerlValidationException("Event " + i + " failed to deserialize");
+                    throw new KerlValidationException(DESERIALIZATION_ERROR, "Event " + i + " failed to deserialize");
                 }
                 events.add(event);
             } catch (KerlValidationException e) {
                 throw e;
             } catch (Exception e) {
                 log.warn("Failed to deserialize event {} from KERL: {}", i, e.getMessage());
-                throw new KerlValidationException("Invalid event at index " + i, e);
+                throw new KerlValidationException(DESERIALIZATION_ERROR, "Invalid event at index " + i, e);
             }
         }
         return events;

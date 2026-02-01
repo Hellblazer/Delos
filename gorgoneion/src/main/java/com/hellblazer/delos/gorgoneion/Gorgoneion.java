@@ -622,13 +622,11 @@ public class Gorgoneion implements Closeable {
             var validator = new KerlValidator(parameters.kerl());
             return validator.validateChain(kerl);
         } catch (KerlValidationException e) {
-            log.warn("KERL validation failed: {}", e.getMessage());
-            // Map validation exceptions to appropriate gRPC status codes
-            if (e.getMessage().contains("Empty KERL")) {
+            log.warn("KERL validation failed: {} (type: {})", e.getMessage(), e.getFailureType());
+            // Map validation exceptions to appropriate gRPC status codes using type-safe discrimination
+            if (e.isAuthenticationFailure()) {
                 throw new StatusRuntimeException(Status.UNAUTHENTICATED.withDescription(e.getMessage()));
-            } else if (e.getMessage().contains("Invalid event") || e.getMessage().contains("signature")) {
-                throw new StatusRuntimeException(Status.UNAUTHENTICATED.withDescription(e.getMessage()));
-            } else if (e.getMessage().contains("Incomplete")) {
+            } else if (e.isPreconditionFailure()) {
                 throw new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription(e.getMessage()));
             } else {
                 throw new StatusRuntimeException(Status.INVALID_ARGUMENT.withDescription(e.getMessage()));
