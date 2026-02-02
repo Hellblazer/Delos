@@ -176,8 +176,8 @@ public class SliceIterator<Comm extends Link> {
         }
 
         var future = new CompletableFuture<T>();
-        // HashMultiset is not thread-safe, but iterations are sequential (scheduled one-at-a-time),
-        // so synchronization is defensive for future-proofing
+        // HashMultiset is not thread-safe. Synchronization is required because
+        // iterations run concurrently in virtual threads (see internalIterate line 331).
         Multiset<T> votes = HashMultiset.create();
         var lock = new Object();
 
