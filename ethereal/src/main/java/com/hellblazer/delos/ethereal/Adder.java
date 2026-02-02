@@ -216,7 +216,7 @@ public class Adder {
             log.trace("Produced duplicated unit: {} on: {}", u, conf.logLabel());
             return;
         }
-        writeLocked(() -> {
+        locked(() -> {
             assert u.creator() == conf.pid();
             round = u.height();
             log.trace("Producing unit: {}:{} on: {}", u.hash(), u, conf.logLabel());
@@ -239,7 +239,7 @@ public class Adder {
     public Missing updateFor(Have haves) {
         assert haves.getEpoch() == epoch : "Have from incorrect epoch: " + haves.getEpoch() + " expected: " + epoch
         + " on: " + conf.logLabel();
-        return readLocked(() -> {
+        return locked(() -> {
             final var builder = Missing.newBuilder();
             builder.setEpoch(epoch);
             Adder.this.update(haves, builder);
@@ -257,7 +257,7 @@ public class Adder {
     public void updateFrom(Missing update) {
         assert update.getEpoch() == epoch : "Update from incorrect epoch: " + update.getEpoch() + " expected: " + epoch
         + " on: " + conf.logLabel();
-        writeLocked(() -> {
+        locked(() -> {
             update.getUnitsList().forEach(u -> {
                 final var signature = JohnHancock.from(u.getSignature());
                 final var digest = signature.toDigest(conf.digestAlgorithm());
@@ -653,7 +653,7 @@ public class Adder {
      * Should be called periodically (e.g., every 1 second) by consensus loop.
      */
     public void runTimeoutCheck() {
-        writeLocked(() -> {
+        locked(() -> {
             var now = System.currentTimeMillis();
             var staleUnits = new ArrayList<Digest>();
 
