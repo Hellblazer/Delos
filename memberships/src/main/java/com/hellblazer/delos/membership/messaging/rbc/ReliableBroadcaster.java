@@ -317,7 +317,12 @@ public class ReliableBroadcaster {
     }
 
     public record Parameters(int bufferSize, int maxMessages, DigestAlgorithm digestAlgorithm,
-                             double falsePositiveRate) {
+                             double falsePositiveRate, int maxMessageSize) {
+        /**
+         * Default maximum message size: 10 MB
+         */
+        public static final int DEFAULT_MAX_MESSAGE_SIZE = 10 * 1024 * 1024;
+
         public static Parameters.Builder newBuilder() {
             return new Builder();
         }
@@ -327,9 +332,10 @@ public class ReliableBroadcaster {
             private DigestAlgorithm digestAlgorithm   = DigestAlgorithm.DEFAULT;
             private double          falsePositiveRate = 0.0000125;
             private int             maxMessages       = 500;
+            private int             maxMessageSize    = DEFAULT_MAX_MESSAGE_SIZE;
 
             public Parameters build() {
-                return new Parameters(bufferSize, maxMessages, digestAlgorithm, falsePositiveRate);
+                return new Parameters(bufferSize, maxMessages, digestAlgorithm, falsePositiveRate, maxMessageSize);
             }
 
             @Override
@@ -374,6 +380,15 @@ public class ReliableBroadcaster {
 
             public Builder setMaxMessages(int maxMessages) {
                 this.maxMessages = maxMessages;
+                return this;
+            }
+
+            public int getMaxMessageSize() {
+                return maxMessageSize;
+            }
+
+            public Builder setMaxMessageSize(int maxMessageSize) {
+                this.maxMessageSize = maxMessageSize;
                 return this;
             }
         }
@@ -440,7 +455,8 @@ public class ReliableBroadcaster {
             }
             log.trace("receiving: {} msgs on: {}", messages.size(), member.getId());
             deliver(messages.stream()
-                            //                            .limit(params.maxMessages)
+                            .limit(params.maxMessages)
+                            .filter(am -> am.getContent().size() <= params.maxMessageSize())
                             .map(am -> new state(adapter.hasher.apply(am.getContent()), AgedMessage.newBuilder(am)))
                             .filter(s -> !dup(s))
                             .filter(s -> adapter.verifier.test(s.msg.getContent()))
