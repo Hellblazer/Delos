@@ -185,15 +185,15 @@ public class MtlsTest {
         System.out.println("Stoping views");
         views.forEach(view -> view.stop());
 
-        // Note: ConsoleReporter is Dropwizard-specific. Micrometer metrics can be accessed via:
-        // node0Registry.getMeters().forEach(meter -> System.out.println(meter.getId() + " = " + meter.measure()));
-        // if (Boolean.getBoolean("reportMetrics")) {
-        //     ConsoleReporter.forRegistry(node0Registry)
-        //                    .convertRatesTo(TimeUnit.SECONDS)
-        //                    .convertDurationsTo(TimeUnit.MILLISECONDS)
-        //                    .build()
-        //                    .report();
-        // }
+        if (Boolean.getBoolean("reportMetrics")) {
+            System.out.println();
+            System.out.println("=== Node 0 Metrics ===");
+            node0Registry.getMeters().forEach(meter -> {
+                var measures = meter.measure();
+                measures.forEach(m -> System.out.printf("%s %s = %.2f%n",
+                    meter.getId().getName(), m.getStatistic(), m.getValue()));
+            });
+        }
     }
 
     private Function<Member, ClientContextSupplier> clientContextSupplier() {
