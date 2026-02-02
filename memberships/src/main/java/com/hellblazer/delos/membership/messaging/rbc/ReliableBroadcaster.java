@@ -204,17 +204,20 @@ public class ReliableBroadcaster {
             return;
         }
         log.info("Stopping Reliable Broadcaster[{}] on: {}", context.getId(), member.getId());
-        if (scheduler != null) {
-            scheduler.shutdown();
+        // Capture scheduler reference before nulling to prevent race with start()
+        // (Delos-vbyg fix: avoid shutting down a newly-created scheduler from concurrent start())
+        ScheduledExecutorService toShutdown = scheduler;
+        scheduler = null;
+        if (toShutdown != null) {
+            toShutdown.shutdown();
             try {
-                if (!scheduler.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
-                    scheduler.shutdownNow();
+                if (!toShutdown.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                    toShutdown.shutdownNow();
                 }
             } catch (InterruptedException e) {
-                scheduler.shutdownNow();
+                toShutdown.shutdownNow();
                 Thread.currentThread().interrupt();
             }
-            scheduler = null;
         }
         buffer.clear();
         comm.deregister(context.getId());
@@ -466,7 +469,8 @@ public class ReliableBroadcaster {
 
         private Buffer(int maxAge) {
             this.maxAge = maxAge;
-            highWaterMark = (int) (params.bufferSize * 0.9);
+            // Ensure highWaterMark is at least 1 for tiny buffer sizes
+            highWaterMark = Math.max(1, (int) (params.bufferSize * 0.9));
         }
 
         public void clear() {
@@ -484,9 +488,22 @@ public class ReliableBroadcaster {
                 return;
             }
             log.trace("receiving: {} msgs on: {}", messages.size(), member.getId());
+            // Log DoS protection filtering if active
+            int inputSize = messages.size();
+            if (inputSize > params.maxMessages) {
+                log.debug("DoS protection: truncating {} messages to {} limit on: {}",
+                          inputSize, params.maxMessages, member.getId());
+            }
             deliver(messages.stream()
                             .limit(params.maxMessages)
-                            .filter(am -> am.getContent().size() <= params.maxMessageSize())
+                            .filter(am -> {
+                                boolean ok = am.getContent().size() <= params.maxMessageSize();
+                                if (!ok) {
+                                    log.debug("DoS protection: rejecting oversized message ({} > {} bytes) on: {}",
+                                              am.getContent().size(), params.maxMessageSize(), member.getId());
+                                }
+                                return ok;
+                            })
                             .map(am -> new state(adapter.hasher.apply(am.getContent()), am))
                             .filter(s -> !dup(s))
                             .filter(s -> adapter.verifier.test(s.msg.getContent()))
