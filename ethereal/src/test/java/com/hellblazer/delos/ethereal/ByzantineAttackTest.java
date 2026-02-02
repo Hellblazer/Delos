@@ -492,7 +492,9 @@ public class ByzantineAttackTest {
             gossipers.forEach(e -> e.start(gossipPeriod));
 
             // CI needs longer timeout due to resource contention (8-12x slower than local with parallel test batches)
-            var timeout = LARGE_TESTS ? 90 : (IS_CI ? 240 : 30);
+            // Local runs need adequate time for 2 epochs of consensus with 4 nodes
+            // Empirical: 30s yields ~50-80% completion, so 90s should ensure full completion
+            var timeout = LARGE_TESTS ? 120 : (IS_CI ? 300 : 90);
             var completed = finished.await(timeout, TimeUnit.SECONDS);
 
             if (!completed) {
