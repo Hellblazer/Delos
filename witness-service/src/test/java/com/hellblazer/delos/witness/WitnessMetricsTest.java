@@ -7,11 +7,7 @@
  */
 package com.hellblazer.delos.witness;
 
-import com.codahale.metrics.Histogram;
-import com.codahale.metrics.Gauge;
-import com.codahale.metrics.Timer;
-import com.codahale.metrics.MetricRegistry;
-import com.codahale.metrics.Slf4jReporter;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 
@@ -27,7 +23,7 @@ class WitnessMetricsTest {
 
     @Test
     void shouldCreateMetricsWithRegistry() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         assertThat(metrics).isNotNull();
@@ -36,7 +32,7 @@ class WitnessMetricsTest {
 
     @Test
     void shouldRegisterReceiptCollectionLatencyHistogram() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         // Trigger metric registration by recording a value
@@ -47,7 +43,7 @@ class WitnessMetricsTest {
 
     @Test
     void shouldRecordReceiptCollectionLatency() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         metrics.recordReceiptCollectionLatency(25);
@@ -61,7 +57,7 @@ class WitnessMetricsTest {
 
     @Test
     void shouldRegisterThresholdAchievementRateGauge() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         metrics.setThresholdAchievementRate(0.85);
@@ -74,7 +70,7 @@ class WitnessMetricsTest {
 
     @Test
     void shouldUpdateThresholdAchievementRate() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         metrics.setThresholdAchievementRate(0.75);
@@ -87,7 +83,7 @@ class WitnessMetricsTest {
 
     @Test
     void shouldRegisterViewChangeCoordinationTimer() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         // Trigger metric registration by recording a value
@@ -98,7 +94,7 @@ class WitnessMetricsTest {
 
     @Test
     void shouldRecordViewChangeCoordinationTime() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         var startNanos = System.nanoTime();
@@ -117,7 +113,7 @@ class WitnessMetricsTest {
 
     @Test
     void shouldRegisterCommitteeSelectionTimer() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         // Trigger metric registration by recording a value
@@ -128,7 +124,7 @@ class WitnessMetricsTest {
 
     @Test
     void shouldRecordCommitteeSelectionTimeMicroseconds() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         // Record nanosecond-level timing (150μs = 150,000ns)
@@ -141,7 +137,7 @@ class WitnessMetricsTest {
 
     @Test
     void shouldRegisterInFlightCollectionsGauge() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         metrics.setInFlightCollections(5);
@@ -154,7 +150,7 @@ class WitnessMetricsTest {
 
     @Test
     void shouldUpdateInFlightCollections() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         metrics.setInFlightCollections(3);
@@ -168,7 +164,7 @@ class WitnessMetricsTest {
 
     @Test
     void shouldRegisterReceiptGossipLatencyHistogram() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         // Trigger metric registration by recording a value
@@ -179,7 +175,7 @@ class WitnessMetricsTest {
 
     @Test
     void shouldRecordReceiptGossipLatency() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         metrics.recordReceiptGossipLatency(5);
@@ -193,7 +189,7 @@ class WitnessMetricsTest {
 
     @Test
     void shouldCreateSlf4jReporter() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         var reporter = Slf4jReporter.forRegistry(metrics.getRegistry())
@@ -209,7 +205,7 @@ class WitnessMetricsTest {
 
     @Test
     void shouldHaveAllMetricsIncludingPhase1B3() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         // Initialize gauges

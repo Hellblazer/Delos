@@ -12,11 +12,11 @@
  */
 package com.hellblazer.delos.witness;
 
-import com.codahale.metrics.Histogram;
-import com.codahale.metrics.Gauge;
-import com.codahale.metrics.Timer;
-import com.codahale.metrics.Counter;
-import com.codahale.metrics.MetricRegistry;
+import io.micrometer.core.instrument.DistributionSummary;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -50,9 +50,9 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public class WitnessMetrics {
 
-    private final MetricRegistry registry;
-    private final Histogram receiptCollectionLatency;
-    private final Histogram receiptGossipLatency;
+    private final MeterRegistry registry;
+    private final DistributionSummary receiptCollectionLatency;
+    private final DistributionSummary receiptGossipLatency;
     private final Timer viewChangeCoordinationTime;
     private final Timer committeeSelectionTime;
     private final AtomicReference<Double> thresholdAchievementRate = new AtomicReference<>(0.0);
@@ -72,47 +72,51 @@ public class WitnessMetrics {
     /**
      * Create metrics with the provided registry.
      *
-     * @param registry Dropwizard MetricRegistry
+     * @param registry Micrometer MeterRegistry
      */
-    public WitnessMetrics(MetricRegistry registry) {
+    public WitnessMetrics(MeterRegistry registry) {
         this.registry = registry;
 
-        // Register histograms
-        this.receiptCollectionLatency = registry.histogram("witness.receipt.collection.latency");
-        this.receiptGossipLatency = registry.histogram("witness.receipt.gossip.latency");
+        // Register distribution summaries (for latency histograms)
+        this.receiptCollectionLatency = DistributionSummary.builder("witness.receipt.collection.latency")
+            .baseUnit("milliseconds")
+            .register(registry);
+        this.receiptGossipLatency = DistributionSummary.builder("witness.receipt.gossip.latency")
+            .baseUnit("milliseconds")
+            .register(registry);
 
         // Register timers
-        this.viewChangeCoordinationTime = registry.timer("witness.view.change.coordination.time");
-        this.committeeSelectionTime = registry.timer("witness.committee.selection.time");
+        this.viewChangeCoordinationTime = Timer.builder("witness.view.change.coordination.time").register(registry);
+        this.committeeSelectionTime = Timer.builder("witness.committee.selection.time").register(registry);
 
         // Register gauges
-        registry.register("witness.threshold.achievement.rate",
-            (Gauge<Double>) thresholdAchievementRate::get);
-        registry.register("witness.in.flight.collections",
-            (Gauge<Integer>) inFlightCollections::get);
+        Gauge.builder("witness.threshold.achievement.rate", thresholdAchievementRate, AtomicReference::get)
+            .register(registry);
+        Gauge.builder("witness.in.flight.collections", inFlightCollections, AtomicInteger::get)
+            .register(registry);
 
         // Register Phase 1B-3 gauges
-        registry.register("witness.bls.keys.registered",
-            (Gauge<Integer>) blsKeysRegistered::get);
-        registry.register("witness.bls.keys.coverage",
-            (Gauge<Double>) blsKeysCoverage::get);
-        registry.register("witness.transition.readiness",
-            (Gauge<Integer>) transitionReadiness::get);
-        registry.register("witness.transition.in_progress",
-            (Gauge<Integer>) transitionInProgress::get);
+        Gauge.builder("witness.bls.keys.registered", blsKeysRegistered, AtomicInteger::get)
+            .register(registry);
+        Gauge.builder("witness.bls.keys.coverage", blsKeysCoverage, AtomicReference::get)
+            .register(registry);
+        Gauge.builder("witness.transition.readiness", transitionReadiness, AtomicInteger::get)
+            .register(registry);
+        Gauge.builder("witness.transition.in_progress", transitionInProgress, AtomicInteger::get)
+            .register(registry);
 
         // Register Phase 1B-3 counters
-        this.byzantineShunned = registry.counter("witness.byzantine.shunned");
-        this.blsFailures = registry.counter("witness.byzantine.bls_failures");
-        this.blsValidations = registry.counter("witness.bls.validations");
-        this.registrationAttempts = registry.counter("witness.registration.attempts");
-        this.registrationSuccesses = registry.counter("witness.registration.successes");
+        this.byzantineShunned = Counter.builder("witness.byzantine.shunned").register(registry);
+        this.blsFailures = Counter.builder("witness.byzantine.bls_failures").register(registry);
+        this.blsValidations = Counter.builder("witness.bls.validations").register(registry);
+        this.registrationAttempts = Counter.builder("witness.registration.attempts").register(registry);
+        this.registrationSuccesses = Counter.builder("witness.registration.successes").register(registry);
     }
 
     /**
      * Get the underlying metric registry.
      */
-    public MetricRegistry getRegistry() {
+    public MeterRegistry getRegistry() {
         return registry;
     }
 
@@ -125,7 +129,7 @@ public class WitnessMetrics {
      * @param latencyMillis latency in milliseconds
      */
     public void recordReceiptCollectionLatency(long latencyMillis) {
-        receiptCollectionLatency.update(latencyMillis);
+        receiptCollectionLatency.record(latencyMillis);
     }
 
     /**
@@ -137,7 +141,7 @@ public class WitnessMetrics {
      * @param latencyMillis latency in milliseconds
      */
     public void recordReceiptGossipLatency(long latencyMillis) {
-        receiptGossipLatency.update(latencyMillis);
+        receiptGossipLatency.record(latencyMillis);
     }
 
     /**
@@ -149,7 +153,7 @@ public class WitnessMetrics {
      * @param durationNanos duration in nanoseconds
      */
     public void recordViewChangeCoordinationDuration(long durationNanos) {
-        viewChangeCoordinationTime.update(durationNanos, TimeUnit.NANOSECONDS);
+        viewChangeCoordinationTime.record(durationNanos, TimeUnit.NANOSECONDS);
     }
 
     /**
@@ -161,7 +165,7 @@ public class WitnessMetrics {
      * @param durationNanos duration in nanoseconds
      */
     public void recordCommitteeSelectionDuration(long durationNanos) {
-        committeeSelectionTime.update(durationNanos, TimeUnit.NANOSECONDS);
+        committeeSelectionTime.record(durationNanos, TimeUnit.NANOSECONDS);
     }
 
     /**
@@ -230,35 +234,35 @@ public class WitnessMetrics {
      * Record a Byzantine member being shunned.
      */
     public void recordByzantineShunned() {
-        byzantineShunned.inc();
+        byzantineShunned.increment();
     }
 
     /**
      * Record a BLS signature validation failure.
      */
     public void recordBlsFailure() {
-        blsFailures.inc();
+        blsFailures.increment();
     }
 
     /**
      * Record a BLS signature validation.
      */
     public void recordBlsValidation() {
-        blsValidations.inc();
+        blsValidations.increment();
     }
 
     /**
      * Record a BLS key registration attempt.
      */
     public void recordRegistrationAttempt() {
-        registrationAttempts.inc();
+        registrationAttempts.increment();
     }
 
     /**
      * Record a successful BLS key registration.
      */
     public void recordRegistrationSuccess() {
-        registrationSuccesses.inc();
+        registrationSuccesses.increment();
     }
 
     /**
@@ -267,7 +271,7 @@ public class WitnessMetrics {
      * @return total count of members shunned
      */
     public long getByzantineShunnedCount() {
-        return byzantineShunned.getCount();
+        return (long) byzantineShunned.count();
     }
 
     /**
@@ -276,7 +280,7 @@ public class WitnessMetrics {
      * @return total count of validation failures
      */
     public long getBlsFailuresCount() {
-        return blsFailures.getCount();
+        return (long) blsFailures.count();
     }
 
     /**
@@ -285,7 +289,7 @@ public class WitnessMetrics {
      * @return total count of validations
      */
     public long getBlsValidationsCount() {
-        return blsValidations.getCount();
+        return (long) blsValidations.count();
     }
 
     /**
@@ -294,7 +298,7 @@ public class WitnessMetrics {
      * @return total count of attempts
      */
     public long getRegistrationAttemptsCount() {
-        return registrationAttempts.getCount();
+        return (long) registrationAttempts.count();
     }
 
     /**
@@ -303,6 +307,6 @@ public class WitnessMetrics {
      * @return total count of successful registrations
      */
     public long getRegistrationSuccessesCount() {
-        return registrationSuccesses.getCount();
+        return (long) registrationSuccesses.count();
     }
 }

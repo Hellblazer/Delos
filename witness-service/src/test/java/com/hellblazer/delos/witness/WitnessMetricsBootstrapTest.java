@@ -7,7 +7,7 @@
  */
 package com.hellblazer.delos.witness;
 
-import com.codahale.metrics.MetricRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.witness.detection.ByzantineDetectionMetrics;
 import com.hellblazer.delos.witness.detection.ResponseOrchestrationMetrics;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,7 +34,7 @@ class WitnessMetricsBootstrapTest {
     @Test
     @DisplayName("should create metrics registry")
     void shouldCreateMetricsRegistry() {
-        MetricRegistry registry = bootstrap.getRegistry();
+        SimpleMeterRegistry registry = bootstrap.getRegistry();
         assertThat(registry).isNotNull();
         assertThat(registry.getMetrics()).isNotEmpty();
     }
@@ -56,7 +56,7 @@ class WitnessMetricsBootstrapTest {
     @Test
     @DisplayName("should register Byzantine detection metrics in registry")
     void shouldRegisterByzantineDetectionMetricsInRegistry() {
-        MetricRegistry registry = bootstrap.getRegistry();
+        SimpleMeterRegistry registry = bootstrap.getRegistry();
 
         // Check for some expected Byzantine detection metrics
         var metrics = registry.getMetrics();
@@ -103,7 +103,7 @@ class WitnessMetricsBootstrapTest {
     @Test
     @DisplayName("should count registered metrics")
     void shouldCountRegisteredMetrics() {
-        MetricRegistry registry = bootstrap.getRegistry();
+        SimpleMeterRegistry registry = bootstrap.getRegistry();
         int metricCount = registry.getMetrics().size();
 
         // Verify we have a reasonable number of metrics

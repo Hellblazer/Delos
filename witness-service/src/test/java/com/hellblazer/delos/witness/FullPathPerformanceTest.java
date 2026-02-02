@@ -7,7 +7,7 @@
  */
 package com.hellblazer.delos.witness;
 
-import com.codahale.metrics.MetricRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.cryptography.SignatureAlgorithm;
 import com.hellblazer.delos.cryptography.bls.BLSKeyPair;
@@ -68,7 +68,7 @@ class FullPathPerformanceTest {
     private SecureRandom entropy;
     private DigestAlgorithm digestAlgorithm;
     private WitnessReceiptTestHelper testHelper;
-    private MetricRegistry registry;
+    private SimpleMeterRegistry registry;
     private WitnessMetrics metrics;
     private ExecutorService executor;
 
@@ -83,7 +83,7 @@ class FullPathPerformanceTest {
         entropy = new SecureRandom();
         digestAlgorithm = DigestAlgorithm.DEFAULT;
         testHelper = new WitnessReceiptTestHelper();
-        registry = new MetricRegistry();
+        registry = new SimpleMeterRegistry();
         metrics = new WitnessMetrics(registry);
         executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 

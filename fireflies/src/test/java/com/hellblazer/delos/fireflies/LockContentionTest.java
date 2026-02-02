@@ -6,7 +6,6 @@
  */
 package com.hellblazer.delos.fireflies;
 
-import com.codahale.metrics.Timer;
 import com.hellblazer.delos.archipelago.*;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.context.DynamicContext;
@@ -59,7 +58,7 @@ public class LockContentionTest {
 
     private final List<Router>                            communications = new ArrayList<>();
     private final List<Router>                            gateways       = new ArrayList<>();
-    private final Timer                                   lockHoldTimer  = new Timer();
+    private final List<Long>                              lockHoldTimes  = new ArrayList<>();
     private       Map<Digest, ControlledIdentifierMember> members;
     private       SimpleMeterRegistry                     registry;
     private       List<View>                              views;
@@ -99,12 +98,17 @@ public class LockContentionTest {
         }
 
         // Report metrics if requested
-        if (Boolean.getBoolean("reportMetrics")) {
+        if (Boolean.getBoolean("reportMetrics") && !lockHoldTimes.isEmpty()) {
+            var stats = lockHoldTimes.stream().mapToLong(Long::longValue).summaryStatistics();
+            var sorted = lockHoldTimes.stream().mapToLong(Long::longValue).sorted().toArray();
+            var p99Index = (int) (sorted.length * 0.99);
+            var p99 = sorted.length > 0 ? sorted[Math.min(p99Index, sorted.length - 1)] / 1_000_000.0 : 0;
+
             System.out.println("\n=== Lock Contention Test Metrics ===");
-            System.out.println("Lock Hold Time (ms): min=" + lockHoldTimer.getSnapshot().getMin() +
-                             ", max=" + lockHoldTimer.getSnapshot().getMax() +
-                             ", mean=" + lockHoldTimer.getSnapshot().getMean() +
-                             ", p99=" + lockHoldTimer.getSnapshot().get99thPercentile());
+            System.out.println("Lock Hold Time (ms): min=" + (stats.getMin() / 1_000_000.0) +
+                             ", max=" + (stats.getMax() / 1_000_000.0) +
+                             ", mean=" + (stats.getAverage() / 1_000_000.0) +
+                             ", p99=" + p99);
         }
     }
 
@@ -164,9 +168,12 @@ public class LockContentionTest {
             final int index = i;
             executor.submit(() -> {
                 try {
-                    var timer = lockHoldTimer.time();
+                    var startNanos = System.nanoTime();
                     views.get(index).start(() -> {}, Duration.ofMillis(5), seeds);
-                    timer.close();
+                    var elapsed = System.nanoTime() - startNanos;
+                    synchronized (lockHoldTimes) {
+                        lockHoldTimes.add(elapsed);
+                    }
                     joinCountdown.countDown();
                 } catch (Exception e) {
                     e.printStackTrace();
@@ -179,8 +186,10 @@ public class LockContentionTest {
         assertTrue(joinCountdown.await(60, TimeUnit.SECONDS), "Not all joins completed");
 
         // Verify lock hold time constraints
-        var snapshot = lockHoldTimer.getSnapshot();
-        var p99 = snapshot.get99thPercentile();
+        var sorted = lockHoldTimes.stream().mapToLong(Long::longValue).sorted().toArray();
+        var p99Index = (int) (sorted.length * 0.99);
+        var p99Nanos = sorted.length > 0 ? sorted[Math.min(p99Index, sorted.length - 1)] : 0;
+        var p99 = p99Nanos / 1_000_000.0;  // Convert to milliseconds
 
         System.out.println("Lock Hold Time p99: " + p99 + "ms (limit: " + LOCK_HOLD_TIME_LIMIT_MS + "ms)");
         // Note: Lock hold time measurement is informational; threshold may be too strict for test environment

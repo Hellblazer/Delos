@@ -7,7 +7,7 @@
  */
 package com.hellblazer.delos.witness.validation;
 
-import com.codahale.metrics.MetricRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.cryptography.JohnHancock;
@@ -36,7 +36,7 @@ class ByzantineWitnessDetectorTest {
 
     @BeforeEach
     void setup() {
-        metricRegistry = new MetricRegistry();
+        metricRegistry = new SimpleMeterRegistry();
         detector = new ByzantineWitnessDetector(metricRegistry);
     }
 

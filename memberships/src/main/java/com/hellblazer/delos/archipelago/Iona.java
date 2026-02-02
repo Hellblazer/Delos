@@ -1,8 +1,8 @@
 package com.hellblazer.delos.archipelago;
 
 import com.hellblazer.delos.archipelago.server.FernetServerInterceptor;
-import com.hellblazer.delos.protocols.LimitsRegistry;
 import com.netflix.concurrency.limits.Limit;
+import com.netflix.concurrency.limits.MetricRegistry;
 import io.grpc.ServerInterceptor;
 
 import java.util.List;
@@ -19,7 +19,7 @@ public class Iona implements RouterSupplier {
 
     @Override
     public Router router(ServerConnectionCache.Builder cacheBuilder, Supplier<Limit> serverLimit,
-                         LimitsRegistry limitsRegistry, List<ServerInterceptor> interceptors,
+                         MetricRegistry limitsRegistry, List<ServerInterceptor> interceptors,
                          Predicate<FernetServerInterceptor.HashedToken> validator, ExecutorService executor) {
         return null;
     }

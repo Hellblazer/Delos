@@ -7,7 +7,7 @@
  */
 package com.hellblazer.delos.witness.validation;
 
-import com.codahale.metrics.MetricRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.cryptography.JohnHancock;
 import com.hellblazer.delos.cryptography.SignatureAlgorithm;
 import com.hellblazer.delos.stereotomy.KeyState;
@@ -55,7 +55,7 @@ class WitnessSignatureValidatorTest {
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        metricRegistry = new MetricRegistry();
+        metricRegistry = new SimpleMeterRegistry();
         validator = new WitnessSignatureValidator(mockKerlIntegration, metricRegistry);
 
         // Generate test keypair
@@ -579,7 +579,7 @@ class WitnessSignatureValidatorTest {
     void testDualKeyValidation_RecordsDualKeyMetric() throws Exception {
         // Arrange
         var mockKeyLookup = mock(KeyLookup.class);
-        var testMetricRegistry = new MetricRegistry();
+        var testMetricRegistry = new SimpleMeterRegistry();
         var validatorWithKeyLookup = new WitnessSignatureValidator(
             mockKerlIntegration, mockKeyLookup, testMetricRegistry);
 

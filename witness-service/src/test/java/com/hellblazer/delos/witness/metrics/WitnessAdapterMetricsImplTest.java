@@ -7,7 +7,7 @@
  */
 package com.hellblazer.delos.witness.metrics;
 
-import com.codahale.metrics.MetricRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.context.StaticContext;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.membership.MockMember;
@@ -33,13 +33,13 @@ class WitnessAdapterMetricsImplTest {
 
     private static final DigestAlgorithm ALGORITHM = DigestAlgorithm.DEFAULT;
 
-    private MetricRegistry registry;
+    private SimpleMeterRegistry registry;
     private WitnessAdapterMetricsImpl metrics;
     private FirefliesWitnessAdapter adapter;
 
     @BeforeEach
     void setUp() {
-        registry = new MetricRegistry();
+        registry = new SimpleMeterRegistry();
         metrics = new WitnessAdapterMetricsImpl(registry);
         adapter = new FirefliesWitnessAdapter(ALGORITHM, metrics);
     }

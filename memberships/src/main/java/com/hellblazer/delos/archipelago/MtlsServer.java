@@ -10,6 +10,7 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.netflix.concurrency.limits.Limit;
+import com.netflix.concurrency.limits.MetricRegistry;
 import com.netflix.concurrency.limits.grpc.server.GrpcServerLimiterBuilder;
 import com.hellblazer.delos.archipelago.server.FernetServerInterceptor;
 import com.hellblazer.delos.comm.grpc.ClientContextSupplier;
@@ -21,7 +22,6 @@ import com.hellblazer.delos.cryptography.ssl.NodeTrustManagerFactory;
 import com.hellblazer.delos.cryptography.ssl.TlsInterceptor;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.protocols.ClientIdentity;
-import com.hellblazer.delos.protocols.LimitsRegistry;
 import io.grpc.*;
 import io.grpc.netty.GrpcSslContexts;
 import io.grpc.netty.NettyServerBuilder;
@@ -138,7 +138,7 @@ public class MtlsServer implements RouterSupplier {
 
     @Override
     public RouterImpl router(ServerConnectionCache.Builder cacheBuilder, Supplier<Limit> serverLimit,
-                             LimitsRegistry limitsRegistry, List<ServerInterceptor> interceptors,
+                             MetricRegistry limitsRegistry, List<ServerInterceptor> interceptors,
                              Predicate<FernetServerInterceptor.HashedToken> validator, ExecutorService executor) {
         //        if (executor == null) {
         //            executor = Executors.newVirtualThreadPerTaskExecutor();

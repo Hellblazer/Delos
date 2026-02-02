@@ -7,9 +7,7 @@
  */
 package com.hellblazer.delos.witness;
 
-import com.codahale.metrics.Counter;
-import com.codahale.metrics.Gauge;
-import com.codahale.metrics.MetricRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.*;
@@ -22,7 +20,7 @@ class MetricsIntegrationTest {
 
     @Test
     void shouldRegisterBlsKeyMetrics() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         // Test BLS key registration tracking
@@ -42,7 +40,7 @@ class MetricsIntegrationTest {
 
     @Test
     void shouldRegisterByzantineAndTransitionMetrics() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         // Test transition readiness gauges
