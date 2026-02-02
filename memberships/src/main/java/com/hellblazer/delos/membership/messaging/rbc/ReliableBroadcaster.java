@@ -94,7 +94,8 @@ public class ReliableBroadcaster {
         };
         final Function<ByteString, Digest> hasher = any -> {
             try {
-                return JohnHancock.from(SignedDefaultMessage.parseFrom(any).getSignature()).toDigest(algo);
+                // Hash the content for deduplication, not the signature (which includes nonce)
+                return algo.digest(SignedDefaultMessage.parseFrom(any).getContent().toByteString());
             } catch (InvalidProtocolBufferException e) {
                 throw new IllegalStateException("Cannot unwrap", e);
             }
@@ -420,7 +421,7 @@ public class ReliableBroadcaster {
 
         private Buffer(int maxAge) {
             this.maxAge = maxAge;
-            highWaterMark = (params.bufferSize - (int) (params.bufferSize + ((params.bufferSize) * 0.1)));
+            highWaterMark = (int) (params.bufferSize * 0.9);
         }
 
         public void clear() {
@@ -443,7 +444,7 @@ public class ReliableBroadcaster {
                             .map(am -> new state(adapter.hasher.apply(am.getContent()), AgedMessage.newBuilder(am)))
                             .filter(s -> !dup(s))
                             .filter(s -> adapter.verifier.test(s.msg.getContent()))
-                            .map(s -> state.merge(s.hash, s, (a, b) -> a.msg.getAge() >= b.msg.getAge() ? a : b))
+                            .map(s -> state.merge(s.hash, s, (a, b) -> a.msg.getAge() <= b.msg.getAge() ? a : b))
                             .map(s -> new Msg(adapter.source.apply(s.msg.getContent()), adapter.extractor.apply(s.msg),
                                               s.hash))
                             .toList());
