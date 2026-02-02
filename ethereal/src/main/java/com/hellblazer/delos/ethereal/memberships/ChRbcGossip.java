@@ -36,6 +36,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.IntSupplier;
 import java.util.function.Predicate;
 
 import static com.hellblazer.delos.ethereal.memberships.comm.GossiperClient.getCreate;
@@ -58,15 +59,42 @@ public class ChRbcGossip {
     private final    AtomicBoolean                                   started  = new AtomicBoolean();
     private final    Terminal                                        terminal = new Terminal();
     private final    ScheduledExecutorService                        scheduler;
+    private final    int                                             retryLimit;
+    private final    long                                            baseBackoffMs;
+    private final    long                                            maxBackoffMs;
+    private final    IntSupplier                                     pendingUnitsSupplier;
+    private final    Duration                                        minGossipInterval;
+    private final    Duration                                        maxGossipInterval;
     private volatile ScheduledFuture<?>                              scheduled;
 
     public ChRbcGossip(Digest id, SigningMember member, Collection<Member> membership, Processor processor,
                        Router communications, EtherealMetrics m, ScheduledExecutorService scheduler) {
+        this(id, member, membership, processor, communications, m, scheduler, 3, 100L, 5000L, () -> 0,
+             Duration.ofMillis(10), Duration.ofMillis(1000));
+    }
+
+    public ChRbcGossip(Digest id, SigningMember member, Collection<Member> membership, Processor processor,
+                       Router communications, EtherealMetrics m, ScheduledExecutorService scheduler,
+                       int retryLimit, long baseBackoffMs, long maxBackoffMs) {
+        this(id, member, membership, processor, communications, m, scheduler, retryLimit, baseBackoffMs, maxBackoffMs,
+             () -> 0, Duration.ofMillis(10), Duration.ofMillis(1000));
+    }
+
+    public ChRbcGossip(Digest id, SigningMember member, Collection<Member> membership, Processor processor,
+                       Router communications, EtherealMetrics m, ScheduledExecutorService scheduler,
+                       int retryLimit, long baseBackoffMs, long maxBackoffMs, IntSupplier pendingUnitsSupplier,
+                       Duration minGossipInterval, Duration maxGossipInterval) {
         this.processor = processor;
         this.member = member;
         this.metrics = m;
         this.id = id;
         this.scheduler = scheduler;
+        this.retryLimit = retryLimit;
+        this.baseBackoffMs = baseBackoffMs;
+        this.maxBackoffMs = maxBackoffMs;
+        this.pendingUnitsSupplier = pendingUnitsSupplier;
+        this.minGossipInterval = minGossipInterval;
+        this.maxGossipInterval = maxGossipInterval;
         comm = communications.create(member, id, terminal, getClass().getCanonicalName(),
                                      r -> new GossiperServer(communications.getClientIdentityProvider(), metrics, r),
                                      getCreate(metrics), Gossiper.getLocalLoopback(member));
@@ -122,6 +150,52 @@ public class ChRbcGossip {
         }
     }
 
+    /**
+     * Calculate adaptive gossip interval based on pending unit count.
+     * <p>
+     * Uses AIMD-style adaptation:
+     * - High backlog (>100 units): Fast gossip (min interval)
+     * - Low backlog (<10 units): Slow gossip (max interval)
+     * - Medium backlog: Linear interpolation between min and max
+     *
+     * @param baseInterval The base gossip interval (used as reference)
+     * @return Adaptive interval clamped to [minGossipInterval, maxGossipInterval]
+     */
+    private Duration calculateAdaptiveInterval(Duration baseInterval) {
+        var pendingCount = pendingUnitsSupplier.getAsInt();
+
+        // Thresholds for adaptation
+        final int HIGH_THRESHOLD = 100;
+        final int LOW_THRESHOLD = 10;
+
+        Duration adaptiveInterval;
+
+        if (pendingCount >= HIGH_THRESHOLD) {
+            // High backlog: use minimum interval (fastest gossip)
+            adaptiveInterval = minGossipInterval;
+        } else if (pendingCount <= LOW_THRESHOLD) {
+            // Low backlog: use maximum interval (slowest gossip)
+            adaptiveInterval = maxGossipInterval;
+        } else {
+            // Medium backlog: linear interpolation between max and min
+            // As pending increases from LOW to HIGH, interval decreases from max to min
+            var ratio = (double) (pendingCount - LOW_THRESHOLD) / (HIGH_THRESHOLD - LOW_THRESHOLD);
+            var minNanos = minGossipInterval.toNanos();
+            var maxNanos = maxGossipInterval.toNanos();
+            var interpolatedNanos = (long) (maxNanos - (ratio * (maxNanos - minNanos)));
+            adaptiveInterval = Duration.ofNanos(interpolatedNanos);
+        }
+
+        // Ensure we stay within bounds (defensive programming)
+        if (adaptiveInterval.compareTo(minGossipInterval) < 0) {
+            adaptiveInterval = minGossipInterval;
+        } else if (adaptiveInterval.compareTo(maxGossipInterval) > 0) {
+            adaptiveInterval = maxGossipInterval;
+        }
+
+        return adaptiveInterval;
+    }
+
     private void gossip(Duration frequency, ScheduledExecutorService scheduler) {
         if (!started.get()) {
             return;
@@ -136,9 +210,11 @@ public class ChRbcGossip {
             }
             if (started.get()) {
                 try {
+                    // Calculate adaptive interval based on current backlog
+                    var adaptiveInterval = calculateAdaptiveInterval(frequency);
                     scheduled = scheduler.schedule(
                     () -> Thread.ofVirtual().start(Utils.wrapped(() -> gossip(frequency, scheduler), log)),
-                    frequency.toNanos(), TimeUnit.NANOSECONDS);
+                    adaptiveInterval.toNanos(), TimeUnit.NANOSECONDS);
                 } catch (RejectedExecutionException e) {
                     log.trace("Reject scheduling on: {}", member.getId());
                 }
