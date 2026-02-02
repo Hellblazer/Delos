@@ -395,7 +395,22 @@ public class ReliableBroadcaster {
 
     }
 
-    private record state(Digest hash, AgedMessage.Builder msg) {
+    /**
+     * Immutable message state with thread-safe age tracking.
+     * The AgedMessage is immutable; age is tracked separately via AtomicInteger
+     * to allow lock-free concurrent updates.
+     */
+    private record state(Digest hash, AgedMessage msg, AtomicInteger age) {
+        state(Digest hash, AgedMessage msg) {
+            this(hash, msg, new AtomicInteger(msg.getAge()));
+        }
+
+        /**
+         * Build an AgedMessage with the current age value for transmission.
+         */
+        AgedMessage buildWithCurrentAge() {
+            return AgedMessage.newBuilder(msg).setAge(age.get()).build();
+        }
     }
 
     public class Service implements Router.ServiceRouting {
@@ -457,10 +472,10 @@ public class ReliableBroadcaster {
             deliver(messages.stream()
                             .limit(params.maxMessages)
                             .filter(am -> am.getContent().size() <= params.maxMessageSize())
-                            .map(am -> new state(adapter.hasher.apply(am.getContent()), AgedMessage.newBuilder(am)))
+                            .map(am -> new state(adapter.hasher.apply(am.getContent()), am))
                             .filter(s -> !dup(s))
                             .filter(s -> adapter.verifier.test(s.msg.getContent()))
-                            .map(s -> state.merge(s.hash, s, (a, b) -> a.msg.getAge() <= b.msg.getAge() ? a : b))
+                            .map(s -> state.merge(s.hash, s, (a, b) -> a.age.get() <= b.age.get() ? a : b))
                             .map(s -> new Msg(adapter.source.apply(s.msg.getContent()), adapter.extractor.apply(s.msg),
                                               s.hash))
                             .toList());
@@ -468,16 +483,16 @@ public class ReliableBroadcaster {
         }
 
         public Iterable<? extends AgedMessage> reconcile(BloomFilter<Digest> biff, Digest from) {
-            PriorityQueue<AgedMessage.Builder> mailBox = new PriorityQueue<>(
-            Comparator.comparingInt(AgedMessage.Builder::getAge));
+            PriorityQueue<state> mailBox = new PriorityQueue<>(
+            Comparator.comparingInt(s -> s.age.get()));
             state.values()
                  .stream()
                  .collect(Utils.toShuffledList())
                  .stream()
                  .filter(s -> !biff.contains(s.hash))
-                 .filter(s -> s.msg.getAge() < maxAge)
-                 .forEach(s -> mailBox.add(s.msg));
-            List<AgedMessage> reconciled = mailBox.stream().map(AgedMessage.Builder::build).toList();
+                 .filter(s -> s.age.get() < maxAge)
+                 .forEach(mailBox::add);
+            List<AgedMessage> reconciled = mailBox.stream().map(s -> s.buildWithCurrentAge()).toList();
             if (!reconciled.isEmpty()) {
                 log.trace("reconciled: {} for: {} on: {}", reconciled.size(), from, member.getId());
             }
@@ -489,12 +504,12 @@ public class ReliableBroadcaster {
         }
 
         public AgedMessage send(ByteString msg, SigningMember member) {
-            AgedMessage.Builder message = AgedMessage.newBuilder().setContent(adapter.wrapper.apply(member, msg));
+            AgedMessage message = AgedMessage.newBuilder().setContent(adapter.wrapper.apply(member, msg)).build();
             var hash = adapter.hasher.apply(message.getContent());
             state s = new state(hash, message);
             state.put(hash, s);
             log.trace("Send message:{} on: {}", hash, member.getId());
-            return s.msg.build();
+            return message;
         }
 
         public int size() {
@@ -513,12 +528,12 @@ public class ReliableBroadcaster {
                 int gcd = 0;
                 while (trav.hasNext()) {
                     var next = trav.next().getValue();
-                    int age = next.msg.getAge();
-                    if (age >= maxAge) {
+                    int currentAge = next.age.get();
+                    if (currentAge >= maxAge) {
                         trav.remove();
                         gcd++;
                     } else {
-                        next.msg.setAge(age + 1);
+                        next.age.incrementAndGet();
                     }
                 }
                 if (gcd != 0)
@@ -528,24 +543,37 @@ public class ReliableBroadcaster {
             }
         }
 
+        /**
+         * Check if message is duplicate. Uses atomic compute() to avoid TOCTOU races.
+         * If duplicate exists, keeps the one with lower (fresher) age.
+         */
         private boolean dup(state s) {
-            if (s.msg.getAge() > maxAge) {
-                log.trace("Rejecting message too old: {} age: {} > {} on: {}", s.hash, s.msg.getAge(), maxAge,
+            int incomingAge = s.age.get();
+            if (incomingAge > maxAge) {
+                log.trace("Rejecting message too old: {} age: {} > {} on: {}", s.hash, incomingAge, maxAge,
                           member.getId());
                 return true;
             }
-            var previous = state.get(s.hash);
-            if (previous != null) {
-                int nextAge = Math.max(previous.msg().getAge(), s.msg.getAge());
-                if (nextAge > maxAge) {
-                    state.remove(s.hash);
-                } else if (previous.msg.getAge() != nextAge) {
-                    previous.msg().setAge(nextAge);
+            // Atomic check-and-update to avoid TOCTOU race (Delos-jke1)
+            var result = new AtomicBoolean(false);
+            state.compute(s.hash, (key, previous) -> {
+                if (previous == null) {
+                    // Not a duplicate, will be inserted by caller via merge()
+                    return null;
                 }
-                //                log.trace("duplicate event: {} on: {}", s.hash, member.getId());
-                return true;
-            }
-            return false;
+                result.set(true); // It's a duplicate
+                int previousAge = previous.age.get();
+                int fresherAge = Math.min(previousAge, incomingAge);
+                if (fresherAge > maxAge) {
+                    return null; // Remove expired entry
+                }
+                // Keep fresher age (atomically update if incoming is fresher)
+                if (incomingAge < previousAge) {
+                    previous.age.set(incomingAge);
+                }
+                return previous;
+            });
+            return result.get();
         }
 
         private void gc() {
@@ -574,10 +602,10 @@ public class ReliableBroadcaster {
 
         private void purgeTheAged() {
             Queue<state> candidates = new PriorityQueue<>(
-            Collections.reverseOrder((a, b) -> Integer.compare(a.msg.getAge(), b.msg.getAge())));
+            Collections.reverseOrder((a, b) -> Integer.compare(a.age.get(), b.age.get())));
             candidates.addAll(state.values());
             for (ReliableBroadcaster.state m : candidates) {
-                if (m.msg.getAge() > maxAge) {
+                if (m.age.get() > maxAge) {
                     state.remove(m.hash);
                 } else {
                     break;
