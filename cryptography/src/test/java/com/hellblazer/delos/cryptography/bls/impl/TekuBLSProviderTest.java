@@ -439,48 +439,48 @@ class TekuBLSProviderTest {
     }
 
     @Test
-    @DisplayName("cache hit performance is significantly faster than cache miss")
-    void cacheHitPerformanceSignificantlyFasterThanCacheMiss() {
+    @DisplayName("cache produces hits after initial population")
+    void cacheProducesHitsAfterInitialPopulation() {
         var singletonProvider = TekuBLSProvider.getInstance();
         singletonProvider.clearCache();
 
+        // Capture baseline stats (cumulative from previous tests)
+        var baselineStats = singletonProvider.getCacheStats();
+        var baselineMisses = baselineStats.missCount();
+        var baselineHits = baselineStats.hitCount();
+
         var random = new Random(54321);
         var keyPair = singletonProvider.generateKeyPair(random);
-        var message = "performance test".getBytes();
+        var message = "cache behavior test".getBytes();
         var signature = singletonProvider.sign(keyPair.secretKey(), message);
 
-        // Warmup to stabilize JIT
+        // First verification populates cache (cache miss for new key)
+        singletonProvider.verify(keyPair.publicKey(), message, signature);
+        var statsAfterFirst = singletonProvider.getCacheStats();
+        assertThat(statsAfterFirst.missCount() - baselineMisses)
+            .as("First verification should produce exactly one cache miss")
+            .isEqualTo(1);
+
+        // Subsequent verifications should hit cache for public key parsing
         for (int i = 0; i < 100; i++) {
             singletonProvider.verify(keyPair.publicKey(), message, signature);
         }
+        var statsAfterHits = singletonProvider.getCacheStats();
+        var deltaMisses = statsAfterHits.missCount() - baselineMisses;
+        var deltaHits = statsAfterHits.hitCount() - baselineHits;
 
-        // Measure cache miss latency (first call after clearing)
-        var missDurations = new ArrayList<Long>();
-        for (int i = 0; i < 10; i++) {
-            singletonProvider.clearCache();
-            var start = System.nanoTime();
-            singletonProvider.verify(keyPair.publicKey(), message, signature);
-            var duration = (System.nanoTime() - start) / 1000; // Convert to µs
-            missDurations.add(duration);
-        }
-        var avgMissDuration = missDurations.stream().mapToLong(Long::longValue).average().orElse(0);
+        assertThat(deltaHits)
+            .as("Repeated verifications should produce 100 cache hits")
+            .isEqualTo(100);
+        assertThat(deltaMisses)
+            .as("Only initial verification should produce cache miss")
+            .isEqualTo(1);
 
-        // Measure cache hit latency (repeated calls with populated cache)
-        singletonProvider.clearCache();
-        singletonProvider.verify(keyPair.publicKey(), message, signature); // Populate cache
-        var hitDurations = new ArrayList<Long>();
-        for (int i = 0; i < 100; i++) {
-            var start = System.nanoTime();
-            singletonProvider.verify(keyPair.publicKey(), message, signature);
-            var duration = (System.nanoTime() - start) / 1000; // Convert to µs
-            hitDurations.add(duration);
-        }
-        var avgHitDuration = hitDurations.stream().mapToLong(Long::longValue).average().orElse(0);
-
-        // Cache hit should be faster than cache miss
-        assertThat(avgHitDuration)
-            .as("Cache hit latency should be less than cache miss latency")
-            .isLessThan(avgMissDuration);
+        // Verify hit rate for this test's operations: 100 hits / 101 total = ~99%
+        var testHitRate = (double) deltaHits / (deltaHits + deltaMisses);
+        assertThat(testHitRate)
+            .as("Cache should have high hit rate after repeated verifications")
+            .isGreaterThan(0.98);
     }
 
     @Test

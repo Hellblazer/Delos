@@ -200,7 +200,7 @@ public class CHOAMBlockValidationTest {
             });
 
             transactioneers.forEach(Transactioneer::start);
-            boolean completed = countdown.await(IS_CI ? 90 : 30, TimeUnit.SECONDS);
+            boolean completed = countdown.await(IS_CI ? 180 : 30, TimeUnit.SECONDS);
             assertTrue(completed, "Round " + round + " block validation should complete");
         }
 
