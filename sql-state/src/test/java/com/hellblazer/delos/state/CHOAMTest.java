@@ -7,8 +7,7 @@
  */
 package com.hellblazer.delos.state;
 
-import com.codahale.metrics.ConsoleReporter;
-import com.codahale.metrics.MetricRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.archipelago.LocalServer;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
@@ -21,7 +20,7 @@ import com.hellblazer.delos.choam.Parameters.ProducerParameters;
 import com.hellblazer.delos.choam.Parameters.RuntimeParameters;
 import com.hellblazer.delos.choam.proto.Transaction;
 import com.hellblazer.delos.choam.support.ChoamMetrics;
-import com.hellblazer.delos.choam.support.ChoamMetricsImpl;
+import com.hellblazer.delos.choam.support.MicrometerChoamMetrics;
 import com.hellblazer.delos.context.Context;
 import com.hellblazer.delos.context.DynamicContextImpl;
 import com.hellblazer.delos.cryptography.Digest;
@@ -82,7 +81,7 @@ public class CHOAMTest {
     private       File                         checkpointDirBase;
     private       Map<Digest, CHOAM>           choams;
     private       List<SigningMember>          members;
-    private       MetricRegistry               registry;
+    private       SimpleMeterRegistry          registry;
     private       Map<Digest, Router>          routers;
     private       ScheduledExecutorService     scheduler;
     private       ExecutorService              executor;
@@ -118,14 +117,6 @@ public class CHOAMTest {
         updaters.clear();
         members = null;
         System.out.println();
-
-        if (Boolean.getBoolean("reportMetrics")) {
-            ConsoleReporter.forRegistry(registry)
-                           .convertRatesTo(TimeUnit.SECONDS)
-                           .convertDurationsTo(TimeUnit.MILLISECONDS)
-                           .build()
-                           .report();
-        }
         registry = null;
     }
 
@@ -133,7 +124,7 @@ public class CHOAMTest {
     public void before() throws Exception {
         scheduler = Executors.newScheduledThreadPool(10, Thread.ofVirtual().factory());
         executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
-        registry = new MetricRegistry();
+        registry = new SimpleMeterRegistry();
         checkpointDirBase = new File("target/ct-chkpoints-" + Entropy.nextBitsStreamLong());
         Utils.clean(checkpointDirBase);
         baseDir = new File(System.getProperty("user.dir"), "target/cluster-" + Entropy.nextBitsStreamLong());
@@ -142,7 +133,7 @@ public class CHOAMTest {
         var entropy = SecureRandom.getInstance("SHA1PRNG");
         entropy.setSeed(new byte[] { 6, 6, 6 });
         var context = new DynamicContextImpl<>(DigestAlgorithm.DEFAULT.getOrigin(), CARDINALITY, 0.2, 3);
-        var metrics = new ChoamMetricsImpl(context.getId(), registry);
+        var metrics = new MicrometerChoamMetrics(context.getId(), registry);
 
         var params = Parameters.newBuilder()
                                .setGenerateGenesis(true)

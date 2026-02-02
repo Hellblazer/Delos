@@ -7,24 +7,51 @@
  */
 package com.hellblazer.delos.model.demesnes.comm;
 
-import com.codahale.metrics.Meter;
-import com.codahale.metrics.Timer;
 import com.hellblazer.delos.protocols.EndpointMetrics;
 
 /**
- * @author hal.hildebrand
+ * Framework-agnostic metrics interface for enclave operations.
+ * <p>
+ * Implementations should use their preferred metrics library (Micrometer, Dropwizard, etc.)
+ * internally while exposing only semantic methods.
  *
+ * @author hal.hildebrand
  */
 public interface EnclaveMetrics extends EndpointMetrics {
 
-    Timer deregister();
+    /**
+     * Record deregister operation duration.
+     *
+     * @param nanos duration in nanoseconds
+     */
+    void recordDeregisterDuration(long nanos);
 
-    Meter outboundDeregister();
+    /**
+     * Record register operation duration.
+     *
+     * @param nanos duration in nanoseconds
+     */
+    void recordRegisterDuration(long nanos);
 
-    Meter outboundRegister();
+    /**
+     * Record outbound deregister message size.
+     *
+     * @param bytes message size in bytes
+     */
+    void recordOutboundDeregister(int bytes);
 
-    Meter outboundViewChange();
+    /**
+     * Record outbound register message size.
+     *
+     * @param bytes message size in bytes
+     */
+    void recordOutboundRegister(int bytes);
 
-    Timer register();
+    /**
+     * Record outbound view change message size.
+     *
+     * @param bytes message size in bytes
+     */
+    void recordOutboundViewChange(int bytes);
 
 }

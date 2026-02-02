@@ -7,7 +7,6 @@
  */
 package com.hellblazer.delos.fireflies;
 
-import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.membership.byzantine.IntelligenceConfig;
 import com.hellblazer.delos.membership.byzantine.MemberRiskProfile;
@@ -19,7 +18,6 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.*;
@@ -36,16 +34,12 @@ class FirefliesResponseHandlerTest {
     @Mock
     private FireflyMetrics metrics;
 
-    @Mock
-    private com.codahale.metrics.Meter shunnedMeter;
-
     private FirefliesResponseHandler handler;
     private IntelligenceConfig config;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        when(metrics.shunnedGossip()).thenReturn(shunnedMeter);
         config = IntelligenceConfig.defaults();
         handler = new FirefliesResponseHandler(view, metrics);
     }
@@ -62,7 +56,7 @@ class FirefliesResponseHandlerTest {
 
         assertThat(result).isTrue();
         verify(view).shun(digest);
-        verify(shunnedMeter).mark();
+        verify(metrics).recordShunnedGossip();
     }
 
     @Test
@@ -77,7 +71,7 @@ class FirefliesResponseHandlerTest {
 
         assertThat(result).isFalse();
         verify(view).shun(digest);
-        verify(shunnedMeter, never()).mark();
+        verify(metrics, never()).recordShunnedGossip();
     }
 
     @Test
@@ -93,7 +87,7 @@ class FirefliesResponseHandlerTest {
         var result = handler.handleCritical(identifier, profile).get(5, TimeUnit.SECONDS);
 
         assertThat(result).isFalse();
-        verify(shunnedMeter, never()).mark();
+        verify(metrics, never()).recordShunnedGossip();
     }
 
     @Test
@@ -161,7 +155,7 @@ class FirefliesResponseHandlerTest {
         assertThat(result1).isTrue();
         assertThat(result2).isFalse();
         verify(view, times(2)).shun(digest);
-        // Metrics only marked once (when shunning succeeded)
-        verify(shunnedMeter, times(1)).mark();
+        // Metrics only recorded once (when shunning succeeded)
+        verify(metrics, times(1)).recordShunnedGossip();
     }
 }

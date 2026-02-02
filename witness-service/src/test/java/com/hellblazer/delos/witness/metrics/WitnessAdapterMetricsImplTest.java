@@ -7,7 +7,7 @@
  */
 package com.hellblazer.delos.witness.metrics;
 
-import com.codahale.metrics.MetricRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.context.StaticContext;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.membership.MockMember;
@@ -26,21 +26,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Tests for WitnessAdapterMetricsImpl - Phase 6 Production Hardening.
+ * Tests for MicrometerWitnessAdapterMetrics - Phase 6 Production Hardening.
  */
 @DisplayName("WitnessAdapterMetrics Tests")
-class WitnessAdapterMetricsImplTest {
+class MicrometerWitnessAdapterMetricsTest {
 
     private static final DigestAlgorithm ALGORITHM = DigestAlgorithm.DEFAULT;
 
-    private MetricRegistry registry;
-    private WitnessAdapterMetricsImpl metrics;
+    private SimpleMeterRegistry registry;
+    private MicrometerWitnessAdapterMetrics metrics;
     private FirefliesWitnessAdapter adapter;
 
     @BeforeEach
     void setUp() {
-        registry = new MetricRegistry();
-        metrics = new WitnessAdapterMetricsImpl(registry);
+        registry = new SimpleMeterRegistry();
+        metrics = new MicrometerWitnessAdapterMetrics(registry);
         adapter = new FirefliesWitnessAdapter(ALGORITHM, metrics);
     }
 
@@ -90,8 +90,9 @@ class WitnessAdapterMetricsImplTest {
             adapter.selectWitnesses(context, createEventCoordinates("test", 1));
 
             // Then: Committee size is recorded (can verify via registry)
-            var histogram = registry.histogram("witness.adapter.committee.size");
-            assertThat(histogram.getCount()).isEqualTo(1);
+            var summary = registry.find("witness.adapter.committee.size").summary();
+            assertThat(summary).isNotNull();
+            assertThat(summary.count()).isEqualTo(1);
         }
     }
 

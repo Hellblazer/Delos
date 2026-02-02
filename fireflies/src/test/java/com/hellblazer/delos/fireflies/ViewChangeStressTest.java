@@ -6,9 +6,8 @@
  */
 package com.hellblazer.delos.fireflies;
 
-import com.codahale.metrics.MetricRegistry;
-import com.codahale.metrics.Timer;
 import com.hellblazer.delos.archipelago.*;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.context.DynamicContext;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
@@ -60,9 +59,9 @@ public class ViewChangeStressTest {
 
     private final List<Router>                            communications = new ArrayList<>();
     private final List<Router>                            gateways       = new ArrayList<>();
-    private final Timer                                   joinLatencyTimer = new Timer();
+    private final List<Long>                              joinLatencyNanos = new ArrayList<>();
     private       Map<Digest, ControlledIdentifierMember> members;
-    private       MetricRegistry                          registry;
+    private       SimpleMeterRegistry                     registry;
     private       List<View>                              views;
     private       ExecutorService                         executor;
 
@@ -100,13 +99,20 @@ public class ViewChangeStressTest {
         }
 
         // Report metrics if requested
-        if (Boolean.getBoolean("reportMetrics")) {
+        if (Boolean.getBoolean("reportMetrics") && !joinLatencyNanos.isEmpty()) {
+            var stats = joinLatencyNanos.stream().mapToLong(Long::longValue).summaryStatistics();
+            var sorted = joinLatencyNanos.stream().mapToLong(Long::longValue).sorted().toArray();
+            var p95Index = (int) (sorted.length * 0.95);
+            var p99Index = (int) (sorted.length * 0.99);
+            var p95 = sorted.length > 0 ? sorted[Math.min(p95Index, sorted.length - 1)] / 1_000_000.0 : 0;
+            var p99 = sorted.length > 0 ? sorted[Math.min(p99Index, sorted.length - 1)] / 1_000_000.0 : 0;
+
             System.out.println("\n=== ViewChangeStressTest Metrics ===");
-            System.out.println("Join Latency (ms): min=" + joinLatencyTimer.getSnapshot().getMin() +
-                             ", max=" + joinLatencyTimer.getSnapshot().getMax() +
-                             ", mean=" + joinLatencyTimer.getSnapshot().getMean() +
-                             ", p95=" + joinLatencyTimer.getSnapshot().get95thPercentile() +
-                             ", p99=" + joinLatencyTimer.getSnapshot().get99thPercentile());
+            System.out.println("Join Latency (ms): min=" + (stats.getMin() / 1_000_000.0) +
+                             ", max=" + (stats.getMax() / 1_000_000.0) +
+                             ", mean=" + (stats.getAverage() / 1_000_000.0) +
+                             ", p95=" + p95 +
+                             ", p99=" + p99);
         }
     }
 
@@ -145,9 +151,12 @@ public class ViewChangeStressTest {
             final int index = INITIAL_CARDINALITY + i;
             executor.submit(() -> {
                 try {
-                    var timer = joinLatencyTimer.time();
+                    var startNanos = System.nanoTime();
                     views.get(index).start(() -> {}, Duration.ofMillis(5), seeds);
-                    timer.close();
+                    var elapsed = System.nanoTime() - startNanos;
+                    synchronized (joinLatencyNanos) {
+                        joinLatencyNanos.add(elapsed);
+                    }
                     joinCountdown.countDown();
                 } catch (Exception e) {
                     e.printStackTrace();
@@ -161,12 +170,16 @@ public class ViewChangeStressTest {
 
         // Verify cluster stability
         Thread.sleep(1000);
-        var snapshot = joinLatencyTimer.getSnapshot();
-        System.out.println("Join Latency p95: " + snapshot.get95thPercentile() + "ms");
-        System.out.println("Join Latency p99: " + snapshot.get99thPercentile() + "ms");
-        System.out.println("Join operations: " + joinLatencyTimer.getCount());
+        var sorted = joinLatencyNanos.stream().mapToLong(Long::longValue).sorted().toArray();
+        var p95Index = (int) (sorted.length * 0.95);
+        var p99Index = (int) (sorted.length * 0.99);
+        var p95 = sorted.length > 0 ? sorted[Math.min(p95Index, sorted.length - 1)] / 1_000_000.0 : 0;
+        var p99 = sorted.length > 0 ? sorted[Math.min(p99Index, sorted.length - 1)] / 1_000_000.0 : 0;
+        System.out.println("Join Latency p95: " + p95 + "ms");
+        System.out.println("Join Latency p99: " + p99 + "ms");
+        System.out.println("Join operations: " + joinLatencyNanos.size());
         // Informational metric only - validates that non-observer optimization doesn't cause regressions
-        assertTrue(joinLatencyTimer.getCount() > 0, "No joins were measured");
+        assertTrue(joinLatencyNanos.size() > 0, "No joins were measured");
 
         long testEnd = System.currentTimeMillis();
         System.out.println("testRapidConcurrentJoins completed in " + (testEnd - testStart) + "ms");
@@ -295,7 +308,7 @@ public class ViewChangeStressTest {
 
     private void initialize() throws Exception {
         var parameters = Parameters.newBuilder().setMaxPending(20).setMaximumTxfr(5).build();
-        registry = new MetricRegistry();
+        registry = new SimpleMeterRegistry();
 
         // Use only INITIAL_CARDINALITY for bootstrap, rest are joiners
         var bootstrapMembers = identities.values()
@@ -347,16 +360,16 @@ public class ViewChangeStressTest {
                                 .build();
             }
 
-            var metrics = new FireflyMetricsImpl(context.getId(), registry);
+            var metrics = new MicrometerFireflyMetrics(context.getId(), registry);
             var comms = new LocalServer(prefix, node).router(ServerConnectionCache.newBuilder()
                                                                                       .setTarget(200)
                                                                                       .setMetrics(
-                                                                                      new ServerConnectionCacheMetricsImpl(
+                                                                                      new MicrometerServerConnectionCacheMetrics(
                                                                                       registry)));
             var gateway = new LocalServer(gatewayPrefix, node).router(ServerConnectionCache.newBuilder()
                                                                                    .setTarget(200)
                                                                                    .setMetrics(
-                                                                                   new ServerConnectionCacheMetricsImpl(
+                                                                                   new MicrometerServerConnectionCacheMetrics(
                                                                                    registry)));
             comms.start();
             communications.add(comms);

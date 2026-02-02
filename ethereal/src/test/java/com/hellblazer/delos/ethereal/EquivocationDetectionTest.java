@@ -69,7 +69,8 @@ public class EquivocationDetectionTest {
         var verifiers = members.stream()
                                .map(m -> (com.hellblazer.delos.cryptography.Verifier) m)
                                .toArray(com.hellblazer.delos.cryptography.Verifier[]::new);
-        adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>(), verifiers);
+        adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>(), verifiers,
+                          new BlacklistStore.InMemoryBlacklistStore());
     }
 
     /**
@@ -104,7 +105,7 @@ public class EquivocationDetectionTest {
                    "Error message should specify conflicting creator and height (height=0 for dealing units)");
 
         // Verify blacklist contains the equivocating creator
-        var blacklist = adder.getBlacklistedCreators();
+        var blacklist = adder.getBlacklistStore().getBlacklisted();
         assertTrue(blacklist.contains((short) 1), "Equivocating creator should be blacklisted");
     }
 
@@ -127,7 +128,7 @@ public class EquivocationDetectionTest {
         });
 
         // Verify creator 1 is blacklisted
-        assertTrue(adder.getBlacklistedCreators().contains((short) 1),
+        assertTrue(adder.getBlacklistStore().getBlacklisted().contains((short) 1),
                    "Creator should be blacklisted after equivocation");
 
         // Attempt to propose a new valid unit from blacklisted creator at different height
@@ -157,7 +158,7 @@ public class EquivocationDetectionTest {
         });
 
         assertTrue(exception.getMessage().contains("Equivocation detected"));
-        assertTrue(adder.getBlacklistedCreators().contains((short) 2));
+        assertTrue(adder.getBlacklistStore().getBlacklisted().contains((short) 2));
     }
 
     /**
@@ -223,7 +224,7 @@ public class EquivocationDetectionTest {
         });
 
         // Verify both are blacklisted
-        var blacklist = adder.getBlacklistedCreators();
+        var blacklist = adder.getBlacklistStore().getBlacklisted();
         assertTrue(blacklist.contains((short) 1), "First equivocator should be blacklisted");
         assertTrue(blacklist.contains((short) 2), "Second equivocator should be blacklisted");
 
@@ -250,7 +251,7 @@ public class EquivocationDetectionTest {
             adder.propose(unit2.hash(), unit2.toPreUnit_s());
         });
 
-        assertTrue(adder.getBlacklistedCreators().contains((short) 1));
+        assertTrue(adder.getBlacklistStore().getBlacklisted().contains((short) 1));
 
         // Honest creators continue producing units
         var honestUnit1 = createUnit((short) 2, 1, ByteString.copyFromUtf8("honest2"));
@@ -294,7 +295,7 @@ public class EquivocationDetectionTest {
         });
 
         assertTrue(exception.getMessage().contains("Equivocation detected"));
-        assertTrue(adder.getBlacklistedCreators().contains((short) 1));
+        assertTrue(adder.getBlacklistStore().getBlacklisted().contains((short) 1));
     }
 
     /**
@@ -312,7 +313,7 @@ public class EquivocationDetectionTest {
         adder.propose(unit.hash(), unit.toPreUnit_s());
 
         // Creator should NOT be blacklisted
-        assertFalse(adder.getBlacklistedCreators().contains((short) 1),
+        assertFalse(adder.getBlacklistStore().getBlacklisted().contains((short) 1),
                     "Duplicate proposal of same unit should not trigger equivocation");
     }
 
@@ -349,7 +350,7 @@ public class EquivocationDetectionTest {
         assertNotNull(waiting1, "First unit should still be in waiting");
 
         // Verify creator is blacklisted
-        assertTrue(adder.getBlacklistedCreators().contains((short) 1),
+        assertTrue(adder.getBlacklistStore().getBlacklisted().contains((short) 1),
                    "Equivocating creator should be blacklisted");
     }
 

@@ -6,8 +6,6 @@
  */
 package com.hellblazer.delos.messaging.rbc;
 
-import com.codahale.metrics.ConsoleReporter;
-import com.codahale.metrics.MetricRegistry;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.hellblazer.delos.archipelago.*;
@@ -16,7 +14,8 @@ import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.membership.SigningMember;
-import com.hellblazer.delos.membership.messaging.rbc.RbcMetricsImpl;
+import com.hellblazer.delos.membership.messaging.rbc.MicrometerRbcMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.membership.messaging.rbc.ReliableBroadcaster;
 import com.hellblazer.delos.membership.messaging.rbc.ReliableBroadcaster.MessageHandler;
 import com.hellblazer.delos.membership.messaging.rbc.ReliableBroadcaster.Msg;
@@ -75,7 +74,7 @@ public class RbcTest {
     @Test
     public void broadcast() throws Exception {
         executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
-        MetricRegistry registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
 
         var entropy = SecureRandom.getInstance("SHA1PRNG");
         entropy.setSeed(new byte[] { 6, 6, 7, 6 });
@@ -91,14 +90,14 @@ public class RbcTest {
         var b = DynamicContext.newBuilder();
         b.setCardinality(members.size());
         var context = b.build();
-        var metrics = new RbcMetricsImpl(context.getId(), "test", registry);
+        var metrics = new MicrometerRbcMetrics(registry);
         members.forEach(m -> context.activate(m));
 
         final var prefix = UUID.randomUUID().toString();
         final var authentication = ReliableBroadcaster.defaultMessageAdapter(context, DigestAlgorithm.DEFAULT);
         messengers = members.stream().map(node -> {
             var comms = new LocalServer(prefix, node).router(
-            ServerConnectionCache.newBuilder().setTarget(30).setMetrics(new ServerConnectionCacheMetricsImpl(registry)),
+            ServerConnectionCache.newBuilder().setTarget(30).setMetrics(new MicrometerServerConnectionCacheMetrics(registry)),
             executor);
             communications.add(comms);
             comms.start();
@@ -142,14 +141,6 @@ public class RbcTest {
         communications.forEach(e -> e.close(Duration.ofMillis(0)));
 
         System.out.println();
-
-        if (Boolean.getBoolean("reportMetrics")) {
-            ConsoleReporter.forRegistry(registry)
-                           .convertRatesTo(TimeUnit.SECONDS)
-                           .convertDurationsTo(TimeUnit.MILLISECONDS)
-                           .build()
-                           .report();
-        }
     }
 
     class Receiver implements MessageHandler {

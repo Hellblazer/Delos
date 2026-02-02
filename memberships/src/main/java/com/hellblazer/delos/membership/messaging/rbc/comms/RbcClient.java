@@ -1,12 +1,12 @@
 /*
- * Copyright (c) 2019, salesforce.com, inc.
+ * Copyright (c) 2026, Hal Hildebrand.
  * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
+ * GNU Affero General Public License
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
  */
 package com.hellblazer.delos.membership.messaging.rbc.comms;
 
-import com.codahale.metrics.Timer.Context;
 import com.hellblazer.delos.archipelago.ManagedServerChannel;
 import com.hellblazer.delos.archipelago.ServerConnectionCache.CreateClientCommunications;
 import com.hellblazer.delos.membership.Member;
@@ -51,18 +51,18 @@ public class RbcClient implements ReliableBroadcast {
 
     @Override
     public Reconcile gossip(MessageBff request) {
-        Context timer = metrics == null ? null : metrics.outboundGossipTimer().time();
+        long start = metrics != null ? System.nanoTime() : 0;
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
-            metrics.outboundGossip().update(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
+            metrics.recordOutboundGossipSize(serializedSize);
         }
         var result = client.gossip(request);
         if (metrics != null) {
-            timer.stop();
+            metrics.recordOutboundGossipDuration(System.nanoTime() - start);
             var serializedSize = result.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.gossipResponse().update(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordGossipResponseSize(serializedSize);
         }
         return result;
     }
@@ -78,23 +78,19 @@ public class RbcClient implements ReliableBroadcast {
 
     @Override
     public void update(ReconcileContext request) {
-        Context timer = metrics == null ? null : metrics.outboundUpdateTimer().time();
+        long start = metrics != null ? System.nanoTime() : 0;
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
-            metrics.outboundUpdate().update(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
+            metrics.recordOutboundUpdateSize(serializedSize);
         }
         try {
-            var result = client.update(request);
+            client.update(request);
             if (metrics != null) {
-                if (timer != null) {
-                    timer.stop();
-                }
+                metrics.recordOutboundUpdateDuration(System.nanoTime() - start);
             }
         } catch (Throwable e) {
-            if (timer != null) {
-                timer.close();
-            }
+            // Timer already handled by not recording on exception
         }
     }
 }

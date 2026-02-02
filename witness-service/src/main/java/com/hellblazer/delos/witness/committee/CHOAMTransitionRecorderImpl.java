@@ -7,8 +7,8 @@
  */
 package com.hellblazer.delos.witness.committee;
 
-import com.codahale.metrics.Counter;
-import com.codahale.metrics.MetricRegistry;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import com.hellblazer.delos.cryptography.Digest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,14 +47,16 @@ public class CHOAMTransitionRecorderImpl implements CHOAMTransitionRecorder {
      * Create recorder with metrics tracking.
      *
      * @param session Session for CHOAM submission
-     * @param metricRegistry Metrics registry
+     * @param meterRegistry Metrics registry
      */
-    public CHOAMTransitionRecorderImpl(Session session, MetricRegistry metricRegistry) {
+    public CHOAMTransitionRecorderImpl(Session session, MeterRegistry meterRegistry) {
         this.session = Objects.requireNonNull(session, "session cannot be null");
-        Objects.requireNonNull(metricRegistry, "metricRegistry cannot be null");
+        Objects.requireNonNull(meterRegistry, "meterRegistry cannot be null");
 
-        this.recordsSubmitted = metricRegistry.counter("choam.transition.records_submitted");
-        this.recordsFailed = metricRegistry.counter("choam.transition.records_failed");
+        this.recordsSubmitted = Counter.builder("choam.transition.records_submitted")
+            .register(meterRegistry);
+        this.recordsFailed = Counter.builder("choam.transition.records_failed")
+            .register(meterRegistry);
 
         log.debug("Created CHOAMTransitionRecorderImpl with metrics tracking");
     }
@@ -94,13 +96,13 @@ public class CHOAMTransitionRecorderImpl implements CHOAMTransitionRecorder {
         future.whenComplete((digest, throwable) -> {
             if (throwable == null) {
                 if (recordsSubmitted != null) {
-                    recordsSubmitted.inc();
+                    recordsSubmitted.increment();
                 }
                 log.info("Recorded genesis transition: {} -> {} (block: {})",
                     transition.fromPhase(), transition.toPhase(), digest);
             } else {
                 if (recordsFailed != null) {
-                    recordsFailed.inc();
+                    recordsFailed.increment();
                 }
                 log.error("Failed to record genesis transition: {} -> {}",
                     transition.fromPhase(), transition.toPhase(), throwable);

@@ -7,7 +7,7 @@
  */
 package com.hellblazer.delos.witness;
 
-import com.codahale.metrics.MetricRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.witness.aggregation.SignatureFormat;
 import com.hellblazer.delos.witness.committee.CommitteeBLSKeyStore;
 import com.hellblazer.delos.witness.committee.GenesisTransitionCoordinator;
@@ -53,7 +53,7 @@ class HealthCheckPhase1B3Test {
 
         var detector = new ByzantineWitnessDetector(new ConcurrentHashMap<>());
 
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         // Create health provider
@@ -98,7 +98,7 @@ class HealthCheckPhase1B3Test {
 
         var detector = new ByzantineWitnessDetector(new ConcurrentHashMap<>());
 
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
         metrics.setBlsKeysRegistered(5);
         metrics.setBlsKeysCoverage(50.0);

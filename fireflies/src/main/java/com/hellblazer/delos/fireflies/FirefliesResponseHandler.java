@@ -81,7 +81,7 @@ public class FirefliesResponseHandler implements ResponseHandler {
                        if (shunned) {
                            log.info("Successfully shunned Byzantine member: {}", digest);
                            if (metrics != null) {
-                               metrics.shunnedGossip().mark();
+                               metrics.recordShunnedGossip();
                            }
                        } else {
                            log.debug("Member already shunned or not found: {}", digest);

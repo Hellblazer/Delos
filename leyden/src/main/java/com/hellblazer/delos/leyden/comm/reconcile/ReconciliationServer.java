@@ -7,7 +7,6 @@
  */
 package com.hellblazer.delos.leyden.comm.reconcile;
 
-import com.codahale.metrics.Timer;
 import com.google.protobuf.Empty;
 import com.hellblazer.delos.archipelago.RoutableService;
 import com.hellblazer.delos.cryptography.Digest;
@@ -35,11 +34,11 @@ public class ReconciliationServer extends ReconciliationGrpc.ReconciliationImplB
 
     @Override
     public void reconcile(Intervals request, StreamObserver<Update> responseObserver) {
-        Timer.Context timer = metrics == null ? null : metrics.inboundReconcileTimer().time();
+        var startTime = metrics == null ? 0L : System.nanoTime();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.inboundReconcile().update(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordInboundReconcileSize(serializedSize);
         }
         Digest from = identity.getFrom();
         if (from == null) {
@@ -53,12 +52,12 @@ public class ReconciliationServer extends ReconciliationGrpc.ReconciliationImplB
                 responseObserver.onCompleted();
                 if (metrics != null) {
                     var serializedSize = response.getSerializedSize();
-                    metrics.outboundBandwidth().mark(serializedSize);
-                    metrics.reconcileReply().update(serializedSize);
+                    metrics.recordOutboundBandwidth(serializedSize);
+                    metrics.recordReconcileReplySize(serializedSize);
                 }
             } finally {
-                if (timer != null) {
-                    timer.stop();
+                if (metrics != null) {
+                    metrics.recordInboundReconcileDuration(System.nanoTime() - startTime);
                 }
             }
         });
@@ -66,11 +65,11 @@ public class ReconciliationServer extends ReconciliationGrpc.ReconciliationImplB
 
     @Override
     public void update(Updating request, StreamObserver<Empty> responseObserver) {
-        Timer.Context timer = metrics == null ? null : metrics.inboundUpdateTimer().time();
+        var startTime = metrics == null ? 0L : System.nanoTime();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.inboundReconcile().update(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordInboundReconcileSize(serializedSize);
         }
         Digest from = identity.getFrom();
         if (from == null) {
@@ -83,8 +82,8 @@ public class ReconciliationServer extends ReconciliationGrpc.ReconciliationImplB
                 responseObserver.onNext(Empty.getDefaultInstance());
                 responseObserver.onCompleted();
             } finally {
-                if (timer != null) {
-                    timer.stop();
+                if (metrics != null) {
+                    metrics.recordInboundUpdateDuration(System.nanoTime() - startTime);
                 }
             }
         });

@@ -7,9 +7,9 @@
  */
 package com.hellblazer.delos.witness;
 
-import com.codahale.metrics.Counter;
-import com.codahale.metrics.Gauge;
-import com.codahale.metrics.MetricRegistry;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.*;
@@ -22,63 +22,61 @@ class MetricsIntegrationTest {
 
     @Test
     void shouldRegisterBlsKeyMetrics() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         // Test BLS key registration tracking
         metrics.setBlsKeysRegistered(7);
         metrics.setBlsKeysCoverage(70.0);
 
-        @SuppressWarnings("unchecked")
-        var keysGauge = (Gauge<Integer>) registry.getGauges().get("witness.bls.keys.registered");
-        @SuppressWarnings("unchecked")
-        var coverageGauge = (Gauge<Double>) registry.getGauges().get("witness.bls.keys.coverage");
+        Gauge keysGauge = registry.find("witness.bls.keys.registered").gauge();
+        Gauge coverageGauge = registry.find("witness.bls.keys.coverage").gauge();
 
         assertThat(keysGauge).isNotNull();
-        assertThat(keysGauge.getValue()).isEqualTo(7);
+        assertThat((int) keysGauge.value()).isEqualTo(7);
         assertThat(coverageGauge).isNotNull();
-        assertThat(coverageGauge.getValue()).isCloseTo(70.0, within(0.01));
+        assertThat(coverageGauge.value()).isCloseTo(70.0, within(0.01));
     }
 
     @Test
     void shouldRegisterByzantineAndTransitionMetrics() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         // Test transition readiness gauges
         metrics.setTransitionReadiness(1);
         metrics.setTransitionInProgress(0);
 
-        @SuppressWarnings("unchecked")
-        var readinessGauge = (Gauge<Integer>) registry.getGauges().get("witness.transition.readiness");
-        @SuppressWarnings("unchecked")
-        var inProgressGauge = (Gauge<Integer>) registry.getGauges().get("witness.transition.in_progress");
+        Gauge readinessGauge = registry.find("witness.transition.readiness").gauge();
+        Gauge inProgressGauge = registry.find("witness.transition.in_progress").gauge();
 
         assertThat(readinessGauge).isNotNull();
-        assertThat(readinessGauge.getValue()).isEqualTo(1);
+        assertThat((int) readinessGauge.value()).isEqualTo(1);
         assertThat(inProgressGauge).isNotNull();
-        assertThat(inProgressGauge.getValue()).isEqualTo(0);
+        assertThat((int) inProgressGauge.value()).isEqualTo(0);
 
         // Test Byzantine counters
-        metrics.getByzantineShunnedCounter().inc();
-        metrics.getBlsFailuresCounter().inc(3);
+        metrics.recordByzantineShunned();
+        metrics.recordBlsFailure();
+        metrics.recordBlsFailure();
+        metrics.recordBlsFailure();
 
         // Test registration counters
-        metrics.getRegistrationAttemptsCounter().inc();
-        metrics.getRegistrationSuccessesCounter().inc();
+        metrics.recordRegistrationAttempt();
+        metrics.recordRegistrationSuccess();
 
-        Counter shunnedCounter = registry.getCounters().get("witness.byzantine.shunned");
-        Counter blsFailuresCounter = registry.getCounters().get("witness.byzantine.bls_failures");
-        Counter attemptsCounter = registry.getCounters().get("witness.registration.attempts");
-        Counter successesCounter = registry.getCounters().get("witness.registration.successes");
+        Counter shunnedCounter = registry.find("witness.byzantine.shunned").counter();
+        Counter blsFailuresCounter = registry.find("witness.byzantine.bls_failures").counter();
+        Counter attemptsCounter = registry.find("witness.registration.attempts").counter();
+        Counter successesCounter = registry.find("witness.registration.successes").counter();
 
         assertThat(shunnedCounter).isNotNull();
-        assertThat(shunnedCounter.getCount()).isEqualTo(1);
+        assertThat(shunnedCounter.count()).isEqualTo(1);
         assertThat(blsFailuresCounter).isNotNull();
-        assertThat(blsFailuresCounter.getCount()).isEqualTo(3);
+        assertThat(blsFailuresCounter.count()).isEqualTo(3);
         assertThat(attemptsCounter).isNotNull();
-        assertThat(attemptsCounter.getCount()).isEqualTo(1);
+        assertThat(attemptsCounter.count()).isEqualTo(1);
         assertThat(successesCounter).isNotNull();
-        assertThat(successesCounter.getCount()).isEqualTo(1);
+        assertThat(successesCounter.count()).isEqualTo(1);
     }
 }

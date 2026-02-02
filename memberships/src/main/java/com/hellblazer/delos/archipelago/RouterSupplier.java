@@ -7,8 +7,8 @@
 package com.hellblazer.delos.archipelago;
 
 import com.netflix.concurrency.limits.Limit;
+import com.netflix.concurrency.limits.MetricRegistry;
 import com.hellblazer.delos.archipelago.server.FernetServerInterceptor;
-import com.hellblazer.delos.protocols.LimitsRegistry;
 import io.grpc.ServerInterceptor;
 
 import java.util.Collections;
@@ -34,23 +34,23 @@ public interface RouterSupplier {
     }
 
     default Router router(ServerConnectionCache.Builder cacheBuilder, Supplier<Limit> serverLimit,
-                          LimitsRegistry limitsRegistry) {
+                          MetricRegistry limitsRegistry) {
         return router(cacheBuilder, serverLimit, limitsRegistry, Collections.emptyList());
     }
 
     default Router router(ServerConnectionCache.Builder cacheBuilder, Supplier<Limit> serverLimit,
-                          LimitsRegistry limitsRegistry, List<ServerInterceptor> interceptors) {
+                          MetricRegistry limitsRegistry, List<ServerInterceptor> interceptors) {
         return router(cacheBuilder, serverLimit, limitsRegistry, interceptors, null);
     }
 
     default Router router(ServerConnectionCache.Builder cacheBuilder, Supplier<Limit> serverLimit,
-                          LimitsRegistry limitsRegistry, List<ServerInterceptor> interceptors,
+                          MetricRegistry limitsRegistry, List<ServerInterceptor> interceptors,
                           Predicate<FernetServerInterceptor.HashedToken> validator) {
         return router(cacheBuilder, serverLimit, limitsRegistry, interceptors, validator, null);
 
     }
 
     Router router(ServerConnectionCache.Builder cacheBuilder, Supplier<Limit> serverLimit,
-                  LimitsRegistry limitsRegistry, List<ServerInterceptor> interceptors,
+                  MetricRegistry limitsRegistry, List<ServerInterceptor> interceptors,
                   Predicate<FernetServerInterceptor.HashedToken> validator, ExecutorService executor);
 }

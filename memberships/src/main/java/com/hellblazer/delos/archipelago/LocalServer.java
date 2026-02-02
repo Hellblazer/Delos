@@ -7,13 +7,13 @@
 package com.hellblazer.delos.archipelago;
 
 import com.netflix.concurrency.limits.Limit;
+import com.netflix.concurrency.limits.MetricRegistry;
 import com.netflix.concurrency.limits.grpc.server.ConcurrencyLimitServerInterceptor;
 import com.netflix.concurrency.limits.grpc.server.GrpcServerLimiterBuilder;
 import com.hellblazer.delos.archipelago.server.FernetServerInterceptor;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.protocols.ClientIdentity;
-import com.hellblazer.delos.protocols.LimitsRegistry;
 import io.grpc.*;
 import io.grpc.ForwardingClientCall.SimpleForwardingClientCall;
 import io.grpc.inprocess.InProcessChannelBuilder;
@@ -68,7 +68,7 @@ public class LocalServer implements RouterSupplier {
     }
 
     public RouterImpl router(ServerConnectionCache.Builder cacheBuilder, Supplier<Limit> serverLimit,
-                             LimitsRegistry limitsRegistry, List<ServerInterceptor> interceptors,
+                             MetricRegistry limitsRegistry, List<ServerInterceptor> interceptors,
                              Predicate<FernetServerInterceptor.HashedToken> validator, ExecutorService executor) {
         if (executor == null) {
             executor = Executors.newVirtualThreadPerTaskExecutor();

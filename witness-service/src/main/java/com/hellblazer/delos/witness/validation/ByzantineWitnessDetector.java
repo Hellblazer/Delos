@@ -7,8 +7,8 @@
  */
 package com.hellblazer.delos.witness.validation;
 
-import com.codahale.metrics.Counter;
-import com.codahale.metrics.MetricRegistry;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.JohnHancock;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
@@ -64,14 +64,14 @@ public class ByzantineWitnessDetector {
     /**
      * Create Byzantine detector with metrics tracking.
      *
-     * @param metricRegistry Metrics registry for tracking
+     * @param meterRegistry Metrics registry for tracking
      */
-    public ByzantineWitnessDetector(MetricRegistry metricRegistry) {
-        Objects.requireNonNull(metricRegistry, "metricRegistry cannot be null");
+    public ByzantineWitnessDetector(MeterRegistry meterRegistry) {
+        Objects.requireNonNull(meterRegistry, "meterRegistry cannot be null");
 
-        this.equivocationDetected = metricRegistry.counter("witness.byzantine.equivocation");
-        this.signatureForgeryDetected = metricRegistry.counter("witness.byzantine.signature_forgery");
-        this.thresholdBypassDetected = metricRegistry.counter("witness.byzantine.threshold_bypass");
+        this.equivocationDetected = Counter.builder("witness.byzantine.equivocation").register(meterRegistry);
+        this.signatureForgeryDetected = Counter.builder("witness.byzantine.signature_forgery").register(meterRegistry);
+        this.thresholdBypassDetected = Counter.builder("witness.byzantine.threshold_bypass").register(meterRegistry);
         this.metrics = null;
     }
 
@@ -120,7 +120,7 @@ public class ByzantineWitnessDetector {
         }
 
         // Equivocation detected
-        equivocationDetected.inc();
+        equivocationDetected.increment();
 
         var evidence = new EquivocationEvidence(
             event,
@@ -163,7 +163,7 @@ public class ByzantineWitnessDetector {
         Objects.requireNonNull(verificationError, "verificationError cannot be null");
 
         // Signature forgery detected
-        signatureForgeryDetected.inc();
+        signatureForgeryDetected.increment();
 
         var evidence = new SignatureForgeryEvidence(
             event,
@@ -220,7 +220,7 @@ public class ByzantineWitnessDetector {
         }
 
         // Threshold bypass detected (bitmap set but no signature)
-        thresholdBypassDetected.inc();
+        thresholdBypassDetected.increment();
 
         var evidence = new ThresholdBypassEvidence(
             receipt.event(),
@@ -332,9 +332,9 @@ public class ByzantineWitnessDetector {
      */
     public ByzantineStats getStats() {
         return new ByzantineStats(
-            equivocationDetected.getCount(),
-            signatureForgeryDetected.getCount(),
-            thresholdBypassDetected.getCount()
+            (long) equivocationDetected.count(),
+            (long) signatureForgeryDetected.count(),
+            (long) thresholdBypassDetected.count()
         );
     }
 
@@ -451,9 +451,9 @@ public class ByzantineWitnessDetector {
             .sum();
 
         return new ByzantineStats(
-            equivocationDetected != null ? equivocationDetected.getCount() : 0,
-            signatureForgeryDetected != null ? signatureForgeryDetected.getCount() : 0,
-            thresholdBypassDetected != null ? thresholdBypassDetected.getCount() : 0,
+            equivocationDetected != null ? (long) equivocationDetected.count() : 0,
+            signatureForgeryDetected != null ? (long) signatureForgeryDetected.count() : 0,
+            thresholdBypassDetected != null ? (long) thresholdBypassDetected.count() : 0,
             totalBlsFailures
         );
     }
@@ -587,7 +587,7 @@ public class ByzantineWitnessDetector {
             }
         }
         if (signatureForgeryDetected != null) {
-            signatureForgeryDetected.inc();
+            signatureForgeryDetected.increment();
         }
     }
 
@@ -606,7 +606,7 @@ public class ByzantineWitnessDetector {
             // Equivocation detected: different signatures at same sequence
             recordInvalidSignature(witnessId);
             if (equivocationDetected != null) {
-                equivocationDetected.inc();
+                equivocationDetected.increment();
             }
             return true;
         }

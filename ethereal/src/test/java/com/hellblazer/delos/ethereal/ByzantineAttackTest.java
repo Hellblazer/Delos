@@ -7,7 +7,6 @@
  */
 package com.hellblazer.delos.ethereal;
 
-import com.codahale.metrics.MetricRegistry;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.hellblazer.delos.archipelago.LocalServer;
@@ -19,7 +18,8 @@ import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.cryptography.JohnHancock;
 import com.hellblazer.delos.cryptography.Signer;
 import com.hellblazer.delos.ethereal.memberships.ChRbcGossip;
-import com.hellblazer.delos.ethereal.memberships.comm.EtherealMetricsImpl;
+import com.hellblazer.delos.ethereal.memberships.comm.MicrometerEtherealMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.ethereal.proto.*;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.membership.SigningMember;
@@ -386,7 +386,7 @@ public class ByzantineAttackTest {
         System.out.println("Running Byzantine scenario: " + scenarioName);
 
         final var gossipPeriod = Duration.ofMillis(5);
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var finished = new CountDownLatch(NPROC);
 
         var controllers = new ArrayList<Ethereal>();
@@ -411,7 +411,7 @@ public class ByzantineAttackTest {
                                                        .build();
         members.forEach(context::activate);
 
-        var metrics = new EtherealMetricsImpl(context.getId(), "test", registry);
+        var metrics = new MicrometerEtherealMetrics(context.getId(), "test", registry);
         var builder = Config.newBuilder()
                             .setnProc((short) NPROC)
                             .setNumberOfEpochs(NUM_EPOCHS)
@@ -492,7 +492,9 @@ public class ByzantineAttackTest {
             gossipers.forEach(e -> e.start(gossipPeriod));
 
             // CI needs longer timeout due to resource contention (8-12x slower than local with parallel test batches)
-            var timeout = LARGE_TESTS ? 90 : (IS_CI ? 240 : 30);
+            // Local runs need adequate time for 2 epochs of consensus with 4 nodes
+            // Empirical: 30s yields ~50-80% completion, so 90s should ensure full completion
+            var timeout = LARGE_TESTS ? 120 : (IS_CI ? 300 : 90);
             var completed = finished.await(timeout, TimeUnit.SECONDS);
 
             if (!completed) {

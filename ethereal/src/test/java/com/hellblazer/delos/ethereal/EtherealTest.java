@@ -8,7 +8,6 @@
 
 package com.hellblazer.delos.ethereal;
 
-import com.codahale.metrics.MetricRegistry;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.hellblazer.delos.archipelago.LocalServer;
@@ -18,7 +17,8 @@ import com.hellblazer.delos.context.DynamicContext;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.cryptography.Signer;
 import com.hellblazer.delos.ethereal.memberships.ChRbcGossip;
-import com.hellblazer.delos.ethereal.memberships.comm.EtherealMetricsImpl;
+import com.hellblazer.delos.ethereal.memberships.comm.MicrometerEtherealMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.membership.SigningMember;
 import com.hellblazer.delos.membership.stereotomy.ControlledIdentifierMember;
@@ -82,7 +82,7 @@ public class EtherealTest {
     public void unbounded() throws NoSuchAlgorithmException, InterruptedException, InvalidProtocolBufferException {
         final var gossipPeriod = Duration.ofMillis(5);
 
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
 
         CountDownLatch finished = new CountDownLatch((short) NPROC);
 
@@ -106,7 +106,7 @@ public class EtherealTest {
                                                        .setId(DigestAlgorithm.DEFAULT.getOrigin())
                                                        .build();
         context.activate(members);
-        var metrics = new EtherealMetricsImpl(context.getId(), "test", registry);
+        var metrics = new MicrometerEtherealMetrics(context.getId(), "test", registry);
         var builder = Config.newBuilder().setnProc((short) NPROC).setNumberOfEpochs(-1).setEpochLength(EPOCH_LENGTH);
 
         List<List<List<ByteString>>> produced = new ArrayList<>();
@@ -215,7 +215,7 @@ public class EtherealTest {
     throws NoSuchAlgorithmException, InterruptedException, InvalidProtocolBufferException {
         final var gossipPeriod = Duration.ofMillis(5);
 
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
 
         CountDownLatch finished = new CountDownLatch((short) NPROC);
 
@@ -240,7 +240,7 @@ public class EtherealTest {
                                                        .setId(DigestAlgorithm.DEFAULT.getOrigin())
                                                        .build();
         context.activate(members);
-        var metrics = new EtherealMetricsImpl(context.getId(), "test", registry);
+        var metrics = new MicrometerEtherealMetrics(context.getId(), "test", registry);
         var builder = Config.newBuilder()
                             .setnProc((short) NPROC)
                             .setNumberOfEpochs(NUM_EPOCHS)

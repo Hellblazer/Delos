@@ -46,16 +46,16 @@ public class EndorsementClient implements Endorsement {
     public MemberSignature endorse(Nonce nonce, Duration timeout) {
         if (metrics != null) {
             var serializedSize = nonce.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
-            metrics.outboundEndorseNonce().update(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
+            metrics.recordOutboundEndorseNonce(serializedSize);
         }
 
         var result = client.withDeadlineAfter(timeout.toNanos(), TimeUnit.NANOSECONDS).endorse(nonce);
         if (metrics != null) {
             try {
                 var serializedSize = result.getSerializedSize();
-                metrics.inboundBandwidth().mark(serializedSize);
-                metrics.inboundValidation().update(serializedSize);
+                metrics.recordInboundBandwidth(serializedSize);
+                metrics.recordInboundValidation(serializedSize);
             } catch (Throwable e) {
                 // nothing
             }
@@ -67,8 +67,8 @@ public class EndorsementClient implements Endorsement {
     public void enroll(Notarization notarization, Duration timeout) {
         if (metrics != null) {
             var serializedSize = notarization.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
-            metrics.outboundNotarization().update(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
+            metrics.recordOutboundNotarization(serializedSize);
         }
 
         client.withDeadlineAfter(timeout.toNanos(), TimeUnit.NANOSECONDS).enroll(notarization);
@@ -83,16 +83,16 @@ public class EndorsementClient implements Endorsement {
     public Validation_ validate(Credentials credentials, Duration timeout) {
         if (metrics != null) {
             var serializedSize = credentials.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
-            metrics.outboundValidateCredentials().update(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
+            metrics.recordOutboundValidateCredentials(serializedSize);
         }
 
         var result = client.withDeadlineAfter(timeout.toNanos(), TimeUnit.NANOSECONDS).validate(credentials);
         if (metrics != null) {
             try {
                 var serializedSize = result.getSerializedSize();
-                metrics.inboundBandwidth().mark(serializedSize);
-                metrics.inboundCredentialValidation().update(serializedSize);
+                metrics.recordInboundBandwidth(serializedSize);
+                metrics.recordInboundCredentialValidation(serializedSize);
             } catch (Throwable e) {
                 // nothing
             }

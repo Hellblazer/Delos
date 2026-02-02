@@ -7,7 +7,6 @@
  */
 package com.hellblazer.delos.ethereal.memberships.comm;
 
-import com.codahale.metrics.Timer.Context;
 import com.hellblazer.delos.archipelago.ManagedServerChannel;
 import com.hellblazer.delos.archipelago.ServerConnectionCache.CreateClientCommunications;
 import com.hellblazer.delos.ethereal.proto.ContextUpdate;
@@ -18,7 +17,6 @@ import com.hellblazer.delos.membership.Member;
 
 /**
  * @author hal.hildebrand
- * @since 220
  */
 public class GossiperClient implements Gossiper {
 
@@ -33,10 +31,7 @@ public class GossiperClient implements Gossiper {
     }
 
     public static CreateClientCommunications<Gossiper> getCreate(EtherealMetrics metrics) {
-        return (c) -> {
-            return new GossiperClient(c, metrics);
-        };
-
+        return (c) -> new GossiperClient(c, metrics);
     }
 
     @Override
@@ -51,17 +46,17 @@ public class GossiperClient implements Gossiper {
 
     @Override
     public Update gossip(Gossip request) {
-        Context timer = metrics == null ? null : metrics.outboundGossipTimer().time();
+        long start = System.nanoTime();
         if (metrics != null) {
-            metrics.outboundGossip().update(request.getSerializedSize());
-            metrics.outboundBandwidth().mark(request.getSerializedSize());
+            metrics.recordOutboundGossipSize(request.getSerializedSize());
+            metrics.recordOutboundBandwidth(request.getSerializedSize());
         }
         var messages = client.gossip(request);
         var serializedSize = messages.getSerializedSize();
-        if (timer != null) {
-            timer.stop();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.gossipResponse().update(serializedSize);
+        if (metrics != null) {
+            metrics.recordOutboundGossipDuration(System.nanoTime() - start);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordGossipResponseSize(serializedSize);
         }
         return messages;
     }
@@ -76,14 +71,14 @@ public class GossiperClient implements Gossiper {
 
     @Override
     public void update(ContextUpdate request) {
-        Context timer = metrics == null ? null : metrics.outboundUpdateTimer().time();
+        long start = System.nanoTime();
         if (metrics != null) {
-            metrics.outboundUpdate().update(request.getSerializedSize());
-            metrics.outboundBandwidth().mark(request.getSerializedSize());
+            metrics.recordOutboundUpdateSize(request.getSerializedSize());
+            metrics.recordOutboundBandwidth(request.getSerializedSize());
         }
-        var complete = client.update(request);
-        if (timer != null) {
-            timer.stop();
+        client.update(request);
+        if (metrics != null) {
+            metrics.recordOutboundUpdateDuration(System.nanoTime() - start);
         }
     }
 }

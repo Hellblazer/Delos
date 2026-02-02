@@ -6,7 +6,6 @@
  */
 package com.hellblazer.delos.choam;
 
-import com.codahale.metrics.Timer;
 import com.google.protobuf.Message;
 import com.netflix.concurrency.limits.Limiter;
 import com.netflix.concurrency.limits.internal.EmptyMetricRegistry;
@@ -149,7 +148,7 @@ public class Session {
         }
 
         var hash = CHOAM.hashOf(txn, params.digestAlgorithm());
-        final var timer = params.metrics() == null ? null : params.metrics().transactionLatency().time();
+        final long startNanos = params.metrics() != null ? System.nanoTime() : 0;
 
         var result = new CompletableFuture<T>().whenComplete((r, t) -> {
             if (params.metrics() != null) {
@@ -162,7 +161,7 @@ public class Session {
             timeout = params.submitTimeout();
         }
 
-        var stxn = new SubmittedTransaction(txnView.height(), hash, txn, result, timer);
+        var stxn = new SubmittedTransaction(txnView.height(), hash, txn, result, startNanos);
         submitted.put(stxn.hash(), stxn);
 
         var backoff = params.submitPolicy().build();
@@ -170,14 +169,14 @@ public class Session {
         final var timeoutValue = timeout;
 
         // Use async retry mechanism to avoid blocking virtual threads
-        submitWithRetry(stxn, 0, backoff, target, result, hash, timer, timeoutValue);
+        submitWithRetry(stxn, 0, backoff, target, result, hash, startNanos, timeoutValue);
         return result;
     }
 
     private <T> void submitWithRetry(SubmittedTransaction stxn, int retryCount,
                                      ExponentialBackoffPolicy backoff,
                                      Instant target, CompletableFuture<T> result, Digest hash,
-                                     Timer.Context timer, Duration timeout) {
+                                     long startNanos, Duration timeout) {
         if (result.isDone() || Instant.now().isAfter(target)) {
             if (!result.isDone()) {
                 if (params.metrics() != null) {
@@ -217,35 +216,35 @@ public class Session {
             }, log)), timeout.toMillis(), TimeUnit.MILLISECONDS);
             result.whenComplete((r, t) -> {
                 futureTimeout.cancel(true);
-                complete(hash, timer, t);
+                complete(hash, startNanos, t);
             });
         }
         case RATE_LIMITED -> {
             if (params.metrics() != null) {
                 params.metrics().transactionSubmitRateLimited();
             }
-            scheduleRetry(stxn, retryCount + 1, backoff, target, result, hash, timer, timeout);
+            scheduleRetry(stxn, retryCount + 1, backoff, target, result, hash, startNanos, timeout);
         }
         case BUFFER_FULL -> {
             if (params.metrics() != null) {
                 params.metrics().transactionSubmittedBufferFull();
             }
             submit.limiter.get().onDropped();
-            scheduleRetry(stxn, retryCount + 1, backoff, target, result, hash, timer, timeout);
+            scheduleRetry(stxn, retryCount + 1, backoff, target, result, hash, startNanos, timeout);
         }
         case INACTIVE, NO_COMMITTEE -> {
             if (params.metrics() != null) {
                 params.metrics().transactionSubmittedInvalidCommittee();
             }
             submit.limiter.get().onDropped();
-            scheduleRetry(stxn, retryCount + 1, backoff, target, result, hash, timer, timeout);
+            scheduleRetry(stxn, retryCount + 1, backoff, target, result, hash, startNanos, timeout);
         }
         case UNAVAILABLE -> {
             if (params.metrics() != null) {
                 params.metrics().transactionSubmittedUnavailable();
             }
             submit.limiter.get().onIgnore();
-            scheduleRetry(stxn, retryCount + 1, backoff, target, result, hash, timer, timeout);
+            scheduleRetry(stxn, retryCount + 1, backoff, target, result, hash, startNanos, timeout);
         }
         case INVALID_SUBMIT, ERROR_SUBMITTING -> {
             if (params.metrics() != null) {
@@ -276,11 +275,11 @@ public class Session {
     private <T> void scheduleRetry(SubmittedTransaction stxn, int retryCount,
                                    ExponentialBackoffPolicy backoff,
                                    Instant target, CompletableFuture<T> result, Digest hash,
-                                   Timer.Context timer, Duration timeout) {
+                                   long startNanos, Duration timeout) {
         final var delay = backoff.nextBackoff();
         log.debug("Failed submitting: {} retry: {} delay: {}ms on: {}", stxn.hash(),
                   retryCount, delay.toMillis(), params.member().getId());
-        scheduler.schedule(() -> submitWithRetry(stxn, retryCount, backoff, target, result, hash, timer, timeout),
+        scheduler.schedule(() -> submitWithRetry(stxn, retryCount, backoff, target, result, hash, startNanos, timeout),
                           delay.toMillis(), TimeUnit.MILLISECONDS);
     }
 
@@ -316,10 +315,10 @@ public class Session {
         return stxn;
     }
 
-    private void complete(Digest hash, final Timer.Context timer, Throwable t) {
+    private void complete(Digest hash, final long startNanos, Throwable t) {
         submitted.remove(hash);
-        if (timer != null) {
-            timer.close();
+        if (params.metrics() != null && startNanos > 0) {
+            params.metrics().recordTransactionLatencyDuration(System.nanoTime() - startNanos);
             log.trace("Transaction lifecycle complete: {} error: {} on: {}", hash, t, params.member().getId());
             params.metrics().transactionComplete(t);
         }

@@ -6,7 +6,6 @@
  */
 package com.hellblazer.delos.gorgoneion.comm.admissions;
 
-import com.codahale.metrics.Timer.Context;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.gorgoneion.proto.Credentials;
 import com.hellblazer.delos.gorgoneion.proto.Establishment;
@@ -88,9 +87,9 @@ public interface AdmissionsService {
      * @param application      the applicant's KERL (Key Event Receipt Log)
      * @param from             the digest ID of the applicant (must match KERL identifier)
      * @param responseObserver GRPC observer for streaming the signed nonce response
-     * @param timer            metrics timer context for operation duration tracking
+     * @param start            metrics start time in nanoseconds (from System.nanoTime())
      */
-    void apply(KERL_ application, Digest from, StreamObserver<SignedNonce> responseObserver, Context timer);
+    void apply(KERL_ application, Digest from, StreamObserver<SignedNonce> responseObserver, long start);
 
     /**
      * Register credentials with attested nonce to complete admission.
@@ -134,8 +133,8 @@ public interface AdmissionsService {
      * @param request          the credentials (signed nonce + signed attestation)
      * @param from             the digest ID of the applicant (must match KERL identifier)
      * @param responseObserver GRPC observer for streaming the establishment response
-     * @param timer            metrics timer context for operation duration tracking
+     * @param start            metrics start time in nanoseconds (from System.nanoTime())
      */
-    void register(Credentials request, Digest from, StreamObserver<Establishment> responseObserver, Context timer);
+    void register(Credentials request, Digest from, StreamObserver<Establishment> responseObserver, long start);
 
 }

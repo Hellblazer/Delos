@@ -16,7 +16,11 @@
             <groupId>com.hellblazer.delos</groupId>
             <artifactId>grpc</artifactId>
         </dependency>
-        
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+        </dependency>
+
         <!-- Test only deps below this line -->
 
         <dependency>

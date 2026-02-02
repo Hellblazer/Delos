@@ -141,7 +141,7 @@ class ResponseOrchestrationTest {
 
     @Test
     void testResponseEscalationEngine() {
-        var metrics = new ByzantineDetectionMetricsImpl();
+        var metrics = new MicrometerByzantineDetectionMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         var engine = new ResponseEscalationEngine(metrics);
 
         long detectionStartNanos = System.nanoTime();

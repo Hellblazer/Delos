@@ -44,6 +44,13 @@ public class Waiting implements Comparable<Waiting> {
      */
     private final    long                   arrivedAt      = System.currentTimeMillis();
 
+    /**
+     * CASCADE FAILURE RECOVERY (Delos-7p41): Transient failure tracking to avoid
+     * aggressive cascade on temporary network issues.
+     */
+    private volatile Long                   firstFailureTime      = null;
+    private volatile int                    transientFailureCount = 0;
+
     public Waiting(PreUnit pu) {
         this(pu, pu.toPreUnit_s());
     }
@@ -195,5 +202,65 @@ public class Waiting implements Comparable<Waiting> {
      */
     public boolean isStaleAfterMillis(long timeoutMs) {
         return System.currentTimeMillis() - arrivedAt > timeoutMs;
+    }
+
+    /**
+     * CASCADE FAILURE RECOVERY (Delos-7p41): Mark this unit as experiencing a transient failure.
+     * Records the first failure time if this is the first failure, otherwise increments counter.
+     */
+    public synchronized void markTransientFailure() {
+        if (firstFailureTime == null) {
+            firstFailureTime = System.currentTimeMillis();
+        }
+        transientFailureCount++;
+    }
+
+    /**
+     * CASCADE FAILURE RECOVERY (Delos-7p41): Clear transient failure tracking.
+     * Called when the failure is resolved (e.g., parent becomes available).
+     */
+    public synchronized void clearTransientFailure() {
+        firstFailureTime = null;
+        transientFailureCount = 0;
+    }
+
+    /**
+     * CASCADE FAILURE RECOVERY (Delos-7p41): Check if this unit is in transient failure state.
+     *
+     * @return true if unit has experienced transient failures
+     */
+    public synchronized boolean isTransientFailure() {
+        return firstFailureTime != null;
+    }
+
+    /**
+     * CASCADE FAILURE RECOVERY (Delos-7p41): Get the time of the first transient failure.
+     *
+     * @return timestamp of first failure, or null if no failures
+     */
+    public synchronized Long getFirstFailureTime() {
+        return firstFailureTime;
+    }
+
+    /**
+     * CASCADE FAILURE RECOVERY (Delos-7p41): Get the number of transient failures encountered.
+     *
+     * @return count of transient failures
+     */
+    public synchronized int getTransientFailureCount() {
+        return transientFailureCount;
+    }
+
+    /**
+     * CASCADE FAILURE RECOVERY (Delos-7p41): Check if transient failure has exceeded timeout.
+     *
+     * @param timeoutMs timeout threshold in milliseconds
+     * @return true if first failure occurred longer than timeoutMs ago
+     */
+    public synchronized boolean isTransientFailureTimedOut(long timeoutMs) {
+        if (firstFailureTime == null) {
+            return false;
+        }
+        return System.currentTimeMillis() - firstFailureTime > timeoutMs;
     }
 }

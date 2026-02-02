@@ -159,4 +159,30 @@ public interface BLSMetrics {
      * Record empty accumulator cleanup.
      */
     void recordEmptyAccumulatorCleanup();
+
+    // ===================================
+    // View Change Metrics (Phase 1C)
+    // ===================================
+
+    /**
+     * Increment counter for view changes initiated.
+     * Phase 1C: View change tracking.
+     */
+    default void incrementViewChangesInitiated() {}
+
+    /**
+     * Record view change duration manually.
+     * Phase 1C: View change tracking.
+     *
+     * @param durationMicros Duration in microseconds
+     */
+    default void recordViewChangeDuration(long durationMicros) {}
+
+    /**
+     * Set the current active view number.
+     * Phase 1C: View change tracking.
+     *
+     * @param viewNumber The active view number (must be non-negative)
+     */
+    default void setActiveView(long viewNumber) {}
 }

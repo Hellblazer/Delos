@@ -15,6 +15,7 @@ import com.hellblazer.delos.cryptography.JohnHancock;
 import com.hellblazer.delos.cryptography.Signer;
 import com.hellblazer.delos.cryptography.Verifier;
 import com.hellblazer.delos.cryptography.proto.Biff;
+import com.hellblazer.delos.ethereal.memberships.comm.EtherealMetrics;
 import com.hellblazer.delos.ethereal.proto.*;
 import com.hellblazer.delos.utils.Entropy;
 import org.slf4j.Logger;
@@ -22,7 +23,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Stream;
@@ -41,6 +41,7 @@ public class Adder {
 
     private static final Logger                     log                = LoggerFactory.getLogger(Adder.class);
     private static final int                        MAX_COLLECTION_SIZE = 100_000; // Prevent DoS via collection exhaustion
+    private static final int                        DEFAULT_CACHE_SIZE = 10_000;  // CRITICAL (Delos-0s4b): Bound signature caches
 
     private final        Map<Digest, Set<Short>>    commits         = new TreeMap<>();
     private final        Config                     conf;
@@ -49,10 +50,12 @@ public class Adder {
     private final        Set<Digest>                failed;
     private final        ReentrantLock              lock            = new ReentrantLock(true);
     private final        int                        maxSize;
+    private final        EtherealMetrics            metrics;
     private final        Map<Long, List<Waiting>>   missing         = new TreeMap<>();
     private final        Map<Digest, Set<Short>>    prevotes        = new TreeMap<>();
-    private final        Map<Digest, SignedCommit>  signedCommits   = new TreeMap<>();
-    private final        Map<Digest, SignedPreVote> signedPrevotes  = new TreeMap<>();
+    // CRITICAL (Delos-0s4b): Bounded LRU caches prevent Byzantine DoS via signature flooding
+    private final        Map<Digest, SignedCommit>  signedCommits;
+    private final        Map<Digest, SignedPreVote> signedPrevotes;
     private final        int                        threshold;
     private final        Verifier[]                 verifiers;
     private final        Map<Digest, Waiting>       waiting         = new TreeMap<>();
@@ -63,11 +66,20 @@ public class Adder {
     // CRITICAL (Delos-wfz7): Track units by (creator, height) to detect equivocation
     // Byzantine nodes may produce multiple units with same (creator, height) but different content
     private final        Map<Short, Map<Integer, Waiting>> unitsByCreatorHeight = new HashMap<>();
-    // CRITICAL (Delos-wfz7): Blacklist creators that have equivocated
+    // CRITICAL (Delos-d1gy): Blacklist store is shared across epochs and persisted
     // Once equivocation detected, all future units/votes from that creator are rejected
-    private final        Set<Short>                 blacklistedCreators = new ConcurrentSkipListSet<>();
+    private final        BlacklistStore             blacklistStore;
+    // CASCADE FAILURE RECOVERY (Delos-7p41): Track units with transient failures to retry before cascading
+    // Maps hash -> Waiting for units experiencing transient failures (missing parents, network issues)
+    private final        Map<Digest, Waiting>       transientFailures = new TreeMap<>();
 
-    public Adder(int epoch, Dag dag, int maxSize, Config conf, Set<Digest> failed, Verifier[] verifiers) {
+    public Adder(int epoch, Dag dag, int maxSize, Config conf, Set<Digest> failed, Verifier[] verifiers,
+                 BlacklistStore blacklistStore) {
+        this(epoch, dag, maxSize, conf, failed, verifiers, blacklistStore, null);
+    }
+
+    public Adder(int epoch, Dag dag, int maxSize, Config conf, Set<Digest> failed, Verifier[] verifiers,
+                 BlacklistStore blacklistStore, EtherealMetrics metrics) {
         this.epoch = epoch;
         this.dag = dag;
         this.conf = conf;
@@ -75,6 +87,12 @@ public class Adder {
         this.verifiers = verifiers;
         this.threshold = Dag.threshold(conf.nProc());
         this.maxSize = maxSize;
+        this.blacklistStore = blacklistStore;
+        this.metrics = metrics;
+
+        // CRITICAL (Delos-0s4b): Initialize bounded LRU caches to prevent Byzantine DoS
+        this.signedCommits = new BoundedLRUCache<>(DEFAULT_CACHE_SIZE);
+        this.signedPrevotes = new BoundedLRUCache<>(DEFAULT_CACHE_SIZE);
     }
 
     public static Signed<SignedCommit> commit(final Long id, final Digest hash, final short pid, Signer signer,
@@ -106,7 +124,9 @@ public class Adder {
             prevotes.clear();
             missing.clear();
             unitsByCreatorHeight.clear();
-            blacklistedCreators.clear();
+            transientFailures.clear();
+            // CRITICAL (Delos-d1gy): Do NOT clear blacklist - it persists across epochs
+            // Equivocators remain blacklisted for the lifetime of the consensus instance
         });
     }
 
@@ -324,7 +344,7 @@ public class Adder {
      */
     void commit(Digest digest, short member) {
         // CRITICAL (Delos-wfz7): Reject commits from blacklisted creators
-        if (blacklistedCreators.contains(member)) {
+        if (blacklistStore != null && blacklistStore.isBlacklisted(member)) {
             log.trace("Ignoring commit from blacklisted creator: {} on: {}", member, conf.logLabel());
             return;
         }
@@ -416,8 +436,8 @@ public class Adder {
         return waitingForRound;
     }
 
-    Set<Short> getBlacklistedCreators() {
-        return blacklistedCreators;
+    BlacklistStore getBlacklistStore() {
+        return blacklistStore;
     }
 
     /**
@@ -428,7 +448,7 @@ public class Adder {
      */
     void prevote(Digest digest, short member) {
         // CRITICAL (Delos-wfz7): Reject prevotes from blacklisted creators
-        if (blacklistedCreators.contains(member)) {
+        if (blacklistStore != null && blacklistStore.isBlacklisted(member)) {
             log.trace("Ignoring prevote from blacklisted creator: {} on: {}", member, conf.logLabel());
             return;
         }
@@ -524,13 +544,20 @@ public class Adder {
         }
 
         // CRITICAL (Delos-wfz7): Check if creator is blacklisted for equivocation
-        if (blacklistedCreators.contains(decoded.creator())) {
+        if (blacklistStore != null && blacklistStore.isBlacklisted(decoded.creator())) {
             log.debug("Rejecting unit from blacklisted creator: {} on: {}", decoded, conf.logLabel());
             return;
         }
 
-        // TODO: Delos-vupk - Add PreUnit signature verification when gossip protocol updated to sign units
-        // Currently skipped as gossip protocol doesn't populate signatures in PreUnit_s
+        // CRITICAL (Delos-rfgm): Verify signature before processing
+        // Byzantine nodes may attempt to inject units with forged or missing signatures
+        var preunit = PreUnit.from(u, conf.digestAlgorithm());
+        if (verifiers != null && !preunit.verify(verifiers)) {
+            failed.add(digest);
+            log.error("Signature verification failed for unit: {} from creator: {} on: {}", decoded, decoded.creator(),
+                      conf.logLabel());
+            return;
+        }
 
         if (u.toByteString().size() > maxSize) {
             failed.add(digest);
@@ -539,7 +566,6 @@ public class Adder {
             return;
         }
 
-        var preunit = PreUnit.from(u, conf.digestAlgorithm());
         wpu = new Waiting(preunit, u);
 
         if (!validateParents(wpu)) {
@@ -556,7 +582,10 @@ public class Adder {
             if (!existingAtHeight.hash().equals(digest)) {
                 // EQUIVOCATION DETECTED: Different unit at same (creator, height)
                 // This is definitive proof of Byzantine behavior
-                blacklistedCreators.add(decoded.creator());
+                // CRITICAL (Delos-d1gy): Persist blacklist entry immediately (write-through)
+                if (blacklistStore != null) {
+                    blacklistStore.blacklist(decoded.creator());
+                }
                 failed.add(digest);
 
                 // Cleanup: remove from waiting if it was added (defensive - ensures no partial state)
@@ -733,6 +762,9 @@ public class Adder {
             Signed<SignedCommit> sc = commit(wpu.id(), wpu.hash(), conf.pid(), conf.signer(), conf.digestAlgorithm());
             signedCommits.put(sc.hash(), sc.signed());
             log.trace("Committing unit: {} on: {}", wpu, conf.logLabel());
+            if (metrics != null) {
+                metrics.incrementUnitsCommitted();
+            }
             commit(wpu.hash(), conf.pid());
         } catch (Throwable e) {
             e.printStackTrace();
@@ -814,33 +846,63 @@ public class Adder {
     }
 
     /**
-     * Exclusively lock the state of the receiver
+     * Exclusively lock the state of the receiver with metrics instrumentation.
      *
      * @param <T>
      * @param call
      * @return
      */
     private <T> T locked(Callable<T> call) {
-        lock.lock();
+        long waitStart = System.nanoTime();
+        boolean contended = !lock.tryLock();
+        if (contended) {
+            if (metrics != null) {
+                metrics.incrementLockContentionCount();
+            }
+            lock.lock();
+        }
+        long holdStart = System.nanoTime();
+        if (metrics != null) {
+            metrics.recordAdderLockWaitDuration(holdStart - waitStart);
+        }
         try {
             return call.call();
         } catch (Exception e) {
             throw new IllegalStateException(e);
         } finally {
+            if (metrics != null) {
+                metrics.recordAdderLockHoldDuration(System.nanoTime() - holdStart);
+                metrics.recordBacklogSize(waiting.size());
+            }
             lock.unlock();
         }
     }
 
     /**
-     * Exclusively lock the state of the receiver
+     * Exclusively lock the state of the receiver with metrics instrumentation.
      *
      * @param r
      */
     private void locked(Runnable r) {
-        lock.lock();
+        long waitStart = System.nanoTime();
+        boolean contended = !lock.tryLock();
+        if (contended) {
+            if (metrics != null) {
+                metrics.incrementLockContentionCount();
+            }
+            lock.lock();
+        }
+        long holdStart = System.nanoTime();
+        if (metrics != null) {
+            metrics.recordAdderLockWaitDuration(holdStart - waitStart);
+        }
         try {
             r.run();
         } finally {
+            if (metrics != null) {
+                metrics.recordAdderLockHoldDuration(System.nanoTime() - holdStart);
+                metrics.recordBacklogSize(waiting.size());
+            }
             lock.unlock();
         }
     }
@@ -876,7 +938,12 @@ public class Adder {
         final var decoded = wpu.decoded();
         log.trace("Inserting unit: {} on: {}", decoded, conf.logLabel());
 
+        long insertStart = System.nanoTime();
         dag.insert(decoded);
+        if (metrics != null) {
+            metrics.recordDagInsertDuration(System.nanoTime() - insertStart);
+            metrics.incrementUnitsOutput();
+        }
 
         for (var ch : wpu.children()) {
             ch.decWaiting();
@@ -896,6 +963,9 @@ public class Adder {
         Signed<SignedPreVote> spv = prevote(wpu.id(), wpu.hash(), conf.pid(), conf.signer(), conf.digestAlgorithm());
         signedPrevotes.put(spv.hash(), spv.signed());
         log.trace("Prevoting unit: {} on: {}", wpu, conf.logLabel());
+        if (metrics != null) {
+            metrics.incrementUnitsProposed();
+        }
         prevote(wpu.hash(), conf.pid());
     }
 
@@ -933,6 +1003,77 @@ public class Adder {
         for (var ch : wp.children()) {
             removeFailed(ch);
         }
+    }
+
+    /**
+     * CASCADE FAILURE RECOVERY (Delos-7p41): Mark a unit as experiencing transient failure.
+     * This is used for missing parents that may become available soon (network blip).
+     * If the failure persists beyond parentFailureRetryTimeoutMillis, it will be promoted
+     * to permanent failure with cascade to children.
+     *
+     * Package-private for testing.
+     *
+     * @param wp the waiting unit experiencing transient failure
+     */
+    void markTransientFailure(Waiting wp) {
+        locked(() -> {
+            wp.markTransientFailure();
+            transientFailures.put(wp.hash(), wp);
+            log.debug("Marked transient failure (attempt {}): {} on: {}", wp.getTransientFailureCount(), wp,
+                      conf.logLabel());
+            return null;
+        });
+    }
+
+    /**
+     * CASCADE FAILURE RECOVERY (Delos-7p41): Resolve a transient failure.
+     * Called when a previously missing parent becomes available.
+     *
+     * Package-private for testing.
+     *
+     * @param wp the waiting unit whose failure was resolved
+     */
+    void resolveTransientFailure(Waiting wp) {
+        locked(() -> {
+            wp.clearTransientFailure();
+            transientFailures.remove(wp.hash());
+            log.debug("Resolved transient failure: {} on: {}", wp, conf.logLabel());
+            return null;
+        });
+    }
+
+    /**
+     * CASCADE FAILURE RECOVERY (Delos-7p41): Process transient failures and promote
+     * timed-out failures to permanent with cascade to children.
+     *
+     * Should be called periodically (e.g., by the same mechanism as runTimeoutCheck).
+     *
+     * Package-private for testing.
+     */
+    void processFailureTimeouts() {
+        locked(() -> {
+            var timedOut = new ArrayList<Waiting>();
+            var timeout = conf.parentFailureRetryTimeoutMillis();
+
+            // Find units whose transient failures have timed out
+            for (var entry : transientFailures.entrySet()) {
+                var wp = entry.getValue();
+                if (wp.isTransientFailureTimedOut(timeout)) {
+                    timedOut.add(wp);
+                    log.warn(
+                    "Transient failure timeout exceeded ({}ms, {} attempts): {} - promoting to permanent failure on: {}",
+                    timeout, wp.getTransientFailureCount(), wp, conf.logLabel());
+                }
+            }
+
+            // Promote to permanent failure and cascade
+            for (var wp : timedOut) {
+                transientFailures.remove(wp.hash());
+                removeFailed(wp, "Transient failure timeout");
+            }
+
+            return null;
+        });
     }
 
     /**

@@ -7,7 +7,8 @@
  */
 package com.hellblazer.delos.witness.validation;
 
-import com.codahale.metrics.MetricRegistry;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.cryptography.JohnHancock;
@@ -45,13 +46,13 @@ class ByzantineFailureScenarioTest {
     private ByzantineWitnessDetector detector;
     private MockFirefliesView mockFirefliesView;
     private FirefliesShunningIntegration shunningIntegration;
-    private MetricRegistry metricRegistry;
+    private MeterRegistry metricRegistry;
     private WitnessReceiptTestHelper helper;
     private SecureRandom entropy;
 
     @BeforeEach
     void setUp() {
-        metricRegistry = new MetricRegistry();
+        metricRegistry = new SimpleMeterRegistry();
         detector = new ByzantineWitnessDetector(metricRegistry);
         mockFirefliesView = new MockFirefliesView();
         shunningIntegration = new FirefliesShunningIntegrationImpl(mockFirefliesView);

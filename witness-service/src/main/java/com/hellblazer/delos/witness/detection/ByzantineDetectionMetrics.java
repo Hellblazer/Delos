@@ -7,8 +7,6 @@
  */
 package com.hellblazer.delos.witness.detection;
 
-import com.codahale.metrics.*;
-
 /**
  * Metrics interface for Byzantine detection operations.
  * <p>
@@ -58,36 +56,20 @@ public interface ByzantineDetectionMetrics {
     void incrementFalsePositive(DetectorType detectorType);
 
     /**
-     * Get anomaly detection meter for a specific detector.
+     * Get anomaly detection count for a specific detector.
      *
      * @param detectorType Detector type
-     * @return Meter tracking detection rate
+     * @return Total anomaly detection count
      */
-    Meter anomalyDetectionMeter(DetectorType detectorType);
+    long getAnomalyDetectionCount(DetectorType detectorType);
 
     /**
-     * Get anomaly score histogram for a specific detector.
+     * Get false positive count for a specific detector.
      *
      * @param detectorType Detector type
-     * @return Histogram of anomaly scores
+     * @return Total false positive count
      */
-    Histogram anomalyScoreHistogram(DetectorType detectorType);
-
-    /**
-     * Get detection latency timer for a specific detector.
-     *
-     * @param detectorType Detector type
-     * @return Timer for detection operations
-     */
-    Timer detectionLatencyTimer(DetectorType detectorType);
-
-    /**
-     * Get false positive counter for a specific detector.
-     *
-     * @param detectorType Detector type
-     * @return Counter of false positives
-     */
-    Counter falsePositiveCounter(DetectorType detectorType);
+    long getFalsePositiveCount(DetectorType detectorType);
 
     // ===========================
     // Coordinator-Level Metrics
@@ -138,61 +120,40 @@ public interface ByzantineDetectionMetrics {
     void recordEscalationAction(ResponseAction action, long latencyMicros);
 
     /**
-     * Get ensemble vote histogram (0-3 detector votes).
+     * Get quorum reached count.
      *
-     * @return Histogram of vote counts
+     * @return Total quorum reached count
      */
-    Histogram ensembleVoteHistogram();
+    long getQuorumReachedCount();
 
     /**
-     * Get quorum reached counter.
+     * Get quarantine events count.
      *
-     * @return Counter of quorum events
+     * @return Total quarantine event count
      */
-    Counter quorumReachedCounter();
+    long getQuarantineEventsCount();
 
     /**
-     * Get quarantine events counter.
+     * Get active quarantines count.
      *
-     * @return Counter of total quarantines
+     * @return Current number of active quarantines
      */
-    Counter quarantineEventsCounter();
+    int getActiveQuarantines();
 
     /**
-     * Get quarantine duration histogram.
+     * Get quarantine recovery count.
      *
-     * @return Histogram of quarantine durations
+     * @return Total recovery count
      */
-    Histogram quarantineDurationHistogram();
+    long getQuarantineRecoveryCount();
 
     /**
-     * Get active quarantines gauge.
-     *
-     * @return Gauge of current active quarantines
-     */
-    Gauge<Integer> activeQuarantinesGauge();
-
-    /**
-     * Get quarantine recovery counter.
-     *
-     * @return Counter of total recoveries
-     */
-    Counter quarantineRecoveryCounter();
-
-    /**
-     * Get escalation action counter for specific action type.
+     * Get escalation action count for specific action type.
      *
      * @param action Response action
-     * @return Counter for this action type
+     * @return Total count for this action type
      */
-    Counter escalationActionCounter(ResponseAction action);
-
-    /**
-     * Get escalation latency timer.
-     *
-     * @return Timer tracking time from detection to action
-     */
-    Timer escalationLatencyTimer();
+    long getEscalationActionCount(ResponseAction action);
 
     // ===========================
     // Impact Metrics
@@ -227,32 +188,18 @@ public interface ByzantineDetectionMetrics {
     void recordTimeToClearAnomalies(long durationMs);
 
     /**
-     * Get members excluded gauge.
+     * Get members excluded count.
      *
-     * @return Gauge of currently excluded members
+     * @return Current number of excluded members
      */
-    Gauge<Integer> membersExcludedGauge();
+    int getMembersExcluded();
 
     /**
-     * Get consensus impact gauge.
+     * Get consensus impact score.
      *
-     * @return Gauge of consensus impact score
+     * @return Current consensus impact score (0.0-1.0)
      */
-    Gauge<Double> consensusImpactGauge();
-
-    /**
-     * Get false alarm duration histogram.
-     *
-     * @return Histogram of false alarm durations
-     */
-    Histogram falseAlarmDurationHistogram();
-
-    /**
-     * Get time to clear anomalies histogram.
-     *
-     * @return Histogram of clear times
-     */
-    Histogram timeToClearAnomaliesHistogram();
+    double getConsensusImpact();
 
     // ===========================
     // Alerting Metrics
@@ -266,12 +213,12 @@ public interface ByzantineDetectionMetrics {
     void recordThresholdBreach(DetectorType detectorType);
 
     /**
-     * Get threshold breach counter for specific detector.
+     * Get threshold breach count for specific detector.
      *
      * @param detectorType Detector type
-     * @return Counter of threshold breaches
+     * @return Total threshold breach count
      */
-    Counter thresholdBreachCounter(DetectorType detectorType);
+    long getThresholdBreachCount(DetectorType detectorType);
 
     // ===========================
     // Key Rotation Metrics (Phase 1C-3-A)
@@ -396,166 +343,89 @@ public interface ByzantineDetectionMetrics {
     void recordDualKeyValidationTime(long durationNanos);
 
     /**
-     * Get gauge of currently active key rotations.
+     * Get currently active key rotations count.
      * <p>
      * Returns number of members with rotations in progress.
      * Maximum should be limited (e.g., 1 rotation per member).
      * </p>
      *
-     * @return Gauge of in-progress rotation count
+     * @return In-progress rotation count
      */
-    Gauge<Integer> rotationsInProgressGauge();
+    int getRotationsInProgress();
 
     /**
-     * Get gauge of old vs new signature ratio during grace period.
+     * Get old vs new signature ratio during grace period.
      * <p>
      * Returns ratio of old key signatures to total signatures (0.0-1.0).
      * High ratio (>0.8) after 30 minutes indicates stalled migration.
      * </p>
      *
      * @param rotationId Unique rotation identifier
-     * @return Gauge of old signature ratio
+     * @return Old signature ratio (0.0-1.0)
      */
-    Gauge<Double> graceOldNewSignatureRatioGauge(String rotationId);
+    double getGraceOldNewSignatureRatio(String rotationId);
 
     /**
-     * Get rotation initiation meter.
-     * <p>
-     * Tracks rotation rate (rotations per minute).
-     * High rate may indicate automated rotation storms.
-     * </p>
+     * Get rotation initiation count.
      *
-     * @return Meter of rotation initiation rate
+     * @return Total rotations initiated count
      */
-    Meter rotationInitiatedMeter();
+    long getRotationInitiatedCount();
 
     /**
-     * Get rotation failure meter.
-     * <p>
-     * Tracks failure rate. High rate indicates systemic issues
-     * (network partitions, KERI unavailability, etc.).
-     * </p>
+     * Get rotation failures count.
      *
-     * @return Meter of rotation failure rate
+     * @return Total rotation failures count
      */
-    Meter rotationFailureMeter();
+    long getRotationFailuresCount();
 
     /**
-     * Get rotation initiation counter.
+     * Get pre-rotation phase failures count.
      *
-     * @return Counter of total rotations initiated
+     * @return Failures during PRE_ROTATION phase count
      */
-    Counter rotationInitiatedCounter();
+    long getRotationFailuresPreRotationCount();
 
     /**
-     * Get rotation failures counter.
+     * Get grace period failures count.
      *
-     * @return Counter of total rotation failures
+     * @return Failures during GRACE_PERIOD phase count
      */
-    Counter rotationFailuresCounter();
+    long getRotationFailuresGracePeriodCount();
 
     /**
-     * Get pre-rotation phase failures counter.
+     * Get activation phase failures count.
      *
-     * @return Counter of failures during PRE_ROTATION phase
+     * @return Failures during ACTIVATED phase count
      */
-    Counter rotationFailuresPreRotationCounter();
+    long getRotationFailuresActivationCount();
 
     /**
-     * Get grace period failures counter.
+     * Get rotation recovery attempts count.
      *
-     * @return Counter of failures during GRACE_PERIOD phase
+     * @return Recovery attempts count
      */
-    Counter rotationFailuresGracePeriodCounter();
+    long getRotationRecoveryAttemptsCount();
 
     /**
-     * Get activation phase failures counter.
-     *
-     * @return Counter of failures during ACTIVATED phase
-     */
-    Counter rotationFailuresActivationCounter();
-
-    /**
-     * Get rotation recovery attempts counter.
-     *
-     * @return Counter of recovery attempts
-     */
-    Counter rotationRecoveryAttemptsCounter();
-
-    /**
-     * Get grace period old signatures counter for specific rotation.
+     * Get grace period old signatures count for specific rotation.
      *
      * @param rotationId Unique rotation identifier
-     * @return Counter of old key signatures during grace period
+     * @return Old key signatures count during grace period
      */
-    Counter graceOldSignaturesAcceptedCounter(String rotationId);
+    long getGraceOldSignaturesAcceptedCount(String rotationId);
 
     /**
-     * Get grace period new signatures counter for specific rotation.
+     * Get grace period new signatures count for specific rotation.
      *
      * @param rotationId Unique rotation identifier
-     * @return Counter of new key signatures during grace period
+     * @return New key signatures count during grace period
      */
-    Counter graceNewSignaturesAcceptedCounter(String rotationId);
-
-    /**
-     * Get pre-rotation phase duration histogram.
-     *
-     * @return Histogram of PRE_ROTATION phase durations
-     */
-    Histogram phasePreRotationDurationHistogram();
-
-    /**
-     * Get grace period phase duration histogram.
-     *
-     * @return Histogram of GRACE_PERIOD phase durations
-     */
-    Histogram phaseGracePeriodDurationHistogram();
-
-    /**
-     * Get grace acceptance latency histogram.
-     * <p>
-     * Tracks time from grace period start to first old-key signature acceptance.
-     * </p>
-     *
-     * @return Histogram of grace acceptance latencies
-     */
-    Histogram graceAcceptanceLatency();
-
-    /**
-     * Get rotation orchestration latency timer.
-     * <p>
-     * Tracks total rotation duration from initiation to completion.
-     * </p>
-     *
-     * @return Timer for rotation ceremonies
-     */
-    Timer rotationOrchestrationLatency();
-
-    /**
-     * Get KERI publish latency timer.
-     *
-     * @return Timer for KERI key publish operations
-     */
-    Timer keriPublishLatency();
-
-    /**
-     * Get dual-key validation time histogram.
-     *
-     * @return Histogram of dual-key validation durations (nanoseconds)
-     */
-    Histogram dualKeyValidationTimeHistogram();
+    long getGraceNewSignaturesAcceptedCount(String rotationId);
 
     // ===========================
     // Lifecycle
     // ===========================
-
-    /**
-     * Register metrics with a MetricRegistry.
-     *
-     * @param registry Dropwizard MetricRegistry
-     */
-    void register(MetricRegistry registry);
 
     /**
      * Reset all metrics (for testing or view changes).

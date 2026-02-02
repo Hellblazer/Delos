@@ -7,7 +7,8 @@
  */
 package com.hellblazer.delos.witness.validation;
 
-import com.codahale.metrics.MetricRegistry;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.cryptography.JohnHancock;
@@ -32,11 +33,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ByzantineWitnessDetectorTest {
 
     private ByzantineWitnessDetector detector;
-    private MetricRegistry metricRegistry;
+    private MeterRegistry metricRegistry;
 
     @BeforeEach
     void setup() {
-        metricRegistry = new MetricRegistry();
+        metricRegistry = new SimpleMeterRegistry();
         detector = new ByzantineWitnessDetector(metricRegistry);
     }
 
@@ -266,10 +267,16 @@ class ByzantineWitnessDetectorTest {
         assertThat(stats.thresholdBypassCount()).isEqualTo(1);
         assertThat(stats.totalDetections()).isEqualTo(3);
 
-        // Verify MetricRegistry counters
-        assertThat(metricRegistry.counter("witness.byzantine.equivocation").getCount()).isEqualTo(1);
-        assertThat(metricRegistry.counter("witness.byzantine.signature_forgery").getCount()).isEqualTo(1);
-        assertThat(metricRegistry.counter("witness.byzantine.threshold_bypass").getCount()).isEqualTo(1);
+        // Verify MeterRegistry counters
+        var equivCounter = metricRegistry.find("witness.byzantine.equivocation").counter();
+        var forgeryCounter = metricRegistry.find("witness.byzantine.signature_forgery").counter();
+        var bypassCounter = metricRegistry.find("witness.byzantine.threshold_bypass").counter();
+        assertThat(equivCounter).isNotNull();
+        assertThat(equivCounter.count()).isEqualTo(1);
+        assertThat(forgeryCounter).isNotNull();
+        assertThat(forgeryCounter.count()).isEqualTo(1);
+        assertThat(bypassCounter).isNotNull();
+        assertThat(bypassCounter.count()).isEqualTo(1);
     }
 
     // Test utilities

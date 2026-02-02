@@ -15,13 +15,13 @@
  */
 package com.hellblazer.delos.stereotomy.caching;
 
-import com.codahale.metrics.Counter;
-import com.codahale.metrics.Histogram;
-import com.codahale.metrics.MetricRegistry;
-import com.codahale.metrics.Timer;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import com.github.benmanes.caffeine.cache.stats.StatsCounter;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.DistributionSummary;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.checkerframework.checker.index.qual.NonNegative;
 
 import java.util.EnumMap;
@@ -31,19 +31,20 @@ import java.util.concurrent.atomic.LongAdder;
 import static java.util.Objects.requireNonNull;
 
 /**
- * A {@link StatsCounter} instrumented with Dropwizard Metrics.
+ * A {@link StatsCounter} instrumented with Micrometer Metrics.
  *
  * @author ben.manes@gmail.com (Ben Manes)
  * @author John Karp
+ * @author hal.hildebrand (converted to Micrometer)
  */
 public final class MetricsStatsCounter implements StatsCounter {
-    private final Counter                          hitCount;
-    private final Counter                          missCount;
-    private final Timer                            loadSuccess;
-    private final Timer                            loadFailure;
-    private final Histogram                        evictions;
-    private final Counter                          evictionWeight;
-    private final EnumMap<RemovalCause, Histogram> evictionsWithCause;
+    private final Counter                                  hitCount;
+    private final Counter                                  missCount;
+    private final Timer                                    loadSuccess;
+    private final Timer                                    loadFailure;
+    private final DistributionSummary                      evictions;
+    private final Counter                                  evictionWeight;
+    private final EnumMap<RemovalCause, DistributionSummary> evictionsWithCause;
 
     // for implementing snapshot()
     private final LongAdder totalLoadTime = new LongAdder();
@@ -54,54 +55,69 @@ public final class MetricsStatsCounter implements StatsCounter {
      * @param registry      the registry of metric instances
      * @param metricsPrefix the prefix name for the metrics
      */
-    public MetricsStatsCounter(MetricRegistry registry, String metricsPrefix) {
+    public MetricsStatsCounter(MeterRegistry registry, String metricsPrefix) {
         requireNonNull(metricsPrefix);
-        hitCount = registry.counter(MetricRegistry.name(metricsPrefix, "hits"));
-        missCount = registry.counter(MetricRegistry.name(metricsPrefix, "misses"));
-        loadSuccess = registry.timer(MetricRegistry.name(metricsPrefix, "loads-success"));
-        loadFailure = registry.timer(MetricRegistry.name(metricsPrefix, "loads-failure"));
-        evictions = registry.histogram(MetricRegistry.name(metricsPrefix, "evictions"));
-        evictionWeight = registry.counter(MetricRegistry.name(metricsPrefix, "evictions-weight"));
+        hitCount = Counter.builder(metricsPrefix + ".hits")
+                          .description("Cache hits")
+                          .register(registry);
+        missCount = Counter.builder(metricsPrefix + ".misses")
+                           .description("Cache misses")
+                           .register(registry);
+        loadSuccess = Timer.builder(metricsPrefix + ".loads.success")
+                           .description("Successful cache loads")
+                           .register(registry);
+        loadFailure = Timer.builder(metricsPrefix + ".loads.failure")
+                           .description("Failed cache loads")
+                           .register(registry);
+        evictions = DistributionSummary.builder(metricsPrefix + ".evictions")
+                                       .description("Cache evictions")
+                                       .register(registry);
+        evictionWeight = Counter.builder(metricsPrefix + ".evictions.weight")
+                                .description("Total weight of evicted entries")
+                                .register(registry);
 
         evictionsWithCause = new EnumMap<>(RemovalCause.class);
         for (RemovalCause cause : RemovalCause.values()) {
             evictionsWithCause.put(cause,
-                                   registry.histogram(MetricRegistry.name(metricsPrefix, "evictions", cause.name())));
+                                   DistributionSummary.builder(metricsPrefix + ".evictions." + cause.name())
+                                                      .description("Evictions due to " + cause.name())
+                                                      .register(registry));
         }
     }
 
     @Override
     public void recordEviction(@NonNegative int weight, RemovalCause cause) {
-        evictionsWithCause.get(cause).update(weight);
-        evictionWeight.inc(weight);
+        evictionsWithCause.get(cause).record(weight);
+        evictionWeight.increment(weight);
+        evictions.record(1);
     }
 
     @Override
     public void recordHits(int count) {
-        hitCount.inc(count);
+        hitCount.increment(count);
     }
 
     @Override
     public void recordLoadFailure(long loadTime) {
-        loadFailure.update(loadTime, TimeUnit.NANOSECONDS);
+        loadFailure.record(loadTime, TimeUnit.NANOSECONDS);
         totalLoadTime.add(loadTime);
     }
 
     @Override
     public void recordLoadSuccess(long loadTime) {
-        loadSuccess.update(loadTime, TimeUnit.NANOSECONDS);
+        loadSuccess.record(loadTime, TimeUnit.NANOSECONDS);
         totalLoadTime.add(loadTime);
     }
 
     @Override
     public void recordMisses(int count) {
-        missCount.inc(count);
+        missCount.increment(count);
     }
 
     @Override
     public CacheStats snapshot() {
-        return CacheStats.of(hitCount.getCount(), missCount.getCount(), loadSuccess.getCount(), loadFailure.getCount(),
-                             totalLoadTime.sum(), evictions.getCount(), evictionWeight.getCount());
+        return CacheStats.of((long) hitCount.count(), (long) missCount.count(), loadSuccess.count(), loadFailure.count(),
+                             totalLoadTime.sum(), (long) evictions.count(), (long) evictionWeight.count());
     }
 
     @Override

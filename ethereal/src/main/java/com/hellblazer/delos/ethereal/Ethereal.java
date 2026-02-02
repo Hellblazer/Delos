@@ -15,6 +15,7 @@ import com.hellblazer.delos.ethereal.EpochProofBuilder.epochProofImpl;
 import com.hellblazer.delos.ethereal.EpochProofBuilder.sharesDB;
 import com.hellblazer.delos.ethereal.linear.Extender;
 import com.hellblazer.delos.ethereal.linear.TimingRound;
+import com.hellblazer.delos.ethereal.memberships.comm.EtherealMetrics;
 import com.hellblazer.delos.ethereal.proto.Gossip;
 import com.hellblazer.delos.ethereal.proto.Missing;
 import com.hellblazer.delos.ethereal.proto.Update;
@@ -29,12 +30,16 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
+import static java.util.concurrent.Executors.newSingleThreadScheduledExecutor;
+
 /**
  * @author hal.hildebrand
  */
 public class Ethereal {
 
     private static final Logger                          log          = LoggerFactory.getLogger(Ethereal.class);
+    // CRITICAL (Delos-d1gy): Blacklist store persists across epochs and restarts
+    private final        BlacklistStore                  blacklistStore;
     private final        Config                          config;
     private final        ThreadPoolExecutor              consumer;
     private final        Creator                         creator;
@@ -43,28 +48,45 @@ public class Ethereal {
     private final        Set<Digest>                     failed       = new ConcurrentSkipListSet<>();
     private final        Queue<Unit>                     lastTiming;
     private final        int                             maxSerializedSize;
+    private final        EtherealMetrics                 metrics;
     private final        Consumer<Integer>               newEpochAction;
     private final        AtomicBoolean                   started      = new AtomicBoolean();
+    private final        ScheduledExecutorService        timeoutChecker;
     private final        BiConsumer<Boolean, List<Unit>> toPreblock;
     private final        Verifier[]                      verifiers;
     private volatile     boolean                         completeIt   = false;
 
     public Ethereal(Config config, int maxSerializedSize, DataSource ds, BiConsumer<List<ByteString>, Boolean> blocker,
                     Consumer<Integer> newEpochAction, String label, Verifier[] verifiers) {
-        this(label, config, maxSerializedSize, ds, blocker(blocker, config), newEpochAction, verifiers);
+        this(label, config, maxSerializedSize, ds, blocker(blocker, config), newEpochAction, verifiers,
+             new BlacklistStore.InMemoryBlacklistStore(), null);
+    }
+
+    public Ethereal(Config config, int maxSerializedSize, DataSource ds, BiConsumer<List<ByteString>, Boolean> blocker,
+                    Consumer<Integer> newEpochAction, String label, Verifier[] verifiers,
+                    BlacklistStore blacklistStore) {
+        this(label, config, maxSerializedSize, ds, blocker(blocker, config), newEpochAction, verifiers, blacklistStore, null);
+    }
+
+    public Ethereal(Config config, int maxSerializedSize, DataSource ds, BiConsumer<List<ByteString>, Boolean> blocker,
+                    Consumer<Integer> newEpochAction, String label, Verifier[] verifiers,
+                    BlacklistStore blacklistStore, EtherealMetrics metrics) {
+        this(label, config, maxSerializedSize, ds, blocker(blocker, config), newEpochAction, verifiers, blacklistStore, metrics);
     }
 
     private Ethereal(String label, Config conf, int maxSerializedSize, DataSource ds,
                      BiConsumer<Boolean, List<Unit>> toPreblock, Consumer<Integer> newEpochAction,
-                     Verifier[] verifiers) {
+                     Verifier[] verifiers, BlacklistStore blacklistStore, EtherealMetrics metrics) {
         if (!Dag.validate(conf.nProc())) {
             throw new IllegalArgumentException("Invalid # of processes, unable to build quorum: " + conf.nProc());
         }
         this.config = conf;
+        this.blacklistStore = blacklistStore != null ? blacklistStore : new BlacklistStore.InMemoryBlacklistStore();
         this.lastTiming = new LinkedBlockingDeque<>();
         this.toPreblock = toPreblock;
         this.newEpochAction = newEpochAction;
         this.maxSerializedSize = maxSerializedSize;
+        this.metrics = metrics;
         this.verifiers = verifiers;
         this.consumer = consumer(label);
 
@@ -73,6 +95,10 @@ public class Ethereal {
             log.trace("Sending: {} on: {}", u, config.logLabel());
             insert(u);
         }, epoch -> new epochProofImpl(config, epoch, new sharesDB(config, new ConcurrentHashMap<>())), verifiers);
+
+        // Create scheduler for periodic timeout checks (Byzantine withholding detection)
+        this.timeoutChecker = newSingleThreadScheduledExecutor(
+            Thread.ofVirtual().name("Ethereal Timeout Checker[" + label + "]").factory());
 
         log.trace("Configured {} processes {}", config.nProc(), config.logLabel());
     }
@@ -100,6 +126,8 @@ public class Ethereal {
 
     private static BiConsumer<Boolean, List<Unit>> blocker(BiConsumer<List<ByteString>, Boolean> blocker,
                                                            Config config) {
+        final var errorHandler = config.consumerErrorHandler() != null ? config.consumerErrorHandler()
+                                                                        : new ConsumerErrorHandler.Builder().build();
         return (completeIt, units) -> {
             var print = log.isTraceEnabled() ? units.stream().map(PreUnit::shortString).toList() : null;
             log.trace("Make pre block: {} on: {}", print, config.logLabel());
@@ -116,8 +144,15 @@ public class Ethereal {
                 log.trace("Emitting last: {} pre block: {} on: {}", last, print, config.logLabel());
                 try {
                     blocker.accept(preBlock, last);
+                    errorHandler.recordSuccess();
                 } catch (Throwable t) {
                     log.error("Error consuming last: {} pre block: {} on: {}", last, print, config.logLabel(), t);
+                    var action = errorHandler.handleError(t, preBlock, last);
+                    if (action == ConsumerErrorHandler.ErrorAction.HALT) {
+                        log.error("Consumer error handler requested HALT - stopping consensus on: {}",
+                                  config.logLabel());
+                        throw new ConsumerException("Consumer failed and requested halt", t);
+                    }
                 }
             }
         };
@@ -215,6 +250,11 @@ public class Ethereal {
         }
         newEpoch(0);
         creator.start();
+
+        // Schedule periodic timeout checks for Byzantine withholding detection
+        var interval = config.timeoutCheckIntervalMillis();
+        timeoutChecker.scheduleAtFixedRate(this::runTimeoutChecks, interval, interval, TimeUnit.MILLISECONDS);
+        log.trace("Started timeout checker with {}ms interval on: {}", interval, config.logLabel());
     }
 
     public void stop() {
@@ -223,10 +263,40 @@ public class Ethereal {
         }
         log.trace("Stopping Ethereal on: {}", config.logLabel());
         completeIt();
+
+        // Stop timeout checker first
+        timeoutChecker.shutdown();
+        try {
+            if (!timeoutChecker.awaitTermination(1000, TimeUnit.MILLISECONDS)) {
+                timeoutChecker.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            timeoutChecker.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+
         consumer.shutdown();
-        consumer.getQueue().clear(); // Flush any pending consumers
+
+        // Gracefully drain pending units with timeout
+        try {
+            var drained = consumer.awaitTermination(config.shutdownDrainTimeoutMillis(), TimeUnit.MILLISECONDS);
+            if (!drained) {
+                var pendingCount = consumer.getQueue().size();
+                log.warn("Shutdown timeout after {}ms, discarding {} pending units on: {}",
+                        config.shutdownDrainTimeoutMillis(), pendingCount, config.logLabel());
+                consumer.getQueue().clear();
+            } else {
+                log.trace("Gracefully drained all pending units on: {}", config.logLabel());
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("Interrupted during shutdown drain, discarding pending units on: {}", config.logLabel());
+            consumer.getQueue().clear();
+        }
+
         creator.stop();
-        epochs.values().forEach(epoch::close);
+        // Use snapshot iteration for defensive programming during concurrent close
+        new ArrayList<>(epochs.values()).forEach(epoch::close);
         epochs.clear();
         failed.clear();
         lastTiming.clear();
@@ -266,7 +336,7 @@ public class Ethereal {
             }
 
         });
-        final var adder = new Adder(epoch, dg, maxSerializedSize, config, failed, verifiers);
+        final var adder = new Adder(epoch, dg, maxSerializedSize, config, failed, verifiers, blacklistStore, metrics);
         return new epoch(epoch, dg, adder, new AtomicBoolean(true));
     }
 
@@ -396,6 +466,27 @@ public class Ethereal {
             }
         }
         return epoch;
+    }
+
+    /**
+     * Run timeout checks on all active epochs to detect Byzantine parent withholding.
+     * Called periodically by the timeout checker scheduler.
+     */
+    private void runTimeoutChecks() {
+        if (!started.get()) {
+            return;
+        }
+        final var current = currentEpoch.get();
+        epochs.entrySet()
+              .stream()
+              .filter(e -> e.getKey() >= current)
+              .forEach(e -> {
+                  try {
+                      e.getValue().adder().runTimeoutCheck();
+                  } catch (Exception ex) {
+                      log.warn("Error running timeout check for epoch {} on: {}", e.getKey(), config.logLabel(), ex);
+                  }
+              });
     }
 
     record epoch(int id, Dag dag, Adder adder, AtomicBoolean more) {
