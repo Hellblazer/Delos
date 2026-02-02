@@ -63,6 +63,7 @@ public class ReliableBroadcaster {
     private final Parameters                                       params;
     private final Map<UUID, Consumer<Integer>>                     roundListeners  = new ConcurrentHashMap<>();
     private final AtomicBoolean                                    started         = new AtomicBoolean();
+    private volatile ScheduledExecutorService                      scheduler;
 
     public ReliableBroadcaster(Context<Member> context, SigningMember member, Parameters parameters,
                                Router communications, RbcMetrics metrics, MessageAdapter adapter) {
@@ -194,7 +195,8 @@ public class ReliableBroadcaster {
         }
         log.info("Starting Reliable Broadcaster[{}] for {}", context.getId(), member.getId());
         comm.register(context.getId(), new Service(), validator);
-        schedule(duration, Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory()));
+        scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
+        schedule(duration, scheduler);
     }
 
     public void stop() {
@@ -202,6 +204,18 @@ public class ReliableBroadcaster {
             return;
         }
         log.info("Stopping Reliable Broadcaster[{}] on: {}", context.getId(), member.getId());
+        if (scheduler != null) {
+            scheduler.shutdown();
+            try {
+                if (!scheduler.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                    scheduler.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                scheduler.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+            scheduler = null;
+        }
         buffer.clear();
         comm.deregister(context.getId());
     }
@@ -255,19 +269,6 @@ public class ReliableBroadcaster {
             if (metrics != null && startNanos > 0) {
                 metrics.recordGossipRoundDuration(System.nanoTime() - startNanos);
             }
-            if (started.get()) {
-                buffer.tick();
-                int gossipRound = buffer.round();
-                roundListeners.values().forEach(l -> {
-                    try {
-                        l.accept(gossipRound);
-                    } catch (StatusRuntimeException e) {
-                        log.error("error: {} sending round() to listener on: {}", e.getStatus(), member.getId(), e);
-                    } catch (Throwable e) {
-                        log.error("error sending round() to listener on: {}", member.getId(), e);
-                    }
-                });
-            }
         }
     }
 
@@ -294,6 +295,20 @@ public class ReliableBroadcaster {
                 }
             });
         } finally {
+            // Tick once per round regardless of gossip success (Delos-tofw)
+            if (started.get()) {
+                buffer.tick();
+                int gossipRound = buffer.round();
+                roundListeners.values().forEach(l -> {
+                    try {
+                        l.accept(gossipRound);
+                    } catch (StatusRuntimeException e) {
+                        log.error("error: {} sending round() to listener on: {}", e.getStatus(), member.getId(), e);
+                    } catch (Throwable e) {
+                        log.error("error sending round() to listener on: {}", member.getId(), e);
+                    }
+                });
+            }
             schedule(duration, scheduler);
         }
     }
