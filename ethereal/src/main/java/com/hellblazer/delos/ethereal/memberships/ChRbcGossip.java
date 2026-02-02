@@ -154,15 +154,23 @@ public class ChRbcGossip {
      * Calculate adaptive gossip interval based on pending unit count.
      * <p>
      * Uses AIMD-style adaptation:
+     * - Pending count = 0: Use base interval (feature not configured, fallback to original behavior)
      * - High backlog (>100 units): Fast gossip (min interval)
      * - Low backlog (<10 units): Slow gossip (max interval)
      * - Medium backlog: Linear interpolation between min and max
      *
-     * @param baseInterval The base gossip interval (used as reference)
-     * @return Adaptive interval clamped to [minGossipInterval, maxGossipInterval]
+     * @param baseInterval The base gossip interval (used as fallback when feature not configured)
+     * @return Adaptive interval, or baseInterval when pendingUnitsSupplier returns 0
      */
     private Duration calculateAdaptiveInterval(Duration baseInterval) {
         var pendingCount = pendingUnitsSupplier.getAsInt();
+
+        // CRITICAL: When pendingCount is 0, the feature is likely not configured
+        // (default supplier returns () -> 0). Fall back to original fixed interval behavior
+        // to maintain backward compatibility and avoid 50x slowdown.
+        if (pendingCount == 0) {
+            return baseInterval;
+        }
 
         // Thresholds for adaptation
         final int HIGH_THRESHOLD = 100;
