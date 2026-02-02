@@ -15,6 +15,7 @@ import com.hellblazer.delos.ethereal.EpochProofBuilder.epochProofImpl;
 import com.hellblazer.delos.ethereal.EpochProofBuilder.sharesDB;
 import com.hellblazer.delos.ethereal.linear.Extender;
 import com.hellblazer.delos.ethereal.linear.TimingRound;
+import com.hellblazer.delos.ethereal.memberships.comm.EtherealMetrics;
 import com.hellblazer.delos.ethereal.proto.Gossip;
 import com.hellblazer.delos.ethereal.proto.Missing;
 import com.hellblazer.delos.ethereal.proto.Update;
@@ -47,6 +48,7 @@ public class Ethereal {
     private final        Set<Digest>                     failed       = new ConcurrentSkipListSet<>();
     private final        Queue<Unit>                     lastTiming;
     private final        int                             maxSerializedSize;
+    private final        EtherealMetrics                 metrics;
     private final        Consumer<Integer>               newEpochAction;
     private final        AtomicBoolean                   started      = new AtomicBoolean();
     private final        ScheduledExecutorService        timeoutChecker;
@@ -57,18 +59,24 @@ public class Ethereal {
     public Ethereal(Config config, int maxSerializedSize, DataSource ds, BiConsumer<List<ByteString>, Boolean> blocker,
                     Consumer<Integer> newEpochAction, String label, Verifier[] verifiers) {
         this(label, config, maxSerializedSize, ds, blocker(blocker, config), newEpochAction, verifiers,
-             new BlacklistStore.InMemoryBlacklistStore());
+             new BlacklistStore.InMemoryBlacklistStore(), null);
     }
 
     public Ethereal(Config config, int maxSerializedSize, DataSource ds, BiConsumer<List<ByteString>, Boolean> blocker,
                     Consumer<Integer> newEpochAction, String label, Verifier[] verifiers,
                     BlacklistStore blacklistStore) {
-        this(label, config, maxSerializedSize, ds, blocker(blocker, config), newEpochAction, verifiers, blacklistStore);
+        this(label, config, maxSerializedSize, ds, blocker(blocker, config), newEpochAction, verifiers, blacklistStore, null);
+    }
+
+    public Ethereal(Config config, int maxSerializedSize, DataSource ds, BiConsumer<List<ByteString>, Boolean> blocker,
+                    Consumer<Integer> newEpochAction, String label, Verifier[] verifiers,
+                    BlacklistStore blacklistStore, EtherealMetrics metrics) {
+        this(label, config, maxSerializedSize, ds, blocker(blocker, config), newEpochAction, verifiers, blacklistStore, metrics);
     }
 
     private Ethereal(String label, Config conf, int maxSerializedSize, DataSource ds,
                      BiConsumer<Boolean, List<Unit>> toPreblock, Consumer<Integer> newEpochAction,
-                     Verifier[] verifiers, BlacklistStore blacklistStore) {
+                     Verifier[] verifiers, BlacklistStore blacklistStore, EtherealMetrics metrics) {
         if (!Dag.validate(conf.nProc())) {
             throw new IllegalArgumentException("Invalid # of processes, unable to build quorum: " + conf.nProc());
         }
@@ -78,6 +86,7 @@ public class Ethereal {
         this.toPreblock = toPreblock;
         this.newEpochAction = newEpochAction;
         this.maxSerializedSize = maxSerializedSize;
+        this.metrics = metrics;
         this.verifiers = verifiers;
         this.consumer = consumer(label);
 
@@ -327,7 +336,7 @@ public class Ethereal {
             }
 
         });
-        final var adder = new Adder(epoch, dg, maxSerializedSize, config, failed, verifiers, blacklistStore);
+        final var adder = new Adder(epoch, dg, maxSerializedSize, config, failed, verifiers, blacklistStore, metrics);
         return new epoch(epoch, dg, adder, new AtomicBoolean(true));
     }
 

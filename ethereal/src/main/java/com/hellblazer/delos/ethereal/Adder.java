@@ -15,6 +15,7 @@ import com.hellblazer.delos.cryptography.JohnHancock;
 import com.hellblazer.delos.cryptography.Signer;
 import com.hellblazer.delos.cryptography.Verifier;
 import com.hellblazer.delos.cryptography.proto.Biff;
+import com.hellblazer.delos.ethereal.memberships.comm.EtherealMetrics;
 import com.hellblazer.delos.ethereal.proto.*;
 import com.hellblazer.delos.utils.Entropy;
 import org.slf4j.Logger;
@@ -49,6 +50,7 @@ public class Adder {
     private final        Set<Digest>                failed;
     private final        ReentrantLock              lock            = new ReentrantLock(true);
     private final        int                        maxSize;
+    private final        EtherealMetrics            metrics;
     private final        Map<Long, List<Waiting>>   missing         = new TreeMap<>();
     private final        Map<Digest, Set<Short>>    prevotes        = new TreeMap<>();
     // CRITICAL (Delos-0s4b): Bounded LRU caches prevent Byzantine DoS via signature flooding
@@ -73,6 +75,11 @@ public class Adder {
 
     public Adder(int epoch, Dag dag, int maxSize, Config conf, Set<Digest> failed, Verifier[] verifiers,
                  BlacklistStore blacklistStore) {
+        this(epoch, dag, maxSize, conf, failed, verifiers, blacklistStore, null);
+    }
+
+    public Adder(int epoch, Dag dag, int maxSize, Config conf, Set<Digest> failed, Verifier[] verifiers,
+                 BlacklistStore blacklistStore, EtherealMetrics metrics) {
         this.epoch = epoch;
         this.dag = dag;
         this.conf = conf;
@@ -81,6 +88,7 @@ public class Adder {
         this.threshold = Dag.threshold(conf.nProc());
         this.maxSize = maxSize;
         this.blacklistStore = blacklistStore;
+        this.metrics = metrics;
 
         // CRITICAL (Delos-0s4b): Initialize bounded LRU caches to prevent Byzantine DoS
         this.signedCommits = new BoundedLRUCache<>(DEFAULT_CACHE_SIZE);
@@ -754,6 +762,9 @@ public class Adder {
             Signed<SignedCommit> sc = commit(wpu.id(), wpu.hash(), conf.pid(), conf.signer(), conf.digestAlgorithm());
             signedCommits.put(sc.hash(), sc.signed());
             log.trace("Committing unit: {} on: {}", wpu, conf.logLabel());
+            if (metrics != null) {
+                metrics.incrementUnitsCommitted();
+            }
             commit(wpu.hash(), conf.pid());
         } catch (Throwable e) {
             e.printStackTrace();
@@ -835,33 +846,63 @@ public class Adder {
     }
 
     /**
-     * Exclusively lock the state of the receiver
+     * Exclusively lock the state of the receiver with metrics instrumentation.
      *
      * @param <T>
      * @param call
      * @return
      */
     private <T> T locked(Callable<T> call) {
-        lock.lock();
+        long waitStart = System.nanoTime();
+        boolean contended = !lock.tryLock();
+        if (contended) {
+            if (metrics != null) {
+                metrics.incrementLockContentionCount();
+            }
+            lock.lock();
+        }
+        long holdStart = System.nanoTime();
+        if (metrics != null) {
+            metrics.recordAdderLockWaitDuration(holdStart - waitStart);
+        }
         try {
             return call.call();
         } catch (Exception e) {
             throw new IllegalStateException(e);
         } finally {
+            if (metrics != null) {
+                metrics.recordAdderLockHoldDuration(System.nanoTime() - holdStart);
+                metrics.recordBacklogSize(waiting.size());
+            }
             lock.unlock();
         }
     }
 
     /**
-     * Exclusively lock the state of the receiver
+     * Exclusively lock the state of the receiver with metrics instrumentation.
      *
      * @param r
      */
     private void locked(Runnable r) {
-        lock.lock();
+        long waitStart = System.nanoTime();
+        boolean contended = !lock.tryLock();
+        if (contended) {
+            if (metrics != null) {
+                metrics.incrementLockContentionCount();
+            }
+            lock.lock();
+        }
+        long holdStart = System.nanoTime();
+        if (metrics != null) {
+            metrics.recordAdderLockWaitDuration(holdStart - waitStart);
+        }
         try {
             r.run();
         } finally {
+            if (metrics != null) {
+                metrics.recordAdderLockHoldDuration(System.nanoTime() - holdStart);
+                metrics.recordBacklogSize(waiting.size());
+            }
             lock.unlock();
         }
     }
@@ -897,7 +938,12 @@ public class Adder {
         final var decoded = wpu.decoded();
         log.trace("Inserting unit: {} on: {}", decoded, conf.logLabel());
 
+        long insertStart = System.nanoTime();
         dag.insert(decoded);
+        if (metrics != null) {
+            metrics.recordDagInsertDuration(System.nanoTime() - insertStart);
+            metrics.incrementUnitsOutput();
+        }
 
         for (var ch : wpu.children()) {
             ch.decWaiting();
@@ -917,6 +963,9 @@ public class Adder {
         Signed<SignedPreVote> spv = prevote(wpu.id(), wpu.hash(), conf.pid(), conf.signer(), conf.digestAlgorithm());
         signedPrevotes.put(spv.hash(), spv.signed());
         log.trace("Prevoting unit: {} on: {}", wpu, conf.logLabel());
+        if (metrics != null) {
+            metrics.incrementUnitsProposed();
+        }
         prevote(wpu.hash(), conf.pid());
     }
 
