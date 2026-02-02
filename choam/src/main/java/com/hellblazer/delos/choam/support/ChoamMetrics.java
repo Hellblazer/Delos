@@ -6,13 +6,17 @@
  */
 package com.hellblazer.delos.choam.support;
 
-import com.codahale.metrics.Timer;
 import com.netflix.concurrency.limits.MetricRegistry;
 import com.hellblazer.delos.ethereal.memberships.comm.EtherealMetrics;
 import com.hellblazer.delos.membership.messaging.rbc.RbcMetrics;
 import com.hellblazer.delos.protocols.EndpointMetrics;
 
 /**
+ * Framework-agnostic metrics interface for CHOAM state machine replication.
+ * <p>
+ * Note: This interface uses semantic method names to decouple from metrics implementation.
+ * The implementation (currently Dropwizard) will be replaced with Micrometer in Phase 2.
+ *
  * @author hal.hildebrand
  */
 public interface ChoamMetrics extends EndpointMetrics {
@@ -33,7 +37,7 @@ public interface ChoamMetrics extends EndpointMetrics {
 
     void transactionComplete(Throwable t);
 
-    Timer transactionLatency();
+    void recordTransactionLatencyDuration(long nanos);
 
     void transactionSubmissionError();
 

@@ -56,6 +56,7 @@ public class CombinedByzantineAttackTest {
     private List<Dag> dags;
     private List<Adder> adders;
     private List<Set<Digest>> failedSets;
+    private List<BlacklistStore> blacklistStores;
     private Verifier[] verifiers;
     private int currentEpoch;
 
@@ -87,15 +88,21 @@ public class CombinedByzantineAttackTest {
         dags = new ArrayList<>();
         adders = new ArrayList<>();
         failedSets = new ArrayList<>();
+        blacklistStores = new ArrayList<>();
 
         for (int i = 0; i < N_PROC; i++) {
             var failed = new HashSet<Digest>();
             var dag = new Dag.DagImpl(config, currentEpoch);
-            var adder = new Adder(currentEpoch, dag, 1024 * 1024, config, failed, verifiers);
+            // CRITICAL (Delos-d1gy): Each process has its own blacklist store that persists across epochs
+            var blacklistStore = new BlacklistStore.InMemoryBlacklistStore();
+            // Pass null verifiers - these tests focus on equivocation detection,
+            // not signature verification (which is tested in PreUnitSignatureVerificationTest)
+            var adder = new Adder(currentEpoch, dag, 1024 * 1024, config, failed, null, blacklistStore);
 
             dags.add(dag);
             adders.add(adder);
             failedSets.add(failed);
+            blacklistStores.add(blacklistStore);
         }
     }
 
@@ -143,12 +150,14 @@ public class CombinedByzantineAttackTest {
             "Error should indicate equivocation");
 
         // Verify creator blacklisted
-        assertTrue(adder0.getBlacklistedCreators().contains(byzantineCreator),
+        assertTrue(adder0.getBlacklistStore().isBlacklisted(byzantineCreator),
             "Byzantine creator should be blacklisted");
 
         // Phase 2: Simulate epoch transition
+        // CRITICAL (Delos-d1gy): Use the same blacklist store to verify persistence across epochs
         currentEpoch = 1;
-        var newAdder0 = new Adder(currentEpoch, dags.get(0), 1024 * 1024, config, failedSets.get(0), verifiers);
+        var newAdder0 = new Adder(currentEpoch, dags.get(0), 1024 * 1024, config, failedSets.get(0), null,
+                                  blacklistStores.get(0));
 
         // Byzantine attempts equivocation in new epoch - should still be rejected if blacklist persists
         // Note: In production, blacklist would be carried over to new epoch
@@ -253,7 +262,7 @@ public class CombinedByzantineAttackTest {
 
         // Verify equivocation detected and creator blacklisted
         assertTrue(exception.getMessage().contains("Equivocation detected"));
-        assertTrue(adder0.getBlacklistedCreators().contains(byzantineCreator),
+        assertTrue(adder0.getBlacklistStore().getBlacklisted().contains(byzantineCreator),
             "Equivocating creator should be blacklisted");
 
         // Phase 3: Attempt voting on first unit by honest nodes
@@ -302,7 +311,7 @@ public class CombinedByzantineAttackTest {
             adder0.propose(equivUnit2.hash(), equivUnit2.toPreUnit_s());
         }, "Equivocation attack should be detected");
 
-        assertTrue(adder0.getBlacklistedCreators().contains(equivocator),
+        assertTrue(adder0.getBlacklistStore().getBlacklisted().contains(equivocator),
             "Equivocator should be blacklisted");
 
         // Attack 2: Node 2 withholds parent (liveness attack)
@@ -326,7 +335,7 @@ public class CombinedByzantineAttackTest {
             "Stale unit from withholding attack should be removed");
 
         // Verify equivocator and withholding attacks were both detected
-        assertTrue(adder0.getBlacklistedCreators().contains(equivocator),
+        assertTrue(adder0.getBlacklistStore().getBlacklisted().contains(equivocator),
             "Equivocation attack was detected and creator blacklisted");
 
         assertFalse(adder0.getWaiting().containsKey(childWaiting.hash()),
@@ -375,7 +384,7 @@ public class CombinedByzantineAttackTest {
             adder0.propose(unit2.hash(), unit2.toPreUnit_s());
         });
 
-        assertTrue(adder0.getBlacklistedCreators().contains(byzantineCreator));
+        assertTrue(adder0.getBlacklistStore().getBlacklisted().contains(byzantineCreator));
 
         // Phase 2: Create honest unit for voting
         var honestUnit = createTestPreUnit((short) 2, 1, currentEpoch, "flood-target");
@@ -434,7 +443,7 @@ public class CombinedByzantineAttackTest {
         adder0.propose(staleChild.hash(), staleChild.toPreUnit_s());
 
         // Verify problematic state exists
-        assertTrue(adder0.getBlacklistedCreators().contains((short) 1),
+        assertTrue(adder0.getBlacklistStore().getBlacklisted().contains((short) 1),
             "Equivocator should be blacklisted");
         assertTrue(adder0.getWaiting().containsKey(staleChild.hash()),
             "Stale child should be waiting");

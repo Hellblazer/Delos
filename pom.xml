@@ -51,7 +51,6 @@
     <properties>
         <micrometer.version>1.9.5</micrometer.version>
         <jackson.version>2.17.2</jackson.version>
-        <dropwizard.version>4.0.8</dropwizard.version>
         <h2.version>2.2.224</h2.version>
         <jooq.version>3.18.15</jooq.version>
         <bc.version>1.79</bc.version>
@@ -259,6 +258,11 @@
                 <version>${slf4j.version}</version>
             </dependency>
             <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>jcl-over-slf4j</artifactId>
+                <version>${slf4j.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>com.google.protobuf</groupId>
                 <artifactId>protobuf-java</artifactId>
                 <version>${protobuf.version}</version>
@@ -442,6 +446,11 @@
                 <version>${micrometer.version}</version>
             </dependency>
             <dependency>
+                <groupId>io.micrometer</groupId>
+                <artifactId>micrometer-registry-prometheus</artifactId>
+                <version>${micrometer.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>org.scijava</groupId>
                 <artifactId>native-lib-loader</artifactId>
                 <version>2.4.0</version>
@@ -456,13 +465,6 @@
                 <groupId>org.jboss.logging</groupId>
                 <artifactId>jboss-logging</artifactId>
                 <version>3.5.0.Final</version>
-            </dependency>
-            <dependency>
-                <groupId>io.dropwizard</groupId>
-                <artifactId>dropwizard-dependencies</artifactId>
-                <version>${dropwizard.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
             </dependency>
             <dependency>
                 <groupId>org.testcontainers</groupId>

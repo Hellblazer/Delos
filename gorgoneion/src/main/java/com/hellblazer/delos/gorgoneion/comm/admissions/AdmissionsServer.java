@@ -34,10 +34,11 @@ public class AdmissionsServer extends AdmissionsImplBase {
 
     @Override
     public void apply(KERL_ application, StreamObserver<SignedNonce> responseObserver) {
+        long start = metrics == null ? 0 : System.nanoTime();
         if (metrics != null) {
             var serializedSize = application.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.inboundApplication().update(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordInboundApplication(serializedSize);
         }
         Digest from = identity.getFrom();
         if (from == null) {
@@ -45,17 +46,17 @@ public class AdmissionsServer extends AdmissionsImplBase {
             return;
         }
         router.evaluate(responseObserver, s -> {
-            s.apply(application, from, responseObserver, null);
+            s.apply(application, from, responseObserver, start);
         });
     }
 
     @Override
     public void register(Credentials request, StreamObserver<Establishment> responseObserver) {
-        var timer = metrics == null ? null : metrics.registerDuration().time();
+        long start = metrics == null ? 0 : System.nanoTime();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.inboundCredentials().update(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordInboundCredentials(serializedSize);
         }
         Digest from = identity.getFrom();
         if (from == null) {
@@ -63,7 +64,7 @@ public class AdmissionsServer extends AdmissionsImplBase {
             return;
         }
         router.evaluate(responseObserver, s -> {
-            s.register(request, from, responseObserver, timer);
+            s.register(request, from, responseObserver, start);
         });
     }
 }

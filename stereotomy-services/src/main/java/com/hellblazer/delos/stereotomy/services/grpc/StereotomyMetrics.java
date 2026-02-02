@@ -7,8 +7,6 @@
  */
 package com.hellblazer.delos.stereotomy.services.grpc;
 
-import com.codahale.metrics.Meter;
-import com.codahale.metrics.Timer;
 import com.hellblazer.delos.protocols.EndpointMetrics;
 
 /**
@@ -17,180 +15,180 @@ import com.hellblazer.delos.protocols.EndpointMetrics;
  */
 public interface StereotomyMetrics extends EndpointMetrics {
 
-    Timer appendEventsClient();
+    void recordAppendEventsClientDuration(long nanos);
 
-    Timer appendEventsService();
+    void recordAppendEventsServiceDuration(long nanos);
 
-    Timer appendKERLClient();
+    void recordAppendKERLClientDuration(long nanos);
 
-    Timer appendKERLService();
+    void recordAppendKERLServiceDuration(long nanos);
 
-    Timer appendWithAttachmentsClient();
+    void recordAppendWithAttachmentsClientDuration(long nanos);
 
-    Timer appendWithAttachmentsService();
+    void recordAppendWithAttachmentsServiceDuration(long nanos);
 
-    Timer bindClient();
+    void recordBindClientDuration(long nanos);
 
-    Timer bindService();
+    void recordBindServiceDuration(long nanos);
 
-    Timer getAttachmentClient();
+    void recordGetAttachmentClientDuration(long nanos);
 
-    Timer getAttachmentService();
+    void recordGetAttachmentServiceDuration(long nanos);
 
-    Timer getKERLClient();
+    void recordGetKERLClientDuration(long nanos);
 
-    Timer getKERLService();
+    void recordGetKERLServiceDuration(long nanos);
 
-    Timer getKeyEventClient();
+    void recordGetKeyEventClientDuration(long nanos);
 
-    Timer getKeyEventCoordsClient();
+    void recordGetKeyEventCoordsClientDuration(long nanos);
 
-    Timer getKeyEventCoordsService();
+    void recordGetKeyEventCoordsServiceDuration(long nanos);
 
-    Timer getKeyEventService();
+    void recordGetKeyEventServiceDuration(long nanos);
 
-    Timer getKeyStateClient();
+    void recordGetKeyStateClientDuration(long nanos);
 
-    Timer getKeyStateCoordsClient();
+    void recordGetKeyStateCoordsClientDuration(long nanos);
 
-    Timer getKeyStateCoordsService();
+    void recordGetKeyStateCoordsServiceDuration(long nanos);
 
-    Timer getKeyStateService();
+    void recordGetKeyStateServiceDuration(long nanos);
 
-    Meter inboundAppendEventsRequest();
+    void recordInboundAppendEventsRequest(int bytes);
 
-    Meter inboundAppendEventsResponse();
+    void recordInboundAppendEventsResponse(int bytes);
 
-    Meter inboundAppendKERLRequest();
+    void recordInboundAppendKERLRequest(int bytes);
 
-    Meter inboundAppendKERLResponse();
+    void recordInboundAppendKERLResponse(int bytes);
 
-    Meter inboundAppendWithAttachmentsRequest();
+    void recordInboundAppendWithAttachmentsRequest(int bytes);
 
-    Meter inboundAppendWithAttachmentsResponse();
+    void recordInboundAppendWithAttachmentsResponse(int bytes);
 
-    Meter inboundBindRequest();
+    void recordInboundBindRequest(int bytes);
 
-    Meter inboundGetAttachmentRequest();
+    void recordInboundGetAttachmentRequest(int bytes);
 
-    Meter inboundGetAttachmentResponse();
+    void recordInboundGetAttachmentResponse(int bytes);
 
-    Meter inboundGetKERLRequest();
+    void recordInboundGetKERLRequest(int bytes);
 
-    Meter inboundGetKERLResponse();
+    void recordInboundGetKERLResponse(int bytes);
 
-    Meter inboundGetKeyEventCoordsRequest();
+    void recordInboundGetKeyEventCoordsRequest(int bytes);
 
-    Meter inboundGetKeyEventCoordsResponse();
+    void recordInboundGetKeyEventCoordsResponse(int bytes);
 
-    Meter inboundGetKeyEventRequest();
+    void recordInboundGetKeyEventRequest(int bytes);
 
-    Meter inboundGetKeyEventResponse();
+    void recordInboundGetKeyEventResponse(int bytes);
 
-    Meter inboundGetKeyStateCoordsRequest();
+    void recordInboundGetKeyStateCoordsRequest(int bytes);
 
-    Meter inboundGetKeyStateCoordsResponse();
+    void recordInboundGetKeyStateCoordsResponse(int bytes);
 
-    Meter inboundGetKeyStateRequest();
+    void recordInboundGetKeyStateRequest(int bytes);
 
-    Meter inboundGetKeyStateResponse();
+    void recordInboundGetKeyStateResponse(int bytes);
 
-    Meter inboundLookupRequest();
+    void recordInboundLookupRequest(int bytes);
 
-    Meter inboundLookupResponse();
+    void recordInboundLookupResponse(int bytes);
 
-    Meter inboundPublishAttachmentsRequest();
+    void recordInboundPublishAttachmentsRequest(int bytes);
 
-    Meter inboundPublishEventsRequest();
+    void recordInboundPublishEventsRequest(int bytes);
 
-    Meter inboundPublishEventsResponse();
+    void recordInboundPublishEventsResponse(int bytes);
 
-    Meter inboundPublishKERLRequest();
+    void recordInboundPublishKERLRequest(int bytes);
 
-    Meter inboundPublishKERLResponse();
+    void recordInboundPublishKERLResponse(int bytes);
 
-    Meter inboundUnbindRequest();
+    void recordInboundUnbindRequest(int bytes);
 
-    Meter inboundValidatorRequest();
+    void recordInboundValidatorRequest(int bytes);
 
-    Timer lookupClient();
+    void recordLookupClientDuration(long nanos);
 
-    Timer lookupService();
+    void recordLookupServiceDuration(long nanos);
 
-    Meter outboundAppendEventsRequest();
+    void recordOutboundAppendEventsRequest(int bytes);
 
-    Meter outboundAppendEventsResponse();
+    void recordOutboundAppendEventsResponse(int bytes);
 
-    Meter outboundAppendKERLRequest();
+    void recordOutboundAppendKERLRequest(int bytes);
 
-    Meter outboundAppendKERLResponse();
+    void recordOutboundAppendKERLResponse(int bytes);
 
-    Meter outboundAppendWithAttachmentsRequest();
+    void recordOutboundAppendWithAttachmentsRequest(int bytes);
 
-    Meter outboundAppendWithAttachmentsResponse();
+    void recordOutboundAppendWithAttachmentsResponse(int bytes);
 
-    Meter outboundBindRequest();
+    void recordOutboundBindRequest(int bytes);
 
-    Meter outboundGetAttachmentRequest();
+    void recordOutboundGetAttachmentRequest(int bytes);
 
-    Meter outboundGetAttachmentResponse();
+    void recordOutboundGetAttachmentResponse(int bytes);
 
-    Meter outboundGetKERLRequest();
+    void recordOutboundGetKERLRequest(int bytes);
 
-    Meter outboundGetKERLResponse();
+    void recordOutboundGetKERLResponse(int bytes);
 
-    Meter outboundGetKeyEventCoordsRequest();
+    void recordOutboundGetKeyEventCoordsRequest(int bytes);
 
-    Meter outboundGetKeyEventCoordsResponse();
+    void recordOutboundGetKeyEventCoordsResponse(int bytes);
 
-    Meter outboundGetKeyEventRequest();
+    void recordOutboundGetKeyEventRequest(int bytes);
 
-    Meter outboundGetKeyEventResponse();
+    void recordOutboundGetKeyEventResponse(int bytes);
 
-    Meter outboundGetKeyStateCoordsRequest();
+    void recordOutboundGetKeyStateCoordsRequest(int bytes);
 
-    Meter outboundGetKeyStateCoordsResponse();
+    void recordOutboundGetKeyStateCoordsResponse(int bytes);
 
-    Meter outboundGetKeyStateRequest();
+    void recordOutboundGetKeyStateRequest(int bytes);
 
-    Meter outboundGetKeyStateResponse();
+    void recordOutboundGetKeyStateResponse(int bytes);
 
-    Meter outboundLookupRequest();
+    void recordOutboundLookupRequest(int bytes);
 
-    Meter outboundLookupResponse();
+    void recordOutboundLookupResponse(int bytes);
 
-    Meter outboundPublishAttachmentsRequest();
+    void recordOutboundPublishAttachmentsRequest(int bytes);
 
-    Meter outboundPublishEventsRequest();
+    void recordOutboundPublishEventsRequest(int bytes);
 
-    Meter outboundPublishEventsResponse();
+    void recordOutboundPublishEventsResponse(int bytes);
 
-    Meter outboundPublishKERLRequest();
+    void recordOutboundPublishKERLRequest(int bytes);
 
-    Meter outboundPublishKERLResponse();
+    void recordOutboundPublishKERLResponse(int bytes);
 
-    Meter outboundUnbindRequest();
+    void recordOutboundUnbindRequest(int bytes);
 
-    Meter outboundValidatorRequest();
+    void recordOutboundValidatorRequest(int bytes);
 
-    Timer publishAttachmentsClient();
+    void recordPublishAttachmentsClientDuration(long nanos);
 
-    Timer publishAttachmentsService();
+    void recordPublishAttachmentsServiceDuration(long nanos);
 
-    Timer publishEventsClient();
+    void recordPublishEventsClientDuration(long nanos);
 
-    Timer publishEventsService();
+    void recordPublishEventsServiceDuration(long nanos);
 
-    Timer publishKERLClient();
+    void recordPublishKERLClientDuration(long nanos);
 
-    Timer publishKERLService();
+    void recordPublishKERLServiceDuration(long nanos);
 
-    Timer unbindClient();
+    void recordUnbindClientDuration(long nanos);
 
-    Timer unbindService();
+    void recordUnbindServiceDuration(long nanos);
 
-    Timer validatorClient();
+    void recordValidatorClientDuration(long nanos);
 
-    Timer validatorService();
+    void recordValidatorServiceDuration(long nanos);
 
 }

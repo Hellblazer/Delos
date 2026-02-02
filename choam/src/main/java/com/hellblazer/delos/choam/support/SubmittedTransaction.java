@@ -6,7 +6,6 @@
  */
 package com.hellblazer.delos.choam.support;
 
-import com.codahale.metrics.Timer;
 import com.hellblazer.delos.choam.proto.Transaction;
 import com.hellblazer.delos.cryptography.Digest;
 import org.joou.ULong;
@@ -18,5 +17,5 @@ import java.util.concurrent.CompletableFuture;
  */
 @SuppressWarnings("rawtypes")
 public record SubmittedTransaction(ULong view, Digest hash, Transaction transaction, CompletableFuture onCompletion,
-                                   Timer.Context timer) {
+                                   long startNanos) {
 }

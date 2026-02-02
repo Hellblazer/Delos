@@ -7,7 +7,6 @@
  */
 package com.hellblazer.delos.stereotomy.services.grpc.observer;
 
-import com.codahale.metrics.Timer.Context;
 import com.google.protobuf.Empty;
 import com.hellblazer.delos.stereotomy.services.grpc.proto.AttachmentsContext;
 import com.hellblazer.delos.stereotomy.services.grpc.proto.EventObserverGrpc.EventObserverImplBase;
@@ -37,10 +36,10 @@ public class EventObserverServer extends EventObserverImplBase {
 
     @Override
     public void publish(KERLContext request, StreamObserver<Empty> responseObserver) {
-        Context timer = metrics != null ? metrics.publishKERLService().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
-            metrics.inboundBandwidth().mark(request.getSerializedSize());
-            metrics.inboundPublishKERLRequest().mark(request.getSerializedSize());
+            metrics.recordInboundBandwidth(request.getSerializedSize());
+            metrics.recordInboundPublishKERLRequest(request.getSerializedSize());
         }
         Digest from = identity.getFrom();
         if (from == null) {
@@ -50,6 +49,9 @@ public class EventObserverServer extends EventObserverImplBase {
         }
         routing.evaluate(responseObserver, s -> {
             s.publish(request.getKerl(), request.getValidationsList(), from);
+            if (metrics != null) {
+                metrics.recordPublishKERLServiceDuration(System.nanoTime() - start);
+            }
             responseObserver.onNext(Empty.getDefaultInstance());
             responseObserver.onCompleted();
         });
@@ -57,10 +59,10 @@ public class EventObserverServer extends EventObserverImplBase {
 
     @Override
     public void publishAttachments(AttachmentsContext request, StreamObserver<Empty> responseObserver) {
-        Context timer = metrics != null ? metrics.publishAttachmentsService().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
-            metrics.inboundBandwidth().mark(request.getSerializedSize());
-            metrics.inboundPublishAttachmentsRequest().mark(request.getSerializedSize());
+            metrics.recordInboundBandwidth(request.getSerializedSize());
+            metrics.recordInboundPublishAttachmentsRequest(request.getSerializedSize());
         }
         Digest from = identity.getFrom();
         if (from == null) {
@@ -70,6 +72,9 @@ public class EventObserverServer extends EventObserverImplBase {
         }
         routing.evaluate(responseObserver, s -> {
             s.publishAttachments(request.getAttachmentsList(), from);
+            if (metrics != null) {
+                metrics.recordPublishAttachmentsServiceDuration(System.nanoTime() - start);
+            }
             responseObserver.onNext(Empty.getDefaultInstance());
             responseObserver.onCompleted();
         });
@@ -77,10 +82,10 @@ public class EventObserverServer extends EventObserverImplBase {
 
     @Override
     public void publishEvents(KeyEventsContext request, StreamObserver<Empty> responseObserver) {
-        Context timer = metrics != null ? metrics.publishEventsService().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
-            metrics.inboundBandwidth().mark(request.getSerializedSize());
-            metrics.inboundPublishEventsRequest().mark(request.getSerializedSize());
+            metrics.recordInboundBandwidth(request.getSerializedSize());
+            metrics.recordInboundPublishEventsRequest(request.getSerializedSize());
         }
         Digest from = identity.getFrom();
         if (from == null) {
@@ -90,6 +95,9 @@ public class EventObserverServer extends EventObserverImplBase {
         }
         routing.evaluate(responseObserver, s -> {
             s.publishEvents(request.getKeyEventList(), request.getValidationsList(), from);
+            if (metrics != null) {
+                metrics.recordPublishEventsServiceDuration(System.nanoTime() - start);
+            }
             responseObserver.onNext(Empty.getDefaultInstance());
             responseObserver.onCompleted();
         });

@@ -6,8 +6,8 @@
  */
 package com.hellblazer.delos.fireflies;
 
-import com.codahale.metrics.MetricRegistry;
 import com.hellblazer.delos.archipelago.*;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.context.DynamicContext;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
@@ -168,7 +168,7 @@ public class BallotConsensusTest {
                                    .setMaximumTxfr(10)
                                    .setSeedingTimout(Duration.ofSeconds(15))
                                    .build();
-        registry = new MetricRegistry();
+        registry = new SimpleMeterRegistry();
 
         members = identities.values()
                             .stream()
@@ -183,7 +183,7 @@ public class BallotConsensusTest {
 
         views = members.values().stream().map(node -> {
             DynamicContext<Participant> context = ctxBuilder.build();
-            FireflyMetricsImpl metrics = new FireflyMetricsImpl(context.getId(), registry);
+            var metrics = new MicrometerFireflyMetrics(context.getId(), registry);
             var comms = new LocalServer(prefix, node).router(ServerConnectionCache.newBuilder()
                                                                                   .setTarget(50),
                                                              executor);
@@ -200,5 +200,5 @@ public class BallotConsensusTest {
         }).collect(Collectors.toList());
     }
 
-    private MetricRegistry registry;
+    private SimpleMeterRegistry registry;
 }

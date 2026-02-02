@@ -1,12 +1,12 @@
 /*
- * Copyright (c) 2019, salesforce.com, inc.
+ * Copyright (c) 2026, Hal Hildebrand.
  * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
+ * GNU Affero General Public License
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
  */
 package com.hellblazer.delos.fireflies.comm.gossip;
 
-import com.codahale.metrics.Timer.Context;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.protobuf.Empty;
 import com.hellblazer.delos.archipelago.ManagedServerChannel;
@@ -58,14 +58,14 @@ public class FfClient implements Fireflies {
     public Gossip gossip(SayWhat sw) {
         if (metrics != null) {
             var serializedSize = sw.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
-            metrics.outboundGossip().update(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
+            metrics.recordOutboundGossipSize(serializedSize);
         }
         var result = client.gossip(sw);
         if (metrics != null) {
             var serializedSize = result.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.gossipResponse().update(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordGossipResponseSize(serializedSize);
         }
         return result;
     }
@@ -82,16 +82,13 @@ public class FfClient implements Fireflies {
 
     @Override
     public void update(State state) {
-        Context timer = null;
-        if (metrics != null) {
-            timer = metrics.outboundUpdateTimer().time();
-        }
+        long start = metrics != null ? System.nanoTime() : 0;
         client.update(state);
         if (metrics != null) {
             var serializedSize = state.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
-            metrics.outboundUpdate().update(serializedSize);
-            timer.stop();
+            metrics.recordOutboundBandwidth(serializedSize);
+            metrics.recordOutboundUpdateSize(serializedSize);
+            metrics.recordOutboundUpdateDuration(System.nanoTime() - start);
         }
     }
 }

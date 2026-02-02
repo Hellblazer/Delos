@@ -42,15 +42,15 @@ public class AdmissionsClient implements Admissions {
     public SignedNonce apply(KERL_ application, Duration timeout) {
         if (metrics != null) {
             var serializedSize = application.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
-            metrics.outboundApplication().update(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
+            metrics.recordOutboundApplication(serializedSize);
         }
 
         SignedNonce result = client.withDeadlineAfter(timeout.toNanos(), TimeUnit.NANOSECONDS).apply(application);
         if (metrics != null) {
             var serializedSize = result.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.inboundApplication().update(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordInboundApplication(serializedSize);
         }
         return result;
     }
@@ -69,16 +69,16 @@ public class AdmissionsClient implements Admissions {
     public Establishment register(Credentials credentials, Duration timeout) {
         if (metrics != null) {
             var serializedSize = credentials.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
-            metrics.outboundCredentials().update(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
+            metrics.recordOutboundCredentials(serializedSize);
         }
 
         var result = client.withDeadlineAfter(timeout.toNanos(), TimeUnit.NANOSECONDS).register(credentials);
         if (metrics != null) {
             try {
                 var serializedSize = result.getSerializedSize();
-                metrics.inboundBandwidth().mark(serializedSize);
-                metrics.inboundInvitation().update(serializedSize);
+                metrics.recordInboundBandwidth(serializedSize);
+                metrics.recordInboundInvitation(serializedSize);
             } catch (Throwable e) {
                 // nothing
             }

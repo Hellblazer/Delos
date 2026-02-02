@@ -9,7 +9,6 @@ package com.hellblazer.delos.stereotomy.services.grpc.resolver;
 
 import java.util.Optional;
 
-import com.codahale.metrics.Timer.Context;
 import com.hellblazer.delos.stereotomy.event.proto.Binding;
 import com.hellblazer.delos.stereotomy.event.proto.Ident;
 import com.hellblazer.delos.stereotomy.services.grpc.proto.ResolverGrpc.ResolverImplBase;
@@ -34,26 +33,26 @@ public class ResolverServer extends ResolverImplBase {
 
     @Override
     public void lookup(Ident request, StreamObserver<Binding> responseObserver) {
-        Context timer = metrics != null ? metrics.lookupService().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
-            metrics.inboundBandwidth().mark(request.getSerializedSize());
-            metrics.inboundLookupRequest().mark(request.getSerializedSize());
+            metrics.recordInboundBandwidth(request.getSerializedSize());
+            metrics.recordInboundLookupRequest(request.getSerializedSize());
         }
         routing.evaluate(responseObserver, s -> {
             Optional<Binding> response = s.lookup(request);
             if (response.isEmpty()) {
-                if (timer != null) {
-                    timer.stop();
+                if (metrics != null) {
+                    metrics.recordLookupServiceDuration(System.nanoTime() - start);
                 }
                 responseObserver.onNext(Binding.getDefaultInstance());
                 responseObserver.onCompleted();
                 return;
             }
 
-            if (timer != null) {
-                timer.stop();
-                metrics.outboundBandwidth().mark(response.get().getSerializedSize());
-                metrics.outboundLookupResponse().mark(response.get().getSerializedSize());
+            if (metrics != null) {
+                metrics.recordLookupServiceDuration(System.nanoTime() - start);
+                metrics.recordOutboundBandwidth(response.get().getSerializedSize());
+                metrics.recordOutboundLookupResponse(response.get().getSerializedSize());
             }
             responseObserver.onNext(response.get());
             responseObserver.onCompleted();

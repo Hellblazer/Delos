@@ -68,7 +68,8 @@ public class LivenessTimeoutTest {
 
         failed = new HashSet<>();
         dag = new Dag.DagImpl(config, 0);
-        adder = new Adder(0, dag, 1024 * 1024, config, failed, new Verifier[config.nProc()]);
+        adder = new Adder(0, dag, 1024 * 1024, config, failed, new Verifier[config.nProc()],
+                          new BlacklistStore.InMemoryBlacklistStore());
     }
 
     @AfterEach

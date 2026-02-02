@@ -7,7 +7,6 @@
  */
 package com.hellblazer.delos.model;
 
-import com.codahale.metrics.Timer;
 import com.hellblazer.delos.archipelago.Enclave.RoutingClientIdentity;
 import com.hellblazer.delos.archipelago.RouterImpl.CommonCommunications;
 import com.hellblazer.delos.bloomFilters.BloomFilter;
@@ -128,31 +127,19 @@ public class SubDomain extends Domain {
         return link.gossip(have());
     }
 
-    private void handle(DelegationUpdate update, Delegation link, int ring, Timer.Context timer) {
+    private void handle(DelegationUpdate update, Delegation link, int ring) {
         if (!started.get() || link == null) {
-            if (timer != null) {
-                timer.stop();
-            }
             return;
         }
-        try {
-            if (update == null) {
-                if (timer != null) {
-                    timer.stop();
-                }
-                log.trace("no update from {} on: {}", link.getMember().getId(), member.getId());
-                return;
-            }
-            if (update.equals(DelegationUpdate.getDefaultInstance())) {
-                return;
-            }
-            log.trace("gossip update with {} on: {}", link.getMember().getId(), member.getId());
-            link.update(update(update, DelegationUpdate.newBuilder().setRing(ring).setHave(have())).build());
-        } finally {
-            if (timer != null) {
-                timer.stop();
-            }
+        if (update == null) {
+            log.trace("no update from {} on: {}", link.getMember().getId(), member.getId());
+            return;
         }
+        if (update.equals(DelegationUpdate.getDefaultInstance())) {
+            return;
+        }
+        log.trace("gossip update with {} on: {}", link.getMember().getId(), member.getId());
+        link.update(update(update, DelegationUpdate.newBuilder().setRing(ring).setHave(have())).build());
     }
 
     private Biff have() {
@@ -170,10 +157,9 @@ public class SubDomain extends Domain {
             var successors = params.context().successors(member.getId(), _ -> true, member);
             Collections.shuffle(successors);
             successors.forEach(i -> {
-                Timer.Context timer = null;
                 var link = comms.connect(i.m());
                 if (link != null) {
-                    handle(gossipRound(link), link, i.ring(), timer);
+                    handle(gossipRound(link), link, i.ring());
                 }
                 try {
                     Thread.sleep(duration.toMillis());

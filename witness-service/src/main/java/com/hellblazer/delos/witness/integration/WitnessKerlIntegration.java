@@ -7,9 +7,9 @@
  */
 package com.hellblazer.delos.witness.integration;
 
-import com.codahale.metrics.Meter;
-import com.codahale.metrics.MetricRegistry;
-import com.codahale.metrics.Timer;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import com.hellblazer.delos.stereotomy.KERL;
 import com.hellblazer.delos.stereotomy.KeyState;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
@@ -44,23 +44,23 @@ public class WitnessKerlIntegration {
     private final KERL kerl;
     private final ConcurrentHashMap<CacheKey, CachedKeyState> cache;
     private final Timer lookupTimer;
-    private final Meter cacheHits;
-    private final Meter cacheMisses;
-    private final Meter fallbackRetries;
+    private final Counter cacheHits;
+    private final Counter cacheMisses;
+    private final Counter fallbackRetries;
 
     /**
      * Create KERL integration with metrics tracking.
      *
      * @param kerl           KERL instance for KeyState lookup
-     * @param metricRegistry Metrics registry for tracking
+     * @param meterRegistry Metrics registry for tracking
      */
-    public WitnessKerlIntegration(KERL kerl, MetricRegistry metricRegistry) {
+    public WitnessKerlIntegration(KERL kerl, MeterRegistry meterRegistry) {
         this.kerl = kerl;
         this.cache = new ConcurrentHashMap<>();
-        this.lookupTimer = metricRegistry.timer("witness.kerl.lookup.time");
-        this.cacheHits = metricRegistry.meter("witness.kerl.cache.hits");
-        this.cacheMisses = metricRegistry.meter("witness.kerl.cache.misses");
-        this.fallbackRetries = metricRegistry.meter("witness.kerl.fallback.retries");
+        this.lookupTimer = Timer.builder("witness.kerl.lookup.time").register(meterRegistry);
+        this.cacheHits = Counter.builder("witness.kerl.cache.hits").register(meterRegistry);
+        this.cacheMisses = Counter.builder("witness.kerl.cache.misses").register(meterRegistry);
+        this.fallbackRetries = Counter.builder("witness.kerl.fallback.retries").register(meterRegistry);
     }
 
     /**
@@ -83,11 +83,11 @@ public class WitnessKerlIntegration {
         // Check cache first
         var cached = getCachedKeyState(cacheKey);
         if (cached.isPresent()) {
-            cacheHits.mark();
+            cacheHits.increment();
             return cached;
         }
 
-        cacheMisses.mark();
+        cacheMisses.increment();
 
         // Lookup via KERL with timing
         var keyState = lookupKeyState(identifier, sequenceNumber);
@@ -96,7 +96,7 @@ public class WitnessKerlIntegration {
         if (keyState.isEmpty()) {
             log.debug("KERL lookup failed for identifier={}, sequenceNumber={}, retrying after {}ms",
                       identifier, sequenceNumber, RETRY_DELAY.toMillis());
-            fallbackRetries.mark();
+            fallbackRetries.increment();
 
             try {
                 Thread.sleep(RETRY_DELAY.toMillis());
@@ -123,13 +123,15 @@ public class WitnessKerlIntegration {
      * @return KeyState if found, empty on error
      */
     private Optional<KeyState> lookupKeyState(Identifier identifier, long sequenceNumber) {
-        try (var ignored = lookupTimer.time()) {
-            var keyState = kerl.getKeyState(identifier, ULong.valueOf(sequenceNumber));
-            return Optional.ofNullable(keyState);
-        } catch (Exception e) {
-            log.warn("KERL lookup error for identifier={}, sequenceNumber={}", identifier, sequenceNumber, e);
-            return Optional.empty();
-        }
+        return lookupTimer.record(() -> {
+            try {
+                var keyState = kerl.getKeyState(identifier, ULong.valueOf(sequenceNumber));
+                return Optional.ofNullable(keyState);
+            } catch (Exception e) {
+                log.warn("KERL lookup error for identifier={}, sequenceNumber={}", identifier, sequenceNumber, e);
+                return Optional.empty();
+            }
+        });
     }
 
     /**
@@ -199,8 +201,8 @@ public class WitnessKerlIntegration {
      * @return Hit rate (0.0-1.0)
      */
     public double getCacheHitRate() {
-        var hits = cacheHits.getCount();
-        var misses = cacheMisses.getCount();
+        var hits = cacheHits.count();
+        var misses = cacheMisses.count();
         var total = hits + misses;
         return total == 0 ? 0.0 : (double) hits / total;
     }

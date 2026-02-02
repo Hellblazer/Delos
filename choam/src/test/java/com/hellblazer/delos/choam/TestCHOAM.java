@@ -6,14 +6,17 @@
  */
 package com.hellblazer.delos.choam;
 
-import com.codahale.metrics.ConsoleReporter;
-import com.codahale.metrics.MetricRegistry;
-import com.hellblazer.delos.archipelago.*;
+import com.hellblazer.delos.archipelago.LocalServer;
+import com.hellblazer.delos.archipelago.MicrometerServerConnectionCacheMetrics;
+import com.hellblazer.delos.archipelago.Router;
+import com.hellblazer.delos.archipelago.ServerConnectionCache;
+import com.hellblazer.delos.archipelago.UnsafeExecutors;
 import com.hellblazer.delos.choam.CHOAM.TransactionExecutor;
 import com.hellblazer.delos.choam.Parameters.ProducerParameters;
 import com.hellblazer.delos.choam.Parameters.RuntimeParameters;
 import com.hellblazer.delos.choam.proto.Transaction;
-import com.hellblazer.delos.choam.support.ChoamMetricsImpl;
+import com.hellblazer.delos.choam.support.MicrometerChoamMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.context.StaticContext;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
@@ -65,7 +68,7 @@ public class TestCHOAM {
     private   Map<Digest, AtomicInteger> blocks;
     private   Map<Digest, CHOAM>         choams;
     private   List<SigningMember>        members;
-    private   MetricRegistry             registry;
+    private   SimpleMeterRegistry        registry;
     private   Map<Digest, Router>        routers;
     private   ScheduledExecutorService   scheduler;
     private   ExecutorService            executor;
@@ -95,8 +98,8 @@ public class TestCHOAM {
         scheduler = Executors.newScheduledThreadPool(10, Thread.ofVirtual().factory());
         executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
         var origin = DigestAlgorithm.DEFAULT.getOrigin();
-        registry = new MetricRegistry();
-        var metrics = new ChoamMetricsImpl(origin, registry);
+        registry = new SimpleMeterRegistry();
+        var metrics = new MicrometerChoamMetrics(origin, registry);
         blocks = new ConcurrentHashMap<>();
         var entropy = SecureRandom.getInstance("SHA1PRNG");
         entropy.setSeed(new byte[] { 6, 6, 6 });
@@ -129,7 +132,7 @@ public class TestCHOAM {
         routers = members.stream()
                          .collect(Collectors.toMap(m -> m.getId(), m -> new LocalServer(prefix, m).router(
                          ServerConnectionCache.newBuilder()
-                                              .setMetrics(new ServerConnectionCacheMetricsImpl(registry))
+                                              .setMetrics(new MicrometerServerConnectionCacheMetrics(registry))
                                               .setTarget(CARDINALITY), executor)));
         choams = members.stream().collect(Collectors.toMap(m -> m.getId(), m -> {
             var recording = new AtomicInteger();
@@ -201,13 +204,7 @@ public class TestCHOAM {
             choams.values().forEach(CHOAM::stop);
 
             System.out.println();
-            if (Boolean.getBoolean("reportMetrics")) {
-                ConsoleReporter.forRegistry(registry)
-                               .convertRatesTo(TimeUnit.SECONDS)
-                               .convertDurationsTo(TimeUnit.MILLISECONDS)
-                               .build()
-                               .report();
-            }
+            // Metrics reporting removed - use Micrometer exporters for production monitoring
         }
         assertTrue(checkpointOccurred.get(5, TimeUnit.SECONDS));
     }

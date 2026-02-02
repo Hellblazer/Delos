@@ -7,7 +7,7 @@
  */
 package com.hellblazer.delos.witness;
 
-import com.codahale.metrics.MetricRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.cryptography.SignatureAlgorithm;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
@@ -51,7 +51,7 @@ import static org.assertj.core.api.Assertions.*;
  */
 class Phase1B3PerformanceTest {
 
-    private MetricRegistry registry;
+    private SimpleMeterRegistry registry;
     private WitnessMetrics metrics;
     private ByzantineWitnessDetector detector;
     private WitnessReceiptTestHelper testHelper;
@@ -59,7 +59,7 @@ class Phase1B3PerformanceTest {
 
     @BeforeEach
     void setUp() {
-        registry = new MetricRegistry();
+        registry = new SimpleMeterRegistry();
         metrics = new WitnessMetrics(registry);
         detector = new ByzantineWitnessDetector(registry);
         testHelper = new WitnessReceiptTestHelper();
@@ -688,7 +688,7 @@ class Phase1B3PerformanceTest {
     private boolean validateBlsSignature(byte[] signature) {
         // Simulate BLS signature validation
         // In real implementation, this would call BLS verification
-        metrics.getBlsValidationsCounter().inc();
+        metrics.recordBlsValidation();
         return signature != null && signature.length == 64;
     }
 
@@ -727,8 +727,8 @@ class Phase1B3PerformanceTest {
             10,
             10,
             detector.getShunnedMemberCount(),
-            metrics.getBlsValidationsCounter().getCount(),
-            metrics.getBlsFailuresCounter().getCount(),
+            metrics.getBlsValidationsCount(),
+            metrics.getBlsFailuresCount(),
             false
         );
     }

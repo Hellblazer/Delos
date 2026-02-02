@@ -1,40 +1,47 @@
 /*
- * Copyright (c) 2021, salesforce.com, inc.
+ * Copyright (c) 2026, Hal Hildebrand.
  * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
+ * GNU Affero General Public License
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
  */
 package com.hellblazer.delos.membership.messaging.rbc;
 
-import com.codahale.metrics.Histogram;
-import com.codahale.metrics.Timer;
 import com.hellblazer.delos.protocols.EndpointMetrics;
 
 /**
- * @author hal.hildebrand
+ * Framework-agnostic metrics interface for Reliable Broadcast.
+ * <p>
+ * Note: This interface uses semantic method names to decouple from metrics implementation.
+ * The implementation (currently Dropwizard) will be replaced with Micrometer in Phase 2.
  *
+ * @author hal.hildebrand
  */
 public interface RbcMetrics extends EndpointMetrics {
 
-    Histogram gossipReply();
+    // === Size Recording (Histograms) ===
 
-    Histogram gossipResponse();
+    void recordGossipReplySize(int bytes);
 
-    Timer gossipRoundDuration();
+    void recordGossipResponseSize(int bytes);
 
-    Histogram inboundGossip();
+    void recordInboundGossipSize(int bytes);
 
-    Timer inboundGossipTimer();
+    void recordInboundUpdateSize(int bytes);
 
-    Histogram inboundUpdate();
+    void recordOutboundGossipSize(int bytes);
 
-    Timer inboundUpdateTimer();
+    void recordOutboundUpdateSize(int bytes);
 
-    Histogram outboundGossip();
+    // === Duration Recording (Timers) ===
 
-    Timer outboundGossipTimer();
+    void recordGossipRoundDuration(long nanos);
 
-    Histogram outboundUpdate();
+    void recordInboundGossipDuration(long nanos);
 
-    Timer outboundUpdateTimer();
+    void recordInboundUpdateDuration(long nanos);
+
+    void recordOutboundGossipDuration(long nanos);
+
+    void recordOutboundUpdateDuration(long nanos);
 }

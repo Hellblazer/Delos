@@ -7,7 +7,6 @@
  */
 package com.hellblazer.delos.leyden.comm.binding;
 
-import com.codahale.metrics.Timer;
 import com.google.protobuf.Empty;
 import com.hellblazer.delos.archipelago.RoutableService;
 import com.hellblazer.delos.cryptography.Digest;
@@ -36,11 +35,11 @@ public class BinderServer extends BinderGrpc.BinderImplBase {
 
     @Override
     public void bind(Binding request, StreamObserver<Empty> responseObserver) {
-        Timer.Context timer = metrics == null ? null : metrics.inboundBindTimer().time();
+        var startTime = metrics == null ? 0L : System.nanoTime();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.inboundBind().update(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordInboundBindSize(serializedSize);
         }
         Digest from = identity.getFrom();
         if (from == null) {
@@ -53,8 +52,8 @@ public class BinderServer extends BinderGrpc.BinderImplBase {
                 responseObserver.onNext(Empty.getDefaultInstance());
                 responseObserver.onCompleted();
             } finally {
-                if (timer != null) {
-                    timer.stop();
+                if (metrics != null) {
+                    metrics.recordInboundBindDuration(System.nanoTime() - startTime);
                 }
             }
         });
@@ -62,11 +61,11 @@ public class BinderServer extends BinderGrpc.BinderImplBase {
 
     @Override
     public void get(Key request, StreamObserver<Bound> responseObserver) {
-        Timer.Context timer = metrics == null ? null : metrics.inboundGetTimer().time();
+        var startTime = metrics == null ? 0L : System.nanoTime();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.inboundGet().update(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordInboundGetSize(serializedSize);
         }
         Digest from = identity.getFrom();
         if (from == null) {
@@ -79,8 +78,8 @@ public class BinderServer extends BinderGrpc.BinderImplBase {
                 responseObserver.onNext(bound);
                 responseObserver.onCompleted();
             } finally {
-                if (timer != null) {
-                    timer.stop();
+                if (metrics != null) {
+                    metrics.recordInboundGetDuration(System.nanoTime() - startTime);
                 }
             }
         });
@@ -88,11 +87,11 @@ public class BinderServer extends BinderGrpc.BinderImplBase {
 
     @Override
     public void unbind(Key request, StreamObserver<Empty> responseObserver) {
-        Timer.Context timer = metrics == null ? null : metrics.inboundUnbindTimer().time();
+        var startTime = metrics == null ? 0L : System.nanoTime();
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.inboundUnbind().update(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordInboundUnbindSize(serializedSize);
         }
         Digest from = identity.getFrom();
         if (from == null) {
@@ -105,8 +104,8 @@ public class BinderServer extends BinderGrpc.BinderImplBase {
                 responseObserver.onNext(Empty.getDefaultInstance());
                 responseObserver.onCompleted();
             } finally {
-                if (timer != null) {
-                    timer.stop();
+                if (metrics != null) {
+                    metrics.recordInboundUnbindDuration(System.nanoTime() - startTime);
                 }
             }
         });

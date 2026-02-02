@@ -6,7 +6,6 @@
  */
 package com.hellblazer.delos.fireflies;
 
-import com.codahale.metrics.Timer;
 import com.google.common.collect.HashMultiset;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Multiset.Entry;
@@ -292,7 +291,7 @@ public class View {
             if (!verify(note.getIdentifier(), note.getSignature(), note.getWrapped().getNote().toByteString())) {
                 log.trace("invalid participant note from: {} on: {}", note.getId(), node.getId());
                 if (metrics != null) {
-                    metrics.filteredNotes().mark();
+                    metrics.recordFilteredNote();
                 }
                 return false;
             }
@@ -305,7 +304,7 @@ public class View {
                 long currentEpoch = current.getEpoch();
                 if (nextEpoch <= currentEpoch) {
                     if (metrics != null) {
-                        metrics.filteredNotes().mark();
+                        metrics.recordFilteredNote();
                     }
                     return false;
                 }
@@ -313,7 +312,7 @@ public class View {
         }
 
         if (metrics != null) {
-            metrics.notes().mark();
+            metrics.recordNote();
         }
 
         var member = m;
@@ -321,7 +320,7 @@ public class View {
             if (!member.verify(note.getSignature(), note.getWrapped().getNote().toByteString())) {
                 log.trace("Note signature invalid: {} on: {}", note.getId(), node.getId());
                 if (metrics != null) {
-                    metrics.filteredNotes().mark();
+                    metrics.recordFilteredNote();
                 }
                 return false;
             }
@@ -516,8 +515,8 @@ public class View {
         introduced.set(true);
     }
 
-    BiConsumer<? super Bound, ? super Throwable> join(Duration duration, com.codahale.metrics.Timer.Context timer) {
-        return viewManagement.join(duration, timer);
+    BiConsumer<? super Bound, ? super Throwable> join(Duration duration, long startNanos) {
+        return viewManagement.join(duration, startNanos);
     }
 
     void notifyListeners(List<SelfAddressingIdentifier> joining, List<Digest> leaving) {
@@ -594,7 +593,7 @@ public class View {
         context.remove(digest);
         shunned.remove(digest);
         if (metrics != null) {
-            metrics.leaves().mark();
+            metrics.recordLeave();
         }
     }
 
@@ -730,7 +729,7 @@ public class View {
         tick();
         if (shunned.contains(link.getMember().getId())) {
             if (metrics != null) {
-                metrics.shunnedGossip().mark();
+                metrics.recordShunnedGossip();
             }
             return null;
         }
@@ -863,7 +862,7 @@ public class View {
                     log.info("{} accused by: {} on ring: {} (replacing: {}) on: {}", accused.getId(), accuser.getId(),
                              accusation.getRingNumber(), currentAccuser.getId(), node.getId());
                     if (metrics != null) {
-                        metrics.accusations().mark();
+                        metrics.recordAccusation();
                     }
                     return true;
                 } else {
@@ -880,7 +879,7 @@ public class View {
             if (shunned.contains(accused.getId())) {
                 accused.addAccusation(accusation);
                 if (metrics != null) {
-                    metrics.accusations().mark();
+                    metrics.recordAccusation();
                 }
                 return false;
             }
@@ -895,7 +894,7 @@ public class View {
                                                                                                 params.rebuttalTimeout()));
                 }
                 if (metrics != null) {
-                    metrics.accusations().mark();
+                    metrics.recordAccusation();
                 }
                 return true;
             } else {
@@ -910,14 +909,14 @@ public class View {
         if (shunned.contains(note.getId())) {
             log.trace("Note: {} is shunned on: {}", note.getId(), node.getId());
             if (metrics != null) {
-                metrics.filteredNotes().mark();
+                metrics.recordFilteredNote();
             }
             return false;
         }
         if (!viewManagement.contains(note.getId())) {
             log.debug("Note: {} is not a member  on: {}", note.getId(), node.getId());
             if (metrics != null) {
-                metrics.filteredNotes().mark();
+                metrics.recordFilteredNote();
             }
             return false;
         }
@@ -926,7 +925,7 @@ public class View {
             log.debug("Invalid mask of: {} cardinality: {} on: {}", note.getId(), note.getMask().cardinality(),
                       node.getId());
             if (metrics != null) {
-                metrics.filteredNotes().mark();
+                metrics.recordFilteredNote();
             }
             return false;
         }
@@ -1022,13 +1021,13 @@ public class View {
             log.trace("Ignoring note in invalid view: {} current: {} from {} on: {}", note.currentView(), currentView(),
                       note.getId(), node.getId());
             if (metrics != null) {
-                metrics.filteredNotes().mark();
+                metrics.recordFilteredNote();
             }
             return false;
         }
         if (shunned.contains(note.getId())) {
             if (metrics != null) {
-                metrics.filteredNotes().mark();
+                metrics.recordFilteredNote();
             }
             log.trace("Note shunned: {} on: {}", note.getId(), node.getId());
             return false;
@@ -1557,7 +1556,7 @@ public class View {
             valid = true;
         } finally {
             if (!valid && metrics != null) {
-                metrics.shunnedGossip().mark();
+                metrics.recordShunnedGossip();
             }
         }
     }
@@ -1569,7 +1568,7 @@ public class View {
             valid = true;
         } finally {
             if (!valid && metrics != null) {
-                metrics.shunnedGossip().mark();
+                metrics.recordShunnedGossip();
             }
         }
     }
@@ -1996,7 +1995,7 @@ public class View {
          * Asynchronously add a member to the next view
          */
         @Override
-        public void join(Join join, Digest from, StreamObserver<JoinResponse> responseObserver, Timer.Context timer) {
+        public void join(Join join, Digest from, StreamObserver<JoinResponse> responseObserver, long startNanos) {
             log.info("View.Service.join() called from: {} started: {} on: {}", from, started.get(), node.getId());
             if (!started.get()) {
                 log.warn("View.Service.join() rejecting - not started from: {} on: {}", from, node.getId());
@@ -2004,7 +2003,7 @@ public class View {
                 new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("Not started")));
                 return;
             }
-            viewManagement.join(join, from, responseObserver, timer);
+            viewManagement.join(join, from, responseObserver, startNanos);
             log.info("View.Service.join() returned from viewManagement.join() from: {} on: {}", from, node.getId());
         }
 

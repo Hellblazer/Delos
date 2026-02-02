@@ -1,12 +1,12 @@
 /*
- * Copyright (c) 2020, salesforce.com, inc.
+ * Copyright (c) 2026, Hal Hildebrand.
  * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
+ * GNU Affero General Public License
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
  */
 package com.hellblazer.delos.fireflies.comm.gossip;
 
-import com.codahale.metrics.Timer.Context;
 import com.google.protobuf.Empty;
 import com.hellblazer.delos.archipelago.RoutableService;
 import com.hellblazer.delos.cryptography.Digest;
@@ -34,11 +34,11 @@ public class FfServer extends FirefliesImplBase {
 
     @Override
     public void enjoin(Join request, StreamObserver<Empty> responseObserver) {
-        Context timer = metrics == null ? null : metrics.inboundEnjoinDuration().time();
+        long start = metrics != null ? System.nanoTime() : 0;
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.inboundGossip().update(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordInboundGossipSize(serializedSize);
         }
         Digest from = identity.getFrom();
         if (from == null) {
@@ -49,19 +49,19 @@ public class FfServer extends FirefliesImplBase {
             s.enjoin(request, from);
             responseObserver.onNext(Empty.getDefaultInstance());
             responseObserver.onCompleted();
-            if (timer != null) {
-                timer.stop();
+            if (metrics != null) {
+                metrics.recordEnjoinDuration(System.nanoTime() - start);
             }
         });
     }
 
     @Override
     public void gossip(SayWhat request, StreamObserver<Gossip> responseObserver) {
-        Context timer = metrics == null ? null : metrics.inboundGossipDuration().time();
+        long start = metrics != null ? System.nanoTime() : 0;
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.inboundGossip().update(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordInboundGossipSize(serializedSize);
         }
         Digest from = identity.getFrom();
         if (from == null) {
@@ -78,11 +78,11 @@ public class FfServer extends FirefliesImplBase {
             }
             responseObserver.onNext(gossip);
             responseObserver.onCompleted();
-            if (timer != null) {
+            if (metrics != null) {
                 var serializedSize = gossip.getSerializedSize();
-                metrics.outboundBandwidth().mark(serializedSize);
-                metrics.gossipReply().update(serializedSize);
-                timer.stop();
+                metrics.recordOutboundBandwidth(serializedSize);
+                metrics.recordGossipReplySize(serializedSize);
+                metrics.recordInboundGossipDuration(System.nanoTime() - start);
             }
         });
     }
@@ -108,11 +108,11 @@ public class FfServer extends FirefliesImplBase {
 
     @Override
     public void update(State request, StreamObserver<Empty> responseObserver) {
-        Context timer = metrics == null ? null : metrics.inboundUpdateTimer().time();
+        long start = metrics != null ? System.nanoTime() : 0;
         if (metrics != null) {
             var serializedSize = request.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.inboundUpdate().update(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordInboundUpdateSize(serializedSize);
         }
         Digest from = identity.getFrom();
         if (from == null) {
@@ -132,8 +132,8 @@ public class FfServer extends FirefliesImplBase {
             } catch (StatusRuntimeException e) {
                 responseObserver.onError(e);
             }
-            if (timer != null) {
-                timer.stop();
+            if (metrics != null) {
+                metrics.recordInboundUpdateDuration(System.nanoTime() - start);
             }
         });
     }

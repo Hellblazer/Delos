@@ -7,7 +7,6 @@
  */
 package com.hellblazer.delos.model.demesnes.comm;
 
-import com.codahale.metrics.Timer.Context;
 import com.google.protobuf.Empty;
 import com.hellblazer.delos.demesne.proto.OuterContextGrpc.OuterContextImplBase;
 import com.hellblazer.delos.demesne.proto.SubContext;
@@ -31,11 +30,11 @@ public class OuterContextServer extends OuterContextImplBase {
 
     @Override
     public void deregister(Digeste context, StreamObserver<Empty> responseObserver) {
-        Context timer = metrics != null ? metrics.inboundSign().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
             final var serializedSize = context.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.inboundDeregister().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordInboundDeregister(serializedSize);
         }
         try {
             service.deregister(context);
@@ -44,8 +43,8 @@ public class OuterContextServer extends OuterContextImplBase {
         } catch (Throwable t) {
             responseObserver.onError(t);
         } finally {
-            if (timer != null) {
-                timer.close();
+            if (metrics != null) {
+                metrics.recordInboundSignDuration(System.nanoTime() - start);
             }
             responseObserver.onCompleted();
         }
@@ -53,11 +52,11 @@ public class OuterContextServer extends OuterContextImplBase {
 
     @Override
     public void register(SubContext context, StreamObserver<Empty> responseObserver) {
-        Context timer = metrics != null ? metrics.inboundSign().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
             final var serializedSize = context.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.inboundRegister().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordInboundRegister(serializedSize);
         }
         try {
             service.register(context);
@@ -66,8 +65,8 @@ public class OuterContextServer extends OuterContextImplBase {
         } catch (Throwable t) {
             responseObserver.onError(t);
         } finally {
-            if (timer != null) {
-                timer.close();
+            if (metrics != null) {
+                metrics.recordInboundSignDuration(System.nanoTime() - start);
             }
         }
     }

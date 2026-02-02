@@ -1,76 +1,89 @@
 /*
- * Copyright (c) 2020, salesforce.com, inc.
+ * Copyright (c) 2026, Hal Hildebrand.
  * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
+ * GNU Affero General Public License
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
  */
 package com.hellblazer.delos.fireflies;
 
-import com.codahale.metrics.Histogram;
-import com.codahale.metrics.Meter;
-import com.codahale.metrics.Timer;
 import com.hellblazer.delos.protocols.EndpointMetrics;
 
 /**
+ * Framework-agnostic metrics interface for Fireflies membership service.
+ * <p>
+ * Note: This interface uses semantic method names to decouple from metrics implementation.
+ * The implementation (currently Dropwizard) will be replaced with Micrometer in Phase 2.
+ *
  * @author hal.hildebrand
  */
 public interface FireflyMetrics extends EndpointMetrics {
 
-    Meter accusations();
+    // === Event Counters (Meters) ===
 
-    Meter filteredNotes();
+    void recordAccusation();
 
-    Histogram gossipReply();
+    void recordFilteredNote();
 
-    Histogram gossipResponse();
+    void recordJoin();
 
-    Timer inboundEnjoinDuration();
+    void recordLeave();
 
-    Histogram inboundGateway();
+    void recordNote();
 
-    Histogram inboundGossip();
+    void recordShunnedGossip();
 
-    Timer inboundGossipDuration();
+    void recordViewChange();
 
-    Histogram inboundJoin();
+    // === Size Recording (Histograms) - inbound ===
 
-    Timer inboundJoinDuration();
+    void recordInboundGatewaySize(int bytes);
 
-    Histogram inboundRedirect();
+    void recordInboundGossipSize(int bytes);
 
-    Histogram inboundSeed();
+    void recordInboundJoinSize(int bytes);
 
-    Timer inboundSeedDuration();
+    void recordInboundRedirectSize(int bytes);
 
-    Histogram inboundUpdate();
+    void recordInboundSeedSize(int bytes);
 
-    Timer inboundUpdateTimer();
+    void recordInboundUpdateSize(int bytes);
 
-    Timer joinDuration();
+    // === Size Recording (Histograms) - outbound ===
 
-    Meter joins();
+    void recordOutboundGatewaySize(int bytes);
 
-    Meter leaves();
+    void recordOutboundGossipSize(int bytes);
 
-    Meter notes();
+    void recordOutboundJoinSize(int bytes);
 
-    Histogram outboundGateway();
+    void recordOutboundRedirectSize(int bytes);
 
-    Histogram outboundGossip();
+    void recordOutboundSeedSize(int bytes);
 
-    Histogram outboundJoin();
+    void recordOutboundUpdateSize(int bytes);
 
-    Histogram outboundRedirect();
+    // === Size Recording (Histograms) - gossip reply/response ===
 
-    Histogram outboundSeed();
+    void recordGossipReplySize(int bytes);
 
-    Histogram outboundUpdate();
+    void recordGossipResponseSize(int bytes);
 
-    Timer outboundUpdateTimer();
+    // === Duration Recording (Timers) ===
 
-    Timer seedDuration();
+    void recordEnjoinDuration(long nanos);
 
-    Meter shunnedGossip();
+    void recordInboundGossipDuration(long nanos);
 
-    Meter viewChanges();
+    void recordInboundJoinDuration(long nanos);
+
+    void recordInboundSeedDuration(long nanos);
+
+    void recordInboundUpdateDuration(long nanos);
+
+    void recordJoinDuration(long nanos);
+
+    void recordOutboundUpdateDuration(long nanos);
+
+    void recordSeedDuration(long nanos);
 }

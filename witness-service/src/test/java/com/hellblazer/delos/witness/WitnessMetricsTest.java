@@ -7,11 +7,7 @@
  */
 package com.hellblazer.delos.witness;
 
-import com.codahale.metrics.Histogram;
-import com.codahale.metrics.Gauge;
-import com.codahale.metrics.Timer;
-import com.codahale.metrics.MetricRegistry;
-import com.codahale.metrics.Slf4jReporter;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 
@@ -27,7 +23,7 @@ class WitnessMetricsTest {
 
     @Test
     void shouldCreateMetricsWithRegistry() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         assertThat(metrics).isNotNull();
@@ -36,31 +32,32 @@ class WitnessMetricsTest {
 
     @Test
     void shouldRegisterReceiptCollectionLatencyHistogram() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
-        var histogram = metrics.receiptCollectionLatency();
-        assertThat(histogram).isNotNull();
+        // Trigger metric registration by recording a value
+        metrics.recordReceiptCollectionLatency(1);
+
         assertThat(registry.getHistograms()).containsKey("witness.receipt.collection.latency");
     }
 
     @Test
     void shouldRecordReceiptCollectionLatency() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
-        metrics.receiptCollectionLatency().update(25);
-        metrics.receiptCollectionLatency().update(30);
-        metrics.receiptCollectionLatency().update(15);
+        metrics.recordReceiptCollectionLatency(25);
+        metrics.recordReceiptCollectionLatency(30);
+        metrics.recordReceiptCollectionLatency(15);
 
-        var histogram = metrics.receiptCollectionLatency();
+        var histogram = registry.getHistograms().get("witness.receipt.collection.latency");
         assertThat(histogram.getCount()).isEqualTo(3);
         assertThat(histogram.getSnapshot().getMean()).isCloseTo(23.33, within(0.1));
     }
 
     @Test
     void shouldRegisterThresholdAchievementRateGauge() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         metrics.setThresholdAchievementRate(0.85);
@@ -73,7 +70,7 @@ class WitnessMetricsTest {
 
     @Test
     void shouldUpdateThresholdAchievementRate() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         metrics.setThresholdAchievementRate(0.75);
@@ -86,59 +83,61 @@ class WitnessMetricsTest {
 
     @Test
     void shouldRegisterViewChangeCoordinationTimer() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
-        var timer = metrics.viewChangeCoordinationTime();
-        assertThat(timer).isNotNull();
+        // Trigger metric registration by recording a value
+        metrics.recordViewChangeCoordinationDuration(1000000); // 1ms
+
         assertThat(registry.getTimers()).containsKey("witness.view.change.coordination.time");
     }
 
     @Test
     void shouldRecordViewChangeCoordinationTime() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
-        var context = metrics.viewChangeCoordinationTime().time();
+        var startNanos = System.nanoTime();
         try {
             Thread.sleep(10);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-        } finally {
-            context.stop();
         }
+        var durationNanos = System.nanoTime() - startNanos;
+        metrics.recordViewChangeCoordinationDuration(durationNanos);
 
-        var timer = metrics.viewChangeCoordinationTime();
+        var timer = registry.getTimers().get("witness.view.change.coordination.time");
         assertThat(timer.getCount()).isEqualTo(1);
         assertThat(timer.getSnapshot().getMean()).isGreaterThan(0);
     }
 
     @Test
     void shouldRegisterCommitteeSelectionTimer() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
-        var timer = metrics.committeeSelectionTime();
-        assertThat(timer).isNotNull();
+        // Trigger metric registration by recording a value
+        metrics.recordCommitteeSelectionDuration(1000); // 1μs
+
         assertThat(registry.getTimers()).containsKey("witness.committee.selection.time");
     }
 
     @Test
     void shouldRecordCommitteeSelectionTimeMicroseconds() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
-        // Simulate microsecond-level timing
-        metrics.committeeSelectionTime().update(150, TimeUnit.MICROSECONDS);
-        metrics.committeeSelectionTime().update(200, TimeUnit.MICROSECONDS);
+        // Record nanosecond-level timing (150μs = 150,000ns)
+        metrics.recordCommitteeSelectionDuration(150_000);
+        metrics.recordCommitteeSelectionDuration(200_000);
 
-        var timer = metrics.committeeSelectionTime();
+        var timer = registry.getTimers().get("witness.committee.selection.time");
         assertThat(timer.getCount()).isEqualTo(2);
     }
 
     @Test
     void shouldRegisterInFlightCollectionsGauge() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         metrics.setInFlightCollections(5);
@@ -151,7 +150,7 @@ class WitnessMetricsTest {
 
     @Test
     void shouldUpdateInFlightCollections() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         metrics.setInFlightCollections(3);
@@ -165,31 +164,32 @@ class WitnessMetricsTest {
 
     @Test
     void shouldRegisterReceiptGossipLatencyHistogram() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
-        var histogram = metrics.receiptGossipLatency();
-        assertThat(histogram).isNotNull();
+        // Trigger metric registration by recording a value
+        metrics.recordReceiptGossipLatency(1);
+
         assertThat(registry.getHistograms()).containsKey("witness.receipt.gossip.latency");
     }
 
     @Test
     void shouldRecordReceiptGossipLatency() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
-        metrics.receiptGossipLatency().update(5);
-        metrics.receiptGossipLatency().update(8);
-        metrics.receiptGossipLatency().update(12);
+        metrics.recordReceiptGossipLatency(5);
+        metrics.recordReceiptGossipLatency(8);
+        metrics.recordReceiptGossipLatency(12);
 
-        var histogram = metrics.receiptGossipLatency();
+        var histogram = registry.getHistograms().get("witness.receipt.gossip.latency");
         assertThat(histogram.getCount()).isEqualTo(3);
         assertThat(histogram.getSnapshot().getMean()).isCloseTo(8.33, within(0.1));
     }
 
     @Test
     void shouldCreateSlf4jReporter() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         var reporter = Slf4jReporter.forRegistry(metrics.getRegistry())
@@ -205,7 +205,7 @@ class WitnessMetricsTest {
 
     @Test
     void shouldHaveAllMetricsIncludingPhase1B3() {
-        var registry = new MetricRegistry();
+        var registry = new SimpleMeterRegistry();
         var metrics = new WitnessMetrics(registry);
 
         // Initialize gauges

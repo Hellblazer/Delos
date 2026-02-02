@@ -1,12 +1,11 @@
 /*
- * Copyright (c) 2021, salesforce.com, inc.
+ * Copyright (c) 2026, Hal Hildebrand.
  * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
+ * GNU Affero General Public License
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
  */
 package com.hellblazer.delos.membership.messaging.rbc;
-
-import com.codahale.metrics.Timer;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Message;
@@ -240,7 +239,7 @@ public class ReliableBroadcaster {
         }
     }
 
-    private void handle(Reconcile gossip, ReliableBroadcast link, int ring, Timer.Context timer) {
+    private void handle(Reconcile gossip, ReliableBroadcast link, int ring, long startNanos) {
         try {
             buffer.receive(gossip.getUpdatesList());
             var biff = gossip.getDigests();
@@ -252,8 +251,8 @@ public class ReliableBroadcaster {
                                             .build());
             }
         } finally {
-            if (timer != null) {
-                timer.stop();
+            if (metrics != null && startNanos > 0) {
+                metrics.recordGossipRoundDuration(System.nanoTime() - startNanos);
             }
             if (started.get()) {
                 buffer.tick();
@@ -276,7 +275,7 @@ public class ReliableBroadcaster {
             return;
         }
         try {
-            var timer = metrics == null ? null : metrics.gossipRoundDuration().time();
+            long startNanos = metrics != null ? System.nanoTime() : 0;
             var successors = context.successors(member.getId(), m -> true, member);
             Collections.shuffle(successors);
             successors.forEach(i -> {
@@ -284,7 +283,7 @@ public class ReliableBroadcaster {
                 if (link != null) {
                     var g = gossipRound(link, i.ring());
                     if (g != null) {
-                        handle(g, link, i.ring(), timer);
+                        handle(g, link, i.ring(), startNanos);
                     }
                 }
                 try {

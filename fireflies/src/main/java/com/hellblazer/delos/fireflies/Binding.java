@@ -1,12 +1,11 @@
 /*
- * Copyright (c) 2022, salesforce.com, inc.
+ * Copyright (c) 2026, Hal Hildebrand.
  * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
+ * GNU Affero General Public License
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
  */
 package com.hellblazer.delos.fireflies;
-
-import com.codahale.metrics.Timer;
 import com.google.common.collect.HashMultiset;
 import com.google.common.collect.Multiset;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -95,8 +94,8 @@ class Binding {
                  seeds.size(), node.getId());
 
         var redirect = new CompletableFuture<Redirect>();
-        var timer = metrics == null ? null : metrics.seedDuration().time();
-        redirect.whenComplete(join(duration, timer));
+        var startNanos = metrics != null ? System.nanoTime() : 0L;
+        redirect.whenComplete(join(duration, startNanos));
 
         var bootstrappers = seeds.stream()
                                  .map(this::seedFor)
@@ -296,7 +295,7 @@ class Binding {
                    .build();
     }
 
-    private BiConsumer<? super Redirect, ? super Throwable> join(Duration duration, Timer.Context timer) {
+    private BiConsumer<? super Redirect, ? super Throwable> join(Duration duration, long startNanos) {
         return (r, t) -> {
             if (t != null) {
                 log.error("Failed seeding on: {}", node.getId(), t);
@@ -316,8 +315,8 @@ class Binding {
 
                 log.debug("Completing redirect to view: {} context: {} introductions: {} on: {}", view,
                           this.context.getId(), r.getIntroductionsCount(), node.getId());
-                if (timer != null) {
-                    timer.close();
+                if (metrics != null && startNanos > 0) {
+                    metrics.recordSeedDuration(System.nanoTime() - startNanos);
                 }
                 join(r, view, duration);
             }, log));
@@ -336,8 +335,8 @@ class Binding {
         log.info("Redirecting to: {} context: {} sample: {} on: {}", v, this.context.getId(),
                  sample.size(), node.getId());
         var gateway = new CompletableFuture<Bound>();
-        var timer = metrics == null ? null : metrics.joinDuration().time();
-        gateway.whenComplete(view.join(duration, timer));
+        var joinStartNanos = metrics != null ? System.nanoTime() : 0L;
+        gateway.whenComplete(view.join(duration, joinStartNanos));
 
         var regate = new AtomicReference<Runnable>();
         var retries = new AtomicInteger();

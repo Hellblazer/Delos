@@ -7,8 +7,6 @@
  */
 package com.hellblazer.delos.witness.metrics;
 
-import com.codahale.metrics.MetricRegistry;
-
 /**
  * Metrics interface for FirefliesWitnessAdapter operations.
  * <p>

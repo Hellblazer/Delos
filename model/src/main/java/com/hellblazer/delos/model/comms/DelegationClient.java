@@ -7,7 +7,6 @@
  */
 package com.hellblazer.delos.model.comms;
 
-import com.codahale.metrics.Timer.Context;
 import com.hellblazer.delos.archipelago.ManagedServerChannel;
 import com.hellblazer.delos.cryptography.proto.Biff;
 import com.hellblazer.delos.demesne.proto.DelegationGrpc;
@@ -42,33 +41,33 @@ public class DelegationClient implements Delegation {
 
     @Override
     public DelegationUpdate gossip(Biff identifiers) {
-        Context timer = metrics != null ? metrics.gossip().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
             final var serializedSize = identifiers.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
-            metrics.outboundGossip().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
+            metrics.recordOutboundGossip(serializedSize);
         }
         var update = client.gossip(identifiers);
-        if (timer != null) {
-            timer.stop();
+        if (metrics != null) {
+            metrics.recordGossipDuration(System.nanoTime() - start);
             final var serializedSize = update.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.outboundUpdate().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordOutboundUpdate(serializedSize);
         }
         return update;
     }
 
     @Override
     public void update(DelegationUpdate update) {
-        Context timer = metrics != null ? metrics.updateOutbound().time() : null;
+        var start = metrics != null ? System.nanoTime() : 0L;
         if (metrics != null) {
             final var serializedSize = update.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
-            metrics.outboundUpdate().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
+            metrics.recordOutboundUpdate(serializedSize);
         }
         var ret = client.update(update);
-        if (timer != null) {
-            timer.stop();
+        if (metrics != null) {
+            metrics.recordUpdateOutboundDuration(System.nanoTime() - start);
         }
     }
 }

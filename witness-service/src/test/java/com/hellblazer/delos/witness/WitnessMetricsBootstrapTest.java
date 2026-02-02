@@ -7,7 +7,7 @@
  */
 package com.hellblazer.delos.witness;
 
-import com.codahale.metrics.MetricRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.witness.detection.ByzantineDetectionMetrics;
 import com.hellblazer.delos.witness.detection.ResponseOrchestrationMetrics;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,7 +34,7 @@ class WitnessMetricsBootstrapTest {
     @Test
     @DisplayName("should create metrics registry")
     void shouldCreateMetricsRegistry() {
-        MetricRegistry registry = bootstrap.getRegistry();
+        SimpleMeterRegistry registry = bootstrap.getRegistry();
         assertThat(registry).isNotNull();
         assertThat(registry.getMetrics()).isNotEmpty();
     }
@@ -43,13 +43,6 @@ class WitnessMetricsBootstrapTest {
     @DisplayName("should provide Byzantine detection metrics")
     void shouldProvideByzantineDetectionMetrics() {
         ByzantineDetectionMetrics metrics = bootstrap.getByzantineMetrics();
-        assertThat(metrics).isNotNull();
-    }
-
-    @Test
-    @DisplayName("should provide BLS metrics")
-    void shouldProvideBLSMetrics() {
-        BLSMetrics metrics = bootstrap.getBLSMetrics();
         assertThat(metrics).isNotNull();
     }
 
@@ -63,7 +56,7 @@ class WitnessMetricsBootstrapTest {
     @Test
     @DisplayName("should register Byzantine detection metrics in registry")
     void shouldRegisterByzantineDetectionMetricsInRegistry() {
-        MetricRegistry registry = bootstrap.getRegistry();
+        SimpleMeterRegistry registry = bootstrap.getRegistry();
 
         // Check for some expected Byzantine detection metrics
         var metrics = registry.getMetrics();
@@ -72,19 +65,6 @@ class WitnessMetricsBootstrapTest {
         assertThat(metricNames)
             .as("Byzantine detection metrics registered")
             .anyMatch(name -> name.contains("byzantine.detection"));
-    }
-
-    @Test
-    @DisplayName("should register BLS metrics in registry")
-    void shouldRegisterBLSMetricsInRegistry() {
-        MetricRegistry registry = bootstrap.getRegistry();
-
-        var metrics = registry.getMetrics();
-        var metricNames = metrics.keySet();
-
-        assertThat(metricNames)
-            .as("BLS metrics registered")
-            .anyMatch(name -> name.contains("bls."));
     }
 
     @Test
@@ -123,13 +103,13 @@ class WitnessMetricsBootstrapTest {
     @Test
     @DisplayName("should count registered metrics")
     void shouldCountRegisteredMetrics() {
-        MetricRegistry registry = bootstrap.getRegistry();
+        SimpleMeterRegistry registry = bootstrap.getRegistry();
         int metricCount = registry.getMetrics().size();
 
         // Verify we have a reasonable number of metrics
-        // Byzantine detection: ~20 metrics, BLS: ~30 metrics = ~50+ total
+        // Byzantine detection: ~20 metrics
         assertThat(metricCount)
-            .as("Sufficient metrics registered for Phase 1C")
-            .isGreaterThan(30);
+            .as("Sufficient metrics registered for Phase 1C Byzantine detection")
+            .isGreaterThan(10);
     }
 }

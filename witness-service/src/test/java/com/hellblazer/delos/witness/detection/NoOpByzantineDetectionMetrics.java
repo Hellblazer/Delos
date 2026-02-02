@@ -7,10 +7,6 @@
  */
 package com.hellblazer.delos.witness.detection;
 
-import com.codahale.metrics.*;
-
-import java.util.concurrent.TimeUnit;
-
 /**
  * No-op implementation of ByzantineDetectionMetrics for testing.
  *
@@ -34,23 +30,13 @@ public class NoOpByzantineDetectionMetrics implements ByzantineDetectionMetrics 
     }
 
     @Override
-    public Meter anomalyDetectionMeter(DetectorType detectorType) {
-        return new Meter();
+    public long getAnomalyDetectionCount(DetectorType detectorType) {
+        return 0L;
     }
 
     @Override
-    public Histogram anomalyScoreHistogram(DetectorType detectorType) {
-        return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
-    }
-
-    @Override
-    public Timer detectionLatencyTimer(DetectorType detectorType) {
-        return new Timer();
-    }
-
-    @Override
-    public Counter falsePositiveCounter(DetectorType detectorType) {
-        return new Counter();
+    public long getFalsePositiveCount(DetectorType detectorType) {
+        return 0L;
     }
 
     @Override
@@ -89,43 +75,28 @@ public class NoOpByzantineDetectionMetrics implements ByzantineDetectionMetrics 
     }
 
     @Override
-    public Histogram ensembleVoteHistogram() {
-        return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+    public long getQuorumReachedCount() {
+        return 0L;
     }
 
     @Override
-    public Counter quorumReachedCounter() {
-        return new Counter();
+    public long getQuarantineEventsCount() {
+        return 0L;
     }
 
     @Override
-    public Counter quarantineEventsCounter() {
-        return new Counter();
+    public int getActiveQuarantines() {
+        return 0;
     }
 
     @Override
-    public Histogram quarantineDurationHistogram() {
-        return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+    public long getQuarantineRecoveryCount() {
+        return 0L;
     }
 
     @Override
-    public Gauge<Integer> activeQuarantinesGauge() {
-        return () -> 0;
-    }
-
-    @Override
-    public Counter quarantineRecoveryCounter() {
-        return new Counter();
-    }
-
-    @Override
-    public Counter escalationActionCounter(ResponseAction action) {
-        return new Counter();
-    }
-
-    @Override
-    public Timer escalationLatencyTimer() {
-        return new Timer();
+    public long getEscalationActionCount(ResponseAction action) {
+        return 0L;
     }
 
     @Override
@@ -149,23 +120,13 @@ public class NoOpByzantineDetectionMetrics implements ByzantineDetectionMetrics 
     }
 
     @Override
-    public Gauge<Integer> membersExcludedGauge() {
-        return () -> 0;
+    public int getMembersExcluded() {
+        return 0;
     }
 
     @Override
-    public Gauge<Double> consensusImpactGauge() {
-        return () -> 0.0;
-    }
-
-    @Override
-    public Histogram falseAlarmDurationHistogram() {
-        return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
-    }
-
-    @Override
-    public Histogram timeToClearAnomaliesHistogram() {
-        return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
+    public double getConsensusImpact() {
+        return 0.0;
     }
 
     @Override
@@ -174,28 +135,13 @@ public class NoOpByzantineDetectionMetrics implements ByzantineDetectionMetrics 
     }
 
     @Override
-    public Counter thresholdBreachCounter(DetectorType detectorType) {
-        return new Counter();
-    }
-
-    @Override
-    public void register(MetricRegistry registry) {
-        // No-op
+    public long getThresholdBreachCount(DetectorType detectorType) {
+        return 0L;
     }
 
     @Override
     public void reset() {
         // No-op
-    }
-
-    @Override
-    public Histogram dualKeyValidationTimeHistogram() {
-        return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
-    }
-
-    @Override
-    public Timer keriPublishLatency() {
-        return new Timer();
     }
 
     // Key rotation metrics (Phase 1C-3-A)
@@ -251,82 +197,52 @@ public class NoOpByzantineDetectionMetrics implements ByzantineDetectionMetrics 
     }
 
     @Override
-    public Gauge<Integer> rotationsInProgressGauge() {
-        return () -> 0;
+    public int getRotationsInProgress() {
+        return 0;
     }
 
     @Override
-    public Gauge<Double> graceOldNewSignatureRatioGauge(String rotationId) {
-        return () -> 0.0;
+    public double getGraceOldNewSignatureRatio(String rotationId) {
+        return 0.0;
     }
 
     @Override
-    public Meter rotationInitiatedMeter() {
-        return new Meter();
+    public long getRotationInitiatedCount() {
+        return 0L;
     }
 
     @Override
-    public Meter rotationFailureMeter() {
-        return new Meter();
+    public long getRotationFailuresCount() {
+        return 0L;
     }
 
     @Override
-    public Counter rotationInitiatedCounter() {
-        return new Counter();
+    public long getRotationFailuresPreRotationCount() {
+        return 0L;
     }
 
     @Override
-    public Counter rotationFailuresCounter() {
-        return new Counter();
+    public long getRotationFailuresGracePeriodCount() {
+        return 0L;
     }
 
     @Override
-    public Counter rotationFailuresPreRotationCounter() {
-        return new Counter();
+    public long getRotationFailuresActivationCount() {
+        return 0L;
     }
 
     @Override
-    public Counter rotationFailuresGracePeriodCounter() {
-        return new Counter();
+    public long getRotationRecoveryAttemptsCount() {
+        return 0L;
     }
 
     @Override
-    public Counter rotationFailuresActivationCounter() {
-        return new Counter();
+    public long getGraceOldSignaturesAcceptedCount(String rotationId) {
+        return 0L;
     }
 
     @Override
-    public Counter rotationRecoveryAttemptsCounter() {
-        return new Counter();
-    }
-
-    @Override
-    public Counter graceOldSignaturesAcceptedCounter(String rotationId) {
-        return new Counter();
-    }
-
-    @Override
-    public Counter graceNewSignaturesAcceptedCounter(String rotationId) {
-        return new Counter();
-    }
-
-    @Override
-    public Histogram phasePreRotationDurationHistogram() {
-        return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
-    }
-
-    @Override
-    public Histogram phaseGracePeriodDurationHistogram() {
-        return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
-    }
-
-    @Override
-    public Histogram graceAcceptanceLatency() {
-        return new Histogram(new SlidingTimeWindowArrayReservoir(60, TimeUnit.SECONDS));
-    }
-
-    @Override
-    public Timer rotationOrchestrationLatency() {
-        return new Timer();
+    public long getGraceNewSignaturesAcceptedCount(String rotationId) {
+        return 0L;
     }
 }

@@ -7,8 +7,8 @@
  */
 package com.hellblazer.delos.witness.validation;
 
-import com.codahale.metrics.Counter;
-import com.codahale.metrics.MetricRegistry;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import com.hellblazer.delos.cryptography.JohnHancock;
 import com.hellblazer.delos.cryptography.Verifier;
 import com.hellblazer.delos.stereotomy.KeyState;
@@ -79,10 +79,10 @@ public class WitnessSignatureValidator {
      * Create witness signature validator with metrics tracking.
      *
      * @param kerlIntegration  KERL integration for KeyState lookup
-     * @param metricRegistry   Metrics registry for tracking
+     * @param meterRegistry   Metrics registry for tracking
      */
-    public WitnessSignatureValidator(WitnessKerlIntegration kerlIntegration, MetricRegistry metricRegistry) {
-        this(kerlIntegration, null, metricRegistry);
+    public WitnessSignatureValidator(WitnessKerlIntegration kerlIntegration, MeterRegistry meterRegistry) {
+        this(kerlIntegration, null, meterRegistry);
     }
 
     /**
@@ -90,18 +90,18 @@ public class WitnessSignatureValidator {
      *
      * @param kerlIntegration  KERL integration for KeyState lookup
      * @param keyLookup        Optional function to get valid keys during grace period
-     * @param metricRegistry   Metrics registry for tracking
+     * @param meterRegistry   Metrics registry for tracking
      */
     public WitnessSignatureValidator(WitnessKerlIntegration kerlIntegration,
                                      KeyLookup keyLookup,
-                                     MetricRegistry metricRegistry) {
+                                     MeterRegistry meterRegistry) {
         this.kerlIntegration = kerlIntegration;
         this.keyLookup = Optional.ofNullable(keyLookup);
-        this.validSignatures = metricRegistry.counter("witness.signature.validation.valid");
-        this.invalidSignatures = metricRegistry.counter("witness.signature.validation.invalid");
-        this.identifierNotFound = metricRegistry.counter("witness.signature.validation.identifier_not_found");
-        this.keyStateUnavailable = metricRegistry.counter("witness.signature.validation.keystate_unavailable");
-        this.dualKeyValidations = metricRegistry.counter("witness.signature.validation.dual_key");
+        this.validSignatures = Counter.builder("witness.signature.validation.valid").register(meterRegistry);
+        this.invalidSignatures = Counter.builder("witness.signature.validation.invalid").register(meterRegistry);
+        this.identifierNotFound = Counter.builder("witness.signature.validation.identifier_not_found").register(meterRegistry);
+        this.keyStateUnavailable = Counter.builder("witness.signature.validation.keystate_unavailable").register(meterRegistry);
+        this.dualKeyValidations = Counter.builder("witness.signature.validation.dual_key").register(meterRegistry);
     }
 
     /**
@@ -133,7 +133,7 @@ public class WitnessSignatureValidator {
 
         if (keyStateOpt.isEmpty()) {
             log.debug("KeyState unavailable for witness={} at epoch={}", witnessIdentifier, collectionEpoch);
-            keyStateUnavailable.inc();
+            keyStateUnavailable.increment();
             return new KeyStateUnavailable(witnessIdentifier, collectionEpoch);
         }
 
@@ -144,7 +144,7 @@ public class WitnessSignatureValidator {
 
         if (verified) {
             log.debug("Signature valid for witness={} at epoch={}", witnessIdentifier, collectionEpoch);
-            validSignatures.inc();
+            validSignatures.increment();
             return new Success(keyState);
         }
 
@@ -155,8 +155,8 @@ public class WitnessSignatureValidator {
                 if (keyLookup.get().verifyWithValidKeys(witnessIdentifier, signature, signedData, now)) {
                     log.debug("Signature valid via dual-key validation (grace period) for witness={} at epoch={}",
                         witnessIdentifier, collectionEpoch);
-                    validSignatures.inc();
-                    dualKeyValidations.inc();
+                    validSignatures.increment();
+                    dualKeyValidations.increment();
                     return new Success(keyState);
                 }
             } catch (Exception e) {
@@ -167,7 +167,7 @@ public class WitnessSignatureValidator {
 
         // All verification attempts failed
         log.warn("Invalid signature for witness={} at epoch={}", witnessIdentifier, collectionEpoch);
-        invalidSignatures.inc();
+        invalidSignatures.increment();
         return new InvalidSignature(witnessIdentifier, collectionEpoch);
     }
 
@@ -203,11 +203,11 @@ public class WitnessSignatureValidator {
      */
     public ValidationStats getStats() {
         return new ValidationStats(
-            validSignatures.getCount(),
-            invalidSignatures.getCount(),
-            identifierNotFound.getCount(),
-            keyStateUnavailable.getCount(),
-            dualKeyValidations.getCount()
+            (long) validSignatures.count(),
+            (long) invalidSignatures.count(),
+            (long) identifierNotFound.count(),
+            (long) keyStateUnavailable.count(),
+            (long) dualKeyValidations.count()
         );
     }
 

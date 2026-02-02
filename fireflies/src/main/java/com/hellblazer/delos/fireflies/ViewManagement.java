@@ -1,12 +1,11 @@
 /*
- * Copyright (c) 2022, salesforce.com, inc.
+ * Copyright (c) 2026, Hal Hildebrand.
  * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
+ * GNU Affero General Public License
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
  */
 package com.hellblazer.delos.fireflies;
-
-import com.codahale.metrics.Timer;
 import com.hellblazer.delos.bloomFilters.BloomFilter;
 import com.hellblazer.delos.context.DynamicContext;
 import com.hellblazer.delos.cryptography.Digest;
@@ -164,7 +163,7 @@ public class ViewManagement {
         onJoined.complete(null);
         view.introduced();
         if (metrics != null) {
-            metrics.viewChanges().mark();
+            metrics.recordViewChange();
         }
     }
 
@@ -412,7 +411,7 @@ public class ViewManagement {
                             .peek(nw -> {
                                 // recentJoins now populated from ballot at method start for determinism
                                 if (metrics != null) {
-                                    metrics.joins().mark();
+                                    metrics.recordJoin();
                                 }
                             })
                             .map(nw -> pendingJoins.remove(nw.getId()))
@@ -445,7 +444,7 @@ public class ViewManagement {
         });
 
         if (metrics != null) {
-            metrics.viewChanges().mark();
+            metrics.recordViewChange();
         }
 
         log.info(
@@ -503,7 +502,7 @@ public class ViewManagement {
             view.scheduleViewChange();
 
             if (metrics != null) {
-                metrics.viewChanges().mark();
+                metrics.recordViewChange();
             }
             log.info("Joined view: {} cardinality: {} count: {} on: {}", current, cardinality(), context.size(),
                      node.getId());
@@ -513,7 +512,7 @@ public class ViewManagement {
         }
     }
 
-    void join(Join join, Digest from, StreamObserver<JoinResponse> responseObserver, Timer.Context timer) {
+    void join(Join join, Digest from, StreamObserver<JoinResponse> responseObserver, long startNanos) {
         final var joinView = Digest.from(join.getView());
         log.info("ViewManagement.join() called from: {} joinView: {} joined: {} on: {}",
                  from, joinView, joined(), node.getId());
@@ -583,7 +582,7 @@ public class ViewManagement {
                                           .stream()
                                           .filter(Objects::nonNull)  // Filter out null participants
                                           .map(p -> p.note.getWrapped())
-                                          .toList(), from, responseObserver, timer);
+                                          .toList(), from, responseObserver, startNanos);
                         } catch (Throwable t) {
                             // Race condition: member joined during view change, then retried join() before getting confirmation
                             // By the time retry enters stable(), member is already in new view
@@ -642,7 +641,7 @@ public class ViewManagement {
             pendingJoins.computeIfAbsent(from, d -> (installedDiadem, seeds) -> {
                 log.info("Gateway established for: {} view: {}  context: {} cardinality: {} on: {}", from,
                          installedDiadem.compactWrapped(), context.getId(), cardinality(), node.getId());
-                joined(installedDiadem, seeds, from, responseObserver, timer);
+                joined(installedDiadem, seeds, from, responseObserver, startNanos);
             });
             var existingNote = joins.put(note.getId(), note);
             if (existingNote == null) {
@@ -705,7 +704,7 @@ public class ViewManagement {
         }
     }
 
-    BiConsumer<? super Bound, ? super Throwable> join(Duration duration, Timer.Context timer) {
+    BiConsumer<? super Bound, ? super Throwable> join(Duration duration, long startNanos) {
         return (bound, t) -> {
             if (t != null) {
                 log.error("Failed to join view on: {}", node.getId(), t);
@@ -735,8 +734,8 @@ public class ViewManagement {
 
                     view.schedule(duration);
 
-                    if (timer != null) {
-                        timer.stop();
+                    if (metrics != null && startNanos > 0) {
+                        metrics.recordJoinDuration(System.nanoTime() - startNanos);
                     }
 
                     view.introduced();
@@ -1044,7 +1043,7 @@ public class ViewManagement {
     }
 
     private void joined(HexBloom installedDiadem, Collection<SignedNote> seedSet, Digest from, StreamObserver<JoinResponse> responseObserver,
-                        Timer.Context timer) {
+                        long startNanos) {
         var unique = new HashSet<>(seedSet);
         final var initialSeeds = new ArrayList<>(seedSet);
         initialSeeds.add(node.getSignedNote());
@@ -1078,11 +1077,11 @@ public class ViewManagement {
         } catch (Throwable t) {
             log.error("Error responding to join: {} on: {}", t, node.getId());
         }
-        if (timer != null) {
+        if (metrics != null && startNanos > 0) {
             var serializedSize = gateway.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
-            metrics.outboundGateway().update(serializedSize);
-            timer.stop();
+            metrics.recordOutboundBandwidth(serializedSize);
+            metrics.recordOutboundGatewaySize(serializedSize);
+            metrics.recordInboundJoinDuration(System.nanoTime() - startNanos);
         }
     }
 

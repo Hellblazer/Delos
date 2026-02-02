@@ -7,7 +7,6 @@
  */
 package com.hellblazer.delos.thoth.grpc.dht;
 
-import com.codahale.metrics.Timer.Context;
 import com.google.protobuf.Empty;
 import com.hellblazer.delos.archipelago.ManagedServerChannel;
 import com.hellblazer.delos.archipelago.ServerConnectionCache.CreateClientCommunications;
@@ -130,79 +129,79 @@ public class DhtClient implements DhtService {
 
     @Override
     public KeyStates append(KERL_ kerl) {
-        Context timer = metrics == null ? null : metrics.appendKERLClient().time();
+        var startTime = System.nanoTime();
         var request = KERLContext.newBuilder().build();
         if (metrics != null) {
             final var serializedSize = request.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
-            metrics.outboundAppendKERLRequest().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
+            metrics.recordOutboundAppendKERLRequest(serializedSize);
         }
         var result = client.appendKERL(request);
-        if (timer != null) {
-            timer.stop();
+        if (metrics != null) {
+            metrics.recordAppendKERLClientDuration(System.nanoTime() - startTime);
         }
         return result;
     }
 
     @Override
     public KeyStates append(List<KeyEvent_> keyEventList) {
-        Context timer = metrics == null ? null : metrics.appendEventsClient().time();
+        var startTime = System.nanoTime();
         KeyEventsContext request = KeyEventsContext.newBuilder().addAllKeyEvent(keyEventList).build();
         if (metrics != null) {
-            metrics.outboundBandwidth().mark(request.getSerializedSize());
-            metrics.outboundAppendEventsRequest().mark(request.getSerializedSize());
+            metrics.recordOutboundBandwidth(request.getSerializedSize());
+            metrics.recordOutboundAppendEventsRequest(request.getSerializedSize());
         }
         var result = client.append(request);
-        if (timer != null) {
-            timer.stop();
+        if (metrics != null) {
+            metrics.recordAppendEventsClientDuration(System.nanoTime() - startTime);
         }
         return result;
     }
 
     @Override
     public KeyStates append(List<KeyEvent_> eventsList, List<AttachmentEvent> attachmentsList) {
-        Context timer = metrics == null ? null : metrics.appendWithAttachmentsClient().time();
+        var startTime = System.nanoTime();
         var request = KeyEventWithAttachmentsContext.newBuilder()
                                                     .addAllEvents(eventsList)
                                                     .addAllAttachments(attachmentsList)
                                                     .build();
         if (metrics != null) {
-            metrics.outboundBandwidth().mark(request.getSerializedSize());
-            metrics.outboundAppendWithAttachmentsRequest().mark(request.getSerializedSize());
+            metrics.recordOutboundBandwidth(request.getSerializedSize());
+            metrics.recordOutboundAppendWithAttachmentsRequest(request.getSerializedSize());
         }
         var result = client.appendWithAttachments(request);
-        if (timer != null) {
-            timer.stop();
+        if (metrics != null) {
+            metrics.recordAppendWithAttachmentsClientDuration(System.nanoTime() - startTime);
         }
         return result;
     }
 
     @Override
     public Empty appendAttachments(List<AttachmentEvent> attachmentsList) {
-        Context timer = metrics == null ? null : metrics.appendWithAttachmentsClient().time();
+        var startTime = System.nanoTime();
         var request = AttachmentsContext.newBuilder().addAllAttachments(attachmentsList).build();
         if (metrics != null) {
-            metrics.outboundBandwidth().mark(request.getSerializedSize());
-            metrics.outboundAppendWithAttachmentsRequest().mark(request.getSerializedSize());
+            metrics.recordOutboundBandwidth(request.getSerializedSize());
+            metrics.recordOutboundAppendWithAttachmentsRequest(request.getSerializedSize());
         }
         var result = client.appendAttachments(request);
-        if (timer != null) {
-            timer.stop();
+        if (metrics != null) {
+            metrics.recordAppendWithAttachmentsClientDuration(System.nanoTime() - startTime);
         }
         return result;
     }
 
     @Override
     public Empty appendValidations(Validations validations) {
-        Context timer = metrics == null ? null : metrics.appendWithAttachmentsClient().time();
+        var startTime = System.nanoTime();
         if (metrics != null) {
             final var serializedSize = validations.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
-            metrics.outboundAppendWithAttachmentsRequest().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
+            metrics.recordOutboundAppendWithAttachmentsRequest(serializedSize);
         }
         var result = client.appendValidations(validations);
-        if (timer != null) {
-            timer.stop();
+        if (metrics != null) {
+            metrics.recordAppendWithAttachmentsClientDuration(System.nanoTime() - startTime);
         }
         return result;
     }
@@ -214,164 +213,161 @@ public class DhtClient implements DhtService {
 
     @Override
     public Attachment getAttachment(EventCoords coordinates) {
-        Context timer = metrics == null ? null : metrics.getAttachmentClient().time();
+        var startTime = System.nanoTime();
         if (metrics != null) {
             final var serializedSize = coordinates.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
-            metrics.outboundGetAttachmentRequest().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
+            metrics.recordOutboundGetAttachmentRequest(serializedSize);
         }
         Attachment complete = client.getAttachment(coordinates);
-        if (timer != null) {
-            timer.stop();
+        if (metrics != null) {
+            metrics.recordGetAttachmentClientDuration(System.nanoTime() - startTime);
         }
         if (metrics != null) {
             final var serializedSize = complete.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.inboundGetAttachmentResponse().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordInboundGetAttachmentResponse(serializedSize);
         }
         return complete;
     }
 
     @Override
     public KERL_ getKERL(Ident identifier) {
-        Context timer = metrics == null ? null : metrics.getKERLClient().time();
+        var startTime = System.nanoTime();
         if (metrics != null) {
             final var bsize = identifier.getSerializedSize();
-            metrics.outboundBandwidth().mark(bsize);
-            metrics.outboundGetKERLRequest().mark(bsize);
+            metrics.recordOutboundBandwidth(bsize);
+            metrics.recordOutboundGetKERLRequest(bsize);
         }
         KERL_ complete = client.getKERL(identifier);
-        if (timer != null) {
-            timer.stop();
+        if (metrics != null) {
+            metrics.recordGetKERLClientDuration(System.nanoTime() - startTime);
         }
         final var serializedSize = complete.getSerializedSize();
         if (metrics != null) {
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.inboundGetKERLResponse().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordInboundGetKERLResponse(serializedSize);
         }
         return complete;
     }
 
     @Override
     public KeyEvent_ getKeyEvent(EventCoords coordinates) {
-        Context timer = metrics == null ? null : metrics.getKeyEventCoordsClient().time();
+        var startTime = System.nanoTime();
         if (metrics != null) {
             final var bsize = coordinates.getSerializedSize();
-            metrics.outboundBandwidth().mark(bsize);
-            metrics.outboundGetKeyEventCoordsRequest().mark(bsize);
+            metrics.recordOutboundBandwidth(bsize);
+            metrics.recordOutboundGetKeyEventCoordsRequest(bsize);
         }
         var result = client.getKeyEventCoords(coordinates);
-        if (timer != null) {
-            timer.stop();
+        if (metrics != null) {
+            metrics.recordGetKeyEventCoordsClientDuration(System.nanoTime() - startTime);
         }
-        if (timer != null) {
+        if (metrics != null) {
             final var serializedSize = result.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.inboundGetKeyEventResponse().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordInboundGetKeyEventResponse(serializedSize);
         }
         return result;
     }
 
     @Override
     public KeyState_ getKeyState(EventCoords coordinates) {
-        Context timer = metrics == null ? null : metrics.getKeyStateCoordsClient().time();
+        var startTime = System.nanoTime();
         if (metrics != null) {
             final var bs = coordinates.getSerializedSize();
-            metrics.outboundBandwidth().mark(bs);
-            metrics.outboundGetKeyStateCoordsRequest().mark(bs);
+            metrics.recordOutboundBandwidth(bs);
+            metrics.recordOutboundGetKeyStateCoordsRequest(bs);
         }
         var result = client.getKeyStateCoords(coordinates);
-        if (timer != null) {
-            timer.stop();
+        if (metrics != null) {
+            metrics.recordGetKeyStateCoordsClientDuration(System.nanoTime() - startTime);
         }
-        if (timer != null) {
+        if (metrics != null) {
             final var serializedSize = result.getSerializedSize();
-            timer.stop();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.inboundGetKeyStateCoordsResponse().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordInboundGetKeyStateCoordsResponse(serializedSize);
         }
         return result;
     }
 
     @Override
     public KeyState_ getKeyState(Ident identifier) {
-        Context timer = metrics == null ? null : metrics.getKeyStateClient().time();
+        var startTime = System.nanoTime();
         if (metrics != null) {
             final var bs = identifier.getSerializedSize();
-            metrics.outboundBandwidth().mark(bs);
-            metrics.outboundGetKeyStateRequest().mark(bs);
+            metrics.recordOutboundBandwidth(bs);
+            metrics.recordOutboundGetKeyStateRequest(bs);
         }
         var result = client.getKeyState(identifier);
-        if (timer != null) {
-            timer.stop();
+        if (metrics != null) {
+            metrics.recordGetKeyStateClientDuration(System.nanoTime() - startTime);
         }
-        if (timer != null) {
+        if (metrics != null) {
             final var serializedSize = result.getSerializedSize();
-            timer.stop();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.inboundGetKeyStateCoordsResponse().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordInboundGetKeyStateCoordsResponse(serializedSize);
         }
         return result;
     }
 
     @Override
     public KeyState_ getKeyState(IdentAndSeq identAndSeq) {
-        Context timer = metrics == null ? null : metrics.getKeyStateClient().time();
+        var startTime = System.nanoTime();
         if (metrics != null) {
             final var bs = identAndSeq.getSerializedSize();
-            metrics.outboundBandwidth().mark(bs);
-            metrics.outboundGetKeyStateRequest().mark(bs);
+            metrics.recordOutboundBandwidth(bs);
+            metrics.recordOutboundGetKeyStateRequest(bs);
         }
         var result = client.getKeyStateSeqNum(identAndSeq);
-        if (timer != null) {
-            timer.stop();
+        if (metrics != null) {
+            metrics.recordGetKeyStateClientDuration(System.nanoTime() - startTime);
         }
-        if (timer != null) {
+        if (metrics != null) {
             final var serializedSize = result.getSerializedSize();
-            timer.stop();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.inboundGetKeyStateCoordsResponse().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordInboundGetKeyStateCoordsResponse(serializedSize);
         }
         return result;
     }
 
     @Override
     public KeyStateWithAttachments_ getKeyStateWithAttachments(EventCoords coordinates) {
-        Context timer = metrics == null ? null : metrics.getAttachmentClient().time();
+        var startTime = System.nanoTime();
         if (metrics != null) {
             final var serializedSize = coordinates.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
-            metrics.outboundGetAttachmentRequest().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
+            metrics.recordOutboundGetAttachmentRequest(serializedSize);
         }
         KeyStateWithAttachments_ complete = client.getKeyStateWithAttachments(coordinates);
-        if (timer != null) {
-            timer.stop();
+        if (metrics != null) {
+            metrics.recordGetAttachmentClientDuration(System.nanoTime() - startTime);
         }
         if (metrics != null) {
             final var serializedSize = complete.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.inboundGetAttachmentResponse().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordInboundGetAttachmentResponse(serializedSize);
         }
         return complete;
     }
 
     @Override
     public KeyStateWithEndorsementsAndValidations_ getKeyStateWithEndorsementsAndValidations(EventCoords coordinates) {
-        Context timer = metrics == null ? null : metrics.getAttachmentClient().time();
+        var startTime = System.nanoTime();
         if (metrics != null) {
             final var serializedSize = coordinates.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
-            metrics.outboundGetAttachmentRequest().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
+            metrics.recordOutboundGetAttachmentRequest(serializedSize);
         }
         KeyStateWithEndorsementsAndValidations_ complete = client.getKeyStateWithEndorsementsAndValidations(
         coordinates);
-        if (timer != null) {
-            timer.stop();
+        if (metrics != null) {
+            metrics.recordGetAttachmentClientDuration(System.nanoTime() - startTime);
         }
         if (metrics != null) {
             final var serializedSize = complete.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.inboundGetAttachmentResponse().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordInboundGetAttachmentResponse(serializedSize);
         }
         return complete;
     }
@@ -383,20 +379,20 @@ public class DhtClient implements DhtService {
 
     @Override
     public Validations getValidations(EventCoords coordinates) {
-        Context timer = metrics == null ? null : metrics.getAttachmentClient().time();
+        var startTime = System.nanoTime();
         if (metrics != null) {
             final var serializedSize = coordinates.getSerializedSize();
-            metrics.outboundBandwidth().mark(serializedSize);
-            metrics.outboundGetAttachmentRequest().mark(serializedSize);
+            metrics.recordOutboundBandwidth(serializedSize);
+            metrics.recordOutboundGetAttachmentRequest(serializedSize);
         }
         Validations complete = client.getValidations(coordinates);
-        if (timer != null) {
-            timer.stop();
+        if (metrics != null) {
+            metrics.recordGetAttachmentClientDuration(System.nanoTime() - startTime);
         }
         if (metrics != null) {
             final var serializedSize = complete.getSerializedSize();
-            metrics.inboundBandwidth().mark(serializedSize);
-            metrics.inboundGetAttachmentResponse().mark(serializedSize);
+            metrics.recordInboundBandwidth(serializedSize);
+            metrics.recordInboundGetAttachmentResponse(serializedSize);
         }
         return complete;
     }

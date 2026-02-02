@@ -6,8 +6,6 @@
  */
 package com.hellblazer.delos.gorgoneion.client.client.comm;
 
-import com.codahale.metrics.Histogram;
-import com.codahale.metrics.Timer;
 import com.hellblazer.delos.protocols.EndpointMetrics;
 
 /**
@@ -16,33 +14,33 @@ import com.hellblazer.delos.protocols.EndpointMetrics;
  */
 public interface GorgoneionClientMetrics extends EndpointMetrics {
 
-    Timer enrollDuration();
+    void recordEnrollDuration(long nanos);
 
-    Histogram inboundApplication();
+    void recordInboundApplication(int bytes);
 
-    Histogram inboundCredentials();
+    void recordInboundCredentials(int bytes);
 
-    Histogram inboundCredentialValidation();
+    void recordInboundCredentialValidation(int bytes);
 
-    Histogram inboundEndorse();
+    void recordInboundEndorse(int bytes);
 
-    Histogram inboundEnroll();
+    void recordInboundEnroll(int bytes);
 
-    Histogram inboundInvitation();
+    void recordInboundInvitation(int bytes);
 
-    Histogram inboundValidateCredentials();
+    void recordInboundValidateCredentials(int bytes);
 
-    Histogram inboundValidation();
+    void recordInboundValidation(int bytes);
 
-    Histogram outboundApplication();
+    void recordOutboundApplication(int bytes);
 
-    Histogram outboundCredentials();
+    void recordOutboundCredentials(int bytes);
 
-    Histogram outboundEndorseNonce();
+    void recordOutboundEndorseNonce(int bytes);
 
-    Histogram outboundNotarization();
+    void recordOutboundNotarization(int bytes);
 
-    Histogram outboundValidateCredentials();
+    void recordOutboundValidateCredentials(int bytes);
 
-    Timer registerDuration();
+    void recordRegisterDuration(long nanos);
 }

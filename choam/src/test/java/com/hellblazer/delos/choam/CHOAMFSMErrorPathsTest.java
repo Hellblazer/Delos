@@ -8,14 +8,14 @@ package com.hellblazer.delos.choam;
 
 import com.chiralbehaviors.tron.Fsm;
 import com.hellblazer.delos.archipelago.LocalServer;
+import com.hellblazer.delos.archipelago.MicrometerServerConnectionCacheMetrics;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
-import com.hellblazer.delos.archipelago.ServerConnectionCacheMetricsImpl;
 import com.hellblazer.delos.archipelago.UnsafeExecutors;
 import com.hellblazer.delos.choam.CHOAM.TransactionExecutor;
 import com.hellblazer.delos.choam.fsm.Combine;
 import com.hellblazer.delos.choam.proto.Transaction;
-import com.hellblazer.delos.choam.support.ChoamMetricsImpl;
+import com.hellblazer.delos.choam.support.MicrometerChoamMetrics;
 import com.hellblazer.delos.context.StaticContext;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
@@ -26,7 +26,7 @@ import com.hellblazer.delos.stereotomy.StereotomyImpl;
 import com.hellblazer.delos.stereotomy.mem.MemKERL;
 import com.hellblazer.delos.stereotomy.mem.MemKeyStore;
 import com.hellblazer.delos.utils.Utils;
-import com.codahale.metrics.MetricRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -67,7 +67,7 @@ public class CHOAMFSMErrorPathsTest {
     private Map<Digest, CHOAM> choams;
     private Map<Digest, Router> routers;
     private List<SigningMember> members;
-    private MetricRegistry registry;
+    private SimpleMeterRegistry registry;
     private ScheduledExecutorService scheduler;
     private ExecutorService executor;
 
@@ -76,8 +76,8 @@ public class CHOAMFSMErrorPathsTest {
         scheduler = Executors.newScheduledThreadPool(10, Thread.ofVirtual().factory());
         executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
         var origin = DigestAlgorithm.DEFAULT.getOrigin();
-        registry = new MetricRegistry();
-        var metrics = new ChoamMetricsImpl(origin, registry);
+        registry = new SimpleMeterRegistry();
+        var metrics = new MicrometerChoamMetrics(origin, registry);
 
         var entropy = SecureRandom.getInstance("SHA1PRNG");
         entropy.setSeed(new byte[] { 7, 8, 9 });
@@ -109,7 +109,7 @@ public class CHOAMFSMErrorPathsTest {
         routers = members.stream()
                          .collect(Collectors.toMap(m -> m.getId(), m -> new LocalServer(prefix, m).router(
                          ServerConnectionCache.newBuilder()
-                                              .setMetrics(new ServerConnectionCacheMetricsImpl(registry))
+                                              .setMetrics(new MicrometerServerConnectionCacheMetrics(registry))
                                               .setTarget(CARDINALITY), executor)));
         choams = members.stream().collect(Collectors.toMap(m -> m.getId(), m -> {
             final TransactionExecutor processor = new TransactionExecutor() {
