@@ -7,11 +7,11 @@
  */
 package com.hellblazer.delos.witness;
 
+import io.micrometer.core.instrument.DistributionSummary;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
-import org.slf4j.LoggerFactory;
-
-import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.*;
 
@@ -38,7 +38,8 @@ class WitnessMetricsTest {
         // Trigger metric registration by recording a value
         metrics.recordReceiptCollectionLatency(1);
 
-        assertThat(registry.getHistograms()).containsKey("witness.receipt.collection.latency");
+        DistributionSummary summary = registry.find("witness.receipt.collection.latency").summary();
+        assertThat(summary).isNotNull();
     }
 
     @Test
@@ -50,9 +51,10 @@ class WitnessMetricsTest {
         metrics.recordReceiptCollectionLatency(30);
         metrics.recordReceiptCollectionLatency(15);
 
-        var histogram = registry.getHistograms().get("witness.receipt.collection.latency");
-        assertThat(histogram.getCount()).isEqualTo(3);
-        assertThat(histogram.getSnapshot().getMean()).isCloseTo(23.33, within(0.1));
+        DistributionSummary summary = registry.find("witness.receipt.collection.latency").summary();
+        assertThat(summary).isNotNull();
+        assertThat(summary.count()).isEqualTo(3);
+        assertThat(summary.mean()).isCloseTo(23.33, within(0.1));
     }
 
     @Test
@@ -62,10 +64,9 @@ class WitnessMetricsTest {
 
         metrics.setThresholdAchievementRate(0.85);
 
-        @SuppressWarnings("unchecked")
-        var gauge = (Gauge<Double>) registry.getGauges().get("witness.threshold.achievement.rate");
+        Gauge gauge = registry.find("witness.threshold.achievement.rate").gauge();
         assertThat(gauge).isNotNull();
-        assertThat(gauge.getValue()).isCloseTo(0.85, within(0.01));
+        assertThat(gauge.value()).isCloseTo(0.85, within(0.01));
     }
 
     @Test
@@ -76,9 +77,9 @@ class WitnessMetricsTest {
         metrics.setThresholdAchievementRate(0.75);
         metrics.setThresholdAchievementRate(0.90);
 
-        @SuppressWarnings("unchecked")
-        var gauge = (Gauge<Double>) registry.getGauges().get("witness.threshold.achievement.rate");
-        assertThat(gauge.getValue()).isCloseTo(0.90, within(0.01));
+        Gauge gauge = registry.find("witness.threshold.achievement.rate").gauge();
+        assertThat(gauge).isNotNull();
+        assertThat(gauge.value()).isCloseTo(0.90, within(0.01));
     }
 
     @Test
@@ -89,7 +90,8 @@ class WitnessMetricsTest {
         // Trigger metric registration by recording a value
         metrics.recordViewChangeCoordinationDuration(1000000); // 1ms
 
-        assertThat(registry.getTimers()).containsKey("witness.view.change.coordination.time");
+        Timer timer = registry.find("witness.view.change.coordination.time").timer();
+        assertThat(timer).isNotNull();
     }
 
     @Test
@@ -106,9 +108,10 @@ class WitnessMetricsTest {
         var durationNanos = System.nanoTime() - startNanos;
         metrics.recordViewChangeCoordinationDuration(durationNanos);
 
-        var timer = registry.getTimers().get("witness.view.change.coordination.time");
-        assertThat(timer.getCount()).isEqualTo(1);
-        assertThat(timer.getSnapshot().getMean()).isGreaterThan(0);
+        Timer timer = registry.find("witness.view.change.coordination.time").timer();
+        assertThat(timer).isNotNull();
+        assertThat(timer.count()).isEqualTo(1);
+        assertThat(timer.mean(java.util.concurrent.TimeUnit.NANOSECONDS)).isGreaterThan(0);
     }
 
     @Test
@@ -119,7 +122,8 @@ class WitnessMetricsTest {
         // Trigger metric registration by recording a value
         metrics.recordCommitteeSelectionDuration(1000); // 1μs
 
-        assertThat(registry.getTimers()).containsKey("witness.committee.selection.time");
+        Timer timer = registry.find("witness.committee.selection.time").timer();
+        assertThat(timer).isNotNull();
     }
 
     @Test
@@ -131,8 +135,9 @@ class WitnessMetricsTest {
         metrics.recordCommitteeSelectionDuration(150_000);
         metrics.recordCommitteeSelectionDuration(200_000);
 
-        var timer = registry.getTimers().get("witness.committee.selection.time");
-        assertThat(timer.getCount()).isEqualTo(2);
+        Timer timer = registry.find("witness.committee.selection.time").timer();
+        assertThat(timer).isNotNull();
+        assertThat(timer.count()).isEqualTo(2);
     }
 
     @Test
@@ -142,10 +147,9 @@ class WitnessMetricsTest {
 
         metrics.setInFlightCollections(5);
 
-        @SuppressWarnings("unchecked")
-        var gauge = (Gauge<Integer>) registry.getGauges().get("witness.in.flight.collections");
+        Gauge gauge = registry.find("witness.in.flight.collections").gauge();
         assertThat(gauge).isNotNull();
-        assertThat(gauge.getValue()).isEqualTo(5);
+        assertThat((int) gauge.value()).isEqualTo(5);
     }
 
     @Test
@@ -157,9 +161,9 @@ class WitnessMetricsTest {
         metrics.setInFlightCollections(7);
         metrics.setInFlightCollections(2);
 
-        @SuppressWarnings("unchecked")
-        var gauge = (Gauge<Integer>) registry.getGauges().get("witness.in.flight.collections");
-        assertThat(gauge.getValue()).isEqualTo(2);
+        Gauge gauge = registry.find("witness.in.flight.collections").gauge();
+        assertThat(gauge).isNotNull();
+        assertThat((int) gauge.value()).isEqualTo(2);
     }
 
     @Test
@@ -170,7 +174,8 @@ class WitnessMetricsTest {
         // Trigger metric registration by recording a value
         metrics.recordReceiptGossipLatency(1);
 
-        assertThat(registry.getHistograms()).containsKey("witness.receipt.gossip.latency");
+        DistributionSummary summary = registry.find("witness.receipt.gossip.latency").summary();
+        assertThat(summary).isNotNull();
     }
 
     @Test
@@ -182,25 +187,10 @@ class WitnessMetricsTest {
         metrics.recordReceiptGossipLatency(8);
         metrics.recordReceiptGossipLatency(12);
 
-        var histogram = registry.getHistograms().get("witness.receipt.gossip.latency");
-        assertThat(histogram.getCount()).isEqualTo(3);
-        assertThat(histogram.getSnapshot().getMean()).isCloseTo(8.33, within(0.1));
-    }
-
-    @Test
-    void shouldCreateSlf4jReporter() {
-        var registry = new SimpleMeterRegistry();
-        var metrics = new WitnessMetrics(registry);
-
-        var reporter = Slf4jReporter.forRegistry(metrics.getRegistry())
-                                     .outputTo(LoggerFactory.getLogger(WitnessMetrics.class))
-                                     .convertRatesTo(TimeUnit.SECONDS)
-                                     .convertDurationsTo(TimeUnit.MILLISECONDS)
-                                     .build();
-
-        assertThat(reporter).isNotNull();
-        reporter.report(); // Should not throw
-        reporter.close();
+        DistributionSummary summary = registry.find("witness.receipt.gossip.latency").summary();
+        assertThat(summary).isNotNull();
+        assertThat(summary.count()).isEqualTo(3);
+        assertThat(summary.mean()).isCloseTo(8.33, within(0.1));
     }
 
     @Test
@@ -217,13 +207,17 @@ class WitnessMetricsTest {
         metrics.setTransitionInProgress(0);
 
         // Verify all metrics registered (original 6 + 8 Phase 1B-3 = 14+ metrics)
-        var allMetrics = registry.getMetrics();
-        assertThat(allMetrics.size()).isGreaterThanOrEqualTo(14);
+        var allMeters = registry.getMeters();
+        assertThat(allMeters.size()).isGreaterThanOrEqualTo(14);
 
-        // Verify by type
-        assertThat(registry.getHistograms()).hasSize(2); // receiptCollectionLatency, receiptGossipLatency
-        assertThat(registry.getTimers()).hasSize(2);     // viewChangeCoordinationTime, committeeSelectionTime
-        assertThat(registry.getGauges().size()).isGreaterThanOrEqualTo(6); // Original 2 + Phase 1B-3 gauges
-        assertThat(registry.getCounters().size()).isGreaterThanOrEqualTo(5); // Phase 1B-3 counters (new)
+        // Verify key metrics exist
+        assertThat(registry.find("witness.receipt.collection.latency").summary()).isNotNull();
+        assertThat(registry.find("witness.receipt.gossip.latency").summary()).isNotNull();
+        assertThat(registry.find("witness.view.change.coordination.time").timer()).isNotNull();
+        assertThat(registry.find("witness.committee.selection.time").timer()).isNotNull();
+        assertThat(registry.find("witness.threshold.achievement.rate").gauge()).isNotNull();
+        assertThat(registry.find("witness.in.flight.collections").gauge()).isNotNull();
+        assertThat(registry.find("witness.bls.keys.registered").gauge()).isNotNull();
+        assertThat(registry.find("witness.byzantine.shunned").counter()).isNotNull();
     }
 }

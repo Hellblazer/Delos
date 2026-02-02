@@ -7,6 +7,7 @@
  */
 package com.hellblazer.delos.witness.validation;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.cryptography.JohnHancock;
 import com.hellblazer.delos.cryptography.SignatureAlgorithm;
@@ -47,7 +48,7 @@ class WitnessSignatureValidatorTest {
     @Mock
     private KeyState mockKeyState;
 
-    private MetricRegistry metricRegistry;
+    private MeterRegistry metricRegistry;
     private WitnessSignatureValidator validator;
     private KeyPair keyPair;
     private byte[] testData;
@@ -599,8 +600,9 @@ class WitnessSignatureValidatorTest {
         validatorWithKeyLookup.verifySignature(mockWitnessIdentifier, signature, testData, collectionEpoch);
 
         // Assert - Check metric directly from registry
-        var dualKeyCounter = testMetricRegistry.counter("witness.signature.validation.dual_key");
-        assertThat(dualKeyCounter.getCount()).isEqualTo(1);
+        var dualKeyCounter = testMetricRegistry.find("witness.signature.validation.dual_key").counter();
+        assertThat(dualKeyCounter).isNotNull();
+        assertThat(dualKeyCounter.count()).isEqualTo(1);
 
         // Verify through stats as well
         var stats = validatorWithKeyLookup.getStats();

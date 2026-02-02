@@ -18,7 +18,7 @@ import com.hellblazer.delos.membership.MockMember;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
 import com.hellblazer.delos.witness.*;
-import com.hellblazer.delos.witness.detection.ByzantineDetectionMetricsImpl;
+import com.hellblazer.delos.witness.detection.MicrometerByzantineDetectionMetrics;
 import com.hellblazer.delos.witness.detection.ResponseEscalationEngine;
 import com.hellblazer.delos.witness.validation.BLSAdversarialTestHelpers;
 import com.hellblazer.delos.witness.validation.graceful.GracefulDegradationConfig;
@@ -83,7 +83,7 @@ class Phase1CProductionSimulationTest {
     private WitnessReceiptManager receiptManager;
     private WitnessStateMachine stateMachine;
     private WitnessCHOAM witnessCHOAM;
-    private ByzantineDetectionMetricsImpl metrics;
+    private MicrometerByzantineDetectionMetrics metrics;
     private ResponseEscalationEngine escalationEngine;
 
     // Monitoring
@@ -125,7 +125,7 @@ class Phase1CProductionSimulationTest {
         witnessCHOAM = new WitnessCHOAM(null, null, stateMachine, parameters);
         witnessCHOAM.recover(genesisBlock, 0);
 
-        metrics = new ByzantineDetectionMetricsImpl();
+        metrics = new MicrometerByzantineDetectionMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         escalationEngine = new ResponseEscalationEngine(metrics);
 
         // Setup executors

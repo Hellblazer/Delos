@@ -7,6 +7,8 @@
  */
 package com.hellblazer.delos.witness;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
@@ -27,15 +29,13 @@ class MetricsIntegrationTest {
         metrics.setBlsKeysRegistered(7);
         metrics.setBlsKeysCoverage(70.0);
 
-        @SuppressWarnings("unchecked")
-        var keysGauge = (Gauge<Integer>) registry.getGauges().get("witness.bls.keys.registered");
-        @SuppressWarnings("unchecked")
-        var coverageGauge = (Gauge<Double>) registry.getGauges().get("witness.bls.keys.coverage");
+        Gauge keysGauge = registry.find("witness.bls.keys.registered").gauge();
+        Gauge coverageGauge = registry.find("witness.bls.keys.coverage").gauge();
 
         assertThat(keysGauge).isNotNull();
-        assertThat(keysGauge.getValue()).isEqualTo(7);
+        assertThat((int) keysGauge.value()).isEqualTo(7);
         assertThat(coverageGauge).isNotNull();
-        assertThat(coverageGauge.getValue()).isCloseTo(70.0, within(0.01));
+        assertThat(coverageGauge.value()).isCloseTo(70.0, within(0.01));
     }
 
     @Test
@@ -47,15 +47,13 @@ class MetricsIntegrationTest {
         metrics.setTransitionReadiness(1);
         metrics.setTransitionInProgress(0);
 
-        @SuppressWarnings("unchecked")
-        var readinessGauge = (Gauge<Integer>) registry.getGauges().get("witness.transition.readiness");
-        @SuppressWarnings("unchecked")
-        var inProgressGauge = (Gauge<Integer>) registry.getGauges().get("witness.transition.in_progress");
+        Gauge readinessGauge = registry.find("witness.transition.readiness").gauge();
+        Gauge inProgressGauge = registry.find("witness.transition.in_progress").gauge();
 
         assertThat(readinessGauge).isNotNull();
-        assertThat(readinessGauge.getValue()).isEqualTo(1);
+        assertThat((int) readinessGauge.value()).isEqualTo(1);
         assertThat(inProgressGauge).isNotNull();
-        assertThat(inProgressGauge.getValue()).isEqualTo(0);
+        assertThat((int) inProgressGauge.value()).isEqualTo(0);
 
         // Test Byzantine counters
         metrics.recordByzantineShunned();
@@ -67,18 +65,18 @@ class MetricsIntegrationTest {
         metrics.recordRegistrationAttempt();
         metrics.recordRegistrationSuccess();
 
-        Counter shunnedCounter = registry.getCounters().get("witness.byzantine.shunned");
-        Counter blsFailuresCounter = registry.getCounters().get("witness.byzantine.bls_failures");
-        Counter attemptsCounter = registry.getCounters().get("witness.registration.attempts");
-        Counter successesCounter = registry.getCounters().get("witness.registration.successes");
+        Counter shunnedCounter = registry.find("witness.byzantine.shunned").counter();
+        Counter blsFailuresCounter = registry.find("witness.byzantine.bls_failures").counter();
+        Counter attemptsCounter = registry.find("witness.registration.attempts").counter();
+        Counter successesCounter = registry.find("witness.registration.successes").counter();
 
         assertThat(shunnedCounter).isNotNull();
-        assertThat(shunnedCounter.getCount()).isEqualTo(1);
+        assertThat(shunnedCounter.count()).isEqualTo(1);
         assertThat(blsFailuresCounter).isNotNull();
-        assertThat(blsFailuresCounter.getCount()).isEqualTo(3);
+        assertThat(blsFailuresCounter.count()).isEqualTo(3);
         assertThat(attemptsCounter).isNotNull();
-        assertThat(attemptsCounter.getCount()).isEqualTo(1);
+        assertThat(attemptsCounter.count()).isEqualTo(1);
         assertThat(successesCounter).isNotNull();
-        assertThat(successesCounter.getCount()).isEqualTo(1);
+        assertThat(successesCounter.count()).isEqualTo(1);
     }
 }
