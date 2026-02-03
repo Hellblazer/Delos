@@ -40,24 +40,36 @@ public class BatchVerificationHelper {
     private static final int MIN_BATCH_SIZE = 3;
 
     private final BLSProvider provider;
+    private final BatchVerificationMetrics metrics;
     private final AtomicLong batchVerifications = new AtomicLong();
     private final AtomicLong individualVerifications = new AtomicLong();
     private final AtomicLong batchFailures = new AtomicLong();
 
     /**
-     * Create batch verification helper with default BLS provider.
+     * Create batch verification helper with default BLS provider and no metrics.
      */
     public BatchVerificationHelper() {
-        this(BLSProvider.getDefault());
+        this(BLSProvider.getDefault(), BatchVerificationMetrics.NOOP);
     }
 
     /**
-     * Create batch verification helper with specified BLS provider.
+     * Create batch verification helper with specified BLS provider and no metrics.
      *
      * @param provider BLS cryptographic provider
      */
     public BatchVerificationHelper(BLSProvider provider) {
+        this(provider, BatchVerificationMetrics.NOOP);
+    }
+
+    /**
+     * Create batch verification helper with specified BLS provider and metrics.
+     *
+     * @param provider BLS cryptographic provider
+     * @param metrics  metrics collector for verification operations
+     */
+    public BatchVerificationHelper(BLSProvider provider, BatchVerificationMetrics metrics) {
         this.provider = Objects.requireNonNull(provider, "provider cannot be null");
+        this.metrics = metrics != null ? metrics : BatchVerificationMetrics.NOOP;
     }
 
     /**
@@ -179,12 +191,16 @@ public class BatchVerificationHelper {
         if (publicKeys.size() != signatures.size()) {
             log.warn("Batch size mismatch: keys={} signatures={} on: {}",
                      publicKeys.size(), signatures.size(), memberId);
+            metrics.recordBatchFallback(entries.size(), "size_mismatch");
             return verifyIndividually(message, entries, memberId);
         }
 
+        long startNanos = System.nanoTime();
         try {
             boolean allValid = provider.batchVerify(publicKeys, messages, signatures);
+            long latencyNanos = System.nanoTime() - startNanos;
             batchVerifications.incrementAndGet();
+            metrics.recordBatchVerification(entries.size(), latencyNanos, allValid);
 
             if (allValid) {
                 log.trace("Batch verified {} BLS certifications on: {}", entries.size(), memberId);
@@ -193,11 +209,15 @@ public class BatchVerificationHelper {
                 // Batch failed - identify individual failures
                 log.debug("Batch verification failed, falling back to individual on: {}", memberId);
                 batchFailures.incrementAndGet();
+                metrics.recordBatchFallback(entries.size(), "batch_failed");
                 return verifyIndividually(message, entries, memberId);
             }
         } catch (Exception e) {
+            long latencyNanos = System.nanoTime() - startNanos;
             log.warn("Batch verification error, falling back to individual on: {}", memberId, e);
             batchFailures.incrementAndGet();
+            metrics.recordBatchVerification(entries.size(), latencyNanos, false);
+            metrics.recordBatchFallback(entries.size(), "exception");
             return verifyIndividually(message, entries, memberId);
         }
     }
@@ -221,7 +241,12 @@ public class BatchVerificationHelper {
     private boolean verifyIndividual(byte[] message, CertificationEntry entry, Digest memberId) {
         individualVerifications.incrementAndGet();
         var sig = new JohnHancock(entry.certification.getSignature());
+
+        long startNanos = System.nanoTime();
         boolean verified = entry.verifier.verify(sig, message);
+        long latencyNanos = System.nanoTime() - startNanos;
+
+        metrics.recordIndividualVerification(latencyNanos, verified);
 
         if (!verified) {
             log.debug("Verification failed for witness: {} on: {}", entry.witnessId, memberId);
@@ -259,6 +284,24 @@ public class BatchVerificationHelper {
         batchVerifications.set(0);
         individualVerifications.set(0);
         batchFailures.set(0);
+    }
+
+    /**
+     * Get the metrics collector for this helper.
+     *
+     * @return the metrics collector, never null
+     */
+    public BatchVerificationMetrics getMetrics() {
+        return metrics;
+    }
+
+    /**
+     * Check if batch verification is healthy based on metrics.
+     *
+     * @return true if healthy (failure rate < 1%, avg latency < 10ms)
+     */
+    public boolean isHealthy() {
+        return metrics.isHealthy();
     }
 
     /**
