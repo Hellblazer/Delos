@@ -165,8 +165,10 @@ public class BatchVerificationConfig {
             if (circuitOpen.compareAndSet(false, true)) {
                 // Circuit just tripped
                 org.slf4j.LoggerFactory.getLogger(BatchVerificationConfig.class)
-                    .warn("Circuit breaker tripped: failure rate {:.2%} > threshold {:.2%} ({}/{} operations)",
-                          failureRate, circuitBreakerThreshold, failed, total);
+                    .warn("Circuit breaker tripped: failure rate {}% > threshold {}% ({}/{} operations)",
+                          String.format("%.1f", failureRate * 100),
+                          String.format("%.1f", circuitBreakerThreshold * 100),
+                          failed, total);
             }
         }
     }
