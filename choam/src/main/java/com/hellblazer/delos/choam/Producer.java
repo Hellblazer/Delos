@@ -261,7 +261,9 @@ public class Producer {
     private void processPendingValidations(HashedBlock block, PendingBlock p) {
         var pending = pendingValidations.get(block.hash);
         if (pending != null) {
-            pending.forEach(v -> validate(v, p, block.hash));
+            // Use batch verification for better performance with BLS signatures
+            var validWitnesses = view.validateBatch(p.block, pending);
+            p.witnesses.putAll(validWitnesses);
             if (p.witnesses.size() >= params().majority()) {
                 publish(p);
                 pendingValidations.remove(block.hash);

@@ -99,4 +99,21 @@ public interface CheckpointManager {
      * @return the current checkpoint block
      */
     HashedCertifiedBlock currentCheckpoint();
+
+    /**
+     * Creates a new checkpoint and returns the Checkpoint protobuf for block creation.
+     * <p>
+     * This method:
+     * 1. Builds the checkpoint protobuf from the state file
+     * 2. Stores the checkpoint and segments in the block store
+     * 3. Caches the checkpoint state for replication
+     * 4. Returns the checkpoint protobuf for embedding in a block
+     * <p>
+     * This is used during block production when a checkpoint block is created.
+     *
+     * @param height the block height for this checkpoint
+     * @param state  the state file to checkpoint (deleted after successful checkpoint)
+     * @return the Checkpoint protobuf, or null if creation fails
+     */
+    Checkpoint createCheckpointAndGet(ULong height, File state);
 }

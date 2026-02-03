@@ -22,6 +22,7 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.util.Comparator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
@@ -74,22 +75,24 @@ public class CheckpointManagerImpl implements CheckpointManager {
         MVMap<Integer, byte[]> stored = blockStore.putCheckpoint(height, state, chkpt);
         state.delete();
         cachedCheckpoints.put(height, new CheckpointState(chkpt, stored));
+        evictOldCheckpoints();
         log.info("Created checkpoint at height: {} on: {}", height, params.member().getId());
     }
 
-    /**
-     * Builds a checkpoint protobuf from a state file.
-     * <p>
-     * This method is used by CHOAM to create checkpoint during block production.
-     * Returns the Checkpoint protobuf and caches the checkpoint state.
-     *
-     * @param state the state file
-     * @return the checkpoint protobuf, or null if creation fails
-     */
-    public Checkpoint buildAndCacheCheckpoint(File state) {
+    @Override
+    public Checkpoint createCheckpointAndGet(ULong height, File state) {
         var cp = checkpoint.get();
         Checkpoint chkpt = buildCheckpoint(params.digestAlgorithm(), state, params.checkpointSegmentSize(), cp.hash,
                                            params.crowns(), params.member().getId());
+        if (chkpt == null) {
+            return null;
+        }
+
+        MVMap<Integer, byte[]> stored = blockStore.putCheckpoint(height, state, chkpt);
+        state.delete();
+        cachedCheckpoints.put(height, new CheckpointState(chkpt, stored));
+        evictOldCheckpoints();
+        log.info("Created checkpoint at height: {} on: {}", height, params.member().getId());
         return chkpt;
     }
 
@@ -101,6 +104,7 @@ public class CheckpointManagerImpl implements CheckpointManager {
     @Override
     public void restoreFromCheckpoint(HashedCertifiedBlock checkpointBlock, CheckpointState state) {
         cachedCheckpoints.put(checkpointBlock.height(), state);
+        evictOldCheckpoints();
         params.restorer().accept(checkpointBlock, state);
         checkpoint.set(checkpointBlock);
         log.info("Restored from checkpoint: {} height: {} on: {}", checkpointBlock.hash, checkpointBlock.height(),
@@ -126,6 +130,43 @@ public class CheckpointManagerImpl implements CheckpointManager {
      */
     void cacheCheckpoint(ULong height, CheckpointState state) {
         cachedCheckpoints.put(height, state);
+        evictOldCheckpoints();
+    }
+
+    /**
+     * Evicts the oldest checkpoints when the cache exceeds maxCachedCheckpoints.
+     * Keeps the most recent checkpoints (highest height values).
+     * <p>
+     * Thread-safe: Uses synchronization to prevent TOCTOU race conditions
+     * between size check and eviction operations.
+     */
+    private void evictOldCheckpoints() {
+        var maxCached = params.maxCachedCheckpoints();
+
+        // Synchronize to prevent race condition between size check and eviction
+        synchronized (cachedCheckpoints) {
+            if (cachedCheckpoints.size() <= maxCached) {
+                return;
+            }
+
+            // Find checkpoints to evict (keep the newest ones)
+            var toEvict = cachedCheckpoints.keySet()
+                                           .stream()
+                                           .sorted(Comparator.naturalOrder())
+                                           .limit(cachedCheckpoints.size() - maxCached)
+                                           .toList();
+
+            for (var height : toEvict) {
+                cachedCheckpoints.remove(height);
+                log.debug("Evicted checkpoint at height: {} from cache (max: {}) on: {}",
+                          height, maxCached, params.member().getId());
+            }
+
+            if (!toEvict.isEmpty()) {
+                log.info("Evicted {} old checkpoint(s) from cache, kept {} on: {}",
+                         toEvict.size(), cachedCheckpoints.size(), params.member().getId());
+            }
+        }
     }
 
     /**

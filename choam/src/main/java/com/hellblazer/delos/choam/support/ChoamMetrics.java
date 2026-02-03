@@ -60,4 +60,15 @@ public interface ChoamMetrics extends EndpointMetrics {
     void transactionSubmittedUnavailable();
 
     void transactionTimeout();
+
+    /**
+     * Get metrics for batch signature verification.
+     * <p>
+     * Default implementation returns NOOP metrics for backwards compatibility.
+     *
+     * @return batch verification metrics, never null
+     */
+    default BatchVerificationMetrics batchVerificationMetrics() {
+        return BatchVerificationMetrics.NOOP;
+    }
 }

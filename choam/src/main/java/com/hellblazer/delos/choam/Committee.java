@@ -8,7 +8,10 @@ package com.hellblazer.delos.choam;
 
 import com.hellblazer.delos.choam.proto.*;
 import com.hellblazer.delos.choam.proto.SubmitResult.Result;
+import com.hellblazer.delos.choam.support.BatchVerificationHelper;
+import com.hellblazer.delos.choam.support.BatchVerificationMetrics;
 import com.hellblazer.delos.choam.support.HashedCertifiedBlock;
+import com.hellblazer.delos.cryptography.bls.BLSProvider;
 import com.hellblazer.delos.context.Context;
 import com.hellblazer.delos.context.StaticContext;
 import com.hellblazer.delos.cryptography.Digest;
@@ -139,19 +142,21 @@ public interface Committee {
 
     default boolean validate(HashedCertifiedBlock hb, Map<Member, Verifier> validators) {
         Parameters params = params();
+        var certifications = hb.certifiedBlock.getCertificationsList();
         log().trace("Validating block: {} hash: {} height: {} certs: {} on: {}", hb.block.getBodyCase(), hb.hash,
                     hb.height(),
-                    hb.certifiedBlock.getCertificationsList().stream().map(c -> new Digest(c.getId())).toList(),
+                    certifications.stream().map(c -> new Digest(c.getId())).toList(),
                     params.member().getId());
-        int valid = 0;
-        for (var w : hb.certifiedBlock.getCertificationsList()) {
-            if (!validate(hb, w, validators)) {
-                log().debug("Failed to validate: {} height: {} by: {} on: {}}", hb.hash, hb.height(),
-                            new Digest(w.getId()), params.member().getId());
-            } else {
-                valid++;
-            }
-        }
+
+        // Use batch verification for BLS signatures where possible
+        // Get metrics from params if available for proper metrics accumulation
+        var metrics = params.metrics() != null
+                      ? params.metrics().batchVerificationMetrics()
+                      : BatchVerificationMetrics.NOOP;
+        var helper = new BatchVerificationHelper(BLSProvider.getDefault(), metrics);
+        byte[] message = hb.block.getHeader().toByteString().toByteArray();
+        int valid = helper.verifyCertifications(message, certifications, validators, params.member().getId());
+
         final int toleranceLevel = params.context().toleranceLevel();
         log().trace("Validate: {} height: {} count: {} needed: {} on: {}", hb.hash, hb.height(), valid, toleranceLevel,
                     params.member().getId());

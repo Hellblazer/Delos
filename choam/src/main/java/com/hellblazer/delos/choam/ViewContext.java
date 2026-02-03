@@ -8,7 +8,10 @@ package com.hellblazer.delos.choam;
 
 import com.hellblazer.delos.choam.CHOAM.BlockProducer;
 import com.hellblazer.delos.choam.proto.*;
+import com.hellblazer.delos.choam.support.BatchVerificationHelper;
+import com.hellblazer.delos.choam.support.BatchVerificationMetrics;
 import com.hellblazer.delos.choam.support.HashedBlock;
+import com.hellblazer.delos.cryptography.bls.BLSProvider;
 import com.hellblazer.delos.choam.support.HashedCertifiedBlock;
 import com.hellblazer.delos.context.Context;
 import com.hellblazer.delos.cryptography.*;
@@ -17,9 +20,7 @@ import org.joou.ULong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
@@ -215,6 +216,109 @@ public class ViewContext {
         }
         return v.verify(JohnHancock.from(validate.getWitness().getSignature()), block.block.getHeader().toByteString());
     }
+
+    /**
+     * Validate multiple block validations using batch verification where possible.
+     * <p>
+     * Uses BLS batch verification for BLS-capable validators, falling back to
+     * individual verification for non-BLS validators or on batch failure.
+     *
+     * @param block the block being validated
+     * @param validations list of Validate messages to verify
+     * @return map of valid witnesses (Member -> Validate) for validations that passed
+     */
+    public Map<Member, Validate> validateBatch(HashedBlock block, List<Validate> validations) {
+        if (validations == null || validations.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        var result = new HashMap<Member, Validate>();
+        byte[] message = block.block.getHeader().toByteString().toByteArray();
+
+        // Separate BLS-capable from non-BLS
+        var blsValidations = new ArrayList<ValidationEntry>();
+        var nonBlsValidations = new ArrayList<ValidationEntry>();
+
+        for (var v : validations) {
+            // Check witness is present before accessing its fields
+            var witness = v.getWitness();
+            if (witness == null) {
+                log.trace("No witness certification in validation on: {}", params.member().getId());
+                continue;
+            }
+            var verifier = verifierOf(v);
+            if (verifier == null) {
+                if (log.isDebugEnabled()) {
+                    log.debug("no validation witness: {} for: {} block: {} on: {}",
+                              Digest.from(witness.getId()), block.block.getBodyCase(), block.hash,
+                              params.member().getId());
+                }
+                continue;
+            }
+            var member = context.getMember(Digest.from(witness.getId()));
+            if (member == null) {
+                continue;
+            }
+            var entry = new ValidationEntry(v, member, verifier);
+            if (BatchVerificationHelper.isBLSCapable(verifier)) {
+                blsValidations.add(entry);
+            } else {
+                nonBlsValidations.add(entry);
+            }
+        }
+
+        // Batch verify BLS validations if there are enough
+        if (blsValidations.size() >= 3) {
+            // Convert to Certification format for BatchVerificationHelper
+            var certs = blsValidations.stream()
+                                      .map(e -> e.validate.getWitness())
+                                      .toList();
+            // Get metrics from params if available for proper metrics accumulation
+            var metrics = params.metrics() != null
+                          ? params.metrics().batchVerificationMetrics()
+                          : BatchVerificationMetrics.NOOP;
+            var helper = new BatchVerificationHelper(BLSProvider.getDefault(), metrics);
+            int validCount = helper.verifyCertifications(message, certs, validators, params.member().getId());
+
+            if (validCount == blsValidations.size()) {
+                // All BLS validations passed
+                for (var entry : blsValidations) {
+                    result.put(entry.member, entry.validate);
+                }
+            } else {
+                // Batch failed or partial - verify individually
+                for (var entry : blsValidations) {
+                    if (verifyIndividual(entry, message)) {
+                        result.put(entry.member, entry.validate);
+                    }
+                }
+            }
+        } else {
+            // Too few for batch, add to individual verification
+            nonBlsValidations.addAll(blsValidations);
+        }
+
+        // Individually verify non-BLS validations
+        for (var entry : nonBlsValidations) {
+            if (verifyIndividual(entry, message)) {
+                result.put(entry.member, entry.validate);
+            }
+        }
+
+        if (log.isTraceEnabled()) {
+            log.trace("Batch validated {} of {} validations for block: {} hash: {} on: {}",
+                      result.size(), validations.size(), block.block.getBodyCase(), block.hash,
+                      params.member().getId());
+        }
+        return result;
+    }
+
+    private boolean verifyIndividual(ValidationEntry entry, byte[] message) {
+        var sig = JohnHancock.from(entry.validate.getWitness().getSignature());
+        return entry.verifier.verify(sig, message);
+    }
+
+    private record ValidationEntry(Validate validate, Member member, Verifier verifier) {}
 
     public boolean validate(SignedViewMember svm, Validate validate) {
         Verifier v = verifierOf(validate);
