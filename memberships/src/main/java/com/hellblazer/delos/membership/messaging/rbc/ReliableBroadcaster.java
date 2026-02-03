@@ -194,10 +194,13 @@ public class ReliableBroadcaster {
         }
         log.info("Starting Reliable Broadcaster[{}] for {}", context.getId(), member.getId());
         comm.register(context.getId(), new Service(), validator);
-        // Use platform thread for scheduler - virtual threads are for I/O (Delos-rnsw)
-        scheduler = Executors.newScheduledThreadPool(1);
-        // Start first round immediately (Delos-4ww4)
-        scheduler.execute(Utils.wrapped(() -> oneRound(duration, scheduler), log));
+        // Synchronize scheduler access to prevent race with concurrent stop()
+        synchronized (this) {
+            // Use platform thread for scheduler - virtual threads are for I/O (Delos-rnsw)
+            scheduler = Executors.newScheduledThreadPool(1);
+            // Start first round immediately (Delos-4ww4)
+            scheduler.execute(Utils.wrapped(() -> oneRound(duration, scheduler), log));
+        }
     }
 
     public void stop() {
@@ -205,19 +208,20 @@ public class ReliableBroadcaster {
             return;
         }
         log.info("Stopping Reliable Broadcaster[{}] on: {}", context.getId(), member.getId());
-        // Capture scheduler reference before nulling to prevent race with start()
-        // (Delos-vbyg fix: avoid shutting down a newly-created scheduler from concurrent start())
-        ScheduledExecutorService toShutdown = scheduler;
-        scheduler = null;
-        if (toShutdown != null) {
-            toShutdown.shutdown();
-            try {
-                if (!toShutdown.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
+        // Synchronize scheduler access to prevent race with concurrent start()
+        synchronized (this) {
+            ScheduledExecutorService toShutdown = scheduler;
+            scheduler = null;
+            if (toShutdown != null) {
+                toShutdown.shutdown();
+                try {
+                    if (!toShutdown.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                        toShutdown.shutdownNow();
+                    }
+                } catch (InterruptedException e) {
                     toShutdown.shutdownNow();
+                    Thread.currentThread().interrupt();
                 }
-            } catch (InterruptedException e) {
-                toShutdown.shutdownNow();
-                Thread.currentThread().interrupt();
             }
         }
         buffer.clear();

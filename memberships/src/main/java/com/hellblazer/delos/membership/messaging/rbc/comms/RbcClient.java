@@ -102,13 +102,15 @@ public class RbcClient implements ReliableBroadcast {
         try {
             // Apply RPC timeout to prevent hanging calls (Delos-l03r)
             client.withDeadlineAfter(timeout.toMillis(), TimeUnit.MILLISECONDS).update(request);
-            if (metrics != null) {
-                metrics.recordOutboundUpdateDuration(System.nanoTime() - start);
-            }
         } catch (Throwable e) {
             // Log failures for debugging (Delos-3nen)
             log.debug("Update failed to {}: {}", channel.getMember().getId(), e.getMessage());
             log.trace("Update failure details", e);
+        } finally {
+            // Record duration on both success and failure for SLA monitoring
+            if (metrics != null) {
+                metrics.recordOutboundUpdateDuration(System.nanoTime() - start);
+            }
         }
     }
 }
