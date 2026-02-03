@@ -259,6 +259,6 @@ If tests behave differently between fast and large modes:
 
 ## References
 
-- Original analysis: `/path/to/analysis/document`
+- Original analysis: See commit history for optimization PRs
 - Performance data: Test execution logs
 - Consensus parameters: `ethereal/src/main/java/com/hellblazer/delos/ethereal/Config.java`

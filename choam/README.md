@@ -551,6 +551,17 @@ CHOAM exposes operational metrics via Dropwizard Metrics.
 | `submitLatency()` | Client submit to result | p95 < 1s |
 | `blockExecutionTime()` | Block execution duration | p95 < 100ms |
 
+### Batch Verification (Counter/Timer)
+
+| Metric | Description | Healthy Range |
+|--------|-------------|---------------|
+| `batchVerifications()` | BLS batch signature verifications | - |
+| `individualVerifications()` | Individual signature verifications | - |
+| `batchFailures()` | Batch verification fallbacks | < 1% of batches |
+| `batchLatency()` | Batch verification latency | p95 < 10ms |
+
+**Note**: Batch verification uses BLS-12-381 signature aggregation for improved throughput. A circuit breaker automatically disables batch verification if failure rate exceeds 1%.
+
 ### Committee State (Gauge)
 
 | Metric | Description |
@@ -637,6 +648,6 @@ Developers working with CHOAM can reference these documentation resources:
 
 ---
 
-**Last updated**: 2026-01-07
+**Last updated**: 2026-02-03
 **Version**: 0.0.6-SNAPSHOT
 **Status**: MVP - production-ready for serious simulations and transaction ordering

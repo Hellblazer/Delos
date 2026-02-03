@@ -48,8 +48,8 @@ Combine FSM State: RECOVERING
 ```
 
 **Code Reference:**
-- `choam/src/main/java/com/salesforce/apollo/choam/fsm/Combine.java` - RECOVERING state
-- `choam/src/main/java/com/salesforce/apollo/choam/CHOAM.java` - Recovery trigger handling
+- `choam/src/main/java/com/hellblazer/delos/choam/fsm/Combine.java` - RECOVERING state
+- `choam/src/main/java/com/hellblazer/delos/choam/CHOAM.java` - Recovery trigger handling
 
 #### Phase 2: Checkpoint Discovery
 
@@ -63,7 +63,7 @@ public record Terminal(HashedCertifiedBlock anchor, ULong lastCheckpoint) {}
 - `lastCheckpoint`: Height of the last checkpoint
 
 **Code Reference:**
-- `choam/src/main/java/com/salesforce/apollo/choam/CHOAM.java` - Terminal record definition
+- `choam/src/main/java/com/hellblazer/delos/choam/CHOAM.java` - Terminal record definition
 
 #### Phase 3: Checkpoint Validation
 
@@ -73,16 +73,16 @@ public record Terminal(HashedCertifiedBlock anchor, ULong lastCheckpoint) {}
 3. Confirm checkpoint state hash matches declared hash
 
 **Code Reference:**
-- `choam/src/main/java/com/salesforce/apollo/choam/support/Bootstrapper.java`
-- `choam/src/main/java/com/salesforce/apollo/choam/support/BootstrapService.java`
+- `choam/src/main/java/com/hellblazer/delos/choam/support/Bootstrapper.java`
+- `choam/src/main/java/com/hellblazer/delos/choam/support/BootstrapService.java`
 
 #### Phase 4: Checkpoint Block Assembly
 
 Blocks are fetched in parallel batches for efficiency using `BootstrapService.fetchBlocks()` for batched retrieval.
 
 **Code Reference:**
-- `choam/src/main/java/com/salesforce/apollo/choam/support/Bootstrapper.java`
-- `choam/src/main/java/com/salesforce/apollo/choam/support/Store.java`
+- `choam/src/main/java/com/hellblazer/delos/choam/support/Bootstrapper.java`
+- `choam/src/main/java/com/hellblazer/delos/choam/support/Store.java`
 
 #### Phase 5: State Application
 
@@ -94,8 +94,8 @@ After checkpoint blocks are assembled, state is reconstructed:
 3. Verify reconstructed state hash matches checkpoint declaration
 
 **Code Reference:**
-- `choam/src/main/java/com/salesforce/apollo/choam/support/Bootstrapper.java`
-- `choam/src/main/java/com/salesforce/apollo/choam/support/Store.java`
+- `choam/src/main/java/com/hellblazer/delos/choam/support/Bootstrapper.java`
+- `choam/src/main/java/com/hellblazer/delos/choam/support/Store.java`
 
 #### Phase 6: Block Synchronization
 
@@ -107,8 +107,8 @@ Post-checkpoint blocks are fetched to reach current height:
 - Tolerates Byzantine peers through majority validation
 
 **Code Reference:**
-- `choam/src/main/java/com/salesforce/apollo/choam/support/Bootstrapper.java`
-- `choam/src/main/java/com/salesforce/apollo/choam/support/Store.java`
+- `choam/src/main/java/com/hellblazer/delos/choam/support/Bootstrapper.java`
+- `choam/src/main/java/com/hellblazer/delos/choam/support/Store.java`
 
 #### Phase 7: Block Chain Verification
 
@@ -118,7 +118,7 @@ Each fetched block is verified:
 - Verify block sequence (height, previous hash)
 
 **Code Reference:**
-- `choam/src/main/java/com/salesforce/apollo/choam/support/Bootstrapper.java`
+- `choam/src/main/java/com/hellblazer/delos/choam/support/Bootstrapper.java`
 
 #### Phase 8: Recovery Completion
 
@@ -129,7 +129,7 @@ Each fetched block is verified:
 4. Begin participating in consensus
 
 **Code Reference:**
-- `choam/src/main/java/com/salesforce/apollo/choam/fsm/Combine.java`
+- `choam/src/main/java/com/hellblazer/delos/choam/fsm/Combine.java`
 
 ## Recovery Time Analysis
 
@@ -185,11 +185,11 @@ Each fetched block is verified:
 
 | File | Purpose |
 |------|---------|
-| `choam/src/main/java/com/salesforce/apollo/choam/support/Bootstrapper.java` | Main recovery coordinator |
-| `choam/src/main/java/com/salesforce/apollo/choam/support/BootstrapService.java` | RPC interface for recovery |
-| `choam/src/main/java/com/salesforce/apollo/choam/support/Store.java` | Block and state storage |
-| `choam/src/main/java/com/salesforce/apollo/choam/fsm/Combine.java` | Lifecycle FSM with RECOVERING state |
-| `choam/src/main/java/com/salesforce/apollo/choam/CHOAM.java` | Top-level coordinator |
+| `choam/src/main/java/com/hellblazer/delos/choam/support/Bootstrapper.java` | Main recovery coordinator |
+| `choam/src/main/java/com/hellblazer/delos/choam/support/BootstrapService.java` | RPC interface for recovery |
+| `choam/src/main/java/com/hellblazer/delos/choam/support/Store.java` | Block and state storage |
+| `choam/src/main/java/com/hellblazer/delos/choam/fsm/Combine.java` | Lifecycle FSM with RECOVERING state |
+| `choam/src/main/java/com/hellblazer/delos/choam/CHOAM.java` | Top-level coordinator |
 
 ### Related Protobuf Definitions
 
