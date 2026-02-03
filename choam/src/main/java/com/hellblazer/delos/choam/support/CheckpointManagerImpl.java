@@ -77,19 +77,19 @@ public class CheckpointManagerImpl implements CheckpointManager {
         log.info("Created checkpoint at height: {} on: {}", height, params.member().getId());
     }
 
-    /**
-     * Builds a checkpoint protobuf from a state file.
-     * <p>
-     * This method is used by CHOAM to create checkpoint during block production.
-     * Returns the Checkpoint protobuf and caches the checkpoint state.
-     *
-     * @param state the state file
-     * @return the checkpoint protobuf, or null if creation fails
-     */
-    public Checkpoint buildAndCacheCheckpoint(File state) {
+    @Override
+    public Checkpoint createCheckpointAndGet(ULong height, File state) {
         var cp = checkpoint.get();
         Checkpoint chkpt = buildCheckpoint(params.digestAlgorithm(), state, params.checkpointSegmentSize(), cp.hash,
                                            params.crowns(), params.member().getId());
+        if (chkpt == null) {
+            return null;
+        }
+
+        MVMap<Integer, byte[]> stored = blockStore.putCheckpoint(height, state, chkpt);
+        state.delete();
+        cachedCheckpoints.put(height, new CheckpointState(chkpt, stored));
+        log.info("Created checkpoint at height: {} on: {}", height, params.member().getId());
         return chkpt;
     }
 

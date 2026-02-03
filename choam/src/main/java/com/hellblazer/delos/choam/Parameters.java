@@ -56,7 +56,8 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
                          Parameters.BootstrapParameters bootstrap, Parameters.ProducerParameters producer,
                          Parameters.MvStoreBuilder mvBuilder, Parameters.LimiterBuilder txnLimiterBuilder,
                          ExponentialBackoffPolicy.Builder submitPolicy, int checkpointSegmentSize,
-                         boolean generateGenesis, int maxPendingBlocks, int maxSyncAttempts) {
+                         boolean generateGenesis, int maxPendingBlocks, int maxSyncAttempts,
+                         double minFreeMemoryRatio) {
 
     public static Builder newBuilder() {
         return new Builder();
@@ -698,16 +699,24 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
         private boolean                          generateGenesis       = false;
         private int                              maxPendingBlocks      = 1000;
         private int                              maxSyncAttempts       = 10;
+        private double                           minFreeMemoryRatio    = 0.15; // 85% used = 15% free threshold
 
         public Parameters build(RuntimeParameters runtime) {
             if (maxSyncAttempts < 3) {
                 throw new IllegalArgumentException("maxSyncAttempts must be at least 3 (circuit breaker minimum)");
             }
+            if (minFreeMemoryRatio < 0.0 || minFreeMemoryRatio > 1.0) {
+                throw new IllegalArgumentException(
+                "minFreeMemoryRatio must be in range [0.0, 1.0], got: " + minFreeMemoryRatio);
+            }
+            if (Double.isNaN(minFreeMemoryRatio)) {
+                throw new IllegalArgumentException("minFreeMemoryRatio cannot be NaN");
+            }
             return new Parameters(runtime, combine, gossipDuration, maxCheckpointSegments, submitTimeout, genesisViewId,
                                   checkpointBlockDelta, crowns, digestAlgorithm, viewSigAlgorithm,
                                   synchronizationCycles, regenerationCycles, bootstrap, producer, mvBuilder,
                                   txnLimiterBuilder, submitPolicy, checkpointSegmentSize, generateGenesis,
-                                  maxPendingBlocks, maxSyncAttempts);
+                                  maxPendingBlocks, maxSyncAttempts, minFreeMemoryRatio);
         }
 
         @Override
@@ -912,6 +921,22 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
                 throw new IllegalArgumentException("maxSyncAttempts must be at least 3 (circuit breaker minimum), got: " + maxSyncAttempts);
             }
             this.maxSyncAttempts = maxSyncAttempts;
+            return this;
+        }
+
+        public double getMinFreeMemoryRatio() {
+            return minFreeMemoryRatio;
+        }
+
+        public Builder setMinFreeMemoryRatio(double minFreeMemoryRatio) {
+            if (minFreeMemoryRatio < 0.0 || minFreeMemoryRatio > 1.0) {
+                throw new IllegalArgumentException(
+                "minFreeMemoryRatio must be in range [0.0, 1.0], got: " + minFreeMemoryRatio);
+            }
+            if (Double.isNaN(minFreeMemoryRatio)) {
+                throw new IllegalArgumentException("minFreeMemoryRatio cannot be NaN");
+            }
+            this.minFreeMemoryRatio = minFreeMemoryRatio;
             return this;
         }
     }

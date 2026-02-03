@@ -50,6 +50,7 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
 import java.security.KeyPair;
 import java.util.*;
 import java.util.concurrent.*;
@@ -79,7 +80,6 @@ import static io.grpc.Status.INVALID_ARGUMENT;
 public class CHOAM implements ConsensusEngine {
     private static final Logger log = LoggerFactory.getLogger(CHOAM.class);
 
-    private final    Map<ULong, CheckpointState>                           cachedCheckpoints     = new ConcurrentHashMap<>();
     private final    CheckpointManager                                    checkpointManager;
     private final    BlockProcessor                                       blockProcessor;
     private final    BoundedEpidemicGossip                                  combine;
@@ -118,6 +118,8 @@ public class CHOAM implements ConsensusEngine {
                                                           Comparator.comparing(HashedCertifiedBlock::height));
         pendingViews.set(pendingViews.get().add(params.context().getId(), params.context().delegate()));
         this.blockProcessor = new BlockProcessorImpl(pending, started, params, head, this::consume);
+        // Register for stall detection events
+        blockProcessor.setStallListener(this::handleStallDetected);
 
         // Initialize ViewCoordinator for two-phase reconfigure pattern
         var viewState = new ViewStateImpl(params.context().getId(), params.context().delegate());
@@ -165,6 +167,43 @@ public class CHOAM implements ConsensusEngine {
         session = new Session(params, service(), scheduler);
     }
 
+    /**
+     * Handle stall detection events from the block processor.
+     * <p>
+     * This method is invoked when the block processor detects a stall condition
+     * (MAX_EMPTY_POLLS consecutive empty polls). Currently logs the event for
+     * diagnosis. Future enhancements will include:
+     * - Root cause diagnosis (PARTITION vs CONSENSUS_SLOW vs BYZANTINE)
+     * - Automated recovery strategies based on diagnosis
+     * - Metrics emission for monitoring
+     *
+     * @param event The stall detection event containing diagnostic information
+     */
+    private void handleStallDetected(StallDetectedEvent event) {
+        log.warn("Stall detected: {} empty polls, last height: {}, duration: {} on: {}",
+                 event.emptyPollCount(), event.lastProcessedHeight(), event.stallDuration(),
+                 params.member().getId());
+        // Future work: diagnose cause and initiate recovery
+        // - Check network connectivity (PARTITION)
+        // - Check consensus progress (CONSENSUS_SLOW)
+        // - Check for Byzantine indicators (BYZANTINE)
+        // - Initiate appropriate recovery (reconnect, resync, exclude member)
+    }
+
+    /**
+     * Creates a checkpoint protobuf from a state file.
+     * <p>
+     * This static utility method is exposed for test usage and other components
+     * that need to create checkpoint metadata without a full CHOAM instance.
+     *
+     * @param algo        the digest algorithm
+     * @param state       the state file to checkpoint
+     * @param segmentSize the size of each checkpoint segment
+     * @param initial     the initial digest for the HexBloom
+     * @param crowns      the number of crowns in the HexBloom
+     * @param id          the member ID (for logging)
+     * @return the checkpoint protobuf, or null if creation fails
+     */
     public static Checkpoint checkpoint(DigestAlgorithm algo, File state, int segmentSize, Digest initial, int crowns,
                                         Digest id) {
         assert segmentSize > 0 : "segment size must be > 0 : " + segmentSize;
@@ -467,8 +506,10 @@ public class CHOAM implements ConsensusEngine {
             return null;
         }
         final HashedBlock c = checkpointManager.currentCheckpoint();
-        Checkpoint cp = checkpoint(params.digestAlgorithm(), state, params.checkpointSegmentSize(), c.hash,
-                                   params.crowns(), params.member().getId());
+        final ULong newHeight = lb.height().add(1);
+
+        // Use consolidated checkpoint manager for creation and caching
+        Checkpoint cp = checkpointManager.createCheckpointAndGet(newHeight, state);
         if (cp == null) {
             transitions.fail();
             return null;
@@ -477,15 +518,12 @@ public class CHOAM implements ConsensusEngine {
         final HashedCertifiedBlock v = view.get();
         final Block block = Block.newBuilder()
                                  .setHeader(
-                                 buildHeader(params.digestAlgorithm(), cp, lb.hash, lb.height().add(1), c.height(),
+                                 buildHeader(params.digestAlgorithm(), cp, lb.hash, newHeight, c.height(),
                                              c.hash, v.height(), v.hash))
                                  .setCheckpoint(cp)
                                  .build();
 
         HashedBlock hb = new HashedBlock(params.digestAlgorithm(), block);
-        MVMap<Integer, byte[]> stored = store.putCheckpoint(height(block), state, cp);
-        state.delete();
-        cachedCheckpoints.put(hb.height(), new CheckpointState(cp, stored));
         log.info("Created checkpoint: {} height: {} on: {}", hb.hash, hb.height(), params.member().getId());
         transitions.finishCheckpoint();
         return block;
@@ -702,7 +740,7 @@ public class CHOAM implements ConsensusEngine {
     }
 
     private CheckpointSegments fetch(CheckpointReplication request) {
-        CheckpointState state = cachedCheckpoints.get(ULong.valueOf(request.getCheckpoint()));
+        CheckpointState state = checkpointManager.getCheckpointState(ULong.valueOf(request.getCheckpoint()));
         if (state == null) {
             log.info("No cached checkpoint for {} on: {}", request.getCheckpoint(), params.member().getId());
             return CheckpointSegments.getDefaultInstance();
@@ -926,7 +964,33 @@ public class CHOAM implements ConsensusEngine {
         return callbacks;
     }
 
+    /**
+     * Check if memory pressure is too high for safe reconfiguration.
+     * Uses MemoryMXBean to check heap usage against configured threshold.
+     *
+     * @return true if heap usage exceeds (1.0 - minFreeMemoryRatio), false otherwise
+     */
+    public boolean isMemoryPressureHigh() {
+        var heapUsage = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
+        var usedRatio = (double) heapUsage.getUsed() / heapUsage.getMax();
+        var threshold = 1.0 - params.minFreeMemoryRatio();
+
+        if (usedRatio > threshold) {
+            log.warn("Memory pressure detected: {}% heap used (threshold: {}%) on: {}",
+                     String.format("%.1f", usedRatio * 100), String.format("%.1f", threshold * 100),
+                     params.member().getId());
+            return true;
+        }
+        return false;
+    }
+
     private void reconfigure(Digest hash, Reconfigure reconfigure) {
+        // Check memory pressure before proceeding with reconfiguration
+        if (isMemoryPressureHigh()) {
+            log.error("Rejecting reconfiguration due to high memory pressure on: {}", params.member().getId());
+            throw new IllegalStateException("Memory pressure too high for reconfiguration - heap usage exceeds threshold");
+        }
+
         // Phase 1 (locked): Collect callbacks for deterministic computation
         List<Runnable> callbacks;
         viewStateLock.lock();
@@ -954,8 +1018,14 @@ public class CHOAM implements ConsensusEngine {
         for (int i = 0; i < callbacks.size(); i++) {
             try {
                 callbacks.get(i).run();
-            } catch (Exception e) {
-                log.error("Callback {} execution failed during reconfigure on: {}", i, params.member().getId(), e);
+            } catch (Throwable t) {
+                if (t instanceof Error) {
+                    log.error("Fatal error in callback {} during reconfigure on: {}: {}", i, params.member().getId(),
+                              t.getMessage(), t);
+                    throw t; // Fail-fast on Error types (OOM, StackOverflow, etc.)
+                }
+                log.error("Callback {} execution failed during reconfigure on: {}", i, params.member().getId(), t);
+                // Continue with remaining callbacks for non-fatal exceptions
             }
         }
     }

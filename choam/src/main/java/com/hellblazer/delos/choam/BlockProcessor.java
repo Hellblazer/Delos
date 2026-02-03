@@ -7,7 +7,10 @@
 package com.hellblazer.delos.choam;
 
 import com.hellblazer.delos.choam.support.HashedCertifiedBlock;
+import com.hellblazer.delos.choam.support.StallDetectedEvent;
 import org.joou.ULong;
+
+import java.util.function.Consumer;
 
 /**
  * Manages block processing, validation, and consumption for the CHOAM consensus protocol.
@@ -91,4 +94,15 @@ public interface BlockProcessor {
      * but the thread may still be running.
      */
     void stop();
+
+    /**
+     * Register a listener for stall detection events.
+     * <p>
+     * The listener will be invoked when MAX_EMPTY_POLLS consecutive empty polls
+     * are detected, indicating a potential network partition, consensus slowdown,
+     * or Byzantine behavior.
+     *
+     * @param listener Consumer to handle stall events, or null to unregister
+     */
+    void setStallListener(Consumer<StallDetectedEvent> listener);
 }

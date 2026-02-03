@@ -12,6 +12,7 @@ import org.joou.ULong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -42,6 +43,7 @@ public class BlockProcessorImpl implements BlockProcessor {
     private final AtomicInteger emptyPolls = new AtomicInteger(0);
     private final Parameters params;
     private volatile Thread linear;
+    private volatile Consumer<StallDetectedEvent> stallListener;
 
     public BlockProcessorImpl(BoundedPriorityBlockingQueue<HashedCertifiedBlock> pending,
                              AtomicBoolean started, Parameters params,
@@ -52,6 +54,19 @@ public class BlockProcessorImpl implements BlockProcessor {
         this.params = params;
         this.head = head;
         this.blockConsumer = blockConsumer;
+    }
+
+    /**
+     * Register a listener for stall detection events.
+     * <p>
+     * The listener will be invoked when MAX_EMPTY_POLLS consecutive empty polls
+     * are detected, indicating a potential network partition, consensus slowdown,
+     * or Byzantine behavior.
+     *
+     * @param listener Consumer to handle stall events, or null to unregister
+     */
+    public void setStallListener(Consumer<StallDetectedEvent> listener) {
+        this.stallListener = listener;
     }
 
     @Override
@@ -133,6 +148,18 @@ public class BlockProcessorImpl implements BlockProcessor {
                     if (count == MAX_EMPTY_POLLS) {
                         log.warn("Consumer stall detected: {} empty polls (~5 seconds) on: {}", count,
                                  params.member().getId());
+                        // Emit stall event to listener (if registered)
+                        var listener = stallListener; // Local copy for thread safety
+                        if (listener != null) {
+                            try {
+                                var event = new StallDetectedEvent(head.get().height(),
+                                                                   Duration.ofMillis(count * 600L), // poll + sleep time
+                                                                   count, params.context());
+                                listener.accept(event);
+                            } catch (Throwable t) {
+                                log.error("Error in stall listener callback on: {}", params.member().getId(), t);
+                            }
+                        }
                     } else if (count > MAX_EMPTY_POLLS && count % 5 == 0) {
                         log.warn("Consumer still stalled: {} empty polls on: {}", count, params.member().getId());
                     }
