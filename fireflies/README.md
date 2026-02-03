@@ -437,11 +437,11 @@ fireflies.rebuttals().subscribe(rebuttal -> {
 });
 ```
 
-### 6. Broadcast Reliable Messages (via Ethereal)
+### 6. Broadcast Messages (via Ethereal)
 
 ```java
 // Fireflies provides secure overlay; Ethereal provides consensus broadcast
-ReliableBroadcaster broadcaster = ethereal.getBroadcaster();
+BoundedEpidemicGossip broadcaster = ethereal.getBroadcaster();
 
 Message msg = buildMessage(payload);
 broadcaster.publish(msg).thenAccept(result -> {

@@ -5,7 +5,7 @@
  * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
  * This file is part of the Delos Distributed Systems Framework.
  */
-package com.hellblazer.delos.membership.messaging.rbc;
+package com.hellblazer.delos.membership.messaging.beg;
 
 import com.hellblazer.delos.protocols.MicrometerEndpointMetrics;
 import io.micrometer.core.instrument.Counter;
@@ -16,11 +16,11 @@ import io.micrometer.core.instrument.Timer;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Micrometer implementation of RbcMetrics.
+ * Micrometer implementation of BegMetrics.
  *
  * @author hal.hildebrand
  */
-public class MicrometerRbcMetrics extends MicrometerEndpointMetrics implements RbcMetrics {
+public class MicrometerBegMetrics extends MicrometerEndpointMetrics implements BegMetrics {
 
     // Size metrics (Histograms → DistributionSummary)
     private final DistributionSummary gossipReply;
@@ -46,72 +46,72 @@ public class MicrometerRbcMetrics extends MicrometerEndpointMetrics implements R
     private final DistributionSummary messageAge;
     private final Counter rateLimitRejections;
 
-    public MicrometerRbcMetrics(MeterRegistry registry) {
-        super(registry, "rbc");
+    public MicrometerBegMetrics(MeterRegistry registry) {
+        super(registry, "beg");
 
         // Update metrics
-        outboundUpdateTimer = Timer.builder("rbc.update.outbound.duration")
+        outboundUpdateTimer = Timer.builder("beg.update.outbound.duration")
                                    .description("Time to process outbound update")
                                    .register(registry);
-        inboundUpdateTimer = Timer.builder("rbc.update.inbound.duration")
+        inboundUpdateTimer = Timer.builder("beg.update.inbound.duration")
                                   .description("Time to process inbound update")
                                   .register(registry);
-        outboundUpdate = DistributionSummary.builder("rbc.update.outbound.bytes")
+        outboundUpdate = DistributionSummary.builder("beg.update.outbound.bytes")
                                            .description("Size of outbound update messages")
                                            .baseUnit("bytes")
                                            .register(registry);
-        inboundUpdate = DistributionSummary.builder("rbc.update.inbound.bytes")
+        inboundUpdate = DistributionSummary.builder("beg.update.inbound.bytes")
                                           .description("Size of inbound update messages")
                                           .baseUnit("bytes")
                                           .register(registry);
 
         // Gossip metrics
-        outboundGossipTimer = Timer.builder("rbc.gossip.outbound.duration")
+        outboundGossipTimer = Timer.builder("beg.gossip.outbound.duration")
                                    .description("Time to process outbound gossip")
                                    .register(registry);
-        inboundGossipTimer = Timer.builder("rbc.gossip.inbound.duration")
+        inboundGossipTimer = Timer.builder("beg.gossip.inbound.duration")
                                   .description("Time to process inbound gossip")
                                   .register(registry);
-        outboundGossip = DistributionSummary.builder("rbc.gossip.outbound.bytes")
+        outboundGossip = DistributionSummary.builder("beg.gossip.outbound.bytes")
                                            .description("Size of outbound gossip messages")
                                            .baseUnit("bytes")
                                            .register(registry);
-        gossipResponse = DistributionSummary.builder("rbc.gossip.reply.inbound.bytes")
+        gossipResponse = DistributionSummary.builder("beg.gossip.reply.inbound.bytes")
                                            .description("Size of inbound gossip reply messages")
                                            .baseUnit("bytes")
                                            .register(registry);
-        inboundGossip = DistributionSummary.builder("rbc.gossip.inbound.bytes")
+        inboundGossip = DistributionSummary.builder("beg.gossip.inbound.bytes")
                                           .description("Size of inbound gossip messages")
                                           .baseUnit("bytes")
                                           .register(registry);
-        gossipReply = DistributionSummary.builder("rbc.gossip.reply.outbound.bytes")
+        gossipReply = DistributionSummary.builder("beg.gossip.reply.outbound.bytes")
                                         .description("Size of outbound gossip reply messages")
                                         .baseUnit("bytes")
                                         .register(registry);
-        gossipRoundDuration = Timer.builder("rbc.gossip.round.duration")
+        gossipRoundDuration = Timer.builder("beg.gossip.round.duration")
                                    .description("Time for complete gossip round")
                                    .register(registry);
 
         // Buffer observability metrics (Delos-xwen)
-        bufferSize = DistributionSummary.builder("rbc.buffer.size")
+        bufferSize = DistributionSummary.builder("beg.buffer.size")
                                         .description("Current buffer size")
                                         .register(registry);
-        dedupCount = Counter.builder("rbc.dedup.count")
+        dedupCount = Counter.builder("beg.dedup.count")
                            .description("Number of duplicate messages filtered")
                            .register(registry);
-        verificationFailures = Counter.builder("rbc.verification.failures")
+        verificationFailures = Counter.builder("beg.verification.failures")
                                       .description("Number of signature verification failures")
                                       .register(registry);
-        verificationDuration = Timer.builder("rbc.verification.duration")
+        verificationDuration = Timer.builder("beg.verification.duration")
                                     .description("Time for signature verification")
                                     .register(registry);
-        gcItemsFreed = DistributionSummary.builder("rbc.gc.items.freed")
+        gcItemsFreed = DistributionSummary.builder("beg.gc.items.freed")
                                           .description("Items freed per GC cycle")
                                           .register(registry);
-        messageAge = DistributionSummary.builder("rbc.message.age")
+        messageAge = DistributionSummary.builder("beg.message.age")
                                         .description("Message age distribution on receive")
                                         .register(registry);
-        rateLimitRejections = Counter.builder("rbc.ratelimit.rejections")
+        rateLimitRejections = Counter.builder("beg.ratelimit.rejections")
                                      .description("Messages rejected by rate limiting")
                                      .register(registry);
     }

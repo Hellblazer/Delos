@@ -8,7 +8,7 @@ package com.hellblazer.delos.choam.support;
 
 import com.netflix.concurrency.limits.MetricRegistry;
 import com.hellblazer.delos.ethereal.memberships.comm.EtherealMetrics;
-import com.hellblazer.delos.membership.messaging.rbc.RbcMetrics;
+import com.hellblazer.delos.membership.messaging.beg.BegMetrics;
 import com.hellblazer.delos.protocols.EndpointMetrics;
 
 /**
@@ -23,7 +23,7 @@ public interface ChoamMetrics extends EndpointMetrics {
 
     void dropped(int transactions, int validations, int reassemblies);
 
-    RbcMetrics getCombineMetrics();
+    BegMetrics getCombineMetrics();
 
     EtherealMetrics getGensisMetrics();
 

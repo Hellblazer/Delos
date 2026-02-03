@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
  */
-package com.hellblazer.delos.messaging.rbc;
+package com.hellblazer.delos.messaging.beg;
 
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -14,12 +14,12 @@ import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.membership.SigningMember;
-import com.hellblazer.delos.membership.messaging.rbc.MicrometerRbcMetrics;
+import com.hellblazer.delos.membership.messaging.beg.MicrometerBegMetrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import com.hellblazer.delos.membership.messaging.rbc.ReliableBroadcaster;
-import com.hellblazer.delos.membership.messaging.rbc.ReliableBroadcaster.MessageHandler;
-import com.hellblazer.delos.membership.messaging.rbc.ReliableBroadcaster.Msg;
-import com.hellblazer.delos.membership.messaging.rbc.ReliableBroadcaster.Parameters;
+import com.hellblazer.delos.membership.messaging.beg.BoundedEpidemicGossip;
+import com.hellblazer.delos.membership.messaging.beg.BoundedEpidemicGossip.MessageHandler;
+import com.hellblazer.delos.membership.messaging.beg.BoundedEpidemicGossip.Msg;
+import com.hellblazer.delos.membership.messaging.beg.BoundedEpidemicGossip.Parameters;
 import com.hellblazer.delos.membership.stereotomy.ControlledIdentifierMember;
 import com.hellblazer.delos.stereotomy.StereotomyImpl;
 import com.hellblazer.delos.stereotomy.mem.MemKERL;
@@ -47,7 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * @author hal.hildebrand
  */
-public class RbcTest {
+public class BegTest {
 
     private static final boolean                         LARGE_TESTS    = Boolean.getBoolean("large_tests");
     private static final Parameters.Builder              parameters     = Parameters.newBuilder()
@@ -57,7 +57,7 @@ public class RbcTest {
     final                AtomicReference<CountDownLatch> round          = new AtomicReference<>();
     private final        List<Router>                    communications = new ArrayList<>();
     private final        AtomicInteger                   totalReceived  = new AtomicInteger(0);
-    private              List<ReliableBroadcaster>       messengers;
+    private              List<BoundedEpidemicGossip>       messengers;
     private              ExecutorService                 executor;
 
     @AfterEach
@@ -90,18 +90,18 @@ public class RbcTest {
         var b = DynamicContext.newBuilder();
         b.setCardinality(members.size());
         var context = b.build();
-        var metrics = new MicrometerRbcMetrics(registry);
+        var metrics = new MicrometerBegMetrics(registry);
         members.forEach(m -> context.activate(m));
 
         final var prefix = UUID.randomUUID().toString();
-        final var authentication = ReliableBroadcaster.defaultMessageAdapter(context, DigestAlgorithm.DEFAULT);
+        final var authentication = BoundedEpidemicGossip.defaultMessageAdapter(context, DigestAlgorithm.DEFAULT);
         messengers = members.stream().map(node -> {
             var comms = new LocalServer(prefix, node).router(
             ServerConnectionCache.newBuilder().setTarget(30).setMetrics(new MicrometerServerConnectionCacheMetrics(registry)),
             executor);
             communications.add(comms);
             comms.start();
-            return new ReliableBroadcaster(context, node, parameters.build(), comms, metrics, authentication);
+            return new BoundedEpidemicGossip(context, node, parameters.build(), comms, metrics, authentication);
         }).collect(Collectors.toList());
 
         System.out.println("Messaging with " + messengers.size() + " members");
@@ -109,7 +109,7 @@ public class RbcTest {
 
         Map<Member, Receiver> receivers = new HashMap<>();
         AtomicInteger current = new AtomicInteger(-1);
-        for (ReliableBroadcaster view : messengers) {
+        for (BoundedEpidemicGossip view : messengers) {
             Receiver receiver = new Receiver(view.getMember().getId(), messengers.size(), current);
             view.registerHandler(receiver);
             receivers.put(view.getMember(), receiver);

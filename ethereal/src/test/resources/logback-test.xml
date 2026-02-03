@@ -39,7 +39,7 @@
     <logger name="com.hellblazer.delos.ethereal.memberships" level="info" additivity="false">
         <appender-ref ref="STDOUT"/>
     </logger>
-    <logger name="com.hellblazer.delos.membership.messaging.rbc" level="warn" additivity="false">
+    <logger name="com.hellblazer.delos.membership.messaging.beg" level="warn" additivity="false">
         <appender-ref ref="STDOUT"/>
     </logger>
     <logger name="com.hellblazer.delos.comm" level="warn" additivity="false">

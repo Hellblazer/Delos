@@ -5,19 +5,16 @@
  * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
  * This file is part of the Delos Distributed Systems Framework.
  */
-package com.hellblazer.delos.membership.messaging.rbc;
+package com.hellblazer.delos.membership.messaging.beg;
 
 import com.hellblazer.delos.protocols.EndpointMetrics;
 
 /**
- * Framework-agnostic metrics interface for Reliable Broadcast.
- * <p>
- * Note: This interface uses semantic method names to decouple from metrics implementation.
- * The implementation (currently Dropwizard) will be replaced with Micrometer in Phase 2.
+ * Framework-agnostic metrics interface for Bounded Epidemic Gossip.
  *
  * @author hal.hildebrand
  */
-public interface RbcMetrics extends EndpointMetrics {
+public interface BegMetrics extends EndpointMetrics {
 
     // === Size Recording (Histograms) ===
 

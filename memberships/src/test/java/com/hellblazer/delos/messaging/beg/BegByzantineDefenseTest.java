@@ -5,7 +5,7 @@
  * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
  * This file is part of the Delos Distributed Systems Framework.
  */
-package com.hellblazer.delos.messaging.rbc;
+package com.hellblazer.delos.messaging.beg;
 
 import com.google.protobuf.ByteString;
 import com.hellblazer.delos.archipelago.*;
@@ -13,9 +13,9 @@ import com.hellblazer.delos.context.DynamicContext;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.membership.SigningMember;
-import com.hellblazer.delos.membership.messaging.rbc.MicrometerRbcMetrics;
-import com.hellblazer.delos.membership.messaging.rbc.ReliableBroadcaster;
-import com.hellblazer.delos.membership.messaging.rbc.ReliableBroadcaster.Parameters;
+import com.hellblazer.delos.membership.messaging.beg.MicrometerBegMetrics;
+import com.hellblazer.delos.membership.messaging.beg.BoundedEpidemicGossip;
+import com.hellblazer.delos.membership.messaging.beg.BoundedEpidemicGossip.Parameters;
 import com.hellblazer.delos.membership.stereotomy.ControlledIdentifierMember;
 import com.hellblazer.delos.stereotomy.StereotomyImpl;
 import com.hellblazer.delos.stereotomy.mem.MemKERL;
@@ -37,25 +37,25 @@ import java.util.stream.IntStream;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Byzantine attack defense tests for ReliableBroadcaster.
+ * Byzantine attack defense tests for BoundedEpidemicGossip.
  * Tests rate limiting, age validation, and attack resilience.
  * <p>
  * Delos-7dd3 + Delos-d1an: Byzantine defense validation
  *
  * @author hal.hildebrand
  */
-class RbcByzantineDefenseTest {
+class BegByzantineDefenseTest {
 
     private static final int TEST_MEMBER_COUNT = 5;
     private static final Duration GOSSIP_DURATION = Duration.ofMillis(20);
 
     private List<SigningMember> members;
     private DynamicContext<Member> context;
-    private List<ReliableBroadcaster> broadcasters;
+    private List<BoundedEpidemicGossip> broadcasters;
     private List<Router> routers;
     private ExecutorService executor;
     private SimpleMeterRegistry registry;
-    private MicrometerRbcMetrics metrics;
+    private MicrometerBegMetrics metrics;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -75,7 +75,7 @@ class RbcByzantineDefenseTest {
         members.forEach(m -> context.activate(m));
 
         registry = new SimpleMeterRegistry();
-        metrics = new MicrometerRbcMetrics(registry);
+        metrics = new MicrometerBegMetrics(registry);
         executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
         routers = new ArrayList<>();
         broadcasters = new ArrayList<>();
@@ -84,7 +84,7 @@ class RbcByzantineDefenseTest {
     @AfterEach
     void tearDown() {
         if (broadcasters != null) {
-            broadcasters.forEach(ReliableBroadcaster::stop);
+            broadcasters.forEach(BoundedEpidemicGossip::stop);
         }
         if (routers != null) {
             routers.forEach(r -> r.close(Duration.ofMillis(0)));
@@ -162,7 +162,7 @@ class RbcByzantineDefenseTest {
         // Wait for propagation
         Thread.sleep(1000);
 
-        allBroadcasters.forEach(ReliableBroadcaster::stop);
+        allBroadcasters.forEach(BoundedEpidemicGossip::stop);
 
         // All nodes should have received some messages
         for (var entry : received.entrySet()) {
@@ -194,7 +194,7 @@ class RbcByzantineDefenseTest {
         }
 
         Thread.sleep(1000);
-        allBroadcasters.forEach(ReliableBroadcaster::stop);
+        allBroadcasters.forEach(BoundedEpidemicGossip::stop);
 
         // System should still be functional (received some messages)
         assertThat(messageCount.get()).isGreaterThan(0);
@@ -226,7 +226,7 @@ class RbcByzantineDefenseTest {
         }
 
         Thread.sleep(500);
-        allBroadcasters.forEach(ReliableBroadcaster::stop);
+        allBroadcasters.forEach(BoundedEpidemicGossip::stop);
 
         // Each member's version should be counted
         assertThat(uniqueMessages.size()).isGreaterThanOrEqualTo(TEST_MEMBER_COUNT);
@@ -316,7 +316,7 @@ class RbcByzantineDefenseTest {
         // Let it run for several rounds
         Thread.sleep(500);
 
-        allBroadcasters.forEach(ReliableBroadcaster::stop);
+        allBroadcasters.forEach(BoundedEpidemicGossip::stop);
 
         // All nodes should have gone through multiple rounds
         for (var entry : roundCounts.entrySet()) {
@@ -328,7 +328,7 @@ class RbcByzantineDefenseTest {
 
     // === Helper Methods ===
 
-    private ReliableBroadcaster createBroadcaster(SigningMember member) {
+    private BoundedEpidemicGossip createBroadcaster(SigningMember member) {
         var params = Parameters.newBuilder()
                                .setBufferSize(500)
                                .setMaxMessages(100)
@@ -336,7 +336,7 @@ class RbcByzantineDefenseTest {
         return createBroadcasterWithParams(member, params);
     }
 
-    private ReliableBroadcaster createBroadcasterWithParams(SigningMember member, Parameters params) {
+    private BoundedEpidemicGossip createBroadcasterWithParams(SigningMember member, Parameters params) {
         var prefix = UUID.randomUUID().toString();
         var router = new LocalServer(prefix, member).router(
             ServerConnectionCache.newBuilder()
@@ -346,13 +346,13 @@ class RbcByzantineDefenseTest {
         routers.add(router);
         router.start();
 
-        var authentication = ReliableBroadcaster.defaultMessageAdapter(context, DigestAlgorithm.DEFAULT);
-        var broadcaster = new ReliableBroadcaster(context, member, params, router, metrics, authentication);
+        var authentication = BoundedEpidemicGossip.defaultMessageAdapter(context, DigestAlgorithm.DEFAULT);
+        var broadcaster = new BoundedEpidemicGossip(context, member, params, router, metrics, authentication);
         broadcasters.add(broadcaster);
         return broadcaster;
     }
 
-    private List<ReliableBroadcaster> createBroadcasters() {
+    private List<BoundedEpidemicGossip> createBroadcasters() {
         var prefix = UUID.randomUUID().toString();
         var params = Parameters.newBuilder()
                                .setBufferSize(500)
@@ -368,8 +368,8 @@ class RbcByzantineDefenseTest {
             routers.add(router);
             router.start();
 
-            var authentication = ReliableBroadcaster.defaultMessageAdapter(context, DigestAlgorithm.DEFAULT);
-            var broadcaster = new ReliableBroadcaster(context, member, params, router, metrics, authentication);
+            var authentication = BoundedEpidemicGossip.defaultMessageAdapter(context, DigestAlgorithm.DEFAULT);
+            var broadcaster = new BoundedEpidemicGossip(context, member, params, router, metrics, authentication);
             broadcasters.add(broadcaster);
             return broadcaster;
         }).toList();

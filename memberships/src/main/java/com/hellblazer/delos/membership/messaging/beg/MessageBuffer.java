@@ -5,15 +5,15 @@
  * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
  * This file is part of the Delos Distributed Systems Framework.
  */
-package com.hellblazer.delos.membership.messaging.rbc;
+package com.hellblazer.delos.membership.messaging.beg;
 
 import com.google.protobuf.ByteString;
 import com.hellblazer.delos.bloomFilters.BloomFilter;
 import com.hellblazer.delos.bloomFilters.BloomFilter.DigestBloomFilter;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.membership.SigningMember;
-import com.hellblazer.delos.membership.messaging.rbc.ReliableBroadcaster.MessageAdapter;
-import com.hellblazer.delos.membership.messaging.rbc.ReliableBroadcaster.Msg;
+import com.hellblazer.delos.membership.messaging.beg.BoundedEpidemicGossip.MessageAdapter;
+import com.hellblazer.delos.membership.messaging.beg.BoundedEpidemicGossip.Msg;
 import com.hellblazer.delos.messaging.proto.AgedMessage;
 import com.hellblazer.delos.utils.Entropy;
 import org.slf4j.Logger;
@@ -25,12 +25,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 /**
- * Thread-safe message buffer for ReliableBroadcaster.
+ * Thread-safe message buffer for BoundedEpidemicGossip.
  * Handles message storage, deduplication, age-based expiry, and Byzantine defenses.
  * <p>
- * Extracted from ReliableBroadcaster for improved testability (Delos-ybss).
+ * Extracted from BoundedEpidemicGossip for improved testability (Delos-ybss).
  *
  * @author hal.hildebrand
+ * @see BoundedEpidemicGossip
  */
 public class MessageBuffer {
     private static final Logger log = LoggerFactory.getLogger(MessageBuffer.class);
@@ -45,7 +46,7 @@ public class MessageBuffer {
     private final int              maxAge;
     private final int              highWaterMark;
     private final MessageAdapter   adapter;
-    private final RbcMetrics       metrics;
+    private final BegMetrics       metrics;
     private final Digest           memberId;
     private final Digest           contextId;
     private final Consumer<List<Msg>> deliveryCallback;
@@ -90,7 +91,7 @@ public class MessageBuffer {
      * @param deliveryCallback callback to deliver verified messages
      */
     public MessageBuffer(int bufferSize, double falsePositiveRate, int maxMessages, int maxMessageSize,
-                         int maxAge, MessageAdapter adapter, RbcMetrics metrics,
+                         int maxAge, MessageAdapter adapter, BegMetrics metrics,
                          Digest memberId, Digest contextId, Consumer<List<Msg>> deliveryCallback) {
         this.bufferSize = bufferSize;
         this.falsePositiveRate = falsePositiveRate;

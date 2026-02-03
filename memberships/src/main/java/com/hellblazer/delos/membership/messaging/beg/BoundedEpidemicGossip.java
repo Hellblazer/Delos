@@ -5,7 +5,7 @@
  * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
  * This file is part of the Delos Distributed Systems Framework.
  */
-package com.hellblazer.delos.membership.messaging.rbc;
+package com.hellblazer.delos.membership.messaging.beg;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Message;
@@ -20,8 +20,8 @@ import com.hellblazer.delos.cryptography.JohnHancock;
 import com.hellblazer.delos.cryptography.proto.Biff;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.membership.SigningMember;
-import com.hellblazer.delos.membership.messaging.rbc.comms.RbcServer;
-import com.hellblazer.delos.membership.messaging.rbc.comms.ReliableBroadcast;
+import com.hellblazer.delos.membership.messaging.beg.comms.BegServer;
+import com.hellblazer.delos.membership.messaging.beg.comms.ReliableBroadcast;
 import com.hellblazer.delos.messaging.proto.*;
 import com.hellblazer.delos.utils.Utils;
 import io.grpc.StatusRuntimeException;
@@ -39,15 +39,32 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
-import static com.hellblazer.delos.membership.messaging.rbc.comms.RbcClient.getCreate;
+import static com.hellblazer.delos.membership.messaging.beg.comms.BegClient.getCreate;
 
 /**
- * Content agnostic reliable broadcast of messages.
+ * Bounded epidemic gossip for disseminating messages across a ring topology.
+ * <p>
+ * This implementation provides best-effort message dissemination with Byzantine fault tolerance
+ * through several defensive mechanisms:
+ * <ul>
+ *   <li><b>Bounded buffer</b> - Fixed capacity with high-water mark GC prevents memory exhaustion</li>
+ *   <li><b>Bounded message age</b> - Messages expire after maxAge rounds, preventing stale accumulation</li>
+ *   <li><b>Bounded message size</b> - Oversized messages rejected to prevent DoS</li>
+ *   <li><b>Per-source rate limiting</b> - Limits messages per source per round to prevent flooding</li>
+ *   <li><b>Signature verification</b> - All messages cryptographically verified</li>
+ *   <li><b>Predecessor validation</b> - Ring topology enforced on gossip operations</li>
+ * </ul>
+ * <p>
+ * <b>Important:</b> This is NOT reliable broadcast in the formal distributed systems sense
+ * (Bracha/Cachin). Messages may be lost due to buffer overflow, age expiry, network partitions,
+ * or node failures. Use for disseminating already-certified content where occasional loss is
+ * acceptable. For guaranteed delivery, use ChRbcGossip (Bracha-style reliable broadcast).
  *
  * @author hal.hildebrand
+ * @see MessageBuffer
  */
-public class ReliableBroadcaster {
-    private static final Logger log = LoggerFactory.getLogger(ReliableBroadcaster.class);
+public class BoundedEpidemicGossip {
+    private static final Logger log = LoggerFactory.getLogger(BoundedEpidemicGossip.class);
 
     private static final int CIRCUIT_BREAKER_THRESHOLD = 10;
 
@@ -57,7 +74,7 @@ public class ReliableBroadcaster {
     private final CommonCommunications<ReliableBroadcast, Service> comm;
     private final Context<Member>                                  context;
     private final SigningMember                                    member;
-    private final RbcMetrics                                       metrics;
+    private final BegMetrics                                       metrics;
     private final Parameters                                       params;
     private final Map<UUID, Consumer<Integer>>                     roundListeners  = new ConcurrentHashMap<>();
     private final AtomicBoolean                                    started         = new AtomicBoolean();
@@ -70,8 +87,8 @@ public class ReliableBroadcaster {
     private final AtomicInteger                                    successfulGossips = new AtomicInteger();
     private final AtomicInteger                                    failedGossips = new AtomicInteger();
 
-    public ReliableBroadcaster(Context<Member> context, SigningMember member, Parameters parameters,
-                               Router communications, RbcMetrics metrics, MessageAdapter adapter) {
+    public BoundedEpidemicGossip(Context<Member> context, SigningMember member, Parameters parameters,
+                                 Router communications, BegMetrics metrics, MessageAdapter adapter) {
         this.params = parameters;
         this.context = context;
         this.member = member;
@@ -92,7 +109,7 @@ public class ReliableBroadcaster {
             this::deliver
         );
         this.comm = communications.create(member, context.getId(), new Service(),
-                                          r -> new RbcServer(communications.getClientIdentityProvider(), metrics, r),
+                                          r -> new BegServer(communications.getClientIdentityProvider(), metrics, r),
                                           getCreate(metrics), ReliableBroadcast.getLocalLoopback(member));
     }
 
@@ -284,7 +301,7 @@ public class ReliableBroadcaster {
         if (!started.compareAndSet(false, true)) {
             return;
         }
-        log.info("Starting Reliable Broadcaster[{}] for {}", context.getId(), member.getId());
+        log.info("Starting BoundedEpidemicGossip[{}] for {}", context.getId(), member.getId());
         comm.register(context.getId(), new Service(), validator);
         // Synchronize scheduler access to prevent race with concurrent stop()
         synchronized (this) {
@@ -299,7 +316,7 @@ public class ReliableBroadcaster {
         if (!started.compareAndSet(true, false)) {
             return;
         }
-        log.info("Stopping Reliable Broadcaster[{}] on: {}", context.getId(), member.getId());
+        log.info("Stopping BoundedEpidemicGossip[{}] on: {}", context.getId(), member.getId());
         // Synchronize scheduler access to prevent race with concurrent start()
         synchronized (this) {
             ScheduledExecutorService toShutdown = scheduler;

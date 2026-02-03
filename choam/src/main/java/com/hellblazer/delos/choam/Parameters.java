@@ -28,7 +28,7 @@ import com.hellblazer.delos.cryptography.SignatureAlgorithm;
 import com.hellblazer.delos.ethereal.Config;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.membership.SigningMember;
-import com.hellblazer.delos.membership.messaging.rbc.ReliableBroadcaster;
+import com.hellblazer.delos.membership.messaging.beg.BoundedEpidemicGossip;
 import com.hellblazer.delos.stereotomy.event.proto.KERL_;
 import org.h2.mvstore.MVStore;
 import org.h2.mvstore.OffHeapStore;
@@ -49,7 +49,7 @@ import java.util.function.Supplier;
 /**
  * @author hal.hildebrand
  */
-public record Parameters(Parameters.RuntimeParameters runtime, ReliableBroadcaster.Parameters combine,
+public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGossip.Parameters combine,
                          Duration gossipDuration, int maxCheckpointSegments, Duration submitTimeout,
                          Digest genesisViewId, int checkpointBlockDelta, int crowns, DigestAlgorithm digestAlgorithm,
                          SignatureAlgorithm viewSigAlgorithm, int synchronizationCycles, int regenerationCycles,
@@ -674,7 +674,7 @@ public record Parameters(Parameters.RuntimeParameters runtime, ReliableBroadcast
         private BootstrapParameters              bootstrap             = BootstrapParameters.newBuilder().build();
         private int                              checkpointBlockDelta  = 10;
         private int                              checkpointSegmentSize = 8192;
-        private ReliableBroadcaster.Parameters   combine               = ReliableBroadcaster.Parameters.newBuilder()
+        private BoundedEpidemicGossip.Parameters   combine               = BoundedEpidemicGossip.Parameters.newBuilder()
                                                                                                        .build();
         private DigestAlgorithm                  digestAlgorithm       = DigestAlgorithm.DEFAULT;
         private Digest                           genesisViewId;
@@ -754,11 +754,11 @@ public record Parameters(Parameters.RuntimeParameters runtime, ReliableBroadcast
             return this;
         }
 
-        public ReliableBroadcaster.Parameters getCombine() {
+        public BoundedEpidemicGossip.Parameters getCombine() {
             return combine;
         }
 
-        public Builder setCombine(ReliableBroadcaster.Parameters combine) {
+        public Builder setCombine(BoundedEpidemicGossip.Parameters combine) {
             this.combine = combine;
             return this;
         }
