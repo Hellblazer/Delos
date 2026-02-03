@@ -18,7 +18,6 @@ Delos is a **distributed multi-tenant database platform** providing Byzantine fa
 * **State Machines**: CHOAM — replicated SQL state machines with materialized views, DDL/DML/stored procedures, BLS batch verification
 * **Access Control**: Zanzibar-style relation-based access control (Delphinius)
 * **Witness Service**: Byzantine detection (5 detectors), receipt aggregation, multi-backend storage with compression
-* **Production Testing**: 168-hour continuous operation testing with chaos engineering, heap dump analysis, state consistency verification, and degradation detection
 
 ## Status
 
@@ -32,7 +31,7 @@ Delos is an experimental distributed platform—well-tested subsystems, solid ar
 - **Stereotomy/KERI** (identity): Fully integrated
 - **SQL-State**: Mature with comprehensive testing
 - **Domain Sockets**: Pure Java NIO implementation (JEP 380) — No native dependencies, full GraalVM isolates compatibility
-- **Simulation Framework** (production testing): End-to-end orchestration for 168-hour continuous operation testing with 200+ tests, chaos engineering, state verification, and degradation detection. Validated at 100-node scale.
+- **Simulation Framework**: Multi-node testing infrastructure validated at 100-node scale
 
 **Experimental Components**:
 - **Witness-Service** (receipt management): Well-tested foundation — Full storage integration with multi-backend persistence, compression, Byzantine detection (5 detectors), and E2E testing. Solid architecture; production hardening in progress
