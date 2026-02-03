@@ -131,7 +131,7 @@ From [HEX-BLOOM: An Efficient Method for Authenticity and Integrity Verification
 2. **KERI SignedNotes**: Member credentials gossiped in state
 3. **Gorgoneion**: Bootstrap identities and initial membership
 4. **Choam**: Consensus layer (view consensus informs Choam leader)
-5. **Ethereal**: Gossip (built on Fireflies overlay)
+5. **Ethereal**: Reliable broadcast (built on Fireflies overlay)
 6. **Thoth**: Decentralized KERL storage (joined members discover via Fireflies)
 
 **Operational Guarantees**
