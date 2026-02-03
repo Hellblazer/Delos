@@ -713,9 +713,9 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
             if (Double.isNaN(minFreeMemoryRatio)) {
                 throw new IllegalArgumentException("minFreeMemoryRatio cannot be NaN");
             }
-            if (maxCachedCheckpoints < 1) {
+            if (maxCachedCheckpoints < 1 || maxCachedCheckpoints > 100) {
                 throw new IllegalArgumentException(
-                "maxCachedCheckpoints must be at least 1, got: " + maxCachedCheckpoints);
+                "maxCachedCheckpoints must be in range [1, 100], got: " + maxCachedCheckpoints);
             }
             return new Parameters(runtime, combine, gossipDuration, maxCheckpointSegments, submitTimeout, genesisViewId,
                                   checkpointBlockDelta, crowns, digestAlgorithm, viewSigAlgorithm,
@@ -950,9 +950,9 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
         }
 
         public Builder setMaxCachedCheckpoints(int maxCachedCheckpoints) {
-            if (maxCachedCheckpoints < 1) {
+            if (maxCachedCheckpoints < 1 || maxCachedCheckpoints > 100) {
                 throw new IllegalArgumentException(
-                "maxCachedCheckpoints must be at least 1, got: " + maxCachedCheckpoints);
+                "maxCachedCheckpoints must be in range [1, 100], got: " + maxCachedCheckpoints);
             }
             this.maxCachedCheckpoints = maxCachedCheckpoints;
             return this;

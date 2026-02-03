@@ -136,29 +136,36 @@ public class CheckpointManagerImpl implements CheckpointManager {
     /**
      * Evicts the oldest checkpoints when the cache exceeds maxCachedCheckpoints.
      * Keeps the most recent checkpoints (highest height values).
+     * <p>
+     * Thread-safe: Uses synchronization to prevent TOCTOU race conditions
+     * between size check and eviction operations.
      */
     private void evictOldCheckpoints() {
         var maxCached = params.maxCachedCheckpoints();
-        if (cachedCheckpoints.size() <= maxCached) {
-            return;
-        }
 
-        // Find checkpoints to evict (keep the newest ones)
-        var toEvict = cachedCheckpoints.keySet()
-                                       .stream()
-                                       .sorted(Comparator.naturalOrder())
-                                       .limit(cachedCheckpoints.size() - maxCached)
-                                       .toList();
+        // Synchronize to prevent race condition between size check and eviction
+        synchronized (cachedCheckpoints) {
+            if (cachedCheckpoints.size() <= maxCached) {
+                return;
+            }
 
-        for (var height : toEvict) {
-            cachedCheckpoints.remove(height);
-            log.debug("Evicted checkpoint at height: {} from cache (max: {}) on: {}",
-                      height, maxCached, params.member().getId());
-        }
+            // Find checkpoints to evict (keep the newest ones)
+            var toEvict = cachedCheckpoints.keySet()
+                                           .stream()
+                                           .sorted(Comparator.naturalOrder())
+                                           .limit(cachedCheckpoints.size() - maxCached)
+                                           .toList();
 
-        if (!toEvict.isEmpty()) {
-            log.info("Evicted {} old checkpoint(s) from cache, kept {} on: {}",
-                     toEvict.size(), cachedCheckpoints.size(), params.member().getId());
+            for (var height : toEvict) {
+                cachedCheckpoints.remove(height);
+                log.debug("Evicted checkpoint at height: {} from cache (max: {}) on: {}",
+                          height, maxCached, params.member().getId());
+            }
+
+            if (!toEvict.isEmpty()) {
+                log.info("Evicted {} old checkpoint(s) from cache, kept {} on: {}",
+                         toEvict.size(), cachedCheckpoints.size(), params.member().getId());
+            }
         }
     }
 
