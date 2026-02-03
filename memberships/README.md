@@ -95,33 +95,46 @@ members is highly dynamic, implying a highly challenging environment for set rep
 Distributed Bloom filter scheme provides the balance between accuracy and completeness that is well suited to small(ish)
 buffer sizes and highly dynamic membership sets with high volumes of messaging.
 
-## Reliable broadcast
+## Bounded Epidemic Gossip (BEG)
 
 This module provides messaging using a form of gossip based on the active Members of a Context, and the unique ring
 structure of the context. This provides a reusable base broadcast mechanism that can be used with any Context view.
 
-Delos messaging provides a messaging abstraction with a bounded buffer. This is a garbage collected, reliable broadcast
-with bounded message buffer and is based on the most excellent
+The naming reflects what the protocol provides:
+
+- **Bounded**: Fixed-size message buffer with age-based garbage collection
+- **Epidemic**: Probabilistic dissemination through gossip
+- **Gossip**: Ring-based communication pattern leveraging Fireflies overlay
+
+### Features
+
+- Message deduplication via content-addressed hashing
+- Age-based message expiry and garbage collection
+- Byzantine defenses: rate limiting, signature verification, equivocation detection
+- Bloom filter-based set reconciliation for efficient synchronization
+- Bounded memory usage even under Byzantine attack
+
+### Implementation
+
+Delos BEG provides a messaging abstraction with a bounded buffer, based on the
 paper [Reducing noise in gossip-based reliable broadcast](https://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.575.3297).
-Messages are garbage collected, and the messaging system maintains the parameterized bound on the number of message
-maximums in a node.
+Messages are garbage collected, and the messaging system maintains the parameterized bound on the number of messages
+in a node.
 
-This garbage collection also leverages the known gossip communication pattern of the Fireflies Rings maintained by the
-Context. Recall that the Fireflies constructed Rings of a Context follows the form: 2 x t + 1, where t is the number of
-failures tolerated to match the overall byzantine parameters of the Context. Due to the construction of the Fireflies
-Rings in the Context, the expected time required for a message from any member to another member is given by ((2 x t) *
+This garbage collection leverages the known gossip communication pattern of the Fireflies Rings maintained by the
+Context. The Fireflies constructed Rings of a Context follows the form: 2 x t + 1, where t is the number of failures
+tolerated to match the overall Byzantine parameters of the Context. Due to the construction of the Fireflies Rings in
+the Context, the expected time required for a message to propagate from any member to another is given by
+((2 x t) * 2) x diameter, where the diameter is very close to 2 for the supplied construction method.
 
-2) x diameter, where the diameter is very close to 2 for the supplied construction method.
+The gossip mechanism can predict how long to wait before — with high probability — the message has been propagated to
+every Member of the Context. This TTL serves as the maximum "age" of a Message within the system. On every gossip
+round, a message's age is incremented. When messages are gossiped, the age of a message received is max-merged with
+the currently stored message state on the receiver. Messages are garbage collected when the age exceeds the calculated
+Time To Live of the Context.
 
-What this means is that the reliable broadcast mechanism can predict how long it has to wait before — with high
-probability - the message has been propagated to every Member of the Context. Thus, we can use this TTL as the maximum "
-age" of the Message within the system. On every gossip round, a message's age is incremented. When messages are
-gossiped, the age of a message received is max merged with the currently stored message state on the receiver. Messages
-are garbage collected when the age of the message is greater than the calculated Time To Live of the Context.
-
-Thus, the lifetime of a message is tracked independent of the gossip interval — it's simply the number of gossip rounds
-modulo the TTL. When the number of messages stored in a particular Member exceeds the parameterized buffer size,
-messages will be GC'd, starting without of date messages (i.e. > maxAge) and progressing to older but still "live"
-messages to reach the parameterized buffer size. Thus, even with low-buffer maximum sizes, reliable broadcast can
-proceed
-even in the presence of byzantine adversaries without buffer overflow.
+The lifetime of a message is tracked independent of the gossip interval — it's simply the number of gossip rounds
+modulo the TTL. When messages stored in a particular Member exceed the parameterized buffer size, messages are GC'd,
+starting with out-of-date messages (i.e., > maxAge) and progressing to older but still "live" messages to reach the
+parameterized buffer size. Even with low buffer maximum sizes, gossip can proceed in the presence of Byzantine
+adversaries without buffer overflow.

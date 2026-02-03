@@ -19,10 +19,10 @@ import com.hellblazer.delos.membership.SigningMember;
 /**
  * @author hal.hildebrand
  */
-public interface ReliableBroadcast extends Link {
+public interface Gossip extends Link {
 
-    static ReliableBroadcast getLocalLoopback(SigningMember member) {
-        return new ReliableBroadcast() {
+    static Gossip getLocalLoopback(SigningMember member) {
+        return new Gossip() {
 
             @Override
             public void close() throws IOException {

@@ -21,7 +21,7 @@ import com.hellblazer.delos.cryptography.proto.Biff;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.membership.SigningMember;
 import com.hellblazer.delos.membership.messaging.beg.comms.BegServer;
-import com.hellblazer.delos.membership.messaging.beg.comms.ReliableBroadcast;
+import com.hellblazer.delos.membership.messaging.beg.comms.Gossip;
 import com.hellblazer.delos.messaging.proto.*;
 import com.hellblazer.delos.utils.Utils;
 import io.grpc.StatusRuntimeException;
@@ -71,7 +71,7 @@ public class BoundedEpidemicGossip {
     private final MessageAdapter                                   adapter;
     private final MessageBuffer                                    buffer;
     private final Map<UUID, MessageHandler>                        channelHandlers = new ConcurrentHashMap<>();
-    private final CommonCommunications<ReliableBroadcast, Service> comm;
+    private final CommonCommunications<Gossip, Service> comm;
     private final Context<Member>                                  context;
     private final SigningMember                                    member;
     private final BegMetrics                                       metrics;
@@ -110,7 +110,7 @@ public class BoundedEpidemicGossip {
         );
         this.comm = communications.create(member, context.getId(), new Service(),
                                           r -> new BegServer(communications.getClientIdentityProvider(), metrics, r),
-                                          getCreate(metrics), ReliableBroadcast.getLocalLoopback(member));
+                                          getCreate(metrics), Gossip.getLocalLoopback(member));
     }
 
     public static MessageAdapter defaultMessageAdapter(Context<Member> context, DigestAlgorithm algo) {
@@ -367,7 +367,7 @@ public class BoundedEpidemicGossip {
         });
     }
 
-    private Reconcile gossipRound(ReliableBroadcast link, int ring) {
+    private Reconcile gossipRound(Gossip link, int ring) {
         if (!started.get()) {
             return null;
         }
@@ -387,7 +387,7 @@ public class BoundedEpidemicGossip {
         }
     }
 
-    private void handle(Reconcile gossip, ReliableBroadcast link, int ring, long startNanos) {
+    private void handle(Reconcile gossip, Gossip link, int ring, long startNanos) {
         try {
             buffer.receive(gossip.getUpdatesList());
             var biff = gossip.getDigests();
@@ -416,7 +416,7 @@ public class BoundedEpidemicGossip {
 
             // Parallel fan-out to all successors using virtual threads (Delos-d5un)
             // O(duration + max(latency)) instead of O(n × duration)
-            record GossipResult(Reconcile reconcile, ReliableBroadcast link, int ring) {}
+            record GossipResult(Reconcile reconcile, Gossip link, int ring) {}
             try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
                 var futures = successors.stream()
                     .map(i -> CompletableFuture.supplyAsync(() -> {
