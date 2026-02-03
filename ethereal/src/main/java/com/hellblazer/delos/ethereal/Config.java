@@ -64,6 +64,7 @@ import java.util.Objects;
  * @param gossipRetryLimit Maximum number of retries for failed gossip RPC calls (1-10, default 3)
  * @param gossipBaseBackoffMs Base backoff delay in milliseconds for gossip retry (50-1000ms, default 100ms)
  * @param gossipMaxBackoffMs Maximum backoff delay in milliseconds for gossip retry (1000-30000ms, default 5000ms)
+ * @param consumerThreadCount Number of threads for parallel unit consumption (1-32, default min(4, cores-1))
  * @author hal.hildebrand
  */
 public record Config(String label, short nProc, int epochLength, short pid, Signer signer,
@@ -71,7 +72,7 @@ public record Config(String label, short nProc, int epochLength, short pid, Sign
                      double fpr, long unitTimeoutMillis, long timeoutCheckIntervalMillis,
                      long shutdownDrainTimeoutMillis, long parentFailureRetryTimeoutMillis,
                      ConsumerErrorHandler consumerErrorHandler, int gossipRetryLimit, long gossipBaseBackoffMs,
-                     long gossipMaxBackoffMs) {
+                     long gossipMaxBackoffMs, int consumerThreadCount) {
 
     public static Builder newBuilder() {
         return new Builder();
@@ -106,6 +107,7 @@ public record Config(String label, short nProc, int epochLength, short pid, Sign
         private int                    gossipRetryLimit             = 3;      // Default 3 retries
         private long                   gossipBaseBackoffMs          = 100L;   // Default 100ms
         private long                   gossipMaxBackoffMs           = 5000L;  // Default 5000ms
+        private int                    consumerThreadCount          = Math.max(1, Math.min(4, Runtime.getRuntime().availableProcessors() - 1));
         private WeakThresholdKey       wtk;
 
         public Builder() {
@@ -161,10 +163,14 @@ public record Config(String label, short nProc, int epochLength, short pid, Sign
                 throw new IllegalArgumentException(
                     "gossipMaxBackoffMs must be between 1000 and 30000 (1-30 seconds): " + gossipMaxBackoffMs);
             }
+            if (consumerThreadCount < 1 || consumerThreadCount > 32) {
+                throw new IllegalArgumentException(
+                    "consumerThreadCount must be between 1 and 32: " + consumerThreadCount);
+            }
             return new Config(label, nProc, epochLength, pid, signer, digestAlgorithm, numberOfEpochs, wtk, bias, fpr,
                               unitTimeoutMillis, timeoutCheckIntervalMillis, shutdownDrainTimeoutMillis,
                               parentFailureRetryTimeoutMillis, consumerErrorHandler, gossipRetryLimit,
-                              gossipBaseBackoffMs, gossipMaxBackoffMs);
+                              gossipBaseBackoffMs, gossipMaxBackoffMs, consumerThreadCount);
         }
 
         @Override
@@ -344,6 +350,15 @@ public record Config(String label, short nProc, int epochLength, short pid, Sign
 
         public Builder setGossipMaxBackoffMs(long gossipMaxBackoffMs) {
             this.gossipMaxBackoffMs = gossipMaxBackoffMs;
+            return this;
+        }
+
+        public int getConsumerThreadCount() {
+            return consumerThreadCount;
+        }
+
+        public Builder setConsumerThreadCount(int consumerThreadCount) {
+            this.consumerThreadCount = consumerThreadCount;
             return this;
         }
     }
