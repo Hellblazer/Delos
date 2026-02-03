@@ -14,8 +14,8 @@ Delos is a **distributed multi-tenant database platform** providing Byzantine fa
 * **Cryptography**: Self-describing digests, signatures, identifiers; Bloom filters and windows
 * **Identity**: KERI-based decentralized identity, key management, attestation, bootstrapping
 * **Networking**: MTLS (KERI certificates), multi-instance GRPC routing, virtual synchrony overlay
-* **Consensus**: Byzantine fault-tolerant atomic broadcast (Ethereal) with reliable broadcast
-* **State Machines**: CHOAM — replicated SQL state machines with materialized views, DDL/DML/stored procedures
+* **Consensus**: Byzantine fault-tolerant atomic broadcast (Ethereal) with Bounded Epidemic Gossip (BEG)
+* **State Machines**: CHOAM — replicated SQL state machines with materialized views, DDL/DML/stored procedures, BLS batch verification
 * **Access Control**: Zanzibar-style relation-based access control (Delphinius)
 * **Witness Service**: Byzantine detection (5 detectors), receipt aggregation, multi-backend storage with compression
 * **Production Testing**: 168-hour continuous operation testing with chaos engineering, heap dump analysis, state consistency verification, and degradation detection
@@ -25,9 +25,10 @@ Delos is a **distributed multi-tenant database platform** providing Byzantine fa
 Delos is an experimental distributed platform—well-tested subsystems, solid architecture, but not yet production-deployed:
 
 **Well-Tested Subsystems**:
-- **Fireflies** (membership service): Extensively tested — Critical ReservoirSampler bug eliminated, all canary tests passing at scale (100 nodes)
-- **Ethereal** (consensus): Well-tested and hardened, epoch termination race condition fixed
-- **CHOAM** (state machine replication): Comprehensive testing with Byzantine concurrency validation
+- **Fireflies** (membership service): Extensively tested — Critical ReservoirSampler bug eliminated, all canary tests passing at scale (100 nodes). FirefliesWitnessAdapter maps KERI thresholds to Fireflies contexts with production metrics.
+- **Ethereal** (consensus): Well-tested and hardened, parallel unit consumer for improved throughput, fine-grained locking in Adder
+- **CHOAM** (state machine replication): Comprehensive testing with Byzantine concurrency validation, BLS batch signature verification with feature flags and circuit breaker
+- **Bounded Epidemic Gossip (BEG)**: Production-hardened message dissemination with circuit breaker, health checks, Byzantine defense, and comprehensive metrics
 - **Stereotomy/KERI** (identity): Fully integrated
 - **SQL-State**: Mature with comprehensive testing
 - **Domain Sockets**: Pure Java NIO implementation (JEP 380) — No native dependencies, full GraalVM isolates compatibility
@@ -374,7 +375,7 @@ Because Delos uses GRPC/Proto and JOOQ code generation, IDEs occasionally need a
 
 Large tests require 8+ GB RAM and validate Byzantine fault tolerance, membership convergence, and consensus at scale. They're designed as **canaries, not flaky tests** — failures indicate real bugs.
 
-**Metrics**: Dropwizard Metrics are integrated into Fireflies, Reliable Broadcast, Ethereal, and CHOAM modules.
+**Metrics**: Dropwizard Metrics are integrated into Fireflies, Bounded Epidemic Gossip (BEG), Ethereal, and CHOAM modules.
 
 ## License
 
