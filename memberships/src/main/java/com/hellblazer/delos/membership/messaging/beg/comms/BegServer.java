@@ -5,7 +5,7 @@
  * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
  * This file is part of the Delos Distributed Systems Framework.
  */
-package com.hellblazer.delos.membership.messaging.rbc.comms;
+package com.hellblazer.delos.membership.messaging.beg.comms;
 
 import com.google.protobuf.Empty;
 import com.hellblazer.delos.messaging.proto.MessageBff;
@@ -14,8 +14,8 @@ import com.hellblazer.delos.messaging.proto.Reconcile;
 import com.hellblazer.delos.messaging.proto.ReconcileContext;
 import com.hellblazer.delos.archipelago.RoutableService;
 import com.hellblazer.delos.cryptography.Digest;
-import com.hellblazer.delos.membership.messaging.rbc.RbcMetrics;
-import com.hellblazer.delos.membership.messaging.rbc.ReliableBroadcaster.Service;
+import com.hellblazer.delos.membership.messaging.beg.BegMetrics;
+import com.hellblazer.delos.membership.messaging.beg.BoundedEpidemicGossip.Service;
 import com.hellblazer.delos.protocols.ClientIdentity;
 
 import io.grpc.stub.StreamObserver;
@@ -23,12 +23,12 @@ import io.grpc.stub.StreamObserver;
 /**
  * @author hal.hildebrand
  */
-public class RbcServer extends RBCImplBase {
-    private final RbcMetrics               metrics;
+public class BegServer extends RBCImplBase {
+    private final BegMetrics               metrics;
     private final RoutableService<Service> routing;
     private       ClientIdentity           identity;
 
-    public RbcServer(ClientIdentity identity, RbcMetrics metrics, RoutableService<Service> r) {
+    public BegServer(ClientIdentity identity, BegMetrics metrics, RoutableService<Service> r) {
         this.metrics = metrics;
         this.identity = identity;
         this.routing = r;

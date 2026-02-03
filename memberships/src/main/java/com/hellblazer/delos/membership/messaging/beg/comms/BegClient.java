@@ -5,38 +5,52 @@
  * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
  * This file is part of the Delos Distributed Systems Framework.
  */
-package com.hellblazer.delos.membership.messaging.rbc.comms;
+package com.hellblazer.delos.membership.messaging.beg.comms;
 
 import com.hellblazer.delos.archipelago.ManagedServerChannel;
 import com.hellblazer.delos.archipelago.ServerConnectionCache.CreateClientCommunications;
 import com.hellblazer.delos.membership.Member;
-import com.hellblazer.delos.membership.messaging.rbc.RbcMetrics;
+import com.hellblazer.delos.membership.messaging.beg.BegMetrics;
 import com.hellblazer.delos.messaging.proto.MessageBff;
 import com.hellblazer.delos.messaging.proto.RBCGrpc;
 import com.hellblazer.delos.messaging.proto.Reconcile;
 import com.hellblazer.delos.messaging.proto.ReconcileContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 
 /**
  * @author hal.hildebrand
  * @since 220
  */
-public class RbcClient implements ReliableBroadcast {
+public class BegClient implements ReliableBroadcast {
+    private static final Logger   log             = LoggerFactory.getLogger(BegClient.class);
+    private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(5);
 
     private final ManagedServerChannel    channel;
     private final RBCGrpc.RBCBlockingStub client;
-    private final RbcMetrics              metrics;
+    private final BegMetrics              metrics;
+    private final Duration                timeout;
 
-    public RbcClient(ManagedServerChannel c, RbcMetrics metrics) {
+    public BegClient(ManagedServerChannel c, BegMetrics metrics) {
+        this(c, metrics, DEFAULT_TIMEOUT);
+    }
+
+    public BegClient(ManagedServerChannel c, BegMetrics metrics, Duration timeout) {
         this.channel = c;
         this.client = c.wrap(RBCGrpc.newBlockingStub(c));
         this.metrics = metrics;
+        this.timeout = timeout != null ? timeout : DEFAULT_TIMEOUT;
     }
 
-    public static CreateClientCommunications<ReliableBroadcast> getCreate(RbcMetrics metrics) {
-        return (c) -> {
-            return new RbcClient(c, metrics);
-        };
+    public static CreateClientCommunications<ReliableBroadcast> getCreate(BegMetrics metrics) {
+        return getCreate(metrics, DEFAULT_TIMEOUT);
+    }
 
+    public static CreateClientCommunications<ReliableBroadcast> getCreate(BegMetrics metrics, Duration timeout) {
+        return (c) -> new BegClient(c, metrics, timeout);
     }
 
     @Override
@@ -57,7 +71,8 @@ public class RbcClient implements ReliableBroadcast {
             metrics.recordOutboundBandwidth(serializedSize);
             metrics.recordOutboundGossipSize(serializedSize);
         }
-        var result = client.gossip(request);
+        // Apply RPC timeout to prevent hanging calls (Delos-l03r)
+        var result = client.withDeadlineAfter(timeout.toMillis(), TimeUnit.MILLISECONDS).gossip(request);
         if (metrics != null) {
             metrics.recordOutboundGossipDuration(System.nanoTime() - start);
             var serializedSize = result.getSerializedSize();
@@ -85,12 +100,17 @@ public class RbcClient implements ReliableBroadcast {
             metrics.recordOutboundUpdateSize(serializedSize);
         }
         try {
-            client.update(request);
+            // Apply RPC timeout to prevent hanging calls (Delos-l03r)
+            client.withDeadlineAfter(timeout.toMillis(), TimeUnit.MILLISECONDS).update(request);
+        } catch (Throwable e) {
+            // Log failures for debugging (Delos-3nen)
+            log.debug("Update failed to {}: {}", channel.getMember().getId(), e.getMessage());
+            log.trace("Update failure details", e);
+        } finally {
+            // Record duration on both success and failure for SLA monitoring
             if (metrics != null) {
                 metrics.recordOutboundUpdateDuration(System.nanoTime() - start);
             }
-        } catch (Throwable e) {
-            // Timer already handled by not recording on exception
         }
     }
 }

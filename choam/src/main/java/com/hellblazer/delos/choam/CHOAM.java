@@ -35,9 +35,9 @@ import com.hellblazer.delos.membership.GroupIterator;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.membership.RoundScheduler;
 import com.hellblazer.delos.membership.stereotomy.ControlledIdentifierMember;
-import com.hellblazer.delos.membership.messaging.rbc.ReliableBroadcaster;
-import com.hellblazer.delos.membership.messaging.rbc.ReliableBroadcaster.MessageAdapter;
-import com.hellblazer.delos.membership.messaging.rbc.ReliableBroadcaster.Msg;
+import com.hellblazer.delos.membership.messaging.beg.BoundedEpidemicGossip;
+import com.hellblazer.delos.membership.messaging.beg.BoundedEpidemicGossip.MessageAdapter;
+import com.hellblazer.delos.membership.messaging.beg.BoundedEpidemicGossip.Msg;
 import com.hellblazer.delos.messaging.proto.AgedMessageOrBuilder;
 import com.hellblazer.delos.utils.Utils;
 import io.grpc.StatusRuntimeException;
@@ -82,7 +82,7 @@ public class CHOAM implements ConsensusEngine {
     private final    Map<ULong, CheckpointState>                           cachedCheckpoints     = new ConcurrentHashMap<>();
     private final    CheckpointManager                                    checkpointManager;
     private final    BlockProcessor                                       blockProcessor;
-    private final    ReliableBroadcaster                                   combine;
+    private final    BoundedEpidemicGossip                                  combine;
     private final    CommonCommunications<Terminal, Concierge>             comm;
     private final    AtomicReference<Committee>                            current               = new AtomicReference<>();
     private final    AtomicReference<CompletableFuture<SynchronizedState>> futureBootstrap       = new AtomicReference<>();
@@ -128,9 +128,9 @@ public class CHOAM implements ConsensusEngine {
         var adapter = new MessageAdapter(_ -> true, this::signatureHash, _ -> Collections.emptyList(), (_, any) -> any,
                                          AgedMessageOrBuilder::getContent);
 
-        combine = new ReliableBroadcaster(bContext, params.member(), params.combine(), params.communications(),
-                                          params.metrics() == null ? null : params.metrics().getCombineMetrics(),
-                                          adapter);
+        combine = new BoundedEpidemicGossip(bContext, params.member(), params.combine(), params.communications(),
+                                            params.metrics() == null ? null : params.metrics().getCombineMetrics(),
+                                            adapter);
         combine.registerHandler((_, messages) -> Thread.ofVirtual().start(() -> {
             if (!started.get()) {
                 return;
@@ -375,7 +375,7 @@ public class CHOAM implements ConsensusEngine {
     public void rotateViewKeys(ViewChange viewChange) {
         var context = viewChange.context();
         var diadem = viewChange.diadem();
-        log.trace("Setting RBC Context to: {} on: {}", context, params.member().getId());
+        log.trace("Setting BEG Context to: {} on: {}", context, params.member().getId());
         ((DelegatedContext<Member>) combine.getContext()).setContext(context);
         var c = current.get();
         if (c != null) {

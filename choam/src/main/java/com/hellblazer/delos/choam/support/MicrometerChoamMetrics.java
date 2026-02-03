@@ -10,8 +10,8 @@ package com.hellblazer.delos.choam.support;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.ethereal.memberships.comm.EtherealMetrics;
 import com.hellblazer.delos.ethereal.memberships.comm.MicrometerEtherealMetrics;
-import com.hellblazer.delos.membership.messaging.rbc.MicrometerRbcMetrics;
-import com.hellblazer.delos.membership.messaging.rbc.RbcMetrics;
+import com.hellblazer.delos.membership.messaging.beg.MicrometerBegMetrics;
+import com.hellblazer.delos.membership.messaging.beg.BegMetrics;
 import com.hellblazer.delos.protocols.MicrometerEndpointMetrics;
 import com.hellblazer.delos.protocols.MicrometerLimitsRegistry;
 import com.netflix.concurrency.limits.MetricRegistry;
@@ -31,7 +31,7 @@ import java.util.concurrent.TimeoutException;
  */
 public class MicrometerChoamMetrics extends MicrometerEndpointMetrics implements ChoamMetrics {
 
-    private final RbcMetrics                combineMetrics;
+    private final BegMetrics                combineMetrics;
     private final Counter                   cancelledTransactions;
     private final Counter                   completedTransactions;
     private final Counter                   droppedReassemblies;
@@ -67,7 +67,7 @@ public class MicrometerChoamMetrics extends MicrometerEndpointMetrics implements
         var contextTag = context.shortString();
 
         // Create nested metrics
-        combineMetrics = new MicrometerRbcMetrics(registry);
+        combineMetrics = new MicrometerBegMetrics(registry);
         producerMetrics = new MicrometerEtherealMetrics(context, "producer", registry);
         genesisMetrics = new MicrometerEtherealMetrics(context, "genesis", registry);
 
@@ -203,7 +203,7 @@ public class MicrometerChoamMetrics extends MicrometerEndpointMetrics implements
     }
 
     @Override
-    public RbcMetrics getCombineMetrics() {
+    public BegMetrics getCombineMetrics() {
         return combineMetrics;
     }
 

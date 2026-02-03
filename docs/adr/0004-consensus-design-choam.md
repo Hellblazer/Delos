@@ -78,8 +78,8 @@ This ADR documents the architecture of the CHOAM (Combine Honnete Ober Advancer 
    - Consensus driven by Ethereal DAG: `Dag.validate()` checks BFT (f < n/3)
    - Location: `choam/src/main/java/com/hellblazer/delos/choam/CHOAM.java`
 
-8. **Reliable Block Distribution**
-   - ReliableBroadcaster using gossip + ring-based 2/3+1 broadcast
+8. **Best-Effort Block Distribution**
+   - BoundedEpidemicGossip using gossip + ring-based 2/3+1 broadcast
    - Only committee members produce blocks; others receive via broadcast
    - Bounded message buffer with garbage collection
    - Messages age out; periodic rebroadcast during quiescence
