@@ -16,10 +16,9 @@ import com.hellblazer.delos.choam.support.HashedCertifiedBlock;
 import com.hellblazer.delos.choam.support.InvalidTransaction;
 import com.hellblazer.delos.choam.support.SubmittedTransaction;
 import com.hellblazer.delos.choam.support.TransactionFailed;
-import com.hellblazer.delos.cryptography.Digest;
-import com.hellblazer.delos.cryptography.JohnHancock;
-import com.hellblazer.delos.cryptography.Signer;
-import com.hellblazer.delos.cryptography.Verifier;
+import com.hellblazer.delos.choam.support.BatchVerificationHelper;
+import com.hellblazer.delos.cryptography.*;
+import com.hellblazer.delos.cryptography.bls.BLSProvider;
 import com.hellblazer.delos.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,8 +26,7 @@ import org.slf4j.LoggerFactory;
 import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -86,6 +84,126 @@ public class Session {
                                buff,
                                transaction.getContent().asReadOnlyByteBuffer());
     }
+
+    /**
+     * Batch verify multiple transactions using BLS batch verification where possible.
+     * <p>
+     * Each transaction is verified against its corresponding verifier. BLS-capable
+     * transactions are batched for better performance; others are verified individually.
+     * <p>
+     * Note: Unlike block certification batch verification (same message, multiple signers),
+     * transaction batch verification uses different messages per transaction. BLS supports
+     * this via aggregate verification.
+     *
+     * @param transactions list of transactions to verify
+     * @param verifiers    list of verifiers (one per transaction, same order)
+     * @return array of verification results (true/false for each transaction)
+     * @throws IllegalArgumentException if lists have different sizes
+     */
+    public static boolean[] verifyBatch(List<Transaction> transactions, List<Verifier> verifiers) {
+        if (transactions.size() != verifiers.size()) {
+            throw new IllegalArgumentException(
+                "Transaction and verifier lists must have same size: " + transactions.size() + " vs " + verifiers.size());
+        }
+
+        if (transactions.isEmpty()) {
+            return new boolean[0];
+        }
+
+        var results = new boolean[transactions.size()];
+        var blsEntries = new ArrayList<TransactionEntry>();
+        var nonBlsEntries = new ArrayList<TransactionEntry>();
+
+        // Separate BLS-capable from non-BLS
+        for (int i = 0; i < transactions.size(); i++) {
+            var entry = new TransactionEntry(i, transactions.get(i), verifiers.get(i));
+            if (BatchVerificationHelper.isBLSCapable(entry.verifier)) {
+                blsEntries.add(entry);
+            } else {
+                nonBlsEntries.add(entry);
+            }
+        }
+
+        // Batch verify BLS transactions if there are enough
+        if (blsEntries.size() >= 3) {
+            var publicKeys = new ArrayList<byte[]>();
+            var messages = new ArrayList<byte[]>();
+            var signatures = new ArrayList<byte[]>();
+
+            for (var entry : blsEntries) {
+                var key = entry.verifier.getKey();
+                if (key == null) {
+                    nonBlsEntries.add(entry);
+                    continue;
+                }
+                publicKeys.add(key.getEncoded());
+                messages.add(buildTransactionMessage(entry.transaction));
+
+                var sig = JohnHancock.of(entry.transaction.getSignature());
+                if (sig.getBytes().length > 0) {
+                    signatures.add(sig.getBytes()[0]);
+                } else {
+                    nonBlsEntries.add(entry);
+                }
+            }
+
+            if (publicKeys.size() == signatures.size() && !publicKeys.isEmpty()) {
+                try {
+                    boolean allValid = BLSProvider.getDefault().batchVerify(publicKeys, messages, signatures);
+                    if (allValid) {
+                        // Mark all BLS entries as valid
+                        for (var entry : blsEntries) {
+                            if (entry.verifier.getKey() != null) {
+                                results[entry.index] = true;
+                            }
+                        }
+                    } else {
+                        // Batch failed - verify individually
+                        for (var entry : blsEntries) {
+                            results[entry.index] = verify(entry.transaction, entry.verifier);
+                        }
+                    }
+                } catch (Exception e) {
+                    // Batch verification error - fall back to individual
+                    log.debug("Batch transaction verification failed, falling back to individual", e);
+                    for (var entry : blsEntries) {
+                        results[entry.index] = verify(entry.transaction, entry.verifier);
+                    }
+                }
+            } else {
+                // Size mismatch - verify individually
+                nonBlsEntries.addAll(blsEntries.stream()
+                                               .filter(e -> e.verifier.getKey() != null)
+                                               .toList());
+            }
+        } else {
+            // Too few for batch
+            nonBlsEntries.addAll(blsEntries);
+        }
+
+        // Individually verify non-BLS transactions
+        for (var entry : nonBlsEntries) {
+            results[entry.index] = verify(entry.transaction, entry.verifier);
+        }
+
+        return results;
+    }
+
+    private static byte[] buildTransactionMessage(Transaction transaction) {
+        ByteBuffer nonceBuf = ByteBuffer.allocate(4);
+        nonceBuf.putInt(transaction.getNonce());
+        var source = transaction.getSource().toByteString().toByteArray();
+        var nonce = nonceBuf.array();
+        var content = transaction.getContent().toByteArray();
+
+        var message = new byte[source.length + nonce.length + content.length];
+        System.arraycopy(source, 0, message, 0, source.length);
+        System.arraycopy(nonce, 0, message, source.length, nonce.length);
+        System.arraycopy(content, 0, message, source.length + nonce.length, content.length);
+        return message;
+    }
+
+    private record TransactionEntry(int index, Transaction transaction, Verifier verifier) {}
 
     public static <T> CompletableFuture<T> retryNesting(Supplier<CompletableFuture<T>> supplier, int maxRetries) {
         CompletableFuture<T> cf = supplier.get();
