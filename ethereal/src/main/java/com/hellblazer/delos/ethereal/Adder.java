@@ -24,7 +24,7 @@ import org.slf4j.LoggerFactory;
 import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Stream;
 
 import static com.hellblazer.delos.ethereal.Creator.parentsOnPreviousLevel;
@@ -48,7 +48,7 @@ public class Adder {
     private final        Dag                        dag;
     private final        int                        epoch;
     private final        Set<Digest>                failed;
-    private final        ReentrantLock              lock            = new ReentrantLock(true);
+    private final        ReentrantReadWriteLock     lock            = new ReentrantReadWriteLock(true);
     private final        int                        maxSize;
     private final        EtherealMetrics            metrics;
     private final        Map<Long, List<Waiting>>   missing         = new TreeMap<>();
@@ -115,7 +115,7 @@ public class Adder {
 
     public void close() {
         log.trace("Closing adder epoch: {} on: {}", dag.epoch(), conf.logLabel());
-        locked(() -> {
+        writeLocked(() -> {
             waiting.clear();
             waitingById.clear();
             waitingForRound.clear();
@@ -131,7 +131,7 @@ public class Adder {
     }
 
     public String dump() {
-        return locked(() -> {
+        return readLocked(() -> {
             var buff = new StringBuffer();
             buff.append('\t')
                 .append("pid: ")
@@ -193,7 +193,7 @@ public class Adder {
      * @return the Have state of the receiver
      */
     public Have have() {
-        return locked(() -> {
+        return readLocked(() -> {
             return Have.newBuilder()
                        .setEpoch(epoch)
                        .setHaveCommits(haveCommits())
@@ -216,7 +216,7 @@ public class Adder {
             log.trace("Produced duplicated unit: {} on: {}", u, conf.logLabel());
             return;
         }
-        locked(() -> {
+        writeLocked(() -> {
             assert u.creator() == conf.pid();
             round = u.height();
             log.trace("Producing unit: {}:{} on: {}", u.hash(), u, conf.logLabel());
@@ -239,7 +239,7 @@ public class Adder {
     public Missing updateFor(Have haves) {
         assert haves.getEpoch() == epoch : "Have from incorrect epoch: " + haves.getEpoch() + " expected: " + epoch
         + " on: " + conf.logLabel();
-        return locked(() -> {
+        return readLocked(() -> {
             final var builder = Missing.newBuilder();
             builder.setEpoch(epoch);
             Adder.this.update(haves, builder);
@@ -257,7 +257,7 @@ public class Adder {
     public void updateFrom(Missing update) {
         assert update.getEpoch() == epoch : "Update from incorrect epoch: " + update.getEpoch() + " expected: " + epoch
         + " on: " + conf.logLabel();
-        locked(() -> {
+        writeLocked(() -> {
             update.getUnitsList().forEach(u -> {
                 final var signature = JohnHancock.from(u.getSignature());
                 final var digest = signature.toDigest(conf.digestAlgorithm());
@@ -653,7 +653,7 @@ public class Adder {
      * Should be called periodically (e.g., every 1 second) by consensus loop.
      */
     public void runTimeoutCheck() {
-        locked(() -> {
+        writeLocked(() -> {
             var now = System.currentTimeMillis();
             var staleUnits = new ArrayList<Digest>();
 
@@ -846,20 +846,56 @@ public class Adder {
     }
 
     /**
-     * Exclusively lock the state of the receiver with metrics instrumentation.
+     * Acquire read lock for parallel read operations with metrics instrumentation.
+     * Multiple threads can hold the read lock simultaneously.
      *
      * @param <T>
      * @param call
      * @return
      */
-    private <T> T locked(Callable<T> call) {
+    private <T> T readLocked(Callable<T> call) {
+        var readLock = lock.readLock();
         long waitStart = System.nanoTime();
-        boolean contended = !lock.tryLock();
+        boolean contended = !readLock.tryLock();
         if (contended) {
             if (metrics != null) {
                 metrics.incrementLockContentionCount();
             }
-            lock.lock();
+            readLock.lock();
+        }
+        long holdStart = System.nanoTime();
+        if (metrics != null) {
+            metrics.recordAdderLockWaitDuration(holdStart - waitStart);
+        }
+        try {
+            return call.call();
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        } finally {
+            if (metrics != null) {
+                metrics.recordAdderLockHoldDuration(System.nanoTime() - holdStart);
+            }
+            readLock.unlock();
+        }
+    }
+
+    /**
+     * Exclusively lock the state of the receiver with metrics instrumentation.
+     * Write lock is exclusive - no other readers or writers can proceed.
+     *
+     * @param <T>
+     * @param call
+     * @return
+     */
+    private <T> T writeLocked(Callable<T> call) {
+        var writeLock = lock.writeLock();
+        long waitStart = System.nanoTime();
+        boolean contended = !writeLock.tryLock();
+        if (contended) {
+            if (metrics != null) {
+                metrics.incrementLockContentionCount();
+            }
+            writeLock.lock();
         }
         long holdStart = System.nanoTime();
         if (metrics != null) {
@@ -874,23 +910,25 @@ public class Adder {
                 metrics.recordAdderLockHoldDuration(System.nanoTime() - holdStart);
                 metrics.recordBacklogSize(waiting.size());
             }
-            lock.unlock();
+            writeLock.unlock();
         }
     }
 
     /**
      * Exclusively lock the state of the receiver with metrics instrumentation.
+     * Write lock is exclusive - no other readers or writers can proceed.
      *
      * @param r
      */
-    private void locked(Runnable r) {
+    private void writeLocked(Runnable r) {
+        var writeLock = lock.writeLock();
         long waitStart = System.nanoTime();
-        boolean contended = !lock.tryLock();
+        boolean contended = !writeLock.tryLock();
         if (contended) {
             if (metrics != null) {
                 metrics.incrementLockContentionCount();
             }
-            lock.lock();
+            writeLock.lock();
         }
         long holdStart = System.nanoTime();
         if (metrics != null) {
@@ -903,7 +941,7 @@ public class Adder {
                 metrics.recordAdderLockHoldDuration(System.nanoTime() - holdStart);
                 metrics.recordBacklogSize(waiting.size());
             }
-            lock.unlock();
+            writeLock.unlock();
         }
     }
 
@@ -1016,7 +1054,7 @@ public class Adder {
      * @param wp the waiting unit experiencing transient failure
      */
     void markTransientFailure(Waiting wp) {
-        locked(() -> {
+        writeLocked(() -> {
             wp.markTransientFailure();
             transientFailures.put(wp.hash(), wp);
             log.debug("Marked transient failure (attempt {}): {} on: {}", wp.getTransientFailureCount(), wp,
@@ -1034,7 +1072,7 @@ public class Adder {
      * @param wp the waiting unit whose failure was resolved
      */
     void resolveTransientFailure(Waiting wp) {
-        locked(() -> {
+        writeLocked(() -> {
             wp.clearTransientFailure();
             transientFailures.remove(wp.hash());
             log.debug("Resolved transient failure: {} on: {}", wp, conf.logLabel());
@@ -1051,7 +1089,7 @@ public class Adder {
      * Package-private for testing.
      */
     void processFailureTimeouts() {
-        locked(() -> {
+        writeLocked(() -> {
             var timedOut = new ArrayList<Waiting>();
             var timeout = conf.parentFailureRetryTimeoutMillis();
 
