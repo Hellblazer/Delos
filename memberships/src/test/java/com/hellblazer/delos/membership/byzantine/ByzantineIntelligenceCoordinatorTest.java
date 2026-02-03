@@ -174,6 +174,9 @@ class ByzantineIntelligenceCoordinatorTest {
         Thread.sleep(100);
         assertThat(coordinator.getTrackedMemberCount()).isGreaterThanOrEqualTo(1);
 
+        // Close coordinator to stop polling before checking reset state
+        // Otherwise there's a race: reset() clears state, but next poll repopulates it
+        coordinator.close();
         coordinator.reset();
 
         assertThat(coordinator.getTrackedMemberCount()).isZero();
