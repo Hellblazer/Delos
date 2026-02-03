@@ -35,6 +35,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.OptionalInt;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -68,7 +69,8 @@ public class ReliableBroadcaster {
         this.context = context;
         this.member = member;
         this.metrics = metrics;
-        buffer = new Buffer(context.timeToLive() + 1);
+        // Use configurable maxAge with fallback to context TTL (Delos-i9nd)
+        buffer = new Buffer(params.getMaxAge(context));
         this.comm = communications.create(member, context.getId(), new Service(),
                                           r -> new RbcServer(communications.getClientIdentityProvider(), metrics, r),
                                           getCreate(metrics), ReliableBroadcast.getLocalLoopback(member));
@@ -192,7 +194,8 @@ public class ReliableBroadcaster {
         }
         log.info("Starting Reliable Broadcaster[{}] for {}", context.getId(), member.getId());
         comm.register(context.getId(), new Service(), validator);
-        scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
+        // Use platform thread for scheduler - virtual threads are for I/O (Delos-rnsw)
+        scheduler = Executors.newScheduledThreadPool(1);
         // Start first round immediately (Delos-4ww4)
         scheduler.execute(Utils.wrapped(() -> oneRound(duration, scheduler), log));
     }
@@ -368,11 +371,18 @@ public class ReliableBroadcaster {
     }
 
     public record Parameters(int bufferSize, int maxMessages, DigestAlgorithm digestAlgorithm,
-                             double falsePositiveRate, int maxMessageSize) {
+                             double falsePositiveRate, int maxMessageSize, OptionalInt maxAgeOverride) {
         /**
          * Default maximum message size: 10 MB
          */
         public static final int DEFAULT_MAX_MESSAGE_SIZE = 10 * 1024 * 1024;
+
+        /**
+         * Get the effective maxAge, using override if set, otherwise default to context TTL + 1
+         */
+        public int getMaxAge(Context<?> context) {
+            return maxAgeOverride.orElse(context.timeToLive() + 1);
+        }
 
         public static Parameters.Builder newBuilder() {
             return new Builder();
@@ -384,6 +394,7 @@ public class ReliableBroadcaster {
             private double          falsePositiveRate = 0.0000125;
             private int             maxMessages       = 500;
             private int             maxMessageSize    = DEFAULT_MAX_MESSAGE_SIZE;
+            private OptionalInt     maxAgeOverride    = OptionalInt.empty();
 
             public Parameters build() {
                 // Validate all parameters (Delos-zpgo)
@@ -407,7 +418,13 @@ public class ReliableBroadcaster {
                 if (digestAlgorithm == null) {
                     throw new IllegalArgumentException("digestAlgorithm cannot be null");
                 }
-                return new Parameters(bufferSize, maxMessages, digestAlgorithm, falsePositiveRate, maxMessageSize);
+                maxAgeOverride.ifPresent(age -> {
+                    if (age <= 0) {
+                        throw new IllegalArgumentException("maxAgeOverride must be positive: " + age);
+                    }
+                });
+                return new Parameters(bufferSize, maxMessages, digestAlgorithm, falsePositiveRate,
+                                      maxMessageSize, maxAgeOverride);
             }
 
             @Override
@@ -463,6 +480,27 @@ public class ReliableBroadcaster {
                 this.maxMessageSize = maxMessageSize;
                 return this;
             }
+
+            public OptionalInt getMaxAgeOverride() {
+                return maxAgeOverride;
+            }
+
+            /**
+             * Set a custom maxAge override instead of deriving from context TTL.
+             * Useful for tuning retention independently of cluster size.
+             */
+            public Builder setMaxAgeOverride(int maxAge) {
+                this.maxAgeOverride = OptionalInt.of(maxAge);
+                return this;
+            }
+
+            /**
+             * Clear any maxAge override, reverting to context.timeToLive() + 1
+             */
+            public Builder clearMaxAgeOverride() {
+                this.maxAgeOverride = OptionalInt.empty();
+                return this;
+            }
         }
 
     }
@@ -488,11 +526,7 @@ public class ReliableBroadcaster {
     public class Service implements Router.ServiceRouting {
 
         public Reconcile gossip(MessageBff request, Digest from) {
-            Member predecessor = context.predecessor(request.getRing(), member);
-            if (predecessor == null || !from.equals(predecessor.getId())) {
-                log.trace("Invalid inbound messages gossip on {}:{} from: {} on ring: {} - not predecessor: {}",
-                          context.getId(), member.getId(), from, request.getRing(),
-                          predecessor == null ? "<null>" : predecessor.getId());
+            if (!validatePredecessor(request.getRing(), from, "gossip")) {
                 return Reconcile.getDefaultInstance();
             }
             return Reconcile.newBuilder()
@@ -502,14 +536,24 @@ public class ReliableBroadcaster {
         }
 
         public void update(ReconcileContext reconcile, Digest from) {
-            Member predecessor = context.predecessor(reconcile.getRing(), member);
-            if (predecessor == null || !from.equals(predecessor.getId())) {
-                log.info("Invalid inbound messages reconcile on {}:{} from: {} on ring: {} - not predecessor: {}",
-                         context.getId(), member.getId(), from, reconcile.getRing(),
-                         predecessor == null ? "<null>" : predecessor.getId());
+            if (!validatePredecessor(reconcile.getRing(), from, "update")) {
                 return;
             }
             buffer.receive(reconcile.getUpdatesList());
+        }
+
+        /**
+         * Validate that the sender is our predecessor on the specified ring (Delos-c2w5)
+         */
+        private boolean validatePredecessor(int ring, Digest from, String operation) {
+            Member predecessor = context.predecessor(ring, member);
+            if (predecessor == null || !from.equals(predecessor.getId())) {
+                log.debug("Invalid inbound {} on {}:{} from: {} on ring: {} - not predecessor: {}",
+                          operation, context.getId(), member.getId(), from, ring,
+                          predecessor == null ? "<null>" : predecessor.getId());
+                return false;
+            }
+            return true;
         }
     }
 
