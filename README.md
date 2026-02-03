@@ -14,7 +14,7 @@ Delos is a **distributed multi-tenant database platform** providing Byzantine fa
 * **Cryptography**: Self-describing digests, signatures, identifiers; Bloom filters and windows
 * **Identity**: KERI-based decentralized identity, key management, attestation, bootstrapping
 * **Networking**: MTLS (KERI certificates), multi-instance GRPC routing, virtual synchrony overlay
-* **Consensus**: Byzantine fault-tolerant atomic broadcast (Ethereal) with Bounded Epidemic Gossip (BEG)
+* **Consensus**: Byzantine fault-tolerant atomic broadcast (Ethereal with chRBC), block dissemination via Bounded Epidemic Gossip (BEG)
 * **State Machines**: CHOAM — replicated SQL state machines with materialized views, DDL/DML/stored procedures, BLS batch verification
 * **Access Control**: Zanzibar-style relation-based access control (Delphinius)
 * **Witness Service**: Byzantine detection (5 detectors), receipt aggregation, multi-backend storage with compression
