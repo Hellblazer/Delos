@@ -32,10 +32,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.Semaphore;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiFunction;
@@ -196,7 +193,8 @@ public class ReliableBroadcaster {
         log.info("Starting Reliable Broadcaster[{}] for {}", context.getId(), member.getId());
         comm.register(context.getId(), new Service(), validator);
         scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
-        schedule(duration, scheduler);
+        // Start first round immediately (Delos-4ww4)
+        scheduler.execute(Utils.wrapped(() -> oneRound(duration, scheduler), log));
     }
 
     public void stop() {
@@ -283,20 +281,43 @@ public class ReliableBroadcaster {
             long startNanos = metrics != null ? System.nanoTime() : 0;
             var successors = context.successors(member.getId(), m -> true, member);
             Collections.shuffle(successors);
-            successors.forEach(i -> {
-                var link = comm.connect(i.m());
-                if (link != null) {
-                    var g = gossipRound(link, i.ring());
-                    if (g != null) {
-                        handle(g, link, i.ring(), startNanos);
-                    }
-                }
-                try {
-                    Thread.sleep(duration.toMillis());
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            });
+
+            // Parallel fan-out to all successors using virtual threads (Delos-d5un)
+            // O(duration + max(latency)) instead of O(n × duration)
+            record GossipResult(Reconcile reconcile, ReliableBroadcast link, int ring) {}
+            try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+                var futures = successors.stream()
+                    .map(i -> CompletableFuture.supplyAsync(() -> {
+                        var link = comm.connect(i.m());
+                        if (link == null) return null;
+                        var g = gossipRound(link, i.ring());
+                        return g != null ? new GossipResult(g, link, i.ring()) : null;
+                    }, executor))
+                    .toList();
+
+                // Wait for all gossips to complete
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+                // Handle all results
+                futures.stream()
+                    .map(f -> {
+                        try {
+                            return f.join();
+                        } catch (Exception e) {
+                            log.debug("Gossip future failed: {}", e.getMessage());
+                            return null;
+                        }
+                    })
+                    .filter(Objects::nonNull)
+                    .forEach(r -> handle(r.reconcile, r.link, r.ring, startNanos));
+            }
+
+            // Single delay after parallel gossips
+            try {
+                Thread.sleep(duration.toMillis());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         } finally {
             // Tick once per round regardless of gossip success (Delos-tofw)
             if (started.get()) {
@@ -317,7 +338,19 @@ public class ReliableBroadcaster {
     }
 
     private void schedule(final Duration duration, ScheduledExecutorService scheduler) {
-        Thread.ofVirtual().start(Utils.wrapped(() -> oneRound(duration, scheduler), log));
+        if (!started.get()) {
+            return;
+        }
+        try {
+            // Use scheduler instead of creating new virtual thread (Delos-4ww4)
+            scheduler.schedule(
+                Utils.wrapped(() -> oneRound(duration, scheduler), log),
+                duration.toNanos(),
+                TimeUnit.NANOSECONDS
+            );
+        } catch (RejectedExecutionException e) {
+            // Scheduler shut down, ignore
+        }
     }
 
     @FunctionalInterface
@@ -353,6 +386,27 @@ public class ReliableBroadcaster {
             private int             maxMessageSize    = DEFAULT_MAX_MESSAGE_SIZE;
 
             public Parameters build() {
+                // Validate all parameters (Delos-zpgo)
+                if (bufferSize <= 0) {
+                    throw new IllegalArgumentException("bufferSize must be positive: " + bufferSize);
+                }
+                if (maxMessages <= 0) {
+                    throw new IllegalArgumentException("maxMessages must be positive: " + maxMessages);
+                }
+                if (maxMessages > bufferSize) {
+                    throw new IllegalArgumentException(
+                        "maxMessages (" + maxMessages + ") cannot exceed bufferSize (" + bufferSize + ")");
+                }
+                if (falsePositiveRate <= 0 || falsePositiveRate >= 1) {
+                    throw new IllegalArgumentException(
+                        "falsePositiveRate must be in (0, 1): " + falsePositiveRate);
+                }
+                if (maxMessageSize <= 0) {
+                    throw new IllegalArgumentException("maxMessageSize must be positive: " + maxMessageSize);
+                }
+                if (digestAlgorithm == null) {
+                    throw new IllegalArgumentException("digestAlgorithm cannot be null");
+                }
                 return new Parameters(bufferSize, maxMessages, digestAlgorithm, falsePositiveRate, maxMessageSize);
             }
 
@@ -479,7 +533,8 @@ public class ReliableBroadcaster {
 
         public BloomFilter<Digest> forReconcilliation() {
             var biff = new DigestBloomFilter(Entropy.nextBitsStreamLong(), params.bufferSize, params.falsePositiveRate);
-            state.keySet().stream().collect(Utils.toShuffledList()).forEach(biff::add);
+            // Bloom filter doesn't require ordering - skip shuffle (Delos-2ft7)
+            state.keySet().forEach(biff::add);
             return biff;
         }
 
@@ -515,11 +570,10 @@ public class ReliableBroadcaster {
         }
 
         public Iterable<? extends AgedMessage> reconcile(BloomFilter<Digest> biff, Digest from) {
+            // PriorityQueue sorts by age - no need to shuffle first (Delos-2ft7)
             PriorityQueue<state> mailBox = new PriorityQueue<>(
             Comparator.comparingInt(s -> s.age.get()));
             state.values()
-                 .stream()
-                 .collect(Utils.toShuffledList())
                  .stream()
                  .filter(s -> !biff.contains(s.hash))
                  .filter(s -> s.age.get() < maxAge)
@@ -633,14 +687,12 @@ public class ReliableBroadcaster {
         }
 
         private void purgeTheAged() {
-            Queue<state> candidates = new PriorityQueue<>(
-            Collections.reverseOrder((a, b) -> Integer.compare(a.age.get(), b.age.get())));
-            candidates.addAll(state.values());
-            for (ReliableBroadcaster.state m : candidates) {
-                if (m.age.get() > maxAge) {
-                    state.remove(m.hash);
-                } else {
-                    break;
+            // Direct iteration is O(n), vs O(n log n) for PriorityQueue (Delos-2ft7)
+            var iterator = state.values().iterator();
+            while (iterator.hasNext()) {
+                var entry = iterator.next();
+                if (entry.age.get() > maxAge) {
+                    iterator.remove();
                 }
             }
         }
