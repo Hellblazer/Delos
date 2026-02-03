@@ -88,7 +88,7 @@ public class Ethereal {
         this.maxSerializedSize = maxSerializedSize;
         this.metrics = metrics;
         this.verifiers = verifiers;
-        this.consumer = consumer(label);
+        this.consumer = consumer(label, conf.consumerThreadCount());
 
         creator = new Creator(config, ds, lastTiming, u -> {
             assert u.creator() == config.pid();
@@ -100,11 +100,12 @@ public class Ethereal {
         this.timeoutChecker = newSingleThreadScheduledExecutor(
             Thread.ofVirtual().name("Ethereal Timeout Checker[" + label + "]").factory());
 
-        log.trace("Configured {} processes {}", config.nProc(), config.logLabel());
+        log.trace("Configured {} processes, {} consumer threads {}", config.nProc(), conf.consumerThreadCount(),
+                  config.logLabel());
     }
 
-    private static ThreadPoolExecutor consumer(String label) {
-        return new ThreadPoolExecutor(1, 1, 10, TimeUnit.MINUTES, new PriorityBlockingQueue<>(),
+    private static ThreadPoolExecutor consumer(String label, int threadCount) {
+        return new ThreadPoolExecutor(threadCount, threadCount, 10, TimeUnit.MINUTES, new PriorityBlockingQueue<>(),
                                       Thread.ofVirtual().name("Ethereal Consumer[" + label + "]").factory(),
                                       (r, t) -> log.trace("Shutdown, cannot consume unit"));
     }
