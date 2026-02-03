@@ -309,18 +309,25 @@ public class Ethereal {
         final var handleTimingRounds = handleTimingRounds();
         Extender ext = new Extender(dg, config);
         final var lastTU = new AtomicReference<TimingRound>();
+        // Per-epoch lock to prevent TOCTOU race in timing round selection.
+        // The DAG's insert() method executes afterInsert hooks outside the write lock
+        // to enable concurrent hook execution. Without synchronization here, multiple
+        // threads can read the same lastTU value and both invoke chooseNextTimingUnits(),
+        // causing duplicate timing rounds to be output before CAS can detect the conflict.
+        final var timingLock = new Object();
         dg.afterInsert(u -> {
             if (!started.get()) {
                 return;
             }
 
-            final var current = lastTU.get();
-            final var next = ext.chooseNextTimingUnits(current, handleTimingRounds);
-            if (!lastTU.compareAndSet(current, next)) {
-                throw new IllegalStateException(
-                String.format("LastTU has been changed underneath us, expected: %s have: %s", current, next));
+            // Synchronize timing round selection to prevent duplicate outputs
+            synchronized (timingLock) {
+                final var current = lastTU.get();
+                final var next = ext.chooseNextTimingUnits(current, handleTimingRounds);
+                lastTU.set(next);  // Simple set is safe within synchronized block
             }
 
+            // Keep consumer execution outside synchronized block to maintain async behavior
             try {
                 consumer.execute(new UnitTask(u, unit -> {
                     if (!started.get()) {
