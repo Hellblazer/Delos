@@ -151,7 +151,7 @@ sequenceDiagram
         alt Has transactions
             Ethereal->>Block: Assemble CHOAM block
             Block->>Block: Sign with view keys
-            Block->>Subscribers: Broadcast via Reliable Broadcast
+            Block->>Subscribers: Broadcast via Bounded Epidemic Gossip
             Subscribers->>Subscribers: Execute deterministically
         else Empty (quiescent)
             Ethereal->>Ethereal: Discard (no state change)
@@ -338,9 +338,14 @@ Client transactions are submitted to the current members of the group using **Po
 
 Consensus block production uses **Ethereal Gossip** and is reused for view change and genesis bootstrapping consensus. In CHOAM, only a small subset of the total membership produces new blocks. Consequently, the other members of the CHOAM must somehow receive these blocks and do so reliably.
 
-### Reliable Broadcast
+### Bounded Epidemic Gossip (BEG)
 
-The CHOAM group (context) uses a **Reliable Broadcast** from the _membership_ module to reliably distribute the blocks to all live members using a 2/3+1 variation of the Fireflies ring calculation. This protocol's message buffer is bounded and garbage collected and efficient in dissemination. As it is a garbage collected, bounded buffer broadcast, the messages will ultimately age out and be discarded.
+The CHOAM group (context) uses **Bounded Epidemic Gossip** from the _membership_ module to reliably distribute blocks to all live members using a 2/3+1 variation of the Fireflies ring calculation. BEG provides:
+- **Bounded memory**: Fixed-size message buffer with garbage collection
+- **Epidemic dissemination**: Efficient probabilistic broadcast
+- **Byzantine tolerance**: 2/3+1 confirmation threshold
+
+Messages ultimately age out and are discarded, ensuring bounded resource usage.
 
 **Liveness guarantee**: As join and recovery synchronization rely upon getting these messages, during periods of no transactions the last block is periodically rebroadcast to ensure joining members can bootstrap.
 

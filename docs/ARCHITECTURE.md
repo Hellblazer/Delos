@@ -327,7 +327,7 @@ All nodes execute identical transactions → identical state
 **Layer 3 (CHOAM SMR)**:
 - Committee-based replication ensures linear log despite membership changes
 - View reconfiguration via 2f+1 votes + asynchronous join protocol
-- Blocks delivered via reliable broadcast (gossip + 2/3+1 confirmation)
+- Blocks delivered via Bounded Epidemic Gossip (BEG) with 2/3+1 confirmation
 - State machine execution deterministic → all nodes identical state
 
 **Layer 4 (SQL-State & Delphinius)**:
