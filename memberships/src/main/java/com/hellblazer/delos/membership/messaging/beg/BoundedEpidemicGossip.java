@@ -371,17 +371,17 @@ public class BoundedEpidemicGossip {
         if (!started.get()) {
             return null;
         }
-        log.trace("rbc gossiping[{}:{}] with: {} ring: {} on: {}", context.getId(), buffer.round(),
+        log.trace("beg gossiping[{}:{}] with: {} ring: {} on: {}", context.getId(), buffer.round(),
                   link.getMember().getId(), ring, member.getId());
         try {
             return link.gossip(
             MessageBff.newBuilder().setRing(ring).setDigests(buffer.forReconcilliation().toBff()).build());
         } catch (StatusRuntimeException sre) {
-            log.trace("rbc gossiping[{}:{}] failed: {} with: {} ring: {} on: {}", context.getId(), buffer.round(),
+            log.trace("beg gossiping[{}:{}] failed: {} with: {} ring: {} on: {}", context.getId(), buffer.round(),
                       sre.getStatus(), link.getMember().getId(), ring, member.getId());
             return null;
         } catch (Throwable e) {
-            log.trace("rbc gossiping[{}:{}] failed with: {} ring: {} on: {}", context.getId(), buffer.round(),
+            log.trace("beg gossiping[{}:{}] failed with: {} ring: {} on: {}", context.getId(), buffer.round(),
                       link.getMember().getId(), ring, member.getId(), e);
             return null;
         }

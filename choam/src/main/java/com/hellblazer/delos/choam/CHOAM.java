@@ -375,7 +375,7 @@ public class CHOAM implements ConsensusEngine {
     public void rotateViewKeys(ViewChange viewChange) {
         var context = viewChange.context();
         var diadem = viewChange.diadem();
-        log.trace("Setting RBC Context to: {} on: {}", context, params.member().getId());
+        log.trace("Setting BEG Context to: {} on: {}", context, params.member().getId());
         ((DelegatedContext<Member>) combine.getContext()).setContext(context);
         var c = current.get();
         if (c != null) {
