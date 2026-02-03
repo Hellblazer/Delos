@@ -184,7 +184,7 @@ This ADR documents the architecture of the CHOAM (Combine Honnete Ober Advancer 
 | Block types | ✅ COMPLETE | All 5 types | Transaction, Genesis, Assemble, Reconfiguration, Checkpoint |
 | FSM model | ✅ COMPLETE | 4 state machines | Tron integration complete |
 | View reconfiguration | ✅ COMPLETE | Async join protocol | Ephemeral key management |
-| Reliable broadcast | ✅ COMPLETE | 2/3+1 gossip | Ring-based distribution |
+| Gossip | ✅ COMPLETE | 2/3+1 gossip | Ring-based distribution |
 | Checkpointing | ✅ COMPLETE | Snapshot + restore | Bootstrap integration |
 | Security hardening | ✅ COMPLETE | BFT validation | Dag.validate() enforcement |
 
@@ -194,7 +194,7 @@ This ADR documents the architecture of the CHOAM (Combine Honnete Ober Advancer 
 - View reconfiguration with Byzantine failures
 - Checkpoint creation and recovery
 - Bootstrap process with new members
-- Reliable broadcast delivery
+- Gossip delivery
 - Ephemeral key management
 
 **Metrics**

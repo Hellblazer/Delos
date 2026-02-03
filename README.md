@@ -14,7 +14,7 @@ Delos is a **distributed multi-tenant database platform** providing Byzantine fa
 * **Cryptography**: Self-describing digests, signatures, identifiers; Bloom filters and windows
 * **Identity**: KERI-based decentralized identity, key management, attestation, bootstrapping
 * **Networking**: MTLS (KERI certificates), multi-instance GRPC routing, virtual synchrony overlay
-* **Consensus**: Byzantine fault-tolerant atomic broadcast (Ethereal) with reliable broadcast
+* **Consensus**: Byzantine fault-tolerant atomic broadcast (Ethereal) with bounded epidemic gossip
 * **State Machines**: CHOAM — replicated SQL state machines with materialized views, DDL/DML/stored procedures
 * **Access Control**: Zanzibar-style relation-based access control (Delphinius)
 * **Witness Service**: Byzantine detection (5 detectors), receipt aggregation, multi-backend storage with compression
@@ -374,7 +374,7 @@ Because Delos uses GRPC/Proto and JOOQ code generation, IDEs occasionally need a
 
 Large tests require 8+ GB RAM and validate Byzantine fault tolerance, membership convergence, and consensus at scale. They're designed as **canaries, not flaky tests** — failures indicate real bugs.
 
-**Metrics**: Dropwizard Metrics are integrated into Fireflies, Reliable Broadcast, Ethereal, and CHOAM modules.
+**Metrics**: Dropwizard Metrics are integrated into Fireflies, Bounded Epidemic Gossip, Ethereal, and CHOAM modules.
 
 ## License
 

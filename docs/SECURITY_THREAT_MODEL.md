@@ -90,7 +90,7 @@ This threat model covers:
 | Transaction Data | Loss of business records | All replicas | Byzantine consensus, checkpoints |
 | Membership Consensus | Complete service outage | Fireflies layer | BFT voting, 3f+1 quorum |
 | Block Ordering | State inconsistency | Ethereal consensus | DAG-based causal ordering |
-| Committee State | Loss of recent transactions | CHOAM committee | Reliable broadcast, replication |
+| Committee State | Loss of recent transactions | CHOAM committee | Gossip, replication |
 
 ### 1.3 Attack Vectors by Layer
 
@@ -110,7 +110,7 @@ This threat model covers:
 2. **Consensus Stall**: Byzantine nodes delay voting
    - **Mitigation**: Timeout-based view rotation, leader selection rotation
 3. **Block Withholding**: Byzantine nodes refuse to gossip blocks
-   - **Mitigation**: Reliable broadcast ensures all nodes eventually receive blocks
+   - **Mitigation**: Gossip ensures all nodes eventually receive blocks
 4. **Fork**: Byzantine majority creates different histories
    - **Mitigation**: Impossible with f < n/3 Byzantine nodes; majority correctness ensures single history
 
