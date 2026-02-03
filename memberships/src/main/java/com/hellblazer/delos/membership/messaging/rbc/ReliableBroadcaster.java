@@ -568,6 +568,11 @@ public class ReliableBroadcaster {
         private final AtomicInteger      round             = new AtomicInteger();
         private final Map<Digest, state> state             = new ConcurrentHashMap<>();
         private final Semaphore          tickGate          = new Semaphore(1);
+        // Per-source message count for rate limiting (Delos-d1an Byzantine defense)
+        // Reset each round in tick()
+        private final Map<Digest, AtomicInteger> sourceMessageCount = new ConcurrentHashMap<>();
+        // Max messages per source per round (prevents flooding attacks)
+        private static final int MAX_MESSAGES_PER_SOURCE = 100;
 
         private Buffer(int maxAge) {
             this.maxAge = maxAge;
@@ -577,6 +582,7 @@ public class ReliableBroadcaster {
 
         public void clear() {
             state.clear();
+            sourceMessageCount.clear();
         }
 
         public BloomFilter<Digest> forReconcilliation() {
@@ -597,8 +603,11 @@ public class ReliableBroadcaster {
                 log.debug("DoS protection: truncating {} messages to {} limit on: {}",
                           inputSize, params.maxMessages, member.getId());
             }
-            deliver(messages.stream()
+
+            // Phase 1: Fast filtering (no crypto) - collect candidates for verification
+            List<state> candidates = messages.stream()
                             .limit(params.maxMessages)
+                            // Filter oversized messages (DoS protection)
                             .filter(am -> {
                                 boolean ok = am.getContent().size() <= params.maxMessageSize();
                                 if (!ok) {
@@ -607,14 +616,109 @@ public class ReliableBroadcaster {
                                 }
                                 return ok;
                             })
+                            // Age bounds validation (Delos-d1an Byzantine defense)
+                            .filter(am -> {
+                                int age = am.getAge();
+                                if (age < 0 || age > maxAge) {
+                                    log.debug("Byzantine defense: rejecting invalid age {} (valid: 0-{}) on: {}",
+                                              age, maxAge, member.getId());
+                                    return false;
+                                }
+                                if (metrics != null) {
+                                    metrics.recordMessageAge(age);
+                                }
+                                return true;
+                            })
+                            // Per-source rate limiting (Delos-d1an Byzantine defense)
+                            .filter(am -> {
+                                List<Digest> sources = adapter.source.apply(am.getContent());
+                                for (Digest source : sources) {
+                                    var counter = sourceMessageCount.computeIfAbsent(source, _ -> new AtomicInteger(0));
+                                    if (counter.incrementAndGet() > MAX_MESSAGES_PER_SOURCE) {
+                                        log.debug("Byzantine defense: rate limiting source {} (>{} msgs/round) on: {}",
+                                                  source, MAX_MESSAGES_PER_SOURCE, member.getId());
+                                        if (metrics != null) {
+                                            metrics.incrementRateLimitRejection();
+                                        }
+                                        return false;
+                                    }
+                                }
+                                return true;
+                            })
+                            // Create state with hash
                             .map(am -> new state(adapter.hasher.apply(am.getContent()), am))
-                            .filter(s -> !dup(s))
-                            .filter(s -> adapter.verifier.test(s.msg.getContent()))
-                            .map(s -> state.merge(s.hash, s, (a, b) -> a.age.get() <= b.age.get() ? a : b))
-                            .map(s -> new Msg(adapter.source.apply(s.msg.getContent()), adapter.extractor.apply(s.msg),
-                                              s.hash))
-                            .toList());
+                            // Insert-first dedup using putIfAbsent (Delos-l1bl)
+                            .filter(s -> {
+                                var existing = state.putIfAbsent(s.hash, s);
+                                if (existing != null) {
+                                    // Duplicate - update age if incoming is fresher
+                                    int previousAge = existing.age.get();
+                                    int incomingAge = s.age.get();
+                                    if (incomingAge < previousAge) {
+                                        existing.age.updateAndGet(prev -> Math.min(prev, incomingAge));
+                                    }
+                                    if (metrics != null) {
+                                        metrics.incrementDedupCount();
+                                    }
+                                    return false;
+                                }
+                                return true; // New message, need verification
+                            })
+                            .toList();
+
+            // Phase 2: Parallel signature verification using virtual threads (Delos-7set)
+            // This prevents crypto from blocking the gossip receiver
+            List<Msg> verified;
+            if (candidates.size() <= 1) {
+                // Single message - verify inline (no parallelism overhead)
+                verified = candidates.stream()
+                    .filter(this::verifyAndTrack)
+                    .map(s -> new Msg(adapter.source.apply(s.msg.getContent()), adapter.extractor.apply(s.msg), s.hash))
+                    .toList();
+            } else {
+                // Multiple messages - verify in parallel with virtual threads
+                try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+                    var futures = candidates.stream()
+                        .map(s -> CompletableFuture.supplyAsync(() -> verifyAndTrack(s) ? s : null, executor))
+                        .toList();
+                    CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+                    verified = futures.stream()
+                        .map(f -> {
+                            try { return f.join(); } catch (Exception e) { return null; }
+                        })
+                        .filter(Objects::nonNull)
+                        .map(s -> new Msg(adapter.source.apply(s.msg.getContent()), adapter.extractor.apply(s.msg), s.hash))
+                        .toList();
+                }
+            }
+
+            deliver(verified);
             gc();
+            // Record buffer size for observability (Delos-xwen)
+            if (metrics != null) {
+                metrics.recordBufferSize(state.size());
+            }
+        }
+
+        /**
+         * Verify signature and track metrics. Returns true if verified, false otherwise.
+         * On failure, removes the entry from state that was added during dedup.
+         */
+        private boolean verifyAndTrack(state s) {
+            long verifyStart = metrics != null ? System.nanoTime() : 0;
+            boolean verified = adapter.verifier.test(s.msg.getContent());
+            if (metrics != null) {
+                metrics.recordVerificationDuration(System.nanoTime() - verifyStart);
+            }
+            if (!verified) {
+                state.remove(s.hash, s);
+                if (metrics != null) {
+                    metrics.incrementVerificationFailure();
+                }
+                log.debug("Signature verification failed for: {} on: {}", s.hash, member.getId());
+                return false;
+            }
+            return true;
         }
 
         public Iterable<? extends AgedMessage> reconcile(BloomFilter<Digest> biff, Digest from) {
@@ -652,6 +756,8 @@ public class ReliableBroadcaster {
 
         public void tick() {
             round.incrementAndGet();
+            // Reset per-source rate limits each round (Delos-d1an)
+            sourceMessageCount.clear();
             if (!tickGate.tryAcquire()) {
                 log.trace("Unable to acquire tick gate for: {} tick already in progress on: {}", context.getId(),
                           member.getId());
@@ -677,39 +783,6 @@ public class ReliableBroadcaster {
             }
         }
 
-        /**
-         * Check if message is duplicate. Uses atomic compute() to avoid TOCTOU races.
-         * If duplicate exists, keeps the one with lower (fresher) age.
-         */
-        private boolean dup(state s) {
-            int incomingAge = s.age.get();
-            if (incomingAge > maxAge) {
-                log.trace("Rejecting message too old: {} age: {} > {} on: {}", s.hash, incomingAge, maxAge,
-                          member.getId());
-                return true;
-            }
-            // Atomic check-and-update to avoid TOCTOU race (Delos-jke1)
-            var result = new AtomicBoolean(false);
-            state.compute(s.hash, (key, previous) -> {
-                if (previous == null) {
-                    // Not a duplicate, will be inserted by caller via merge()
-                    return null;
-                }
-                result.set(true); // It's a duplicate
-                int previousAge = previous.age.get();
-                int fresherAge = Math.min(previousAge, incomingAge);
-                if (fresherAge > maxAge) {
-                    return null; // Remove expired entry
-                }
-                // Keep fresher age (atomically update if incoming is fresher)
-                if (incomingAge < previousAge) {
-                    previous.age.set(incomingAge);
-                }
-                return previous;
-            });
-            return result.get();
-        }
-
         private void gc() {
             if ((size() < highWaterMark) || !garbageCollecting.tryAcquire()) {
                 return;
@@ -728,6 +801,10 @@ public class ReliableBroadcaster {
                 int freed = startSize - state.size();
                 if (freed > 0) {
                     log.debug("Buffer freed: {} after compact for: {} on: {} ", freed, context.getId(), member.getId());
+                    // Record GC cycle metrics (Delos-xwen)
+                    if (metrics != null) {
+                        metrics.recordGcCycle(freed);
+                    }
                 }
             } finally {
                 garbageCollecting.release();

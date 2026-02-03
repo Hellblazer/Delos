@@ -44,4 +44,41 @@ public interface RbcMetrics extends EndpointMetrics {
     void recordOutboundGossipDuration(long nanos);
 
     void recordOutboundUpdateDuration(long nanos);
+
+    // === Buffer Observability (Delos-xwen) ===
+
+    /**
+     * Record current buffer size for capacity monitoring
+     */
+    void recordBufferSize(int size);
+
+    /**
+     * Increment dedup counter when a duplicate message is filtered
+     */
+    void incrementDedupCount();
+
+    /**
+     * Increment verification failure counter
+     */
+    void incrementVerificationFailure();
+
+    /**
+     * Record signature verification duration
+     */
+    void recordVerificationDuration(long nanos);
+
+    /**
+     * Record GC cycle metrics (items freed)
+     */
+    void recordGcCycle(int itemsFreed);
+
+    /**
+     * Record message age when received (for age distribution)
+     */
+    void recordMessageAge(int age);
+
+    /**
+     * Increment rate limit rejection counter (Byzantine defense)
+     */
+    void incrementRateLimitRejection();
 }

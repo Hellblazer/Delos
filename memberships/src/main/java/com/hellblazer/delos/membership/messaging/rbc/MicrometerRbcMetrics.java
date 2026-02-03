@@ -8,6 +8,7 @@
 package com.hellblazer.delos.membership.messaging.rbc;
 
 import com.hellblazer.delos.protocols.MicrometerEndpointMetrics;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -35,6 +36,15 @@ public class MicrometerRbcMetrics extends MicrometerEndpointMetrics implements R
     private final Timer inboundUpdateTimer;
     private final Timer outboundGossipTimer;
     private final Timer outboundUpdateTimer;
+
+    // Buffer observability metrics (Delos-xwen)
+    private final DistributionSummary bufferSize;
+    private final Counter dedupCount;
+    private final Counter verificationFailures;
+    private final Timer verificationDuration;
+    private final DistributionSummary gcItemsFreed;
+    private final DistributionSummary messageAge;
+    private final Counter rateLimitRejections;
 
     public MicrometerRbcMetrics(MeterRegistry registry) {
         super(registry, "rbc");
@@ -81,6 +91,29 @@ public class MicrometerRbcMetrics extends MicrometerEndpointMetrics implements R
         gossipRoundDuration = Timer.builder("rbc.gossip.round.duration")
                                    .description("Time for complete gossip round")
                                    .register(registry);
+
+        // Buffer observability metrics (Delos-xwen)
+        bufferSize = DistributionSummary.builder("rbc.buffer.size")
+                                        .description("Current buffer size")
+                                        .register(registry);
+        dedupCount = Counter.builder("rbc.dedup.count")
+                           .description("Number of duplicate messages filtered")
+                           .register(registry);
+        verificationFailures = Counter.builder("rbc.verification.failures")
+                                      .description("Number of signature verification failures")
+                                      .register(registry);
+        verificationDuration = Timer.builder("rbc.verification.duration")
+                                    .description("Time for signature verification")
+                                    .register(registry);
+        gcItemsFreed = DistributionSummary.builder("rbc.gc.items.freed")
+                                          .description("Items freed per GC cycle")
+                                          .register(registry);
+        messageAge = DistributionSummary.builder("rbc.message.age")
+                                        .description("Message age distribution on receive")
+                                        .register(registry);
+        rateLimitRejections = Counter.builder("rbc.ratelimit.rejections")
+                                     .description("Messages rejected by rate limiting")
+                                     .register(registry);
     }
 
     // === Size Recording (Histograms) ===
@@ -140,5 +173,42 @@ public class MicrometerRbcMetrics extends MicrometerEndpointMetrics implements R
     @Override
     public void recordOutboundUpdateDuration(long nanos) {
         outboundUpdateTimer.record(nanos, TimeUnit.NANOSECONDS);
+    }
+
+    // === Buffer Observability (Delos-xwen) ===
+
+    @Override
+    public void recordBufferSize(int size) {
+        bufferSize.record(size);
+    }
+
+    @Override
+    public void incrementDedupCount() {
+        dedupCount.increment();
+    }
+
+    @Override
+    public void incrementVerificationFailure() {
+        verificationFailures.increment();
+    }
+
+    @Override
+    public void recordVerificationDuration(long nanos) {
+        verificationDuration.record(nanos, TimeUnit.NANOSECONDS);
+    }
+
+    @Override
+    public void recordGcCycle(int itemsFreed) {
+        gcItemsFreed.record(itemsFreed);
+    }
+
+    @Override
+    public void recordMessageAge(int age) {
+        messageAge.record(age);
+    }
+
+    @Override
+    public void incrementRateLimitRejection() {
+        rateLimitRejections.increment();
     }
 }
