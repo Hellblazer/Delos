@@ -22,6 +22,7 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.util.Comparator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
@@ -74,6 +75,7 @@ public class CheckpointManagerImpl implements CheckpointManager {
         MVMap<Integer, byte[]> stored = blockStore.putCheckpoint(height, state, chkpt);
         state.delete();
         cachedCheckpoints.put(height, new CheckpointState(chkpt, stored));
+        evictOldCheckpoints();
         log.info("Created checkpoint at height: {} on: {}", height, params.member().getId());
     }
 
@@ -89,6 +91,7 @@ public class CheckpointManagerImpl implements CheckpointManager {
         MVMap<Integer, byte[]> stored = blockStore.putCheckpoint(height, state, chkpt);
         state.delete();
         cachedCheckpoints.put(height, new CheckpointState(chkpt, stored));
+        evictOldCheckpoints();
         log.info("Created checkpoint at height: {} on: {}", height, params.member().getId());
         return chkpt;
     }
@@ -101,6 +104,7 @@ public class CheckpointManagerImpl implements CheckpointManager {
     @Override
     public void restoreFromCheckpoint(HashedCertifiedBlock checkpointBlock, CheckpointState state) {
         cachedCheckpoints.put(checkpointBlock.height(), state);
+        evictOldCheckpoints();
         params.restorer().accept(checkpointBlock, state);
         checkpoint.set(checkpointBlock);
         log.info("Restored from checkpoint: {} height: {} on: {}", checkpointBlock.hash, checkpointBlock.height(),
@@ -126,6 +130,36 @@ public class CheckpointManagerImpl implements CheckpointManager {
      */
     void cacheCheckpoint(ULong height, CheckpointState state) {
         cachedCheckpoints.put(height, state);
+        evictOldCheckpoints();
+    }
+
+    /**
+     * Evicts the oldest checkpoints when the cache exceeds maxCachedCheckpoints.
+     * Keeps the most recent checkpoints (highest height values).
+     */
+    private void evictOldCheckpoints() {
+        var maxCached = params.maxCachedCheckpoints();
+        if (cachedCheckpoints.size() <= maxCached) {
+            return;
+        }
+
+        // Find checkpoints to evict (keep the newest ones)
+        var toEvict = cachedCheckpoints.keySet()
+                                       .stream()
+                                       .sorted(Comparator.naturalOrder())
+                                       .limit(cachedCheckpoints.size() - maxCached)
+                                       .toList();
+
+        for (var height : toEvict) {
+            cachedCheckpoints.remove(height);
+            log.debug("Evicted checkpoint at height: {} from cache (max: {}) on: {}",
+                      height, maxCached, params.member().getId());
+        }
+
+        if (!toEvict.isEmpty()) {
+            log.info("Evicted {} old checkpoint(s) from cache, kept {} on: {}",
+                     toEvict.size(), cachedCheckpoints.size(), params.member().getId());
+        }
     }
 
     /**

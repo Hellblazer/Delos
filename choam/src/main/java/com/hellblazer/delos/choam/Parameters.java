@@ -57,7 +57,7 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
                          Parameters.MvStoreBuilder mvBuilder, Parameters.LimiterBuilder txnLimiterBuilder,
                          ExponentialBackoffPolicy.Builder submitPolicy, int checkpointSegmentSize,
                          boolean generateGenesis, int maxPendingBlocks, int maxSyncAttempts,
-                         double minFreeMemoryRatio) {
+                         double minFreeMemoryRatio, int maxCachedCheckpoints) {
 
     public static Builder newBuilder() {
         return new Builder();
@@ -700,6 +700,7 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
         private int                              maxPendingBlocks      = 1000;
         private int                              maxSyncAttempts       = 10;
         private double                           minFreeMemoryRatio    = 0.15; // 85% used = 15% free threshold
+        private int                              maxCachedCheckpoints  = 5;    // Keep last 5 checkpoints in memory
 
         public Parameters build(RuntimeParameters runtime) {
             if (maxSyncAttempts < 3) {
@@ -712,11 +713,15 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
             if (Double.isNaN(minFreeMemoryRatio)) {
                 throw new IllegalArgumentException("minFreeMemoryRatio cannot be NaN");
             }
+            if (maxCachedCheckpoints < 1) {
+                throw new IllegalArgumentException(
+                "maxCachedCheckpoints must be at least 1, got: " + maxCachedCheckpoints);
+            }
             return new Parameters(runtime, combine, gossipDuration, maxCheckpointSegments, submitTimeout, genesisViewId,
                                   checkpointBlockDelta, crowns, digestAlgorithm, viewSigAlgorithm,
                                   synchronizationCycles, regenerationCycles, bootstrap, producer, mvBuilder,
                                   txnLimiterBuilder, submitPolicy, checkpointSegmentSize, generateGenesis,
-                                  maxPendingBlocks, maxSyncAttempts, minFreeMemoryRatio);
+                                  maxPendingBlocks, maxSyncAttempts, minFreeMemoryRatio, maxCachedCheckpoints);
         }
 
         @Override
@@ -937,6 +942,19 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
                 throw new IllegalArgumentException("minFreeMemoryRatio cannot be NaN");
             }
             this.minFreeMemoryRatio = minFreeMemoryRatio;
+            return this;
+        }
+
+        public int getMaxCachedCheckpoints() {
+            return maxCachedCheckpoints;
+        }
+
+        public Builder setMaxCachedCheckpoints(int maxCachedCheckpoints) {
+            if (maxCachedCheckpoints < 1) {
+                throw new IllegalArgumentException(
+                "maxCachedCheckpoints must be at least 1, got: " + maxCachedCheckpoints);
+            }
+            this.maxCachedCheckpoints = maxCachedCheckpoints;
             return this;
         }
     }
