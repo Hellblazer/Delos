@@ -9,7 +9,9 @@ package com.hellblazer.delos.choam;
 import com.hellblazer.delos.choam.CHOAM.BlockProducer;
 import com.hellblazer.delos.choam.proto.*;
 import com.hellblazer.delos.choam.support.BatchVerificationHelper;
+import com.hellblazer.delos.choam.support.BatchVerificationMetrics;
 import com.hellblazer.delos.choam.support.HashedBlock;
+import com.hellblazer.delos.cryptography.bls.BLSProvider;
 import com.hellblazer.delos.choam.support.HashedCertifiedBlock;
 import com.hellblazer.delos.context.Context;
 import com.hellblazer.delos.cryptography.*;
@@ -238,16 +240,22 @@ public class ViewContext {
         var nonBlsValidations = new ArrayList<ValidationEntry>();
 
         for (var v : validations) {
+            // Check witness is present before accessing its fields
+            var witness = v.getWitness();
+            if (witness == null) {
+                log.trace("No witness certification in validation on: {}", params.member().getId());
+                continue;
+            }
             var verifier = verifierOf(v);
             if (verifier == null) {
                 if (log.isDebugEnabled()) {
                     log.debug("no validation witness: {} for: {} block: {} on: {}",
-                              Digest.from(v.getWitness().getId()), block.block.getBodyCase(), block.hash,
+                              Digest.from(witness.getId()), block.block.getBodyCase(), block.hash,
                               params.member().getId());
                 }
                 continue;
             }
-            var member = context.getMember(Digest.from(v.getWitness().getId()));
+            var member = context.getMember(Digest.from(witness.getId()));
             if (member == null) {
                 continue;
             }
@@ -265,7 +273,11 @@ public class ViewContext {
             var certs = blsValidations.stream()
                                       .map(e -> e.validate.getWitness())
                                       .toList();
-            var helper = new BatchVerificationHelper();
+            // Get metrics from params if available for proper metrics accumulation
+            var metrics = params.metrics() != null
+                          ? params.metrics().batchVerificationMetrics()
+                          : BatchVerificationMetrics.NOOP;
+            var helper = new BatchVerificationHelper(BLSProvider.getDefault(), metrics);
             int validCount = helper.verifyCertifications(message, certs, validators, params.member().getId());
 
             if (validCount == blsValidations.size()) {

@@ -174,25 +174,36 @@ public class BatchVerificationHelper {
         var messages = new ArrayList<byte[]>();
         var signatures = new ArrayList<byte[]>();
 
+        var batchableEntries = new ArrayList<CertificationEntry>();
+        var fallbackEntries = new ArrayList<CertificationEntry>();
+
         for (var entry : entries) {
             var key = entry.verifier.getKey();
             if (key == null) {
+                log.debug("No public key for witness: {} on: {}", entry.witnessId, memberId);
+                fallbackEntries.add(entry);
                 continue;
             }
-            publicKeys.add(key.getEncoded());
-            messages.add(message);
 
             var sig = new JohnHancock(entry.certification.getSignature());
-            if (sig.getBytes().length > 0) {
-                signatures.add(sig.getBytes()[0]);
+            var sigBytes = sig.getBytes();
+            if (sigBytes == null || sigBytes.length == 0 || sigBytes[0] == null) {
+                log.debug("Invalid signature format from witness: {} on: {}", entry.witnessId, memberId);
+                fallbackEntries.add(entry);
+                continue;
             }
+
+            publicKeys.add(key.getEncoded());
+            messages.add(message);
+            signatures.add(sigBytes[0]);
+            batchableEntries.add(entry);
         }
 
-        if (publicKeys.size() != signatures.size()) {
-            log.warn("Batch size mismatch: keys={} signatures={} on: {}",
-                     publicKeys.size(), signatures.size(), memberId);
-            metrics.recordBatchFallback(entries.size(), "size_mismatch");
-            return verifyIndividually(message, entries, memberId);
+        int validFromFallback = verifyIndividually(message, fallbackEntries, memberId);
+
+        // If no batchable entries, we're done
+        if (batchableEntries.isEmpty()) {
+            return validFromFallback;
         }
 
         long startNanos = System.nanoTime();
@@ -200,25 +211,25 @@ public class BatchVerificationHelper {
             boolean allValid = provider.batchVerify(publicKeys, messages, signatures);
             long latencyNanos = System.nanoTime() - startNanos;
             batchVerifications.incrementAndGet();
-            metrics.recordBatchVerification(entries.size(), latencyNanos, allValid);
+            metrics.recordBatchVerification(batchableEntries.size(), latencyNanos, allValid);
 
             if (allValid) {
-                log.trace("Batch verified {} BLS certifications on: {}", entries.size(), memberId);
-                return entries.size();
+                log.trace("Batch verified {} BLS certifications on: {}", batchableEntries.size(), memberId);
+                return batchableEntries.size() + validFromFallback;
             } else {
                 // Batch failed - identify individual failures
                 log.debug("Batch verification failed, falling back to individual on: {}", memberId);
                 batchFailures.incrementAndGet();
-                metrics.recordBatchFallback(entries.size(), "batch_failed");
-                return verifyIndividually(message, entries, memberId);
+                metrics.recordBatchFallback(batchableEntries.size(), "batch_failed");
+                return verifyIndividually(message, batchableEntries, memberId) + validFromFallback;
             }
         } catch (Exception e) {
             long latencyNanos = System.nanoTime() - startNanos;
             log.warn("Batch verification error, falling back to individual on: {}", memberId, e);
             batchFailures.incrementAndGet();
-            metrics.recordBatchVerification(entries.size(), latencyNanos, false);
-            metrics.recordBatchFallback(entries.size(), "exception");
-            return verifyIndividually(message, entries, memberId);
+            metrics.recordBatchVerification(batchableEntries.size(), latencyNanos, false);
+            metrics.recordBatchFallback(batchableEntries.size(), "exception");
+            return verifyIndividually(message, batchableEntries, memberId) + validFromFallback;
         }
     }
 

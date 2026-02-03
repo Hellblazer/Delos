@@ -9,7 +9,9 @@ package com.hellblazer.delos.choam;
 import com.hellblazer.delos.choam.proto.*;
 import com.hellblazer.delos.choam.proto.SubmitResult.Result;
 import com.hellblazer.delos.choam.support.BatchVerificationHelper;
+import com.hellblazer.delos.choam.support.BatchVerificationMetrics;
 import com.hellblazer.delos.choam.support.HashedCertifiedBlock;
+import com.hellblazer.delos.cryptography.bls.BLSProvider;
 import com.hellblazer.delos.context.Context;
 import com.hellblazer.delos.context.StaticContext;
 import com.hellblazer.delos.cryptography.Digest;
@@ -147,7 +149,11 @@ public interface Committee {
                     params.member().getId());
 
         // Use batch verification for BLS signatures where possible
-        var helper = new BatchVerificationHelper();
+        // Get metrics from params if available for proper metrics accumulation
+        var metrics = params.metrics() != null
+                      ? params.metrics().batchVerificationMetrics()
+                      : BatchVerificationMetrics.NOOP;
+        var helper = new BatchVerificationHelper(BLSProvider.getDefault(), metrics);
         byte[] message = hb.block.getHeader().toByteString().toByteArray();
         int valid = helper.verifyCertifications(message, certifications, validators, params.member().getId());
 
