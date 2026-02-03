@@ -41,15 +41,16 @@ public class BatchVerificationHelper {
 
     private final BLSProvider provider;
     private final BatchVerificationMetrics metrics;
+    private final BatchVerificationConfig config;
     private final AtomicLong batchVerifications = new AtomicLong();
     private final AtomicLong individualVerifications = new AtomicLong();
     private final AtomicLong batchFailures = new AtomicLong();
 
     /**
-     * Create batch verification helper with default BLS provider and no metrics.
+     * Create batch verification helper with default BLS provider, no metrics, and disabled config.
      */
     public BatchVerificationHelper() {
-        this(BLSProvider.getDefault(), BatchVerificationMetrics.NOOP);
+        this(BLSProvider.getDefault(), BatchVerificationMetrics.NOOP, BatchVerificationConfig.ENABLED);
     }
 
     /**
@@ -58,7 +59,7 @@ public class BatchVerificationHelper {
      * @param provider BLS cryptographic provider
      */
     public BatchVerificationHelper(BLSProvider provider) {
-        this(provider, BatchVerificationMetrics.NOOP);
+        this(provider, BatchVerificationMetrics.NOOP, BatchVerificationConfig.ENABLED);
     }
 
     /**
@@ -68,8 +69,20 @@ public class BatchVerificationHelper {
      * @param metrics  metrics collector for verification operations
      */
     public BatchVerificationHelper(BLSProvider provider, BatchVerificationMetrics metrics) {
+        this(provider, metrics, BatchVerificationConfig.ENABLED);
+    }
+
+    /**
+     * Create batch verification helper with full configuration.
+     *
+     * @param provider BLS cryptographic provider
+     * @param metrics  metrics collector for verification operations
+     * @param config   feature flag and circuit breaker configuration
+     */
+    public BatchVerificationHelper(BLSProvider provider, BatchVerificationMetrics metrics, BatchVerificationConfig config) {
         this.provider = Objects.requireNonNull(provider, "provider cannot be null");
         this.metrics = metrics != null ? metrics : BatchVerificationMetrics.NOOP;
+        this.config = config != null ? config : BatchVerificationConfig.ENABLED;
     }
 
     /**
@@ -146,11 +159,14 @@ public class BatchVerificationHelper {
 
         int validCount = 0;
 
-        // Batch verify BLS certifications
-        if (blsCerts.size() >= MIN_BATCH_SIZE) {
+        // Batch verify BLS certifications if enabled and circuit breaker allows
+        if (blsCerts.size() >= MIN_BATCH_SIZE && config.shouldUseBatchVerification()) {
             validCount += batchVerifyBLS(message, blsCerts, memberId);
         } else {
-            // Too few for batch, verify individually
+            // Batch disabled, circuit open, or too few for batch - verify individually
+            if (blsCerts.size() >= MIN_BATCH_SIZE && !config.shouldUseBatchVerification()) {
+                log.trace("Batch verification skipped (disabled or circuit open) on: {}", memberId);
+            }
             nonBlsCerts.addAll(blsCerts);
         }
 
@@ -213,6 +229,9 @@ public class BatchVerificationHelper {
             batchVerifications.incrementAndGet();
             metrics.recordBatchVerification(batchableEntries.size(), latencyNanos, allValid);
 
+            // Record for circuit breaker
+            config.recordOperation(allValid);
+
             if (allValid) {
                 log.trace("Batch verified {} BLS certifications on: {}", batchableEntries.size(), memberId);
                 return batchableEntries.size() + validFromFallback;
@@ -229,6 +248,10 @@ public class BatchVerificationHelper {
             batchFailures.incrementAndGet();
             metrics.recordBatchVerification(batchableEntries.size(), latencyNanos, false);
             metrics.recordBatchFallback(batchableEntries.size(), "exception");
+
+            // Record failure for circuit breaker
+            config.recordOperation(false);
+
             return verifyIndividually(message, batchableEntries, memberId) + validFromFallback;
         }
     }
@@ -312,7 +335,47 @@ public class BatchVerificationHelper {
      * @return true if healthy (failure rate < 1%, avg latency < 10ms)
      */
     public boolean isHealthy() {
-        return metrics.isHealthy();
+        return metrics.isHealthy() && !config.isCircuitOpen();
+    }
+
+    /**
+     * Get the configuration for this helper.
+     *
+     * @return the configuration, never null
+     */
+    public BatchVerificationConfig getConfig() {
+        return config;
+    }
+
+    /**
+     * Check if batch verification is currently enabled.
+     * <p>
+     * Returns false if:
+     * - Feature flag is disabled
+     * - Circuit breaker is open
+     *
+     * @return true if batch verification would be attempted
+     */
+    public boolean isBatchEnabled() {
+        return config.isEnabled() && !config.isCircuitOpen();
+    }
+
+    /**
+     * Check if the circuit breaker is open (batch verification disabled due to failures).
+     *
+     * @return true if circuit breaker has tripped
+     */
+    public boolean isCircuitOpen() {
+        return config.isCircuitOpen();
+    }
+
+    /**
+     * Reset the circuit breaker to allow batch verification again.
+     * <p>
+     * Use with caution - typically for recovery after investigating failures.
+     */
+    public void resetCircuitBreaker() {
+        config.resetCircuitBreaker();
     }
 
     /**
