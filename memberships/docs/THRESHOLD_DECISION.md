@@ -27,7 +27,7 @@ The choice affects:
 The threshold calculations are defined in `DynamicContext.java`:
 
 ```java
-// memberships/src/main/java/com/salesforce/apollo/context/DynamicContext.java
+// memberships/src/main/java/com/hellblazer/delos/context/DynamicContext.java
 
 public static int toleranceLevel(int cardinality) {
     return (cardinality - 1) / 3;  // t = floor((n-1)/3)
@@ -61,7 +61,7 @@ As cluster size increases, 2t+1 approaches 2/3, while 3/4 remains constant at 75
 The super-majority threshold is used in `View.java` for accusation decisions:
 
 ```java
-// fireflies/src/main/java/com/salesforce/apollo/fireflies/View.java
+// fireflies/src/main/java/com/hellblazer/delos/fireflies/View.java
 
 private final int superMajority;
 
@@ -154,16 +154,16 @@ Fireflies compensates for the smaller quorum intersection with additional mechan
 ## Code References
 
 ### Primary Threshold Calculations
-- **File**: `memberships/src/main/java/com/salesforce/apollo/context/DynamicContext.java`
+- **File**: `memberships/src/main/java/com/hellblazer/delos/context/DynamicContext.java`
 - **Methods**: `toleranceLevel()`, `majority()`, `superMajority()`
 
 ### Threshold Usage in Accusations
-- **File**: `fireflies/src/main/java/com/salesforce/apollo/fireflies/View.java`
+- **File**: `fireflies/src/main/java/com/hellblazer/delos/fireflies/View.java`
 - **Field**: `superMajority`
 - **Method**: `isRebuttalMajority()`
 
 ### Context Interface
-- **File**: `memberships/src/main/java/com/salesforce/apollo/context/Context.java`
+- **File**: `memberships/src/main/java/com/hellblazer/delos/context/Context.java`
 - **Methods**: `toleranceLevel()`, `majority()`, `superMajority()`, `isSuperMajority()`
 
 ## References

@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit;
  * @author hal.hildebrand
  * @since 220
  */
-public class BegClient implements ReliableBroadcast {
+public class BegClient implements Gossip {
     private static final Logger   log             = LoggerFactory.getLogger(BegClient.class);
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(5);
 
@@ -45,11 +45,11 @@ public class BegClient implements ReliableBroadcast {
         this.timeout = timeout != null ? timeout : DEFAULT_TIMEOUT;
     }
 
-    public static CreateClientCommunications<ReliableBroadcast> getCreate(BegMetrics metrics) {
+    public static CreateClientCommunications<Gossip> getCreate(BegMetrics metrics) {
         return getCreate(metrics, DEFAULT_TIMEOUT);
     }
 
-    public static CreateClientCommunications<ReliableBroadcast> getCreate(BegMetrics metrics, Duration timeout) {
+    public static CreateClientCommunications<Gossip> getCreate(BegMetrics metrics, Duration timeout) {
         return (c) -> new BegClient(c, metrics, timeout);
     }
 
