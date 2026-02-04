@@ -877,71 +877,74 @@ public class CHOAM implements ConsensusEngine {
     private List<Runnable> collectReconfigureCallbacks(Digest hash, Reconfigure reconfigure) {
         List<Runnable> callbacks = new ArrayList<>();
 
-        // Callback 1: Complete old committee (must happen before transition)
+        // Capture old committee reference for later cleanup
         // NOTE: oldCommittee captured here - remains valid even if current is modified
         final Committee oldCommittee = current.get();
-        callbacks.add(() -> {
-            log.trace("Completing old committee on: {}", params.member().getId());
-            // Note: oldCommittee can be null during recovery/startup (see Phase 4A analysis)
-            if (oldCommittee != null) {
-                try {
-                    oldCommittee.complete();
-                } catch (Throwable e) {
-                    log.error("Failed to complete old committee on: {}", params.member().getId(), e);
-                    // Continue - don't block new committee startup
-                }
-            } else {
-                log.debug("No old committee to complete (recovery scenario) on: {}", params.member().getId());
-            }
-        });
 
-        // Callback 2-5: Setup new committee and state updates
         // Determine which committee type to create and the associated setup
         var validators = validatorsOf(reconfigure, params.context(), params.member().getId(), log);
         final HashedCertifiedBlock h = head.get();
         final var currentView = next.get();
 
-        // Callback 2: Rotate view keys
+        // Callback 1: Rotate view keys
         callbacks.add(() -> {
             log.trace("Rotating view keys on: {}", params.member().getId());
             transitions.rotateViewKeys();
         });
 
-        // Callback 3: Update view state and session
+        // Callback 2: Update view state and session
         callbacks.add(() -> {
             log.trace("Updating view state on: {}", params.member().getId());
             view.set(h);
             session.setView(h);
         });
 
-        // Callback 4: Transition to new committee (Associate or Client)
-        // CRITICAL: This callback can fail (Producer.start() exceptions)
-        // Failure here means old committee stopped but new not created (atomicity broken)
-        // FSM must handle intermediate state via transitions.fail()
+        // Callback 3: Atomic committee transition (create new, swap, stop old)
+        // CRITICAL: This callback must be atomic to avoid race conditions:
+        // 1. Create new committee (starts producer)
+        // 2. Atomically swap current reference
+        // 3. Immediately stop old committee
+        // This ensures no window where current points to a stopped producer (NO_COMMITTEE),
+        // while minimizing the window where both producers are running.
         callbacks.add(() -> {
             log.trace("Transitioning committee on: {}", params.member().getId());
-            if (validators.containsKey(params.member())) {
-                if (Dag.validate(validators.size())) {
-                    try {
-                        current.set(new Associate(h, validators, currentView));
-                    } catch (Throwable e) {
-                        log.error("Failed to create Associate committee on: {}", params.member().getId(), e);
+            Committee newCommittee = null;
+
+            // Step 1: Create new committee (may throw, old committee remains active if this fails)
+            try {
+                if (validators.containsKey(params.member())) {
+                    if (Dag.validate(validators.size())) {
+                        newCommittee = new Associate(h, validators, currentView);
+                    } else {
+                        log.warn("Reconfiguration to associate failed: {} committee: {} in view: {} on:{}",
+                                 validators.size(), hash, current.get().getClass().getSimpleName(),
+                                 params.member().getId());
                         transitions.fail();
-                        // Keep old committee reference (if Callback 1 succeeded)
+                        return; // Keep old committee active
                     }
                 } else {
-                    log.warn("Reconfiguration to associate failed: {} committee: {} in view: {} on:{}",
-                             validators.size(), hash, current.get().getClass().getSimpleName(),
-                             params.member().getId());
-                    transitions.fail();
+                    newCommittee = new Client(validators, getViewId());
+                }
+            } catch (Throwable e) {
+                log.error("Failed to create new committee on: {}", params.member().getId(), e);
+                transitions.fail();
+                return; // Keep old committee active
+            }
+
+            // Step 2: Atomic swap - new committee now handles all transactions
+            current.set(newCommittee);
+
+            // Step 3: Stop old committee immediately after swap
+            // Note: oldCommittee can be null during recovery/startup
+            if (oldCommittee != null) {
+                try {
+                    oldCommittee.complete();
+                } catch (Throwable e) {
+                    log.error("Failed to complete old committee on: {}", params.member().getId(), e);
+                    // Continue - new committee is already active and handling transactions
                 }
             } else {
-                try {
-                    current.set(new Client(validators, getViewId()));
-                } catch (Throwable e) {
-                    log.error("Failed to create Client committee on: {}", params.member().getId(), e);
-                    transitions.fail();
-                }
+                log.debug("No old committee to complete (recovery scenario) on: {}", params.member().getId());
             }
         });
 
