@@ -987,7 +987,7 @@ public class Adder {
             ch.decWaiting();
             if (ch.state() == State.WAITING_FOR_PARENTS && ch.parentsOutput()) {
                 log.trace("Parents output, committing: {} parent: {} on: {}", ch, wpu, conf.logLabel());
-                wpu.setState(State.COMMITTED);
+                // Note: commit(ch) internally calls ch.setState(COMMITTED)
                 commit(ch);
             } else {
                 log.trace("Continuing to wait for remaining parents: {} on: {}", ch, conf.logLabel());
