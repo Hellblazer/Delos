@@ -4,7 +4,7 @@ Delos is a **distributed multi-tenant database platform** providing Byzantine fa
 
 **Status**: [![Build Status](https://github.com/Hellblazer/delos/actions/workflows/maven.yml/badge.svg)](https://github.com/Hellblazer/Delos/actions)
 
-**Current version**: `0.3.0`
+**Current version**: `0.3.1-SNAPSHOT`
 
 > Not A Coin Platform™ — Delos is a distributed database, not blockchain. While it can support cryptocurrencies, that's not the design goal.
 
