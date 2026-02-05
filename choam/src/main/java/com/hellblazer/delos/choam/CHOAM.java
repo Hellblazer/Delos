@@ -84,26 +84,23 @@ public class CHOAM implements ConsensusEngine {
     private final    BlockProcessor                                       blockProcessor;
     private final    BoundedEpidemicGossip                                  combine;
     private final    CommonCommunications<Terminal, Concierge>             comm;
-    private final    AtomicReference<HashedCertifiedBlock>                 genesis               = new AtomicReference<>();
-    private final    AtomicReference<HashedCertifiedBlock>                 head                  = new AtomicReference<>();
     private final    AtomicReference<nextView>                             next                  = new AtomicReference<>();
     private final    AtomicReference<Digest>                               nextViewId            = new AtomicReference<>();
     private final    Parameters                                            params;
-    private final    BoundedPriorityBlockingQueue<HashedCertifiedBlock>    pending;
     private final    RoundScheduler                                        roundScheduler;
     private final    Session                                               session;
     private final    AsyncOperationStateHolder                            asyncOperationState   = new AsyncOperationStateHolder();
+    private final    BlockChainStateHolder                                blockChainState;
     private final    CommitteeStateHolder                                 committeeState        = new CommitteeStateHolder();
     private final    ControlStateHolder                                    controlState          = new ControlStateHolder();
     private final    BlockStore                                            store;
     private final    CommonCommunications<TxnSubmission, Submitter>        submissionComm;
     private final    Combine.Transitions                                   transitions;
     private final    TransSubmission                                       txnSubmission         = new TransSubmission();
-    private final    AtomicReference<HashedCertifiedBlock>                 view                  = new AtomicReference<>();
     private final    AtomicReference<ImmutablePendingViews>               pendingViews          = new AtomicReference<>(ImmutablePendingViews.EMPTY);
     private final    ScheduledExecutorService                              scheduler;
     private final    ReentrantLock                                         viewStateLock         = new ReentrantLock();
-    private final    ReadWriteLock                                         headLock              = new ReentrantReadWriteLock();
+    public final     ReadWriteLock                                         headLock;
     private final    ViewCoordinator                                       coordinator;
 
     public CHOAM(Parameters params) {
@@ -111,10 +108,10 @@ public class CHOAM implements ConsensusEngine {
         this.store = new MVBlockStore(params.digestAlgorithm(), params.mvBuilder().clone().build());
         this.checkpointManager = new CheckpointManagerImpl(store, params);
         this.params = params;
-        this.pending = new BoundedPriorityBlockingQueue<>(params.maxPendingBlocks(),
-                                                          Comparator.comparing(HashedCertifiedBlock::height));
+        this.blockChainState = new BlockChainStateHolder(params.maxPendingBlocks());
+        this.headLock = blockChainState.headLock;
         pendingViews.set(pendingViews.get().add(params.context().getId(), params.context().delegate()));
-        this.blockProcessor = new BlockProcessorImpl(pending, controlState.getStartedRef(), params, head, this::consume);
+        this.blockProcessor = new BlockProcessorImpl(blockChainState.getPendingQueue(), controlState.getStartedRef(), params, blockChainState.getHeadRef(), this::consume);
         // Register for stall detection events
         blockProcessor.setStallListener(this::handleStallDetected);
 
@@ -140,8 +137,8 @@ public class CHOAM implements ConsensusEngine {
                 log.error("Failed to combine messages on: {}", params.member().getId(), t);
             }
         }));
-        head.set(new NullBlock(params.digestAlgorithm()));
-        view.set(new NullBlock(params.digestAlgorithm()));
+        blockChainState.setHead(new NullBlock(params.digestAlgorithm()));
+        blockChainState.setView(new NullBlock(params.digestAlgorithm()));
         final Trampoline service = new Trampoline();
         comm = params.communications()
                      .create(params.member(), params.context().getId(), service, service.getClass().getCanonicalName(),
@@ -311,7 +308,7 @@ public class CHOAM implements ConsensusEngine {
     @Override
     public boolean active() {
         final var c = committeeState.getCommittee();
-        HashedCertifiedBlock h = head.get();
+        HashedCertifiedBlock h = blockChainState.getHead();
         return (c != null && h != null && transitions.fsm().getCurrentState() == Mercantile.OPERATIONAL)
         && c instanceof Administration && h.height().compareTo(ULong.valueOf(0)) >= 0;
     }
@@ -323,7 +320,7 @@ public class CHOAM implements ConsensusEngine {
 
     @Override
     public ULong currentHeight() {
-        final var c = head.get();
+        final var c = blockChainState.getHead();
         return c == null ? null : c.height();
     }
 
@@ -344,7 +341,7 @@ public class CHOAM implements ConsensusEngine {
 
     @Override
     public Digest getViewId() {
-        final var viewChange = view.get();
+        final var viewChange = blockChainState.getView();
         if (viewChange == null) {
             return null;
         }
@@ -387,7 +384,7 @@ public class CHOAM implements ConsensusEngine {
 
     public String logState() {
         final var c = committeeState.getCommittee();
-        HashedCertifiedBlock h = head.get();
+        HashedCertifiedBlock h = blockChainState.getHead();
         if (c == null) {
             return "No committee on: %s".formatted(params.member().getId());
         }
@@ -463,7 +460,7 @@ public class CHOAM implements ConsensusEngine {
 
     @Override
     public void accept(HashedCertifiedBlock next) {
-        head.set(next);
+        blockChainState.setHead(next);
         store.put(next);
         final Committee c = committeeState.getCommittee();
         if (c == null) {
@@ -495,7 +492,7 @@ public class CHOAM implements ConsensusEngine {
 
     private Block checkpoint() {
         transitions.beginCheckpoint();
-        HashedBlock lb = head.get();
+        HashedBlock lb = blockChainState.getHead();
         File state = params.checkpointer().apply(lb.height());
         if (state == null) {
             log.error("Cannot create checkpoint on: {}", params.member().getId());
@@ -512,7 +509,7 @@ public class CHOAM implements ConsensusEngine {
             return null;
         }
 
-        final HashedCertifiedBlock v = view.get();
+        final HashedCertifiedBlock v = blockChainState.getView();
         final Block block = Block.newBuilder()
                                  .setHeader(
                                  buildHeader(params.digestAlgorithm(), cp, lb.hash, newHeight, c.height(),
@@ -542,7 +539,7 @@ public class CHOAM implements ConsensusEngine {
         HashedCertifiedBlock hcb = new HashedCertifiedBlock(params.digestAlgorithm(), block);
         log.trace("Received block: {} hash: {} height: {} from {} on: {}", hcb.block.getBodyCase(), hcb.hash,
                   hcb.height(), m.source(), params.member().getId());
-        if (!pending.offer(hcb)) {
+        if (!blockChainState.addPending(hcb)) {
             log.warn("Rejected pending block: {} hash: {} height: {} on: {}", hcb.block.getBodyCase(), hcb.hash,
                      hcb.height(), params.member().getId());
         }
@@ -558,7 +555,7 @@ public class CHOAM implements ConsensusEngine {
             @Override
             public Block genesis(Map<Digest, Join> joining, Digest nextViewId, HashedBlock previous) {
                 final HashedCertifiedBlock cp = checkpointManager.currentCheckpoint();
-                final HashedCertifiedBlock v = view.get();
+                final HashedCertifiedBlock v = blockChainState.getView();
                 log.trace("Genesis cp: {} view: {} previous: {} on: {}", cp.hash, v.hash, previous.hash,
                           params.member().getId());
                 var g = CHOAM.genesis(nextViewId, joining, previous, v, params, cp, params.genesisData()
@@ -586,7 +583,7 @@ public class CHOAM implements ConsensusEngine {
 
             @Override
             public Block produce(ULong height, Digest prev, Assemble assemble, HashedBlock checkpoint) {
-                final HashedCertifiedBlock v = view.get();
+                final HashedCertifiedBlock v = blockChainState.getView();
                 return Block.newBuilder()
                             .setHeader(
                             buildHeader(params.digestAlgorithm(), assemble, prev, height, checkpoint.height(),
@@ -597,7 +594,7 @@ public class CHOAM implements ConsensusEngine {
 
             @Override
             public Block produce(ULong height, Digest prev, Executions executions, HashedBlock checkpoint) {
-                final HashedCertifiedBlock v = view.get();
+                final HashedCertifiedBlock v = blockChainState.getView();
                 var block = Block.newBuilder()
                                  .setHeader(
                                  buildHeader(params.digestAlgorithm(), executions, prev, height, checkpoint.height(),
@@ -626,7 +623,7 @@ public class CHOAM implements ConsensusEngine {
             @Override
             public Block reconfigure(Map<Digest, Join> joining, Digest nextViewId, HashedBlock previous,
                                      HashedBlock checkpoint) {
-                final HashedCertifiedBlock v = view.get();
+                final HashedCertifiedBlock v = blockChainState.getView();
                 var block = CHOAM.reconfigure(nextViewId, joining, previous, v, params, checkpoint);
                 log.trace("Produced block: {} height: {} on: {}", block.getBodyCase(), block.getHeader().getHeight(),
                           params.member().getId());
@@ -639,8 +636,8 @@ public class CHOAM implements ConsensusEngine {
         headLock.writeLock().lock();
         try {
             log.trace("Attempting to consume: {} hash: {} height: {}, head: {} height: {} on: {}", next.block.getBodyCase(),
-                      next.hash, next.height(), head.get().hash, head.get().height(), params.member().getId());
-            final HashedCertifiedBlock h = head.get();
+                      next.hash, next.height(), blockChainState.getHead().hash, blockChainState.getHead().height(), params.member().getId());
+            final HashedCertifiedBlock h = blockChainState.getHead();
 
             if (h.height() != null && next.height().compareTo(h.height()) <= 0) {
                 // block already past tense
@@ -651,7 +648,7 @@ public class CHOAM implements ConsensusEngine {
 
             final var nlc = ULong.valueOf(next.block.getHeader().getLastReconfig());
 
-            var view = this.view.get().height();
+            var view = this.blockChainState.getView().height();
             if (h.block == null || nlc.equals(view)) {
                 // same view
                 consume(next, h);
@@ -663,7 +660,7 @@ public class CHOAM implements ConsensusEngine {
                 log.trace("Wait for reconfiguration @ {} block: {} hash: {} height: {} current: {} on: {}",
                           next.block.getHeader().getLastReconfig(), next.block.getBodyCase(), next.hash, next.height(),
                           h.height(), params.member().getId());
-                if (!pending.offer(next)) {
+                if (!blockChainState.addPending(next)) {
                     log.warn("Rejected pending block: {} hash: {} height: {} on: {}", next.block.getBodyCase(),
                              next.hash, next.height(), params.member().getId());
                 }
@@ -681,7 +678,7 @@ public class CHOAM implements ConsensusEngine {
         if (next == null) {
             return;
         }
-        final var h = head.get();
+        final var h = blockChainState.getHead();
         if (isNext(next)) {
             if (!h.hash.equals(next.getPrevious())) {
                 log.debug("Invalid previous: {} expecting: {} block: {} hash: {} height: {} on: {}", next.getPrevious(),
@@ -706,7 +703,7 @@ public class CHOAM implements ConsensusEngine {
         } else if (h.height().compareTo(next.height()) < 0) {
             log.trace("Premature block: {} : {} height: {} current: {} on: {}", next.block.getBodyCase(), next.hash,
                       next.height(), cur.height(), params.member().getId());
-            if (!pending.offer(next)) {
+            if (!blockChainState.addPending(next)) {
                 log.warn("Rejected pending block: {} hash: {} height: {} on: {}", next.block.getBodyCase(), next.hash,
                          next.height(), params.member().getId());
             }
@@ -718,7 +715,7 @@ public class CHOAM implements ConsensusEngine {
 
 
     private void execute(List<Transaction> execs) {
-        final var h = head.get();
+        final var h = blockChainState.getHead();
         log.info("Executing transactions for block: {} hash: {} height: {} txns: {} on: {}", h.block.getBodyCase(),
                  h.hash, h.height(), execs.size(), params.member().getId());
         for (int i = 0; i < execs.size(); i++) {
@@ -778,7 +775,7 @@ public class CHOAM implements ConsensusEngine {
     }
 
     private boolean isNext(HashedBlock next) {
-        final var h = head.get();
+        final var h = blockChainState.getHead();
         if (h.height() == null && next.height().equals(ULong.valueOf(0))) {
             return true;
         }
@@ -802,7 +799,7 @@ public class CHOAM implements ConsensusEngine {
 
     private void process() {
         final var c = committeeState.getCommittee();
-        final HashedCertifiedBlock h = head.get();
+        final HashedCertifiedBlock h = blockChainState.getHead();
         log.info("Begin block: {} hash: {} height: {} committee: {} on: {}", h.block.getBodyCase(), h.hash, h.height(),
                  c.getClass().getSimpleName(), params.member().getId());
         switch (h.block.getBodyCase()) {
@@ -880,7 +877,7 @@ public class CHOAM implements ConsensusEngine {
 
         // Determine which committee type to create and the associated setup
         var validators = validatorsOf(reconfigure, params.context(), params.member().getId(), log);
-        final HashedCertifiedBlock h = head.get();
+        final HashedCertifiedBlock h = blockChainState.getHead();
         final var currentView = next.get();
 
         // Callback 1: Rotate view keys
@@ -892,7 +889,7 @@ public class CHOAM implements ConsensusEngine {
         // Callback 2: Update view state and session
         callbacks.add(() -> {
             log.trace("Updating view state on: {}", params.member().getId());
-            view.set(h);
+            blockChainState.setView(h);
             session.setView(h);
         });
 
@@ -1061,27 +1058,27 @@ public class CHOAM implements ConsensusEngine {
         }
         HashedCertifiedBlock geni = new HashedCertifiedBlock(params.digestAlgorithm(),
                                                              store.getCertifiedBlock(ULong.valueOf(0)));
-        genesis.set(geni);
-        head.set(geni);
+        blockChainState.setGenesis(geni);
+        blockChainState.setHead(geni);
         ((CheckpointManagerImpl) checkpointManager).updateCheckpoint(geni);
         CertifiedBlock lastCheckpoint = store.getCertifiedBlock(
         ULong.valueOf(lastBlock.block.getHeader().getLastCheckpoint()));
         if (lastCheckpoint != null) {
             HashedCertifiedBlock ckpt = new HashedCertifiedBlock(params.digestAlgorithm(), lastCheckpoint);
             ((CheckpointManagerImpl) checkpointManager).updateCheckpoint(ckpt);
-            head.set(ckpt);
+            blockChainState.setHead(ckpt);
             HashedCertifiedBlock lastView = new HashedCertifiedBlock(params.digestAlgorithm(), store.getCertifiedBlock(
             ULong.valueOf(ckpt.block.getHeader().getLastReconfig())));
             Reconfigure reconfigure = lastView.block.hasGenesis() ? lastView.block.getGenesis().getInitialView()
                                                                   : lastView.block.getReconfigure();
-            view.set(lastView);
+            blockChainState.setView(lastView);
             var validators = validatorsOf(reconfigure, params.context(), params.member().getId(), log);
             committeeState.setCommittee(new Synchronizer(validators));
             log.info("Reconfigured to checkpoint view: {} committee: {} on: {}", new Digest(reconfigure.getId()),
                      committeeState.getCommittee().getClass().getSimpleName(), params.member().getId());
         }
 
-        log.info("Restored to: {} lastView: {} lastCheckpoint: {} lastBlock: {} on: {}", geni.hash, view.get().hash,
+        log.info("Restored to: {} lastView: {} lastCheckpoint: {} lastBlock: {} on: {}", geni.hash, blockChainState.getView().hash,
                  checkpointManager.currentCheckpoint().hash, lastBlock.hash, params.member().getId());
     }
 
@@ -1167,7 +1164,7 @@ public class CHOAM implements ConsensusEngine {
     }
 
     private Initial sync(Synchronize request, Digest from) {
-        final HashedCertifiedBlock g = genesis.get();
+        final HashedCertifiedBlock g = blockChainState.getGenesis();
         if (g != null) {
             Initial.Builder initial = Initial.newBuilder();
             initial.setGenesis(g.certifiedBlock);
@@ -1220,7 +1217,7 @@ public class CHOAM implements ConsensusEngine {
             current1 = store.getCertifiedBlock(height(current1.getBlock()).add(1));
         }
         log.info("Synchronized, resuming view: {} deferred blocks: {} on: {}",
-                 state.lastCheckpoint() != null ? state.lastCheckpoint().hash : state.genesis().hash, pending.size(),
+                 state.lastCheckpoint() != null ? state.lastCheckpoint().hash : state.genesis().hash, blockChainState.getPendingSize(),
                  params.member().getId());
         Thread.ofVirtual().start(Utils.wrapped(() -> {
             if (!controlState.isStarted()) {
@@ -1240,14 +1237,14 @@ public class CHOAM implements ConsensusEngine {
         Block block = hcb.block;
         log.info("Synchronizing block: {}:{} height: {} on: {}", hcb.hash, block.getBodyCase(), hcb.height(),
                  params.member().getId());
-        final HashedCertifiedBlock previousBlock = head.get();
+        final HashedCertifiedBlock previousBlock = blockChainState.getHead();
         Header header = block.getHeader();
         if (previousBlock != null) {
             Digest prev = digest(header.getPrevious());
             ULong prevHeight = previousBlock.height();
             if (prevHeight == null) {
                 if (!hcb.height().equals(ULong.valueOf(0))) {
-                    if (!pending.offer(hcb)) {
+                    if (!blockChainState.addPending(hcb)) {
                         log.warn("Rejected pending block: {} hash: {} height: {} on: {}", hcb.block.getBodyCase(),
                                  hcb.hash, hcb.height(), params.member().getId());
                     }
@@ -1259,14 +1256,14 @@ public class CHOAM implements ConsensusEngine {
                 if (hcb.height().compareTo(prevHeight) <= 0) {
                     log.trace("Discarding previously committed block: {} height: {} current height: {} on: {}",
                               hcb.hash, hcb.height(), prevHeight, params.member().getId());
-                    if (!pending.offer(hcb)) {
+                    if (!blockChainState.addPending(hcb)) {
                         log.warn("Rejected pending block: {} hash: {} height: {} on: {}", hcb.block.getBodyCase(),
                                  hcb.hash, hcb.height(), params.member().getId());
                     }
                     return;
                 }
                 if (!hcb.height().equals(prevHeight.add(1))) {
-                    if (!pending.offer(hcb)) {
+                    if (!blockChainState.addPending(hcb)) {
                         log.warn("Rejected pending block: {} hash: {} height: {} on: {}", hcb.block.getBodyCase(),
                                  hcb.hash, hcb.height(), params.member().getId());
                     }
@@ -1295,7 +1292,7 @@ public class CHOAM implements ConsensusEngine {
             }
         } else {
             if (!block.hasGenesis()) {
-                if (!pending.offer(hcb)) {
+                if (!blockChainState.addPending(hcb)) {
                     log.warn("Rejected pending block: {} hash: {} height: {} on: {}", hcb.block.getBodyCase(), hcb.hash,
                              hcb.height(), params.member().getId());
                 }
@@ -1317,7 +1314,7 @@ public class CHOAM implements ConsensusEngine {
         }
         log.info("Deferring block on: {}. Block: {} hash: {} height is {}", params.member().getId(),
                  hcb.block.getBodyCase(), hcb.hash, header.getHeight());
-        if (!pending.offer(hcb)) {
+        if (!blockChainState.addPending(hcb)) {
             log.warn("Rejected pending block: {} hash: {} height: {} on: {}", hcb.block.getBodyCase(), hcb.hash,
                      hcb.height(), params.member().getId());
         }
@@ -1408,11 +1405,11 @@ public class CHOAM implements ConsensusEngine {
 
         @Override
         public void anchor() {
-            HashedCertifiedBlock anchor = pending.poll();
+            HashedCertifiedBlock anchor = blockChainState.pollPending();
             var pendingView = pendingViews.get().last();
             var pending = pendingView == null ? null : pendingView.context();
-            if (anchor != null && pending != null && pending.size() >= pending.majority()) {
-                log.info("Synchronizing from anchor: {} cardinality: {} on: {}", anchor.hash, pending.size(),
+            if (anchor != null && pending != null && blockChainState.getPendingSize() >= pending.majority()) {
+                log.info("Synchronizing from anchor: {} cardinality: {} on: {}", anchor.hash, blockChainState.getPendingSize(),
                          params.member().getId());
                 transitions.bootstrap(anchor);
             }
@@ -1423,11 +1420,11 @@ public class CHOAM implements ConsensusEngine {
             if (!controlState.isStarted()) {
                 return;
             }
-            final HashedCertifiedBlock g = genesis.get();
+            final HashedCertifiedBlock g = blockChainState.getGenesis();
             if (g != null) {
                 return;
             }
-            HashedCertifiedBlock anchor = pending.poll();
+            HashedCertifiedBlock anchor = blockChainState.pollPending();
             if (anchor != null) {
                 log.info("Synchronizing from anchor: {} on: {}", anchor.hash, params.member().getId());
                 transitions.bootstrap(anchor);
@@ -1446,7 +1443,7 @@ public class CHOAM implements ConsensusEngine {
             if (!controlState.isStarted()) {
                 return;
             }
-            HashedCertifiedBlock anchor = pending.poll();
+            HashedCertifiedBlock anchor = blockChainState.pollPending();
             if (anchor != null) {
                 log.info("Synchronizing from anchor: {} on: {}", anchor.hash, params.member().getId());
                 asyncOperationState.resetSyncAttempts();  // Reset attempts on successful anchor acquisition
@@ -1798,7 +1795,7 @@ public class CHOAM implements ConsensusEngine {
             var pv = pendingViews();
             producer = new Producer(nextViewId.get(),
                                     new ViewContext(context, params, pv, signer, validators, constructBlock()),
-                                    head.get(), checkpointManager.currentCheckpoint(), getLabel(), scheduler);
+                                    blockChainState.getHead(), checkpointManager.currentCheckpoint(), getLabel(), scheduler);
             producer.start();
         }
 
@@ -1877,10 +1874,10 @@ public class CHOAM implements ConsensusEngine {
         @Override
         public void accept(HashedCertifiedBlock hb) {
             assert hb.height().equals(ULong.valueOf(0));
-            final var c = head.get();
-            genesis.set(c);
+            final var c = blockChainState.getHead();
+            blockChainState.setGenesis(c);
             ((CheckpointManagerImpl) checkpointManager).updateCheckpoint(c);
-            view.set(c);
+            blockChainState.setView(c);
             process();
         }
 
