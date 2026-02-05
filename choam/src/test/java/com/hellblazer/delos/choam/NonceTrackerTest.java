@@ -1,0 +1,272 @@
+/*
+ * Copyright (c) 2026, Hal Hildebrand.
+ * All rights reserved.
+ * GNU Affero General Public License
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
+ */
+package com.hellblazer.delos.choam;
+
+import com.hellblazer.delos.cryptography.Digest;
+import com.hellblazer.delos.cryptography.DigestAlgorithm;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.io.File;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.*;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+/**
+ * Test suite for NonceTracker - replay protection via persistent nonce tracking.
+ *
+ * Tests DoS protection via sliding window (10,000 nonces per source) and
+ * block height-based expiration.
+ *
+ * @author hal.hildebrand
+ */
+public class NonceTrackerTest {
+
+    @TempDir
+    Path tempDir;
+
+    private PersistentNonceStore persistentStore;
+    private InMemoryNonceStore memoryStore;
+
+    @BeforeEach
+    public void setUp() {
+        var storeFile = tempDir.resolve("nonce-test.mv.db").toFile();
+        persistentStore = new PersistentNonceStore(storeFile);
+        memoryStore = new InMemoryNonceStore();
+    }
+
+    @AfterEach
+    public void tearDown() {
+        if (persistentStore != null) {
+            persistentStore.close();
+        }
+    }
+
+    @Test
+    public void testBasicNonceIncrement() {
+        var source = DigestAlgorithm.DEFAULT.getOrigin();
+
+        assertEquals(0, persistentStore.getAndIncrement(source));
+        assertEquals(1, persistentStore.getAndIncrement(source));
+        assertEquals(2, persistentStore.getAndIncrement(source));
+
+        assertEquals(0, memoryStore.getAndIncrement(source));
+        assertEquals(1, memoryStore.getAndIncrement(source));
+    }
+
+    @Test
+    public void testNonceValidation() {
+        var source = DigestAlgorithm.DEFAULT.getOrigin();
+
+        // First nonce should be 0
+        int nonce0 = persistentStore.getAndIncrement(source);
+        assertEquals(0, nonce0);
+
+        // Nonce 0 should be valid (just used)
+        assertTrue(persistentStore.validateNonce(source, 0));
+
+        // Nonce 1 should be valid (next)
+        assertTrue(persistentStore.validateNonce(source, 1));
+
+        // Nonce -1 should be invalid (below current)
+        assertFalse(persistentStore.validateNonce(source, -1));
+
+        // Get next nonce (1)
+        int nonce1 = persistentStore.getAndIncrement(source);
+        assertEquals(1, nonce1);
+
+        // Nonce 0 should now be invalid (replay)
+        assertFalse(persistentStore.validateNonce(source, 0));
+    }
+
+    @Test
+    public void testPersistenceAcrossRestarts() throws Exception {
+        var source = DigestAlgorithm.DEFAULT.getOrigin();
+        var storeFile = tempDir.resolve("persistence-test.mv.db").toFile();
+
+        // First session: increment nonce to 5
+        try (var store1 = new PersistentNonceStore(storeFile)) {
+            for (int i = 0; i < 5; i++) {
+                assertEquals(i, store1.getAndIncrement(source));
+            }
+        }
+
+        // Second session: nonce should resume at 5
+        try (var store2 = new PersistentNonceStore(storeFile)) {
+            assertEquals(5, store2.getAndIncrement(source));
+            assertEquals(6, store2.getAndIncrement(source));
+        }
+
+        // Verify replay attack prevention
+        try (var store3 = new PersistentNonceStore(storeFile)) {
+            assertFalse(store3.validateNonce(source, 0), "Old nonce 0 should be invalid");
+            assertFalse(store3.validateNonce(source, 3), "Old nonce 3 should be invalid");
+            assertTrue(store3.validateNonce(source, 7), "Next nonce 7 should be valid");
+        }
+    }
+
+    @Test
+    public void testSlidingWindow() {
+        var source = DigestAlgorithm.DEFAULT.getOrigin();
+        int windowSize = 10_000;
+
+        // Fill window to capacity
+        for (int i = 0; i < windowSize; i++) {
+            assertEquals(i, persistentStore.getAndIncrement(source));
+        }
+
+        // All nonces in window should be valid
+        assertTrue(persistentStore.validateNonce(source, 9_999));
+
+        // Add one more nonce (should trigger eviction of oldest)
+        assertEquals(windowSize, persistentStore.getAndIncrement(source));
+
+        // Oldest nonce should be evicted
+        assertFalse(persistentStore.validateNonce(source, 0),
+                   "Nonce 0 should be evicted from sliding window");
+
+        // Recent nonces should still be valid
+        assertTrue(persistentStore.validateNonce(source, 9_999));
+        assertTrue(persistentStore.validateNonce(source, 10_000));
+    }
+
+    @Test
+    public void testBlockHeightExpiration() {
+        var source = DigestAlgorithm.DEFAULT.getOrigin();
+        long initialHeight = 1000L;
+
+        persistentStore.checkpoint(initialHeight);
+
+        // Get some nonces at height 1000
+        for (int i = 0; i < 5; i++) {
+            persistentStore.getAndIncrement(source);
+        }
+
+        // All nonces should be valid at height 1000
+        assertTrue(persistentStore.validateNonce(source, 0));
+        assertTrue(persistentStore.validateNonce(source, 4));
+
+        // Advance to height 11001 (beyond 10,000 block window)
+        persistentStore.checkpoint(11001L);
+
+        // Old nonces should be expired
+        assertFalse(persistentStore.validateNonce(source, 0),
+                   "Nonces from height 1000 should expire at height 11001");
+
+        // New nonces at current height should work
+        int newNonce = persistentStore.getAndIncrement(source);
+        assertTrue(persistentStore.validateNonce(source, newNonce));
+    }
+
+    @Test
+    public void testConcurrentAccess() throws InterruptedException {
+        var source = DigestAlgorithm.DEFAULT.getOrigin();
+        int numThreads = 10;
+        int noncesPerThread = 100;
+        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+        CountDownLatch latch = new CountDownLatch(numThreads);
+        List<Integer> allNonces = new CopyOnWriteArrayList<>();
+
+        for (int t = 0; t < numThreads; t++) {
+            executor.submit(() -> {
+                try {
+                    for (int i = 0; i < noncesPerThread; i++) {
+                        int nonce = persistentStore.getAndIncrement(source);
+                        allNonces.add(nonce);
+                    }
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+
+        assertTrue(latch.await(10, TimeUnit.SECONDS), "Concurrent operations should complete");
+        executor.shutdown();
+
+        // Should have exactly numThreads * noncesPerThread unique nonces
+        assertEquals(numThreads * noncesPerThread, allNonces.size());
+
+        // All nonces should be unique (no duplicates from race conditions)
+        var uniqueNonces = new java.util.HashSet<>(allNonces);
+        assertEquals(allNonces.size(), uniqueNonces.size(),
+                    "All nonces should be unique (no race condition duplicates)");
+    }
+
+    @Test
+    public void testMultipleSourcesIndependent() {
+        var source1 = DigestAlgorithm.DEFAULT.digest("source1".getBytes());
+        var source2 = DigestAlgorithm.DEFAULT.digest("source2".getBytes());
+
+        // Each source should have independent nonce sequence
+        assertEquals(0, persistentStore.getAndIncrement(source1));
+        assertEquals(0, persistentStore.getAndIncrement(source2));
+        assertEquals(1, persistentStore.getAndIncrement(source1));
+        assertEquals(1, persistentStore.getAndIncrement(source2));
+
+        // Validation should be independent
+        assertTrue(persistentStore.validateNonce(source1, 1));
+        assertTrue(persistentStore.validateNonce(source2, 1));
+        assertFalse(persistentStore.validateNonce(source1, 0)); // Used
+        assertFalse(persistentStore.validateNonce(source2, 0)); // Used
+    }
+
+    @Test
+    public void testClear() {
+        var source = DigestAlgorithm.DEFAULT.getOrigin();
+
+        // Add some nonces
+        for (int i = 0; i < 5; i++) {
+            persistentStore.getAndIncrement(source);
+        }
+
+        // Clear should reset
+        persistentStore.clear();
+
+        // Nonce should restart at 0
+        assertEquals(0, persistentStore.getAndIncrement(source));
+    }
+
+    @Test
+    public void testInMemoryStoreNoPersistence() throws Exception {
+        var source = DigestAlgorithm.DEFAULT.getOrigin();
+
+        // Increment nonce
+        assertEquals(0, memoryStore.getAndIncrement(source));
+        assertEquals(1, memoryStore.getAndIncrement(source));
+
+        // Create new instance (simulates restart)
+        var newMemoryStore = new InMemoryNonceStore();
+
+        // Should start from 0 (no persistence)
+        assertEquals(0, newMemoryStore.getAndIncrement(source));
+    }
+
+    @Test
+    public void testFeatureFlagIntegration() {
+        // With persistence enabled
+        FeatureFlags.NONCE_PERSISTENCE.setEnabled(true);
+        try {
+            var tracker = NonceTracker.create(tempDir.resolve("feature-flag-test.mv.db").toFile());
+            assertTrue(tracker instanceof PersistentNonceStore,
+                      "Should use PersistentNonceStore when flag enabled");
+            tracker.close();
+        } finally {
+            FeatureFlags.NONCE_PERSISTENCE.setEnabled(false);
+        }
+
+        // With persistence disabled
+        var tracker2 = NonceTracker.create(tempDir.resolve("unused.mv.db").toFile());
+        assertTrue(tracker2 instanceof InMemoryNonceStore,
+                  "Should use InMemoryNonceStore when flag disabled");
+    }
+}
