@@ -95,7 +95,7 @@ public class CHOAM implements ConsensusEngine {
     private final    BoundedPriorityBlockingQueue<HashedCertifiedBlock>    pending;
     private final    RoundScheduler                                        roundScheduler;
     private final    Session                                               session;
-    private final    AtomicBoolean                                         started               = new AtomicBoolean();
+    private final    ControlStateHolder                                    controlState          = new ControlStateHolder();
     private final    BlockStore                                            store;
     private final    CommonCommunications<TxnSubmission, Submitter>        submissionComm;
     private final    Combine.Transitions                                   transitions;
@@ -103,7 +103,6 @@ public class CHOAM implements ConsensusEngine {
     private final    AtomicReference<HashedCertifiedBlock>                 view                  = new AtomicReference<>();
     private final    AtomicReference<ImmutablePendingViews>               pendingViews          = new AtomicReference<>(ImmutablePendingViews.EMPTY);
     private final    ScheduledExecutorService                              scheduler;
-    private final    AtomicBoolean                                         ongoingJoin           = new AtomicBoolean();
     private final    ReentrantLock                                         viewStateLock         = new ReentrantLock();
     private final    ReadWriteLock                                         headLock              = new ReentrantReadWriteLock();
     private final    AtomicInteger                                         syncAttempts          = new AtomicInteger(0);
@@ -117,7 +116,7 @@ public class CHOAM implements ConsensusEngine {
         this.pending = new BoundedPriorityBlockingQueue<>(params.maxPendingBlocks(),
                                                           Comparator.comparing(HashedCertifiedBlock::height));
         pendingViews.set(pendingViews.get().add(params.context().getId(), params.context().delegate()));
-        this.blockProcessor = new BlockProcessorImpl(pending, started, params, head, this::consume);
+        this.blockProcessor = new BlockProcessorImpl(pending, controlState.getStartedRef(), params, head, this::consume);
         // Register for stall detection events
         blockProcessor.setStallListener(this::handleStallDetected);
 
@@ -134,7 +133,7 @@ public class CHOAM implements ConsensusEngine {
                                             params.metrics() == null ? null : params.metrics().getCombineMetrics(),
                                             adapter);
         combine.registerHandler((_, messages) -> Thread.ofVirtual().start(() -> {
-            if (!started.get()) {
+            if (!controlState.isStarted()) {
                 return;
             }
             try {
@@ -428,7 +427,7 @@ public class CHOAM implements ConsensusEngine {
     }
 
     public void start() {
-        if (!started.compareAndSet(false, true)) {
+        if (!controlState.start()) {
             return;
         }
         log.info("CHOAM startup: {} majority: {} on: {}", params.context().getId(), params.majority(),
@@ -439,7 +438,7 @@ public class CHOAM implements ConsensusEngine {
     }
 
     public void stop() {
-        if (!started.compareAndSet(true, false)) {
+        if (!controlState.stopWithCAS()) {
             return;
         }
         blockProcessor.stop();
@@ -950,7 +949,7 @@ public class CHOAM implements ConsensusEngine {
 
         // Callback 5: Log completion
         callbacks.add(() -> {
-            if (ongoingJoin.compareAndSet(true, false)) {
+            if (controlState.endJoinWithCAS()) {
                 log.trace("Halting ongoing join on: {}", params.member().getId());
             }
             log.info("Reconfigured to view: {} committee: {} validators: {} on: {}",
@@ -1226,7 +1225,7 @@ public class CHOAM implements ConsensusEngine {
                  state.lastCheckpoint() != null ? state.lastCheckpoint().hash : state.genesis().hash, pending.size(),
                  params.member().getId());
         Thread.ofVirtual().start(Utils.wrapped(() -> {
-            if (!started.get()) {
+            if (!controlState.isStarted()) {
                 return;
             }
             transitions.synchd();
@@ -1235,7 +1234,7 @@ public class CHOAM implements ConsensusEngine {
     }
 
     private void synchronizedProcess(CertifiedBlock certifiedBlock) {
-        if (!started.get()) {
+        if (!controlState.isStarted()) {
             log.info("Not started on: {}", params.member().getId());
             return;
         }
@@ -1423,7 +1422,7 @@ public class CHOAM implements ConsensusEngine {
 
         @Override
         public void awaitRegeneration() {
-            if (!started.get()) {
+            if (!controlState.isStarted()) {
                 return;
             }
             final HashedCertifiedBlock g = genesis.get();
@@ -1446,7 +1445,7 @@ public class CHOAM implements ConsensusEngine {
 
         @Override
         public void awaitSynchronization() {
-            if (!started.get()) {
+            if (!controlState.isStarted()) {
                 return;
             }
             HashedCertifiedBlock anchor = pending.poll();
@@ -1629,7 +1628,7 @@ public class CHOAM implements ConsensusEngine {
 
         @Override
         public SubmitResult submitTxn(Transaction transaction) {
-            if (!started.get()) {
+            if (!controlState.isStarted()) {
                 log.trace("Failed submitting txn: {} no servers available in: {} on: {}",
                           hashOf(transaction, params.digestAlgorithm()), viewId, params.member().getId());
                 return SubmitResult.newBuilder().setResult(Result.ERROR_SUBMITTING).setErrorMsg("Shutdown").build();
@@ -1673,7 +1672,7 @@ public class CHOAM implements ConsensusEngine {
         }
 
         private void join(View view) {
-            if (!ongoingJoin.compareAndSet(false, true)) {
+            if (!controlState.beginJoin()) {
                 throw new IllegalStateException("Ongoing join should have been cancelled");
             }
             log.trace("Joining view: {} diadem: {} on: {}", nextViewId.get(), Digest.from(view.getDiadem()),
@@ -1687,14 +1686,14 @@ public class CHOAM implements ConsensusEngine {
             var attempts = new AtomicInteger();
             action.set(() -> {
                 log.trace("Join attempt: {} ongoing: {} joined: {} majority: {} on: {}", attempts.incrementAndGet(),
-                          ongoingJoin.get(), joined.get(), view.getMajority(), params.member().getId());
-                if (ongoingJoin.get() & joined.get() < view.getMajority()) {
+                          controlState.isJoinOngoing(), joined.get(), view.getMajority(), params.member().getId());
+                if (controlState.isJoinOngoing() & joined.get() < view.getMajority()) {
                     join(view, servers, joined);
                     if (joined.get() >= view.getMajority()) {
-                        ongoingJoin.set(false);
+                        controlState.endJoin();
                         log.trace("Finished join of: {} diadem: {} joins: {} on: {}", nextViewId.get(),
                                   Digest.from(view.getDiadem()), joined.get(), params.member().getId());
-                    } else if (ongoingJoin.get()) {
+                    } else if (controlState.isJoinOngoing()) {
                         log.trace("Rescheduling join of: {} diadem: {} joins: {} on: {}", nextViewId.get(),
                                   Digest.from(view.getDiadem()), joined.get(), params.member().getId());
                         scheduler.schedule(action.get(), 50, TimeUnit.MILLISECONDS);
