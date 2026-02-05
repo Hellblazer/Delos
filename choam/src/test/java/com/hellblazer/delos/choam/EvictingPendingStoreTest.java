@@ -80,21 +80,21 @@ public class EvictingPendingStoreTest {
         for (int i = 0; i < MAX_CAPACITY; i++) {
             var key = DigestAlgorithm.DEFAULT.digest(("key" + i).getBytes());
             long height = 11000L - i; // Recent heights within window
-            store.put(key, "value" + i, height);
+            store.putWithHeight(key, "value" + i, height);
         }
 
         assertEquals(MAX_CAPACITY, store.size());
 
         // Try to add entry outside sliding window (too old) - should be rejected
         var oldKey = DigestAlgorithm.DEFAULT.digest("very-old-key".getBytes());
-        store.put(oldKey, "old-value", 500L); // Height < currentHeight - 10000
+        store.putWithHeight(oldKey, "old-value", 500L); // Height < currentHeight - 10000
 
         // Old entry should be rejected (not added)
         assertNull(store.get(oldKey), "Entry outside sliding window should be rejected");
 
         // Add entry within window - should use LRU eviction
         var newKey = DigestAlgorithm.DEFAULT.digest("new-key".getBytes());
-        store.put(newKey, "new-value", 11001L);
+        store.putWithHeight(newKey, "new-value", 11001L);
 
         // New entry should exist
         assertNotNull(store.get(newKey), "Entry within window should be accepted");
@@ -204,7 +204,7 @@ public class EvictingPendingStoreTest {
         store = new EvictingPendingStore<>(MAX_CAPACITY, 1000L);
 
         var key = DigestAlgorithm.DEFAULT.getOrigin();
-        store.put(key, "value", 1000L);
+        store.putWithHeight(key, "value", 1000L);
 
         // Update to new height (checkpoint)
         store.updateHeight(2000L);

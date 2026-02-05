@@ -496,23 +496,26 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
     }
 
     public record ProducerParameters(Config.Builder ethereal, Duration gossipDuration, int maxBatchByteSize,
-                                     Duration batchInterval, int maxBatchCount, Duration maxGossipDelay) {
+                                     Duration batchInterval, int maxBatchCount, Duration maxGossipDelay,
+                                     int maxPendingBlocks, int maxPendingValidations) {
 
         public static Builder newBuilder() {
             return new Builder();
         }
 
         public static class Builder {
-            private Duration       batchInterval    = Duration.ofMillis(100);
-            private Config.Builder ethereal         = Config.newBuilder();
-            private Duration       gossipDuration   = Duration.ofSeconds(1);
-            private int            maxBatchByteSize = 2 * 1024 * 1024;
-            private int            maxBatchCount    = 10_000;
-            private Duration       maxGossipDelay   = Duration.ofSeconds(10);
+            private Duration       batchInterval          = Duration.ofMillis(100);
+            private Config.Builder ethereal               = Config.newBuilder();
+            private Duration       gossipDuration         = Duration.ofSeconds(1);
+            private int            maxBatchByteSize       = 2 * 1024 * 1024;
+            private int            maxBatchCount          = 10_000;
+            private Duration       maxGossipDelay         = Duration.ofSeconds(10);
+            private int            maxPendingBlocks       = 10_000;  // Default queue capacity
+            private int            maxPendingValidations  = 100_000;  // Default orphan validations capacity
 
             public ProducerParameters build() {
                 return new ProducerParameters(ethereal, gossipDuration, maxBatchByteSize, batchInterval, maxBatchCount,
-                                              maxGossipDelay);
+                                              maxGossipDelay, maxPendingBlocks, maxPendingValidations);
             }
 
             public Duration getBatchInterval() {
@@ -566,6 +569,24 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
 
             public Builder setMaxGossipDelay(Duration maxGossipDelay) {
                 this.maxGossipDelay = maxGossipDelay;
+                return this;
+            }
+
+            public int getMaxPendingBlocks() {
+                return maxPendingBlocks;
+            }
+
+            public Builder setMaxPendingBlocks(int maxPendingBlocks) {
+                this.maxPendingBlocks = maxPendingBlocks;
+                return this;
+            }
+
+            public int getMaxPendingValidations() {
+                return maxPendingValidations;
+            }
+
+            public Builder setMaxPendingValidations(int maxPendingValidations) {
+                this.maxPendingValidations = maxPendingValidations;
                 return this;
             }
         }
@@ -735,7 +756,8 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
             clone.setMvBuilder(mvBuilder.clone());
             clone.setProducer(
             new ProducerParameters(producer.ethereal.clone(), producer.gossipDuration, producer.maxBatchByteSize(),
-                                   producer.batchInterval, producer.maxBatchCount(), producer.maxGossipDelay));
+                                   producer.batchInterval, producer.maxBatchCount(), producer.maxGossipDelay,
+                                   producer.maxPendingBlocks(), producer.maxPendingValidations()));
             clone.setTxnLimiterBuilder(txnLimiterBuilder.clone());
             clone.setSubmitPolicy(submitPolicy.clone());
             return clone;

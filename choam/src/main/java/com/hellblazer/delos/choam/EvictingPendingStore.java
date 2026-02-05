@@ -11,8 +11,7 @@ import com.hellblazer.delos.cryptography.Digest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.BiConsumer;
@@ -27,11 +26,12 @@ import java.util.function.BiConsumer;
  * - Thread-safe for concurrent access
  * - Optional eviction callbacks for monitoring
  * - Configurable capacity
+ * - Implements Map interface for drop-in replacement of ConcurrentSkipListMap
  *
  * @param <V> Value type (PendingBlock, List<Validate>, etc.)
  * @author hal.hildebrand
  */
-public class EvictingPendingStore<V> {
+public class EvictingPendingStore<V> implements Map<Digest, V> {
     private static final Logger log = LoggerFactory.getLogger(EvictingPendingStore.class);
 
     private final int maxCapacity;
@@ -103,16 +103,9 @@ public class EvictingPendingStore<V> {
     }
 
     /**
-     * Put value with current height
-     */
-    public void put(Digest key, V value) {
-        put(key, value, currentHeight);
-    }
-
-    /**
      * Put value with specific height (for height-based priority)
      */
-    public void put(Digest key, V value, long height) {
+    public void putWithHeight(Digest key, V value, long height) {
         lock.writeLock().lock();
         try {
             // Reject entries that are significantly old (beyond sliding window)
@@ -129,12 +122,21 @@ public class EvictingPendingStore<V> {
         }
     }
 
-    /**
-     * Get value by key (marks as recently used)
-     */
-    public V get(Digest key) {
+    // Map interface implementation
+
+    @Override
+    public V put(Digest key, V value) {
+        putWithHeight(key, value, currentHeight);
+        return null;  // LinkedHashMap doesn't return previous value in our use case
+    }
+
+    @Override
+    public V get(Object key) {
         lock.readLock().lock();
         try {
+            if (!(key instanceof Digest)) {
+                return null;
+            }
             ValueWithHeight<V> wrapper = store.get(key);
             return wrapper != null ? wrapper.value : null;
         } finally {
@@ -142,12 +144,13 @@ public class EvictingPendingStore<V> {
         }
     }
 
-    /**
-     * Remove entry
-     */
-    public V remove(Digest key) {
+    @Override
+    public V remove(Object key) {
         lock.writeLock().lock();
         try {
+            if (!(key instanceof Digest)) {
+                return null;
+            }
             ValueWithHeight<V> wrapper = store.remove(key);
             return wrapper != null ? wrapper.value : null;
         } finally {
@@ -155,10 +158,8 @@ public class EvictingPendingStore<V> {
         }
     }
 
-    /**
-     * Check if key exists
-     */
-    public boolean containsKey(Digest key) {
+    @Override
+    public boolean containsKey(Object key) {
         lock.readLock().lock();
         try {
             return store.containsKey(key);
@@ -232,5 +233,64 @@ public class EvictingPendingStore<V> {
      */
     public long getCurrentHeight() {
         return currentHeight;
+    }
+
+    // Map interface implementation (remaining methods)
+
+    @Override
+    public void putAll(Map<? extends Digest, ? extends V> m) {
+        lock.writeLock().lock();
+        try {
+            m.forEach((k, v) -> store.put(k, new ValueWithHeight<>(v, currentHeight)));
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    @Override
+    public boolean isEmpty() {
+        return size() == 0;
+    }
+
+    @Override
+    public Set<Digest> keySet() {
+        lock.readLock().lock();
+        try {
+            return new HashSet<>(store.keySet());
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    @Override
+    public Collection<V> values() {
+        lock.readLock().lock();
+        try {
+            return store.values().stream().map(w -> w.value).toList();
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    @Override
+    public Set<Entry<Digest, V>> entrySet() {
+        lock.readLock().lock();
+        try {
+            return store.entrySet().stream()
+                       .map(e -> new AbstractMap.SimpleEntry<>(e.getKey(), e.getValue().value))
+                       .collect(java.util.stream.Collectors.toSet());
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    @Override
+    public boolean containsValue(Object value) {
+        lock.readLock().lock();
+        try {
+            return store.values().stream().anyMatch(w -> w.value.equals(value));
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 }
