@@ -144,10 +144,12 @@ public class BootstrapperTest {
         Bootstrapper boot = new Bootstrapper(testChain.getAnchor(), Parameters.newBuilder()
                                                                               .setGenerateGenesis(true)
                                                                               .setGossipDuration(Duration.ofMillis(10))
-                                                                              .build(RuntimeParameters.newBuilder()
+                                                                              .build(Parameters.RuntimeParameters.newBuilder()
                                                                                                       .setContext(
                                                                                                       context)
                                                                                                       .setMember(member)
+                                                                                                      .setProcessor(Parameters.RuntimeParameters.NOOP_PROCESSOR)
+                                                                                                      .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
                                                                                                       .build()), store,
                                              comms, Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory()));
 

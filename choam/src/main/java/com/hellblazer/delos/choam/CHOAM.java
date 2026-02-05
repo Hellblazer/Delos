@@ -85,8 +85,6 @@ public class CHOAM implements ConsensusEngine {
     private final    BoundedEpidemicGossip                                  combine;
     private final    CommonCommunications<Terminal, Concierge>             comm;
     private final    AtomicReference<Committee>                            current               = new AtomicReference<>();
-    private final    AtomicReference<CompletableFuture<SynchronizedState>> futureBootstrap       = new AtomicReference<>();
-    private final    AtomicReference<ScheduledFuture<?>>                   futureSynchronization = new AtomicReference<>();
     private final    AtomicReference<HashedCertifiedBlock>                 genesis               = new AtomicReference<>();
     private final    AtomicReference<HashedCertifiedBlock>                 head                  = new AtomicReference<>();
     private final    AtomicReference<nextView>                             next                  = new AtomicReference<>();
@@ -95,6 +93,7 @@ public class CHOAM implements ConsensusEngine {
     private final    BoundedPriorityBlockingQueue<HashedCertifiedBlock>    pending;
     private final    RoundScheduler                                        roundScheduler;
     private final    Session                                               session;
+    private final    AsyncOperationStateHolder                            asyncOperationState   = new AsyncOperationStateHolder();
     private final    ControlStateHolder                                    controlState          = new ControlStateHolder();
     private final    BlockStore                                            store;
     private final    CommonCommunications<TxnSubmission, Submitter>        submissionComm;
@@ -105,7 +104,6 @@ public class CHOAM implements ConsensusEngine {
     private final    ScheduledExecutorService                              scheduler;
     private final    ReentrantLock                                         viewStateLock         = new ReentrantLock();
     private final    ReadWriteLock                                         headLock              = new ReentrantReadWriteLock();
-    private final    AtomicInteger                                         syncAttempts          = new AtomicInteger(0);
     private final    ViewCoordinator                                       coordinator;
 
     public CHOAM(Parameters params) {
@@ -480,18 +478,18 @@ public class CHOAM implements ConsensusEngine {
     }
 
     private void cancelBootstrap() {
-        final CompletableFuture<SynchronizedState> fb = futureBootstrap.get();
+        final CompletableFuture<SynchronizedState> fb = asyncOperationState.getBootstrapFuture();
         if (fb != null) {
             fb.cancel(true);
-            futureBootstrap.set(null);
+            asyncOperationState.clearBootstrapFuture();
         }
     }
 
     private void cancelSynchronization() {
-        final ScheduledFuture<?> fs = futureSynchronization.get();
+        final ScheduledFuture<?> fs = asyncOperationState.getSyncFuture();
         if (fs != null) {
             fs.cancel(true);
-            futureSynchronization.set(null);
+            asyncOperationState.clearSyncFuture();
         }
     }
 
@@ -1038,7 +1036,7 @@ public class CHOAM implements ConsensusEngine {
         log.info("Recovering from: {} height: {} on: {}", anchor.hash, anchor.height(), params.member().getId());
         cancelSynchronization();
         cancelBootstrap();
-        futureBootstrap.set(
+        asyncOperationState.getFutureBootstrapRef().set(
         new Bootstrapper(anchor, params, store, comm, scheduler).synchronize().whenComplete((s, t) -> {
             if (t == null) {
                 try {
@@ -1451,7 +1449,7 @@ public class CHOAM implements ConsensusEngine {
             HashedCertifiedBlock anchor = pending.poll();
             if (anchor != null) {
                 log.info("Synchronizing from anchor: {} on: {}", anchor.hash, params.member().getId());
-                syncAttempts.set(0);  // Reset attempts on successful anchor acquisition
+                asyncOperationState.resetSyncAttempts();  // Reset attempts on successful anchor acquisition
                 transitions.bootstrap(anchor);
                 return;
             }
@@ -1462,7 +1460,7 @@ public class CHOAM implements ConsensusEngine {
                 } catch (IllegalStateException e) {
                     final var c = current.get();
                     Context<Member> memberContext = context();
-                    int attempts = syncAttempts.incrementAndGet();
+                    int attempts = asyncOperationState.incrementSyncAttempts();
                     log.debug(
                     "Synchronization quorum formation failed: {}, members: {} desired: {} required: {}, no anchor to recover from: {} attempt: {} on: {}",
                     e.getMessage(), memberContext.size(), context().getRingCount(), params.majority(),
@@ -1499,7 +1497,7 @@ public class CHOAM implements ConsensusEngine {
         @Override
         public void recover(HashedCertifiedBlock anchor) {
             current.set(new Formation());
-            syncAttempts.set(0);  // Reset attempts on successful recovery
+            asyncOperationState.resetSyncAttempts();  // Reset attempts on successful recovery
             log.info("Anchor discovered: {} hash: {} height: {} committee: {} on: {}", anchor.block.getBodyCase(),
                      anchor.hash, anchor.height(), current.get().getClass().getSimpleName(), params.member().getId());
             CHOAM.this.recover(anchor);
