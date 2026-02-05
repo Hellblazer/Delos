@@ -133,6 +133,7 @@ public class CHOAMConcurrencyTest {
                                                  .setMetrics(metrics)
                                                  .setCommunications(routers.get(m.getId()))
                                                  .setProcessor(processor)
+                                                 .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
                                                  .setContext(context)
                                                  .build()));
         }));

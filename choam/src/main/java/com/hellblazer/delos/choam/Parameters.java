@@ -295,6 +295,30 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
                                     TransactionExecutor processor, BiConsumer<HashedBlock, CheckpointState> restorer,
                                     Function<ULong, File> checkpointer, ChoamMetrics metrics, Supplier<KERL_> kerl,
                                     FoundationSeal foundation, CompletableFuture<Void> onFailure) {
+
+        private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(RuntimeParameters.class);
+
+        /**
+         * No-op TransactionExecutor for test use only. Logs warnings to prevent silent data corruption.
+         * Production code MUST use setProcessor() with a real implementation.
+         */
+        public static final TransactionExecutor NOOP_PROCESSOR = new TransactionExecutor() {
+            @Override
+            @SuppressWarnings("rawtypes")
+            public void execute(int index, Digest hash, Transaction tx, CompletableFuture onComplete) {
+                log.warn("NOOP_PROCESSOR invoked - transaction {} at index {} NOT executed (test mode)", hash, index);
+                onComplete.complete(null);
+            }
+        };
+
+        /**
+         * No-op checkpoint restorer for test use only. Logs warnings to prevent silent data corruption.
+         * Production code MUST use setRestorer() with a real implementation.
+         */
+        public static final BiConsumer<HashedBlock, CheckpointState> NOOP_RESTORER = (block, state) -> {
+            log.warn("NOOP_RESTORER invoked - checkpoint at height {} NOT restored (test mode)", block.height());
+        };
+
         public static Builder newBuilder() {
             return new Builder();
         }
@@ -326,14 +350,18 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
             private Supplier<KERL_>                                kerl         = () -> KERL_.getDefaultInstance();
             private SigningMember                                  member;
             private ChoamMetrics                                   metrics;
-            private TransactionExecutor                            processor    = (i, h, t, f) -> {
-            };
-            private BiConsumer<HashedBlock, CheckpointState>       restorer     = (height, checkpointState) -> {
-            };
+            private TransactionExecutor                            processor    = null;
+            private BiConsumer<HashedBlock, CheckpointState>       restorer     = null;
 
             private CompletableFuture<Void> onFailure = new CompletableFuture<>();
 
             public RuntimeParameters build() {
+                if (processor == null) {
+                    throw new IllegalStateException("TransactionExecutor processor is required - use setProcessor() or NOOP_PROCESSOR for tests");
+                }
+                if (restorer == null) {
+                    throw new IllegalStateException("BiConsumer<HashedBlock, CheckpointState> restorer is required - use setRestorer() or NOOP_RESTORER for tests");
+                }
                 return new RuntimeParameters(new DelegatedContext<Member>(context), communications, member, genesisData,
                                              processor, restorer, checkpointer, metrics, kerl, foundation, onFailure);
             }

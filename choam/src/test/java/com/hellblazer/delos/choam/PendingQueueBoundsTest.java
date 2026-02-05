@@ -45,9 +45,11 @@ public class PendingQueueBoundsTest {
         );
 
         Parameters params = Parameters.newBuilder()
-                                     .build(RuntimeParameters.newBuilder()
+                                     .build(Parameters.RuntimeParameters.newBuilder()
                                                              .setContext(context)
                                                              .setMember(member)
+                                                             .setProcessor(Parameters.RuntimeParameters.NOOP_PROCESSOR)
+                                                             .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
                                                              .build());
 
         assertEquals(1000, params.maxPendingBlocks(),
@@ -148,9 +150,11 @@ public class PendingQueueBoundsTest {
         for (int value : validValues) {
             Parameters params = Parameters.newBuilder()
                                          .setMaxPendingBlocks(value)
-                                         .build(RuntimeParameters.newBuilder()
+                                         .build(Parameters.RuntimeParameters.newBuilder()
                                                                  .setContext(context)
                                                                  .setMember(member)
+                                                                 .setProcessor(Parameters.RuntimeParameters.NOOP_PROCESSOR)
+                                                                 .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
                                                                  .build());
             assertEquals(value, params.maxPendingBlocks(),
                         "Valid value " + value + " should be accepted");

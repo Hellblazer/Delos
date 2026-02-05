@@ -58,12 +58,14 @@ public class SessionTest {
         var entropy = SecureRandom.getInstance("SHA1PRNG");
         entropy.setSeed(new byte[] { 6, 6, 6 });
         var params = Parameters.newBuilder()
-                               .build(RuntimeParameters.newBuilder()
+                               .build(Parameters.RuntimeParameters.newBuilder()
                                                        .setContext(context)
                                                        .setMember(new ControlledIdentifierMember(
                                                        new StereotomyImpl(new MemKeyStore(),
                                                                           new MemKERL(DigestAlgorithm.DEFAULT),
                                                                           entropy).newIdentifier()))
+                                                       .setProcessor(Parameters.RuntimeParameters.NOOP_PROCESSOR)
+                                                       .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
                                                        .build());
         var gate = new CountDownLatch(1);
         @SuppressWarnings("unchecked")
@@ -110,10 +112,12 @@ public class SessionTest {
         entropy.setSeed(new byte[] { 6, 6, 6 });
         var stereotomy = new StereotomyImpl(new MemKeyStore(), new MemKERL(DigestAlgorithm.DEFAULT), entropy);
         Parameters params = Parameters.newBuilder()
-                                      .build(RuntimeParameters.newBuilder()
+                                      .build(Parameters.RuntimeParameters.newBuilder()
                                                               .setContext(context)
                                                               .setMember(new ControlledIdentifierMember(
                                                               stereotomy.newIdentifier()))
+                                                              .setProcessor(Parameters.RuntimeParameters.NOOP_PROCESSOR)
+                                                              .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
                                                               .build());
 
         @SuppressWarnings("unchecked")

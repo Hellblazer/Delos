@@ -49,6 +49,8 @@ public class SynchronizationCircuitBreakerTest {
                                      .build(RuntimeParameters.newBuilder()
                                                              .setContext(context)
                                                              .setMember(member)
+                                                             .setProcessor(RuntimeParameters.NOOP_PROCESSOR)
+                                                             .setRestorer(RuntimeParameters.NOOP_RESTORER)
                                                              .build());
 
         // Verify that maxSyncAttempts is set (not infinite)
@@ -76,6 +78,8 @@ public class SynchronizationCircuitBreakerTest {
                                      .build(RuntimeParameters.newBuilder()
                                                              .setContext(context)
                                                              .setMember(member)
+                                                             .setProcessor(RuntimeParameters.NOOP_PROCESSOR)
+                                                             .setRestorer(RuntimeParameters.NOOP_RESTORER)
                                                              .build());
 
         // maxSyncAttempts should exist and prevent infinite retries
@@ -104,6 +108,8 @@ public class SynchronizationCircuitBreakerTest {
                                      .build(RuntimeParameters.newBuilder()
                                                              .setContext(context)
                                                              .setMember(member)
+                                                             .setProcessor(RuntimeParameters.NOOP_PROCESSOR)
+                                                             .setRestorer(RuntimeParameters.NOOP_RESTORER)
                                                              .build());
 
         // Verify synchronization cycle configuration exists
@@ -133,6 +139,8 @@ public class SynchronizationCircuitBreakerTest {
                                      .build(RuntimeParameters.newBuilder()
                                                              .setContext(context)
                                                              .setMember(member)
+                                                             .setProcessor(RuntimeParameters.NOOP_PROCESSOR)
+                                                             .setRestorer(RuntimeParameters.NOOP_RESTORER)
                                                              .build());
 
         // Circuit breaker reset is verified during normal CHOAM operation
@@ -154,9 +162,11 @@ public class SynchronizationCircuitBreakerTest {
 
         // Test default configuration
         Parameters defaultParams = Parameters.newBuilder()
-                                            .build(RuntimeParameters.newBuilder()
+                                            .build(Parameters.RuntimeParameters.newBuilder()
                                                                     .setContext(context)
                                                                     .setMember(member)
+                                                                    .setProcessor(Parameters.RuntimeParameters.NOOP_PROCESSOR)
+                                                                    .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
                                                                     .build());
         int defaultMaxAttempts = defaultParams.maxSyncAttempts();
         assertTrue(defaultMaxAttempts > 0, "Default maxSyncAttempts should be positive");
@@ -164,9 +174,11 @@ public class SynchronizationCircuitBreakerTest {
         // Test custom configuration (if builder supports it)
         Parameters customParams = Parameters.newBuilder()
                                            .setMaxSyncAttempts(5)
-                                           .build(RuntimeParameters.newBuilder()
+                                           .build(Parameters.RuntimeParameters.newBuilder()
                                                                    .setContext(context)
                                                                    .setMember(member)
+                                                                   .setProcessor(Parameters.RuntimeParameters.NOOP_PROCESSOR)
+                                                                   .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
                                                                    .build());
         assertEquals(5, customParams.maxSyncAttempts(),
                      "Custom maxSyncAttempts should be accepted");

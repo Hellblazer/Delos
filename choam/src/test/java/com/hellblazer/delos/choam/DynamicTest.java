@@ -232,6 +232,7 @@ public class DynamicTest {
                                                                   .setMember(m)
                                                                   .setCommunications(routers.get(m))
                                                                   .setProcessor(processor)
+                                                                  .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
                                                                   .setContext(context)
                                                                   .build()));
     }

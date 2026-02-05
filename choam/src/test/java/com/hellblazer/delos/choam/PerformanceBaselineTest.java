@@ -104,10 +104,12 @@ public class PerformanceBaselineTest {
                                            new MemKERL(DigestAlgorithm.DEFAULT),
                                            entropy);
         var params = Parameters.newBuilder()
-                               .build(RuntimeParameters.newBuilder()
+                               .build(Parameters.RuntimeParameters.newBuilder()
                                                        .setContext(context)
                                                        .setMember(new ControlledIdentifierMember(
                                                                   stereotomy.newIdentifier()))
+                                                       .setProcessor(Parameters.RuntimeParameters.NOOP_PROCESSOR)
+                                                       .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
                                                        .build());
 
         // Create session with metrics

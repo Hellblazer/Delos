@@ -66,6 +66,8 @@ public class TransactionSignatureTest {
                           .build(RuntimeParameters.newBuilder()
                                                   .setContext(context)
                                                   .setMember(member1)
+                                                  .setProcessor(RuntimeParameters.NOOP_PROCESSOR)
+                                                  .setRestorer(RuntimeParameters.NOOP_RESTORER)
                                                   .build());
         
         scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());

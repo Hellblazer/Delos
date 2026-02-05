@@ -122,7 +122,7 @@ public class GenesisAssemblyTest {
             Router router = communications.get(m);
             params.getProducer().ethereal().setSigner(sm);
             var built = params.build(
-            RuntimeParameters.newBuilder().setContext(base).setMember(sm).setCommunications(router).build());
+            Parameters.RuntimeParameters.newBuilder().setContext(base).setMember(sm).setCommunications(router).setProcessor(Parameters.RuntimeParameters.NOOP_PROCESSOR).setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER).build());
             BlockProducer reconfigure = new BlockProducer() {
 
                 @Override

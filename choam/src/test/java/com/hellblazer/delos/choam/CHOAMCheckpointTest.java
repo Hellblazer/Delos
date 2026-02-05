@@ -127,6 +127,7 @@ public class CHOAMCheckpointTest {
                                                  .setMetrics(metrics)
                                                  .setCommunications(routers.get(m.getId()))
                                                  .setProcessor(processor)
+                                                 .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
                                                  .setCheckpointer(h -> {
                                                      counter.incrementAndGet();
                                                      try {

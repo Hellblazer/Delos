@@ -196,6 +196,7 @@ public class MembershipTests {
                                                        .setMember(m)
                                                        .setCommunications(routers.get(m.getId()))
                                                        .setProcessor(processor)
+                                                       .setRestorer(RuntimeParameters.NOOP_RESTORER)
                                                        .setContext(context)
                                                        .build()));
     }

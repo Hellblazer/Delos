@@ -139,6 +139,7 @@ public class DeterminismVerificationTest {
                                                  .setMetrics(metrics)
                                                  .setCommunications(routers.get(m.getId()))
                                                  .setProcessor(processor)
+                                                 .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
                                                  .setCheckpointer(wrap(runtime.getCheckpointer(), recorder))
                                                  .setContext(context)
                                                  .build()));
