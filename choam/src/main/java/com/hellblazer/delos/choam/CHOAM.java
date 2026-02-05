@@ -84,7 +84,6 @@ public class CHOAM implements ConsensusEngine {
     private final    BlockProcessor                                       blockProcessor;
     private final    BoundedEpidemicGossip                                  combine;
     private final    CommonCommunications<Terminal, Concierge>             comm;
-    private final    AtomicReference<Committee>                            current               = new AtomicReference<>();
     private final    AtomicReference<HashedCertifiedBlock>                 genesis               = new AtomicReference<>();
     private final    AtomicReference<HashedCertifiedBlock>                 head                  = new AtomicReference<>();
     private final    AtomicReference<nextView>                             next                  = new AtomicReference<>();
@@ -94,6 +93,7 @@ public class CHOAM implements ConsensusEngine {
     private final    RoundScheduler                                        roundScheduler;
     private final    Session                                               session;
     private final    AsyncOperationStateHolder                            asyncOperationState   = new AsyncOperationStateHolder();
+    private final    CommitteeStateHolder                                 committeeState        = new CommitteeStateHolder();
     private final    ControlStateHolder                                    controlState          = new ControlStateHolder();
     private final    BlockStore                                            store;
     private final    CommonCommunications<TxnSubmission, Submitter>        submissionComm;
@@ -310,7 +310,7 @@ public class CHOAM implements ConsensusEngine {
 
     @Override
     public boolean active() {
-        final var c = current.get();
+        final var c = committeeState.getCommittee();
         HashedCertifiedBlock h = head.get();
         return (c != null && h != null && transitions.fsm().getCurrentState() == Mercantile.OPERATIONAL)
         && c instanceof Administration && h.height().compareTo(ULong.valueOf(0)) >= 0;
@@ -386,7 +386,7 @@ public class CHOAM implements ConsensusEngine {
     }
 
     public String logState() {
-        final var c = current.get();
+        final var c = committeeState.getCommittee();
         HashedCertifiedBlock h = head.get();
         if (c == null) {
             return "No committee on: %s".formatted(params.member().getId());
@@ -413,7 +413,7 @@ public class CHOAM implements ConsensusEngine {
         var diadem = viewChange.diadem();
         log.trace("Setting BEG Context to: {} on: {}", context, params.member().getId());
         ((DelegatedContext<Member>) combine.getContext()).setContext(context);
-        var c = current.get();
+        var c = committeeState.getCommittee();
         if (c != null) {
             c.nextView(viewChange.diadem(), context);
         } else {
@@ -446,7 +446,7 @@ public class CHOAM implements ConsensusEngine {
             // ignore
         }
         session.cancelAll();
-        final var c = current.get();
+        final var c = committeeState.getCommittee();
         if (c != null) {
             try {
                 c.complete();
@@ -465,7 +465,7 @@ public class CHOAM implements ConsensusEngine {
     public void accept(HashedCertifiedBlock next) {
         head.set(next);
         store.put(next);
-        final Committee c = current.get();
+        final Committee c = committeeState.getCommittee();
         if (c == null) {
             log.error("No committee to accept block: {} hash: {} height: {} on: {}", next.block.getBodyCase(),
                       next.hash, next.height(), params.member().getId());
@@ -687,7 +687,7 @@ public class CHOAM implements ConsensusEngine {
                 log.debug("Invalid previous: {} expecting: {} block: {} hash: {} height: {} on: {}", next.getPrevious(),
                           h.hash, next.block.getBodyCase(), next.hash, next.height(), params.member().getId());
             } else {
-                final Committee c = current.get();
+                final Committee c = committeeState.getCommittee();
                 if (c == null) {
                     log.error("No committee to validate block: {} hash: {} height: {} on: {}",
                               next.block.getBodyCase(), next.hash, next.height(), params.member().getId());
@@ -786,7 +786,7 @@ public class CHOAM implements ConsensusEngine {
     }
 
     private void join(SignedViewMember nextView, Digest from) {
-        var c = current.get();
+        var c = committeeState.getCommittee();
         if (c == null) {
             log.trace("No committee for: {} to join: {} diadem: {} on: {}", from,
                       Digest.from(nextView.getVm().getView()), Digest.from(nextView.getVm().getDiadem()),
@@ -801,7 +801,7 @@ public class CHOAM implements ConsensusEngine {
     }
 
     private void process() {
-        final var c = current.get();
+        final var c = committeeState.getCommittee();
         final HashedCertifiedBlock h = head.get();
         log.info("Begin block: {} hash: {} height: {} committee: {} on: {}", h.block.getBodyCase(), h.hash, h.height(),
                  c.getClass().getSimpleName(), params.member().getId());
@@ -876,7 +876,7 @@ public class CHOAM implements ConsensusEngine {
 
         // Capture old committee reference for later cleanup
         // NOTE: oldCommittee captured here - remains valid even if current is modified
-        final Committee oldCommittee = current.get();
+        final Committee oldCommittee = committeeState.getCommittee();
 
         // Determine which committee type to create and the associated setup
         var validators = validatorsOf(reconfigure, params.context(), params.member().getId(), log);
@@ -914,7 +914,7 @@ public class CHOAM implements ConsensusEngine {
                         newCommittee = new Associate(h, validators, currentView);
                     } else {
                         log.warn("Reconfiguration to associate failed: {} committee: {} in view: {} on:{}",
-                                 validators.size(), hash, current.get().getClass().getSimpleName(),
+                                 validators.size(), hash, committeeState.getCommittee().getClass().getSimpleName(),
                                  params.member().getId());
                         transitions.fail();
                         return; // Keep old committee active
@@ -929,7 +929,7 @@ public class CHOAM implements ConsensusEngine {
             }
 
             // Step 2: Atomic swap - new committee now handles all transactions
-            current.set(newCommittee);
+            committeeState.setCommittee(newCommittee);
 
             // Step 3: Stop old committee immediately after swap
             // Note: oldCommittee can be null during recovery/startup
@@ -951,7 +951,7 @@ public class CHOAM implements ConsensusEngine {
                 log.trace("Halting ongoing join on: {}", params.member().getId());
             }
             log.info("Reconfigured to view: {} committee: {} validators: {} on: {}",
-                     hash, current.get().getClass().getSimpleName(),
+                     hash, committeeState.getCommittee().getClass().getSimpleName(),
                      validators.entrySet().stream()
                                 .map(e -> String.format("id: %s key: %s",
                                                         e.getKey().getId(),
@@ -1076,9 +1076,9 @@ public class CHOAM implements ConsensusEngine {
                                                                   : lastView.block.getReconfigure();
             view.set(lastView);
             var validators = validatorsOf(reconfigure, params.context(), params.member().getId(), log);
-            current.set(new Synchronizer(validators));
+            committeeState.setCommittee(new Synchronizer(validators));
             log.info("Reconfigured to checkpoint view: {} committee: {} on: {}", new Digest(reconfigure.getId()),
-                     current.get().getClass().getSimpleName(), params.member().getId());
+                     committeeState.getCommittee().getClass().getSimpleName(), params.member().getId());
         }
 
         log.info("Restored to: {} lastView: {} lastCheckpoint: {} lastBlock: {} on: {}", geni.hash, view.get().hash,
@@ -1091,7 +1091,7 @@ public class CHOAM implements ConsensusEngine {
     }
 
     private void rotateViewKeys() {
-        //        if (current.get() != null && !(current.get() instanceof Associate)) {
+        //        if (committeeState.getCommittee() != null && !(committeeState.getCommittee() instanceof Associate)) {
         //            log.info("rotate view calls on: {}", params.member().getId(), new Exception("Rotate view keys"));
         //        }
         KeyPair keyPair = params.viewSigAlgorithm().generateKeyPair();
@@ -1101,7 +1101,7 @@ public class CHOAM implements ConsensusEngine {
             log.error("Unable to generate and sign consensus key on: {}", params.member().getId());
             return;
         }
-        var committee = current.get();
+        var committee = committeeState.getCommittee();
         log.trace("Generated next view consensus key: {} sig: {} committee: {} on: {}",
                   params.digestAlgorithm().digest(pubKey.getEncoded()),
                   params.digestAlgorithm().digest(signed.toSig().toByteString()),
@@ -1116,7 +1116,7 @@ public class CHOAM implements ConsensusEngine {
     private Function<SubmittedTransaction, SubmitResult> service() {
         return stx -> {
             //            log.trace("Submitting transaction: {} in service() on: {}", stx.hash(), params.member());
-            final var c = current.get();
+            final var c = committeeState.getCommittee();
             if (c == null) {
                 return SubmitResult.newBuilder().setResult(Result.NO_COMMITTEE).build();
             }
@@ -1158,7 +1158,7 @@ public class CHOAM implements ConsensusEngine {
             log.debug("Invalid transaction submission from non member: {} on: {}", from, params.member().getId());
             return SubmitResult.newBuilder().setResult(Result.INVALID_SUBMIT).build();
         }
-        final var c = current.get();
+        final var c = committeeState.getCommittee();
         if (c == null) {
             log.debug("No committee to submit txn from: {} on: {}", from, params.member().getId());
             return SubmitResult.newBuilder().setResult(Result.NO_COMMITTEE).build();
@@ -1282,7 +1282,7 @@ public class CHOAM implements ConsensusEngine {
                 params.member().getId(), previousBlock.hash, prev, prevHeight, hcb.height(), params.member().getId());
                 return;
             }
-            final var c = current.get();
+            final var c = committeeState.getCommittee();
             if (c == null) {
                 log.error("No committee for synchronized process on: {}", params.member().getId());
                 transitions.fail();
@@ -1303,7 +1303,7 @@ public class CHOAM implements ConsensusEngine {
                          params.member().getId(), hcb.block.getBodyCase(), hcb.hash, 0, header.getHeight());
                 return;
             }
-            final var c = current.get();
+            final var c = committeeState.getCommittee();
             if (c == null) {
                 log.error("No committee for genesis block validation on: {}", params.member().getId());
                 transitions.fail();
@@ -1458,7 +1458,7 @@ public class CHOAM implements ConsensusEngine {
                 try {
                     synchronizationFailed();
                 } catch (IllegalStateException e) {
-                    final var c = current.get();
+                    final var c = committeeState.getCommittee();
                     Context<Member> memberContext = context();
                     int attempts = asyncOperationState.incrementSyncAttempts();
                     log.debug(
@@ -1496,16 +1496,16 @@ public class CHOAM implements ConsensusEngine {
 
         @Override
         public void recover(HashedCertifiedBlock anchor) {
-            current.set(new Formation());
+            committeeState.setCommittee(new Formation());
             asyncOperationState.resetSyncAttempts();  // Reset attempts on successful recovery
             log.info("Anchor discovered: {} hash: {} height: {} committee: {} on: {}", anchor.block.getBodyCase(),
-                     anchor.hash, anchor.height(), current.get().getClass().getSimpleName(), params.member().getId());
+                     anchor.hash, anchor.height(), committeeState.getCommittee().getClass().getSimpleName(), params.member().getId());
             CHOAM.this.recover(anchor);
         }
 
         @Override
         public void regenerate() {
-            current.get().regenerate();
+            committeeState.getCommittee().regenerate();
         }
 
         @Override
@@ -1519,17 +1519,17 @@ public class CHOAM implements ConsensusEngine {
             var activeCount = memberContext.size();
             var count = context().getRingCount();
             if (params.generateGenesis() && activeCount >= context().getRingCount()) {
-                if (current.get() == null && current.compareAndSet(null, new Formation())) {
+                if (committeeState.getCommittee() == null && committeeState.compareAndSetCommittee(null, new Formation())) {
                     log.info(
                     "Quorum achieved, triggering regeneration. members: {} required: {} forming Genesis committee on: {}",
                     activeCount, count, params.member().getId());
                     transitions.regenerate();
                 } else {
                     log.info("Quorum achieved, members: {} required: {} existing committee: {} on: {}", activeCount,
-                             count, current.get().getClass().getSimpleName(), params.member().getId());
+                             count, committeeState.getCommittee().getClass().getSimpleName(), params.member().getId());
                 }
             } else {
-                final var c = current.get();
+                final var c = committeeState.getCommittee();
                 log.trace("Synchronization failed; members: {}, no anchor to recover from: {} on: {}", activeCount,
                           c == null ? "<no committee>" : c.getClass().getSimpleName(), params.member().getId());
                 awaitSynchronization();
