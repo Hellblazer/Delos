@@ -84,8 +84,6 @@ public class CHOAM implements ConsensusEngine {
     private final    BlockProcessor                                       blockProcessor;
     private final    BoundedEpidemicGossip                                  combine;
     private final    CommonCommunications<Terminal, Concierge>             comm;
-    private final    AtomicReference<nextView>                             next                  = new AtomicReference<>();
-    private final    AtomicReference<Digest>                               nextViewId            = new AtomicReference<>();
     private final    Parameters                                            params;
     private final    RoundScheduler                                        roundScheduler;
     private final    Session                                               session;
@@ -93,15 +91,14 @@ public class CHOAM implements ConsensusEngine {
     private final    BlockChainStateHolder                                blockChainState;
     private final    CommitteeStateHolder                                 committeeState        = new CommitteeStateHolder();
     private final    ControlStateHolder                                    controlState          = new ControlStateHolder();
+    private final    ViewStateHolder                                      viewStateHolder;
     private final    BlockStore                                            store;
     private final    CommonCommunications<TxnSubmission, Submitter>        submissionComm;
     private final    Combine.Transitions                                   transitions;
     private final    TransSubmission                                       txnSubmission         = new TransSubmission();
-    private final    AtomicReference<ImmutablePendingViews>               pendingViews          = new AtomicReference<>(ImmutablePendingViews.EMPTY);
     private final    ScheduledExecutorService                              scheduler;
-    private final    ReentrantLock                                         viewStateLock         = new ReentrantLock();
     public final     ReadWriteLock                                         headLock;
-    private final    ViewCoordinator                                       coordinator;
+    public final     ReentrantLock                                         viewStateLock;
 
     public CHOAM(Parameters params) {
         scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
@@ -110,14 +107,17 @@ public class CHOAM implements ConsensusEngine {
         this.params = params;
         this.blockChainState = new BlockChainStateHolder(params.maxPendingBlocks());
         this.headLock = blockChainState.headLock;
-        pendingViews.set(pendingViews.get().add(params.context().getId(), params.context().delegate()));
+
+        // Initialize ViewCoordinator and ViewStateHolder for two-phase reconfigure pattern
+        var viewState = new ViewStateImpl(params.context().getId(), params.context().delegate());
+        var coordinator = new ViewCoordinatorImpl(viewState, params.context().getId(), params.context().delegate());
+        var initialPendingViews = ImmutablePendingViews.EMPTY.add(params.context().getId(), params.context().delegate());
+        this.viewStateHolder = new ViewStateHolder(coordinator, initialPendingViews);
+        this.viewStateLock = viewStateHolder.viewStateLock;
+
         this.blockProcessor = new BlockProcessorImpl(blockChainState.getPendingQueue(), controlState.getStartedRef(), params, blockChainState.getHeadRef(), this::consume);
         // Register for stall detection events
         blockProcessor.setStallListener(this::handleStallDetected);
-
-        // Initialize ViewCoordinator for two-phase reconfigure pattern
-        var viewState = new ViewStateImpl(params.context().getId(), params.context().delegate());
-        this.coordinator = new ViewCoordinatorImpl(viewState, params.context().getId(), params.context().delegate());
 
         rotateViewKeys();
         var bContext = new DelegatedContext<>(params.context());
@@ -417,7 +417,7 @@ public class CHOAM implements ConsensusEngine {
             log.info("Acquiring new view of: {}, diadem: {} size: {} on: {}", context.getId(), diadem, context.size(),
                      params.member().getId());
             params.context().setContext(context);
-            pendingViews.set(ImmutablePendingViews.EMPTY.add(diadem, context));
+            viewStateHolder.setPendingViews(ImmutablePendingViews.EMPTY.add(diadem, context));
         }
     }
 
@@ -794,7 +794,7 @@ public class CHOAM implements ConsensusEngine {
     }
 
     private Supplier<PendingViews> pendingViews() {
-        return () -> new PendingViews(pendingViews.get());
+        return () -> new PendingViews(viewStateHolder.getPendingViews());
     }
 
     private void process() {
@@ -878,7 +878,7 @@ public class CHOAM implements ConsensusEngine {
         // Determine which committee type to create and the associated setup
         var validators = validatorsOf(reconfigure, params.context(), params.member().getId(), log);
         final HashedCertifiedBlock h = blockChainState.getHead();
-        final var currentView = next.get();
+        final var currentView = viewStateHolder.getNext();
 
         // Callback 1: Rotate view keys
         callbacks.add(() -> {
@@ -908,7 +908,7 @@ public class CHOAM implements ConsensusEngine {
             try {
                 if (validators.containsKey(params.member())) {
                     if (Dag.validate(validators.size())) {
-                        newCommittee = new Associate(h, validators, currentView);
+                        newCommittee = new Associate(h, validators, (nextView) currentView);
                     } else {
                         log.warn("Reconfiguration to associate failed: {} committee: {} in view: {} on:{}",
                                  validators.size(), hash, committeeState.getCommittee().getClass().getSimpleName(),
@@ -993,11 +993,11 @@ public class CHOAM implements ConsensusEngine {
         viewStateLock.lock();
         try {
             log.info("Setting next view id: {} on: {}", hash, params.member().getId());
-            nextViewId.set(hash);
+            viewStateHolder.setNextViewId(hash);
 
             // Update pending views
-            var advanced = pendingViews.get().advance();
-            pendingViews.set(advanced);
+            var advanced = viewStateHolder.getPendingViews().advance();
+            viewStateHolder.setPendingViews(advanced);
             var pv = advanced.last();
             if (pv != null) {
                 params.context().setContext(pv.context());
@@ -1103,7 +1103,7 @@ public class CHOAM implements ConsensusEngine {
                   params.digestAlgorithm().digest(pubKey.getEncoded()),
                   params.digestAlgorithm().digest(signed.toSig().toByteString()),
                   committee == null ? "<no formation>" : committee.getClass().getSimpleName(), params.member().getId());
-        next.set(new nextView(ViewMember.newBuilder()
+        viewStateHolder.setNext(new nextView(ViewMember.newBuilder()
                                         .setId(params.member().getId().toDigeste())
                                         .setConsensusKey(pubKey)
                                         .setSignature(signed.toSig())
@@ -1406,7 +1406,7 @@ public class CHOAM implements ConsensusEngine {
         @Override
         public void anchor() {
             HashedCertifiedBlock anchor = blockChainState.pollPending();
-            var pendingView = pendingViews.get().last();
+            var pendingView = viewStateHolder.getPendingViews().last();
             var pending = pendingView == null ? null : pendingView.context();
             if (anchor != null && pending != null && blockChainState.getPendingSize() >= pending.majority()) {
                 log.info("Synchronizing from anchor: {} cardinality: {} on: {}", anchor.hash, blockChainState.getPendingSize(),
@@ -1610,9 +1610,9 @@ public class CHOAM implements ConsensusEngine {
 
         @Override
         public void nextView(Digest diadem, Context<Member> pendingView) {
-            pendingViews.set(pendingViews.get().add(diadem, pendingView));
+            viewStateHolder.setPendingViews(viewStateHolder.getPendingViews().add(diadem, pendingView));
             log.info("Pending context for view: {} size: {} on: {}",
-                     nextViewId.get() == null ? "<null>" : nextViewId.get(), pendingView.size(),
+                     viewStateHolder.getNextViewId() == null ? "<null>" : viewStateHolder.getNextViewId(), pendingView.size(),
                      params.member().getId());
         }
 
@@ -1670,11 +1670,11 @@ public class CHOAM implements ConsensusEngine {
             if (!controlState.beginJoin()) {
                 throw new IllegalStateException("Ongoing join should have been cancelled");
             }
-            log.trace("Joining view: {} diadem: {} on: {}", nextViewId.get(), Digest.from(view.getDiadem()),
+            log.trace("Joining view: {} diadem: {} on: {}", viewStateHolder.getNextViewId(), Digest.from(view.getDiadem()),
                       params.member().getId());
             var servers = new ConcurrentSkipListSet<>(validators.keySet());
             var joined = new AtomicInteger();
-            log.trace("Starting join of: {} diadem {} on: {}", nextViewId.get(), Digest.from(view.getDiadem()),
+            log.trace("Starting join of: {} diadem {} on: {}", viewStateHolder.getNextViewId(), Digest.from(view.getDiadem()),
                       params.member().getId());
             var scheduler = Executors.newSingleThreadScheduledExecutor(Thread.ofVirtual().factory());
             AtomicReference<Runnable> action = new AtomicReference<>();
@@ -1686,10 +1686,10 @@ public class CHOAM implements ConsensusEngine {
                     join(view, servers, joined);
                     if (joined.get() >= view.getMajority()) {
                         controlState.endJoin();
-                        log.trace("Finished join of: {} diadem: {} joins: {} on: {}", nextViewId.get(),
+                        log.trace("Finished join of: {} diadem: {} joins: {} on: {}", viewStateHolder.getNextViewId(),
                                   Digest.from(view.getDiadem()), joined.get(), params.member().getId());
                     } else if (controlState.isJoinOngoing()) {
-                        log.trace("Rescheduling join of: {} diadem: {} joins: {} on: {}", nextViewId.get(),
+                        log.trace("Rescheduling join of: {} diadem: {} joins: {} on: {}", viewStateHolder.getNextViewId(),
                                   Digest.from(view.getDiadem()), joined.get(), params.member().getId());
                         scheduler.schedule(action.get(), 50, TimeUnit.MILLISECONDS);
                     }
@@ -1703,10 +1703,10 @@ public class CHOAM implements ConsensusEngine {
             Collections.shuffle(sampled);
             log.trace("Joining view: {} diadem: {} servers: {} on: {}", viewId, Digest.from(view.getDiadem()),
                       sampled.stream().map(Member::getId).toList(), params.member().getId());
-            final var c = next.get();
+            final var c = (nextView) viewStateHolder.getNext();
             var inView = ViewMember.newBuilder(c.member)
                                    .setDiadem(view.getDiadem())
-                                   .setView(nextViewId.get().toDigeste())
+                                   .setView(viewStateHolder.getNextViewId().toDigeste())
                                    .build();
             var svm = SignedViewMember.newBuilder()
                                       .setVm(inView)
@@ -1757,10 +1757,10 @@ public class CHOAM implements ConsensusEngine {
                 return new Attempt(t.getMember(), t.join(svm));
             } catch (StatusRuntimeException sre) {
                 log.trace("Failed join attempt: {} with: {} view: {} diadem: {} on: {}", sre.getStatus(),
-                          t.getMember().getId(), nextViewId, Digest.from(view.getDiadem()), params.member().getId(),
+                          t.getMember().getId(), viewStateHolder.getNextViewId(), Digest.from(view.getDiadem()), params.member().getId(),
                           sre);
             } catch (Throwable throwable) {
-                log.error("Failed join attempt with: {} view: {} diadem: {} on: {}", t.getMember().getId(), nextViewId,
+                log.error("Failed join attempt with: {} view: {} diadem: {} on: {}", t.getMember().getId(), viewStateHolder.getNextViewId(),
                           Digest.from(view.getDiadem()), params.member().getId(), throwable);
             } finally {
                 try {
@@ -1793,7 +1793,7 @@ public class CHOAM implements ConsensusEngine {
                       params.member().getId());
             Signer signer = new SignerImpl(nextView.consensusKeyPair.getPrivate(), ULong.MIN);
             var pv = pendingViews();
-            producer = new Producer(nextViewId.get(),
+            producer = new Producer(viewStateHolder.getNextViewId(),
                                     new ViewContext(context, params, pv, signer, validators, constructBlock()),
                                     blockChainState.getHead(), checkpointManager.currentCheckpoint(), getLabel(), scheduler);
             producer.start();
@@ -1837,7 +1837,7 @@ public class CHOAM implements ConsensusEngine {
         private Formation() {
             formation = Committee.viewFor(params.genesisViewId(), params.context());
             if (formation.isMember(params.member()) && params.generateGenesis()) {
-                final var c = next.get();
+                final var c = (nextView) viewStateHolder.getNext();
                 log.trace("Using genesis consensus key: {} sig: {} on: {}",
                           params.digestAlgorithm().digest(c.consensusKeyPair.getPublic().getEncoded()),
                           params.digestAlgorithm().digest(c.member.getSignature().toByteString()),
@@ -1864,7 +1864,7 @@ public class CHOAM implements ConsensusEngine {
                                           .build();
                 assembly = new GenesisAssembly(vc, comm, svm, getLabel(), scheduler);
                 log.info("Setting next view id to genesis: {} on: {}", params.genesisViewId(), params.member().getId());
-                nextViewId.set(params.genesisViewId());
+                viewStateHolder.setNextViewId(params.genesisViewId());
             } else {
                 log.trace("No formation on: {}", params.member().getId());
                 assembly = null;
@@ -1903,7 +1903,7 @@ public class CHOAM implements ConsensusEngine {
             log.info("Cancelling formation, acquiring new view, size: {} on: {}", pendingView.size(),
                      params.member().getId());
             params.context().setContext(pendingView);
-            pendingViews.set(pendingViews.get().add(diadem, pendingView));
+            viewStateHolder.setPendingViews(viewStateHolder.getPendingViews().add(diadem, pendingView));
 
             transitions.nextView();
         }
@@ -1963,7 +1963,7 @@ public class CHOAM implements ConsensusEngine {
         public void nextView(Digest diadem, Context<Member> pendingView) {
             log.info("Acquiring new view, size: {} on: {}", pendingView.size(), params.member().getId());
             params.context().setContext(pendingView);
-            pendingViews.set(pendingViews.get().add(diadem, pendingView));
+            viewStateHolder.setPendingViews(viewStateHolder.getPendingViews().add(diadem, pendingView));
         }
 
         @Override
