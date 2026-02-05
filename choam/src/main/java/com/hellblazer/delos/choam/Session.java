@@ -23,12 +23,12 @@ import com.hellblazer.delos.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -46,7 +46,7 @@ public class Session {
     private final Map<Digest, SubmittedTransaction>            submitted = new ConcurrentHashMap<>();
     private final AtomicReference<HashedCertifiedBlock>        view      = new AtomicReference<>();
     private final ScheduledExecutorService                     scheduler;
-    private final AtomicInteger                                nonce     = new AtomicInteger();
+    private final NonceTracker                                 nonceTracker;
 
     public Session(Parameters params, Function<SubmittedTransaction, SubmitResult> service,
                    ScheduledExecutorService scheduler) {
@@ -58,6 +58,14 @@ public class Session {
                                     metrics == null ? EmptyMetricRegistry.INSTANCE : metrics.getMetricRegistry(
                                     params.context().getId().shortString() + ".txnLimiter"));
         this.scheduler = scheduler;
+
+        // Initialize nonce tracker with persistent storage for replay protection
+        var nonceStoreFile = new File(System.getProperty("user.home"),
+                                      ".delos/nonces/" + params.member().getId().shortString() + ".mv.db");
+        nonceStoreFile.getParentFile().mkdirs();
+        this.nonceTracker = NonceTracker.create(nonceStoreFile);
+        log.debug("Initialized nonce tracker for member {} (persistence: {})",
+                 params.member().getId(), FeatureFlags.NONCE_PERSISTENCE.isEnabled());
     }
 
     public static Transaction transactionOf(Digest source, int nonce, Message message, Signer signer) {
@@ -253,7 +261,7 @@ public class Session {
         if (txnView == null) {
             throw new InvalidTransaction("No view available");
         }
-        final int n = nonce.getAndIncrement();
+        final int n = nonceTracker.getAndIncrement(params.member().getId());
 
         final var txn = transactionOf(params.member().getId(), n, transaction, params.member());
         if (!txn.hasSource() || !txn.hasSignature()) {
