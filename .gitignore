@@ -29,9 +29,12 @@ chkpoint.txt
 .quint
 **/.quint
 
+## Eclipse stuff
+**/.factorypath
+
 ## Intellij stuff
 .idea
-*.iml 
+*.iml
 **/.iml
 /conduit-ci/jenkins/jobs/
 /bc-src.zip
