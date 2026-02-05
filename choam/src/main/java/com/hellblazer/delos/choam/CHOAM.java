@@ -105,7 +105,7 @@ public class CHOAM implements ConsensusEngine {
         this.store = new MVBlockStore(params.digestAlgorithm(), params.mvBuilder().clone().build());
         this.checkpointManager = new CheckpointManagerImpl(store, params);
         this.params = params;
-        this.blockChainState = new BlockChainStateHolder(params.maxPendingBlocks());
+        this.blockChainState = new BlockChainStateHolder(params.digestAlgorithm(), params.maxPendingBlocks());
         this.headLock = blockChainState.headLock;
 
         // Initialize ViewCoordinator and ViewStateHolder for two-phase reconfigure pattern
@@ -700,7 +700,7 @@ public class CHOAM implements ConsensusEngine {
                               next.height(), params.member().getId());
                 }
             }
-        } else if (h.height().compareTo(next.height()) < 0) {
+        } else if (h.height() != null && h.height().compareTo(next.height()) < 0) {
             log.trace("Premature block: {} : {} height: {} current: {} on: {}", next.block.getBodyCase(), next.hash,
                       next.height(), cur.height(), params.member().getId());
             if (!blockChainState.addPending(next)) {
@@ -776,8 +776,9 @@ public class CHOAM implements ConsensusEngine {
 
     private boolean isNext(HashedBlock next) {
         final var h = blockChainState.getHead();
-        if (h.height() == null && next.height().equals(ULong.valueOf(0))) {
-            return true;
+        if (h.height() == null) {
+            // Head is NullBlock - only genesis (height 0) is valid
+            return next.height().equals(ULong.valueOf(0));
         }
         return next.height().equals(h.height().add(1));
     }

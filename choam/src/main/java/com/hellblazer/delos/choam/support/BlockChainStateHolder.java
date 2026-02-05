@@ -9,6 +9,8 @@
 package com.hellblazer.delos.choam.support;
 
 import com.hellblazer.delos.choam.support.BoundedPriorityBlockingQueue;
+import com.hellblazer.delos.choam.support.HashedCertifiedBlock.NullBlock;
+import com.hellblazer.delos.cryptography.DigestAlgorithm;
 
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -80,9 +82,14 @@ public class BlockChainStateHolder {
     /**
      * Create a new BlockChainStateHolder with bounded pending queue.
      *
+     * @param digestAlgorithm digest algorithm for NullBlock sentinels
      * @param maxPendingBlocks maximum number of blocks in pending queue
      */
-    public BlockChainStateHolder(int maxPendingBlocks) {
+    public BlockChainStateHolder(DigestAlgorithm digestAlgorithm, int maxPendingBlocks) {
+        // Initialize head and view to NullBlock sentinels (height() returns null)
+        this.head.set(new NullBlock(digestAlgorithm));
+        this.view.set(new NullBlock(digestAlgorithm));
+
         this.pending = new BoundedPriorityBlockingQueue<>(maxPendingBlocks,
                                                            (a, b) -> Long.compare(a.height().longValue(),
                                                                                   b.height().longValue()));

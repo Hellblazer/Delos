@@ -30,7 +30,7 @@ public class BlockChainStateHolderConcurrencyTest {
 
     @BeforeEach
     public void setUp() {
-        holder = new BlockChainStateHolder(1000);
+        holder = new BlockChainStateHolder(DigestAlgorithm.DEFAULT, 1000);
     }
 
     /**

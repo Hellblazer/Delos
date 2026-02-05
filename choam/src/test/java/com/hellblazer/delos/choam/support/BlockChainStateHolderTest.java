@@ -26,7 +26,7 @@ public class BlockChainStateHolderTest {
 
     @BeforeEach
     public void setUp() {
-        holder = new BlockChainStateHolder(100); // maxPending = 100
+        holder = new BlockChainStateHolder(DigestAlgorithm.DEFAULT, 100); // maxPending = 100
     }
 
     /**
@@ -58,8 +58,9 @@ public class BlockChainStateHolderTest {
      */
     @Test
     public void testHeadMonotonicity() {
-        // Initially null
-        assertNull(holder.getHead(), "Head should be null initially");
+        // Initially NullBlock (sentinel with height() returning null)
+        assertNotNull(holder.getHead(), "Head should not be null initially");
+        assertNull(holder.getHead().height(), "Head should be NullBlock with height() == null");
 
         // Set head at height 10
         var head1 = createBlock(10);
@@ -81,8 +82,9 @@ public class BlockChainStateHolderTest {
      */
     @Test
     public void testViewLagsHead() {
-        // Initially null
-        assertNull(holder.getView(), "View should be null initially");
+        // Initially NullBlock (sentinel with height() returning null)
+        assertNotNull(holder.getView(), "View should not be null initially");
+        assertNull(holder.getView().height(), "View should be NullBlock with height() == null");
 
         // Set view at height 5
         var view1 = createBlock(5);
