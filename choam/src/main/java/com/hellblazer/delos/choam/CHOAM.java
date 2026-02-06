@@ -318,6 +318,10 @@ public class CHOAM implements ConsensusEngine {
         return params.context();
     }
 
+    public Parameters params() {
+        return params;
+    }
+
     @Override
     public ULong currentHeight() {
         final var c = blockChainState.getHead();
