@@ -58,11 +58,6 @@ public class DynamicTest {
                            .map(ControlledIdentifierMember::new)
                            .map(e -> (Member) e)
                            .toList();
-        members = IntStream.range(0, cardinality)
-                           .mapToObj(_ -> stereotomy.newIdentifier())
-                           .map(ControlledIdentifierMember::new)
-                           .map(e -> (Member) e)
-                           .toList();
         executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
         final var prefix = UUID.randomUUID().toString();
         routers = members.stream()
