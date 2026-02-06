@@ -22,21 +22,25 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * <p>
  * Features:
  * - Persists (source, nonce) pairs to disk for replay protection across restarts
- * - Sliding window: 10,000 nonces per source (bounded memory)
- * - Block height-based expiration: nonces valid for blocks H to H+10,000
+ * - Strict nonce ordering: only accepts the next expected nonce (prevents replay attacks)
+ * - Block height-based expiration: entries expire after 10,000 blocks
  * - Thread-safe for concurrent access
- * - Automatic cleanup of expired nonces
+ * - Automatic cleanup of expired entries
  * <p>
  * Storage format:
  * - Key: source.toString()
  * - Value: NonceEntry(currentNonce, creationHeight)
+ * <p>
+ * Nonce validation:
+ * - validateNonce(source, N) returns true only if N equals the next expected nonce
+ * - Once a nonce is consumed via getAndIncrement(), it becomes invalid
+ * - Entries expire after HEIGHT_WINDOW blocks, resetting the nonce counter to 0
  *
  * @author hal.hildebrand
  */
 public class PersistentNonceStore implements NonceTracker {
-    private static final Logger log                  = LoggerFactory.getLogger(PersistentNonceStore.class);
-    private static final int    SLIDING_WINDOW       = 10_000;  // Max nonces stored per source
-    private static final long   HEIGHT_WINDOW        = 10_000L; // Block height window
+    private static final Logger log           = LoggerFactory.getLogger(PersistentNonceStore.class);
+    private static final long   HEIGHT_WINDOW = 10_000L; // Block height window for entry expiration
 
     private final MVStore                   store;
     private final MVMap<String, String>     nonceMap;  // Store as String: "nonce:height"
@@ -71,7 +75,8 @@ public class PersistentNonceStore implements NonceTracker {
             var entry = getNonceEntry(key);
 
             int nextNonce = entry.currentNonce;
-            var newEntry = new NonceEntry(nextNonce + 1, currentHeight);
+            // Preserve original creationHeight - don't update on every increment
+            var newEntry = new NonceEntry(nextNonce + 1, entry.creationHeight);
             nonceMap.put(key, serializeEntry(newEntry));
             store.commit();
 
@@ -89,27 +94,18 @@ public class PersistentNonceStore implements NonceTracker {
             var key = source.toString();
             var entry = getNonceEntry(key);
 
-            // Check if nonce is expired based on height
+            // Check if entry is expired based on height
             if (isExpired(entry)) {
                 log.debug("Nonce validation failed - entry expired: source={}, nonce={}, creationHeight={}, currentHeight={}",
                          source, nonce, entry.creationHeight, currentHeight);
                 return false;
             }
 
-            // Sliding window: valid nonces are [currentNonce - SLIDING_WINDOW, currentNonce]
-            // This keeps recently-issued nonces valid within the sliding window
-            // currentNonce is the NEXT nonce to be issued
-            int minValidNonce = Math.max(0, entry.currentNonce - SLIDING_WINDOW);
-
-            if (nonce < minValidNonce) {
-                log.debug("Nonce validation failed - outside sliding window (too old): source={}, nonce={}, minValid={}, current={}",
-                         source, nonce, minValidNonce, entry.currentNonce);
-                return false;
-            }
-
-            // Accept nonces up to and including currentNonce (allows in-order and next nonce)
-            if (nonce > entry.currentNonce) {
-                log.debug("Nonce validation failed - future nonce beyond next: source={}, nonce={}, current={}",
+            // Strict nonce ordering: only accept the next expected nonce
+            // This prevents replay attacks - once a nonce is used (via getAndIncrement),
+            // it cannot be reused
+            if (nonce != entry.currentNonce) {
+                log.debug("Nonce validation failed - strict ordering: source={}, nonce={}, expected={}",
                          source, nonce, entry.currentNonce);
                 return false;
             }

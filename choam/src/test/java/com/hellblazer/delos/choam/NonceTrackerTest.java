@@ -72,13 +72,13 @@ public class NonceTrackerTest {
         int nonce0 = persistentStore.getAndIncrement(source);
         assertEquals(0, nonce0);
 
-        // Nonce 0 should be valid (just used)
-        assertTrue(persistentStore.validateNonce(source, 0));
-
-        // Nonce 1 should be valid (next)
+        // Nonce 1 should be valid (next expected nonce)
         assertTrue(persistentStore.validateNonce(source, 1));
 
-        // Nonce -1 should be invalid (below current)
+        // Nonce 0 should be invalid (already used)
+        assertFalse(persistentStore.validateNonce(source, 0));
+
+        // Nonce -1 should be invalid (negative)
         assertFalse(persistentStore.validateNonce(source, -1));
 
         // Get next nonce (1)
@@ -116,28 +116,25 @@ public class NonceTrackerTest {
     }
 
     @Test
-    public void testSlidingWindow() {
+    public void testStrictOrderingEnforcement() {
         var source = DigestAlgorithm.DEFAULT.getOrigin();
-        int windowSize = 10_000;
 
-        // Fill window to capacity
-        for (int i = 0; i < windowSize; i++) {
+        // Use several nonces
+        for (int i = 0; i < 100; i++) {
             assertEquals(i, persistentStore.getAndIncrement(source));
         }
 
-        // All nonces in window should be valid
-        assertTrue(persistentStore.validateNonce(source, 9_999));
+        // Current nonce is 100, so only nonce 100 should be valid
+        assertTrue(persistentStore.validateNonce(source, 100));
 
-        // Add one more nonce (should trigger eviction of oldest)
-        assertEquals(windowSize, persistentStore.getAndIncrement(source));
+        // All previously used nonces should be invalid
+        assertFalse(persistentStore.validateNonce(source, 0));
+        assertFalse(persistentStore.validateNonce(source, 50));
+        assertFalse(persistentStore.validateNonce(source, 99));
 
-        // Oldest nonce should be evicted
-        assertFalse(persistentStore.validateNonce(source, 0),
-                   "Nonce 0 should be evicted from sliding window");
-
-        // Recent nonces should still be valid
-        assertTrue(persistentStore.validateNonce(source, 9_999));
-        assertTrue(persistentStore.validateNonce(source, 10_000));
+        // Future nonces should be invalid
+        assertFalse(persistentStore.validateNonce(source, 101));
+        assertFalse(persistentStore.validateNonce(source, 1000));
     }
 
     @Test
@@ -152,20 +149,26 @@ public class NonceTrackerTest {
             persistentStore.getAndIncrement(source);
         }
 
-        // All nonces should be valid at height 1000
-        assertTrue(persistentStore.validateNonce(source, 0));
-        assertTrue(persistentStore.validateNonce(source, 4));
+        // Next expected nonce is 5 (already used 0-4)
+        assertTrue(persistentStore.validateNonce(source, 5));
+
+        // Already-used nonces should be invalid
+        assertFalse(persistentStore.validateNonce(source, 0));
+        assertFalse(persistentStore.validateNonce(source, 4));
 
         // Advance to height 11001 (beyond 10,000 block window)
         persistentStore.checkpoint(11001L);
 
-        // Old nonces should be expired
-        assertFalse(persistentStore.validateNonce(source, 0),
+        // Entry should be expired - nonce 5 should now be invalid
+        assertFalse(persistentStore.validateNonce(source, 5),
                    "Nonces from height 1000 should expire at height 11001");
 
-        // New nonces at current height should work
+        // New nonce should start fresh at 0 after expiration
         int newNonce = persistentStore.getAndIncrement(source);
-        assertTrue(persistentStore.validateNonce(source, newNonce));
+        assertEquals(0, newNonce, "After expiration, nonce counter should reset to 0");
+
+        // Next expected nonce is now 1
+        assertTrue(persistentStore.validateNonce(source, 1));
     }
 
     @Test
@@ -213,11 +216,13 @@ public class NonceTrackerTest {
         assertEquals(1, persistentStore.getAndIncrement(source1));
         assertEquals(1, persistentStore.getAndIncrement(source2));
 
-        // Validation should be independent
-        assertTrue(persistentStore.validateNonce(source1, 1));
-        assertTrue(persistentStore.validateNonce(source2, 1));
+        // Validation should be independent - each source expects nonce 2 next
+        assertTrue(persistentStore.validateNonce(source1, 2));
+        assertTrue(persistentStore.validateNonce(source2, 2));
         assertFalse(persistentStore.validateNonce(source1, 0)); // Used
+        assertFalse(persistentStore.validateNonce(source1, 1)); // Used
         assertFalse(persistentStore.validateNonce(source2, 0)); // Used
+        assertFalse(persistentStore.validateNonce(source2, 1)); // Used
     }
 
     @Test
