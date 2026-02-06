@@ -9,16 +9,25 @@ package com.hellblazer.delos.choam.support;
 
 import com.google.protobuf.Empty;
 import com.hellblazer.delos.choam.CHOAM;
+import com.hellblazer.delos.choam.Parameters;
 import com.hellblazer.delos.choam.proto.*;
+import com.hellblazer.delos.context.StaticContext;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
+import com.hellblazer.delos.membership.Member;
+import com.hellblazer.delos.membership.stereotomy.ControlledIdentifierMember;
+import com.hellblazer.delos.stereotomy.StereotomyImpl;
+import com.hellblazer.delos.stereotomy.mem.MemKERL;
+import com.hellblazer.delos.stereotomy.mem.MemKeyStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 
+import java.security.SecureRandom;
+import java.util.Collections;
+
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -35,9 +44,25 @@ public class ConciergeServiceTest {
     private Digest fromDigest;
 
     @BeforeEach
-    public void setUp() {
+    public void setUp() throws Exception {
         choam = mock(CHOAM.class);
         log = mock(Logger.class);
+
+        // Create a real Parameters instance for join() method which logs params().member().getId()
+        var context = new StaticContext<Member>(DigestAlgorithm.DEFAULT.getOrigin(), 0.1, Collections.emptyList(), 2);
+        var entropy = SecureRandom.getInstance("SHA1PRNG");
+        entropy.setSeed(new byte[] { 1, 2, 3 });
+        var stereotomy = new StereotomyImpl(new MemKeyStore(), new MemKERL(DigestAlgorithm.DEFAULT), entropy);
+        var member = new ControlledIdentifierMember(stereotomy.newIdentifier());
+
+        var params = Parameters.newBuilder()
+                              .build(Parameters.RuntimeParameters.newBuilder()
+                                                                 .setContext(context)
+                                                                 .setMember(member)
+                                                                 .setProcessor(Parameters.RuntimeParameters.NOOP_PROCESSOR)
+                                                                 .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
+                                                                 .build());
+        when(choam.params()).thenReturn(params);
 
         service = new ConciergeService(choam, log);
         fromDigest = DigestAlgorithm.DEFAULT.getOrigin();
@@ -46,7 +71,9 @@ public class ConciergeServiceTest {
     @Test
     public void testFetch() {
         // Given: a checkpoint replication request
-        var request = mock(CheckpointReplication.class);
+        var request = CheckpointReplication.newBuilder()
+                                           .setCheckpoint(1L)
+                                           .build();
 
         // And: CHOAM returns a CheckpointSegments response
         var expectedResponse = CheckpointSegments.getDefaultInstance();
@@ -65,7 +92,9 @@ public class ConciergeServiceTest {
     @Test
     public void testFetchWithNullResponse() {
         // Given: a checkpoint replication request
-        var request = mock(CheckpointReplication.class);
+        var request = CheckpointReplication.newBuilder()
+                                           .setCheckpoint(2L)
+                                           .build();
 
         // And: CHOAM returns null (edge case)
         when(choam.fetch(request)).thenReturn(null);
@@ -83,7 +112,10 @@ public class ConciergeServiceTest {
     @Test
     public void testFetchBlocks() {
         // Given: a block replication request
-        var request = mock(BlockReplication.class);
+        var request = BlockReplication.newBuilder()
+                                      .setFrom(0L)
+                                      .setTo(10L)
+                                      .build();
 
         // And: CHOAM returns a Blocks response
         var expectedResponse = Blocks.newBuilder()
@@ -111,7 +143,10 @@ public class ConciergeServiceTest {
     @Test
     public void testFetchBlocksEmpty() {
         // Given: a block replication request
-        var request = mock(BlockReplication.class);
+        var request = BlockReplication.newBuilder()
+                                      .setFrom(0L)
+                                      .setTo(10L)
+                                      .build();
 
         // And: CHOAM returns an empty Blocks response
         var expectedResponse = Blocks.getDefaultInstance();
@@ -131,7 +166,10 @@ public class ConciergeServiceTest {
     @Test
     public void testFetchViewChain() {
         // Given: a block replication request for view chain
-        var request = mock(BlockReplication.class);
+        var request = BlockReplication.newBuilder()
+                                      .setFrom(0L)
+                                      .setTo(10L)
+                                      .build();
 
         // And: CHOAM returns a view chain Blocks response
         var expectedResponse = Blocks.newBuilder()
@@ -166,7 +204,10 @@ public class ConciergeServiceTest {
     @Test
     public void testFetchViewChainEmpty() {
         // Given: a block replication request
-        var request = mock(BlockReplication.class);
+        var request = BlockReplication.newBuilder()
+                                      .setFrom(0L)
+                                      .setTo(10L)
+                                      .build();
 
         // And: CHOAM returns an empty view chain
         var expectedResponse = Blocks.getDefaultInstance();
@@ -185,7 +226,9 @@ public class ConciergeServiceTest {
     @Test
     public void testJoin() {
         // Given: a signed view member
-        var viewMember = mock(SignedViewMember.class);
+        var viewMember = SignedViewMember.newBuilder()
+                                         .setVm(ViewMember.getDefaultInstance())
+                                         .build();
 
         // When: join is called
         var result = service.join(viewMember, fromDigest);
@@ -200,7 +243,9 @@ public class ConciergeServiceTest {
     @Test
     public void testJoinWithDifferentDigest() {
         // Given: a signed view member
-        var viewMember = mock(SignedViewMember.class);
+        var viewMember = SignedViewMember.newBuilder()
+                                         .setVm(ViewMember.getDefaultInstance())
+                                         .build();
 
         // And: a custom from digest
         var customFromDigest = DigestAlgorithm.DEFAULT.digest("custom-member".getBytes());
@@ -218,7 +263,7 @@ public class ConciergeServiceTest {
     @Test
     public void testSync() {
         // Given: a synchronize request
-        var request = mock(Synchronize.class);
+        var request = Synchronize.newBuilder().build();
 
         // And: CHOAM returns an Initial response
         var expectedResponse = Initial.newBuilder()
@@ -247,7 +292,7 @@ public class ConciergeServiceTest {
     @Test
     public void testSyncWithEmptyResponse() {
         // Given: a synchronize request
-        var request = mock(Synchronize.class);
+        var request = Synchronize.newBuilder().build();
 
         // And: CHOAM returns a default Initial response
         var expectedResponse = Initial.getDefaultInstance();
@@ -283,9 +328,15 @@ public class ConciergeServiceTest {
     @Test
     public void testMultipleCallsToFetch() {
         // Given: multiple different checkpoint requests
-        var request1 = mock(CheckpointReplication.class);
-        var request2 = mock(CheckpointReplication.class);
-        var request3 = mock(CheckpointReplication.class);
+        var request1 = CheckpointReplication.newBuilder()
+                                            .setCheckpoint(1L)
+                                            .build();
+        var request2 = CheckpointReplication.newBuilder()
+                                            .setCheckpoint(2L)
+                                            .build();
+        var request3 = CheckpointReplication.newBuilder()
+                                            .setCheckpoint(3L)
+                                            .build();
 
         var response1 = CheckpointSegments.newBuilder()
                                           .addSegments(Slice.newBuilder().setIndex(1).build())
@@ -321,8 +372,10 @@ public class ConciergeServiceTest {
         var digest1 = DigestAlgorithm.DEFAULT.digest("member1".getBytes());
         var digest2 = DigestAlgorithm.DEFAULT.digest("member2".getBytes());
 
-        var syncRequest = mock(Synchronize.class);
-        var joinRequest = mock(SignedViewMember.class);
+        var syncRequest = Synchronize.newBuilder().build();
+        var joinRequest = SignedViewMember.newBuilder()
+                                          .setVm(ViewMember.getDefaultInstance())
+                                          .build();
 
         when(choam.sync(any(), any())).thenReturn(Initial.getDefaultInstance());
 
