@@ -191,7 +191,12 @@ public class MembershipTests {
             }
         };
         params.getProducer().ethereal().setSigner(m);
-        // testSubject uses default synchronizationCycles for reliable catch-up
+        // testSubject is joining an existing cluster, not bootstrapping a new one.
+        // Disable genesis generation so it synchronizes from the existing cluster
+        // instead of attempting to form its own genesis committee.
+        if (testSubject) {
+            params.setGenerateGenesis(false);
+        }
         return new CHOAM(params.build(RuntimeParameters.newBuilder()
                                                        .setMember(m)
                                                        .setCommunications(routers.get(m.getId()))

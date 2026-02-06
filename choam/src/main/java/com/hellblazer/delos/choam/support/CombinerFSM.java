@@ -34,12 +34,18 @@ public class CombinerFSM implements Combine {
     @Override
     public void anchor() {
         HashedCertifiedBlock anchor = choam.blockChainState().pollPending();
+        if (anchor == null) {
+            return;
+        }
         var pendingView = choam.getPendingViews().last();
         var pending = pendingView == null ? null : pendingView.context();
-        if (anchor != null && pending != null && choam.blockChainState().getPendingSize() >= pending.majority()) {
+        if (pending != null && choam.blockChainState().getPendingSize() >= pending.majority()) {
             log.info("Synchronizing from anchor: {} cardinality: {} on: {}", anchor.hash, choam.blockChainState().getPendingSize(),
                      choam.params().member().getId());
             choam.transitionsBootstrap(anchor);
+        } else {
+            // Re-queue the anchor block so it is not lost; more blocks may arrive later
+            choam.blockChainState().addPending(anchor);
         }
     }
 
