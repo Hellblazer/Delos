@@ -322,6 +322,42 @@ public class CHOAM implements ConsensusEngine {
         return params;
     }
 
+    public nextView getNextView() {
+        return (nextView) viewStateHolder.getNext();
+    }
+
+    public void setNextViewId(Digest viewId) {
+        viewStateHolder.setNextViewId(viewId);
+    }
+
+    public ImmutablePendingViews getPendingViews() {
+        return viewStateHolder.getPendingViews();
+    }
+
+    public void setPendingViews(ImmutablePendingViews views) {
+        viewStateHolder.setPendingViews(views);
+    }
+
+    public void transitionsNextView() {
+        transitions.nextView();
+    }
+
+    public void acceptGenesis(HashedCertifiedBlock hb) {
+        final var c = blockChainState.getHead();
+        blockChainState.setGenesis(c);
+        ((CheckpointManagerImpl) checkpointManager).updateCheckpoint(c);
+        blockChainState.setView(c);
+        process();
+    }
+
+    public CommonCommunications<Terminal, ?> getComm() {
+        return comm;
+    }
+
+    public ScheduledExecutorService getScheduler() {
+        return scheduler;
+    }
+
     @Override
     public ULong currentHeight() {
         final var c = blockChainState.getHead();
@@ -549,7 +585,7 @@ public class CHOAM implements ConsensusEngine {
         }
     }
 
-    private BlockProducer constructBlock() {
+    public BlockProducer constructBlock() {
         return new BlockProducer() {
             @Override
             public Block checkpoint() {
@@ -774,7 +810,7 @@ public class CHOAM implements ConsensusEngine {
         }
     }
 
-    private String getLabel() {
+    public String getLabel() {
         return "CHOAM" + params.member().getId() + params.context().getId();
     }
 
@@ -798,11 +834,11 @@ public class CHOAM implements ConsensusEngine {
         c.join(nextView, from);
     }
 
-    private Supplier<PendingViews> pendingViews() {
+    public Supplier<PendingViews> pendingViews() {
         return () -> new PendingViews(viewStateHolder.getPendingViews());
     }
 
-    private void process() {
+    public void process() {
         final var c = committeeState.getCommittee();
         final HashedCertifiedBlock h = blockChainState.getHead();
         log.info("Begin block: {} hash: {} height: {} committee: {} on: {}", h.block.getBodyCase(), h.hash, h.height(),
@@ -1403,7 +1439,7 @@ public class CHOAM implements ConsensusEngine {
         }
     }
 
-    record nextView(ViewMember member, KeyPair consensusKeyPair) {
+    public record nextView(ViewMember member, KeyPair consensusKeyPair) {
     }
 
     public class Combiner implements Combine {
@@ -1498,7 +1534,7 @@ public class CHOAM implements ConsensusEngine {
 
         @Override
         public void recover(HashedCertifiedBlock anchor) {
-            committeeState.setCommittee(new Formation());
+            committeeState.setCommittee(new GenesisFormation(CHOAM.this, log));
             asyncOperationState.resetSyncAttempts();  // Reset attempts on successful recovery
             log.info("Anchor discovered: {} hash: {} height: {} committee: {} on: {}", anchor.block.getBodyCase(),
                      anchor.hash, anchor.height(), committeeState.getCommittee().getClass().getSimpleName(), params.member().getId());
@@ -1521,7 +1557,7 @@ public class CHOAM implements ConsensusEngine {
             var activeCount = memberContext.size();
             var count = context().getRingCount();
             if (params.generateGenesis() && activeCount >= context().getRingCount()) {
-                if (committeeState.getCommittee() == null && committeeState.compareAndSetCommittee(null, new Formation())) {
+                if (committeeState.getCommittee() == null && committeeState.compareAndSetCommittee(null, new GenesisFormation(CHOAM.this, log))) {
                     log.info(
                     "Quorum achieved, triggering regeneration. members: {} required: {} forming Genesis committee on: {}",
                     activeCount, count, params.member().getId());
@@ -1801,108 +1837,6 @@ public class CHOAM implements ConsensusEngine {
 
         public Client(Map<Member, Verifier> validators, Digest viewId) {
             super(validators, viewId);
-        }
-    }
-
-    /** The Genesis formation comittee */
-    private class Formation implements Committee {
-        private final GenesisAssembly assembly;
-        private final Context<Member> formation;
-
-        private Formation() {
-            formation = Committee.viewFor(params.genesisViewId(), params.context());
-            if (formation.isMember(params.member()) && params.generateGenesis()) {
-                final var c = (nextView) viewStateHolder.getNext();
-                log.trace("Using genesis consensus key: {} sig: {} on: {}",
-                          params.digestAlgorithm().digest(c.consensusKeyPair.getPublic().getEncoded()),
-                          params.digestAlgorithm().digest(c.member.getSignature().toByteString()),
-                          params.member().getId());
-                // During Genesis, use member identity key for signing to match GenesisContext.verifiersByPid()
-                // which returns member identity verifiers. Consensus keys aren't exchanged until Join messages
-                // are processed after Genesis consensus completes.
-                // Cache the signer to avoid repeated KERL/keystore lookups on every sign() operation during Genesis.
-                // ControlledIdentifierMember.sign() calls identifier.getSigner() which does expensive lookups each time.
-                // By caching the Signer here, Genesis signatures use the cached instance avoiding the overhead.
-                Signer genesisSigner = ((ControlledIdentifierMember) params.member()).getIdentifier().getSigner();
-                if (genesisSigner == null) {
-                    throw new IllegalStateException(
-                    "Cannot obtain signer for Genesis from member: " + params.member().getId());
-                }
-                log.trace("Cached Genesis signer: {} for member: {} on: {}", genesisSigner.getClass().getSimpleName(),
-                          params.member().getId(), params.member().getId());
-                var supp = pendingViews();
-                ViewContext vc = new GenesisContext(formation, supp, params, genesisSigner, constructBlock());
-                var inView = ViewMember.newBuilder(c.member).setView(params.genesisViewId().toDigeste()).build();
-                var svm = SignedViewMember.newBuilder()
-                                          .setVm(inView)
-                                          .setSignature(params.member().sign(inView.toByteString()).toSig())
-                                          .build();
-                assembly = new GenesisAssembly(vc, comm, svm, getLabel(), scheduler);
-                log.info("Setting next view id to genesis: {} on: {}", params.genesisViewId(), params.member().getId());
-                viewStateHolder.setNextViewId(params.genesisViewId());
-            } else {
-                log.trace("No formation on: {}", params.member().getId());
-                assembly = null;
-            }
-        }
-
-        @Override
-        public void accept(HashedCertifiedBlock hb) {
-            assert hb.height().equals(ULong.valueOf(0));
-            final var c = blockChainState.getHead();
-            blockChainState.setGenesis(c);
-            ((CheckpointManagerImpl) checkpointManager).updateCheckpoint(c);
-            blockChainState.setView(c);
-            process();
-        }
-
-        @Override
-        public void complete() {
-            if (assembly != null) {
-                assembly.stop();
-            }
-        }
-
-        @Override
-        public boolean isMember() {
-            return formation.isMember(params.member());
-        }
-
-        @Override
-        public Logger log() {
-            return log;
-        }
-
-        @Override
-        public void nextView(Digest diadem, Context<Member> pendingView) {
-            log.info("Cancelling formation, acquiring new view, size: {} on: {}", pendingView.size(),
-                     params.member().getId());
-            params.context().setContext(pendingView);
-            viewStateHolder.setPendingViews(viewStateHolder.getPendingViews().add(diadem, pendingView));
-
-            transitions.nextView();
-        }
-
-        @Override
-        public Parameters params() {
-            return params;
-        }
-
-        @Override
-        public void regenerate() {
-            if (assembly != null) {
-                assembly.start();
-            }
-        }
-
-        @Override
-        public boolean validate(HashedCertifiedBlock hb) {
-            var block = hb.block;
-            if (!block.hasGenesis()) {
-                log.debug("Invalid genesis block: {} on: {}", hb.hash, params.member().getId());
-                return false;
-            }
-            return validateRegeneration(hb);
         }
     }
 
