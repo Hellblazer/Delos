@@ -331,6 +331,7 @@ public class CHOAMTest {
                                                                up.getExecutor().genesis(hash, initialization);
                                                            }
                                                        })
+                                                       .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
                                                        .build()));
     }
 

@@ -92,6 +92,8 @@ public class Emulator {
                            .build(RuntimeParameters.newBuilder()
                                                    .setMember(new ControlledIdentifierMember(identifier))
                                                    .setContext(new DynamicContextImpl<>(base, 5, 0.01, 3))
+                                                   .setProcessor(Parameters.RuntimeParameters.NOOP_PROCESSOR)
+                                                   .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
                                                    .build());
         var algorithm = base.getAlgorithm();
         Session session = new Session(params, st -> {
