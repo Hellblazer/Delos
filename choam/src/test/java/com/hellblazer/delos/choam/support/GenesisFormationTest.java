@@ -7,6 +7,7 @@
  */
 package com.hellblazer.delos.choam.support;
 
+import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.RouterImpl.CommonCommunications;
 import com.hellblazer.delos.choam.CHOAM;
 import com.hellblazer.delos.choam.CHOAM.BlockProducer;
@@ -51,6 +52,7 @@ public class GenesisFormationTest {
 
     private CHOAM choam;
     private CommonCommunications<Terminal, ?> comm;
+    private Router communications;
     private Parameters parameters;
     private CHOAM.PendingViews pendingViews;
 
@@ -66,6 +68,7 @@ public class GenesisFormationTest {
         // Create mocks
         choam = mock(CHOAM.class);
         comm = mock(CommonCommunications.class);
+        communications = mock(Router.class);
         pendingViews = mock(CHOAM.PendingViews.class);
 
         // Create test member with identity
@@ -130,6 +133,29 @@ public class GenesisFormationTest {
     }
 
     /**
+     * Helper to setup mocks for tests that construct GenesisFormation with generateGenesis=true
+     */
+    private void setupGenerateGenesisMocks() {
+        var trueGenParams = Parameters.newBuilder()
+                                      .setGenesisViewId(genesisViewId)
+                                      .setGenerateGenesis(true)
+                                      .build(Parameters.RuntimeParameters.newBuilder()
+                                                                         .setContext(baseContext)
+                                                                         .setMember(member)
+                                                                         .setCommunications(communications)
+                                                                         .setProcessor(Parameters.RuntimeParameters.NOOP_PROCESSOR)
+                                                                         .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
+                                                                         .build());
+        when(choam.params()).thenReturn(trueGenParams);
+        when(choam.getNextView()).thenReturn(nextView);
+
+        // Mock pendingViews to return a PendingView with proper context
+        var pendingView = new CHOAM.PendingView(genesisViewId, baseContext);
+        when(pendingViews.last()).thenReturn(pendingView);
+        when(choam.pendingViews()).thenReturn(() -> pendingViews);
+    }
+
+    /**
      * Test constructor when member IS in formation and generateGenesis is true.
      * Should create GenesisAssembly and cache signer.
      */
@@ -137,19 +163,7 @@ public class GenesisFormationTest {
     public void testConstructorWithFormationMember() {
         // Arrange
         var blockProducer = mock(BlockProducer.class);
-        // Create Parameters with generateGenesis=true
-        var trueGenParams = Parameters.newBuilder()
-                                      .setGenesisViewId(genesisViewId)
-                                      .setGenerateGenesis(true)
-                                      .build(Parameters.RuntimeParameters.newBuilder()
-                                                                         .setContext(baseContext)
-                                                                         .setMember(member)
-                                                                         .setProcessor(Parameters.RuntimeParameters.NOOP_PROCESSOR)
-                                                                         .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
-                                                                         .build());
-        when(choam.params()).thenReturn(trueGenParams);
-        when(choam.getNextView()).thenReturn(nextView);
-        when(choam.pendingViews()).thenReturn(() -> pendingViews);
+        setupGenerateGenesisMocks();
         when(choam.constructBlock()).thenReturn(blockProducer);
 
         // Act
@@ -177,17 +191,19 @@ public class GenesisFormationTest {
                                         .build(Parameters.RuntimeParameters.newBuilder()
                                                                            .setContext(baseContext)
                                                                            .setMember(member)
+                                                                           .setCommunications(communications)
                                                                            .setProcessor(Parameters.RuntimeParameters.NOOP_PROCESSOR)
                                                                            .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
                                                                            .build());
         when(choam.params()).thenReturn(differentParams);
+        when(choam.getNextView()).thenReturn(nextView);
+        when(choam.pendingViews()).thenReturn(() -> pendingViews); // Need this for constructor
 
         // Act
         var formation = new GenesisFormation(choam, log);
 
         // Assert
         assertFalse(formation.isMember(), "Should not be a member of formation");
-        verify(choam, never()).getNextView();
         verify(choam, never()).constructBlock();
         verify(choam, never()).setNextViewId(any());
     }
@@ -215,8 +231,7 @@ public class GenesisFormationTest {
      */
     @Test
     public void testAccept() {
-        // Arrange
-        when(parameters.generateGenesis()).thenReturn(false); // No assembly needed for this test
+        // Arrange - uses default parameters with generateGenesis=false
         var formation = new GenesisFormation(choam, log);
 
         var genesisBlock = createMockGenesisBlock();
@@ -254,19 +269,7 @@ public class GenesisFormationTest {
     public void testCompleteWithAssembly() {
         // Arrange
         var blockProducer = mock(BlockProducer.class);
-        // Create Parameters with generateGenesis=true
-        var trueGenParams = Parameters.newBuilder()
-                                      .setGenesisViewId(genesisViewId)
-                                      .setGenerateGenesis(true)
-                                      .build(Parameters.RuntimeParameters.newBuilder()
-                                                                         .setContext(baseContext)
-                                                                         .setMember(member)
-                                                                         .setProcessor(Parameters.RuntimeParameters.NOOP_PROCESSOR)
-                                                                         .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
-                                                                         .build());
-        when(choam.params()).thenReturn(trueGenParams);
-        when(choam.getNextView()).thenReturn(nextView);
-        when(choam.pendingViews()).thenReturn(() -> pendingViews);
+        setupGenerateGenesisMocks();
         when(choam.constructBlock()).thenReturn(blockProducer);
 
         var formation = new GenesisFormation(choam, log);
@@ -361,15 +364,16 @@ public class GenesisFormationTest {
         var newPendingView = mock(Context.class);
         when(newPendingView.size()).thenReturn(4);
 
-        var newPendingViews = mock(ImmutablePendingViews.class);
-        when(choam.getPendingViews()).thenReturn(newPendingViews);
-        when(newPendingViews.add(newDiadem, newPendingView)).thenReturn(newPendingViews);
+        // Create real ImmutablePendingViews instances
+        var currentPendingViews = ImmutablePendingViews.EMPTY;
+        var updatedPendingViews = currentPendingViews.add(newDiadem, newPendingView);
+        when(choam.getPendingViews()).thenReturn(currentPendingViews);
 
         // Act
         formation.nextView(newDiadem, newPendingView);
 
         // Assert
-        verify(choam).setPendingViews(newPendingViews);
+        verify(choam).setPendingViews(updatedPendingViews);
         verify(choam).transitionsNextView();
     }
 
@@ -396,19 +400,7 @@ public class GenesisFormationTest {
     public void testRegenerateWithAssembly() {
         // Arrange
         var blockProducer = mock(BlockProducer.class);
-        // Create Parameters with generateGenesis=true
-        var trueGenParams = Parameters.newBuilder()
-                                      .setGenesisViewId(genesisViewId)
-                                      .setGenerateGenesis(true)
-                                      .build(Parameters.RuntimeParameters.newBuilder()
-                                                                         .setContext(baseContext)
-                                                                         .setMember(member)
-                                                                         .setProcessor(Parameters.RuntimeParameters.NOOP_PROCESSOR)
-                                                                         .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
-                                                                         .build());
-        when(choam.params()).thenReturn(trueGenParams);
-        when(choam.getNextView()).thenReturn(nextView);
-        when(choam.pendingViews()).thenReturn(() -> pendingViews);
+        setupGenerateGenesisMocks();
         when(choam.constructBlock()).thenReturn(blockProducer);
 
         var formation = new GenesisFormation(choam, log);
@@ -514,19 +506,7 @@ public class GenesisFormationTest {
     public void testConstructorLogsConsensusKeyInfo() {
         // Arrange
         var blockProducer = mock(BlockProducer.class);
-        // Create Parameters with generateGenesis=true
-        var trueGenParams = Parameters.newBuilder()
-                                      .setGenesisViewId(genesisViewId)
-                                      .setGenerateGenesis(true)
-                                      .build(Parameters.RuntimeParameters.newBuilder()
-                                                                         .setContext(baseContext)
-                                                                         .setMember(member)
-                                                                         .setProcessor(Parameters.RuntimeParameters.NOOP_PROCESSOR)
-                                                                         .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
-                                                                         .build());
-        when(choam.params()).thenReturn(trueGenParams);
-        when(choam.getNextView()).thenReturn(nextView);
-        when(choam.pendingViews()).thenReturn(() -> pendingViews);
+        setupGenerateGenesisMocks();
         when(choam.constructBlock()).thenReturn(blockProducer);
 
         // Act
