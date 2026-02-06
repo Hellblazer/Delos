@@ -15,8 +15,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * In-memory nonce tracker with no persistence.
  * <p>
- * Legacy implementation for backward compatibility when FeatureFlags.NONCE_PERSISTENCE
- * is disabled. Nonces reset on restart, providing no replay protection across sessions.
+ * <b>SECURITY NOTICE:</b> Nonces reset on restart, providing NO replay protection across
+ * restarts. Should only be used in development/testing environments. Production deployments
+ * must enable FeatureFlags.NONCE_PERSISTENCE for replay protection.
+ * <p>
+ * Implements strict nonce ordering: only the next expected nonce is valid. Once a nonce
+ * is consumed via getAndIncrement(), it becomes permanently invalid within the session.
  * <p>
  * Thread-safe for concurrent access.
  *
@@ -35,11 +39,13 @@ public class InMemoryNonceStore implements NonceTracker {
     public boolean validateNonce(Digest source, int nonce) {
         var current = nonces.get(source);
         if (current == null) {
-            // No nonces for this source yet - any non-negative nonce is valid
-            return nonce >= 0;
+            // No nonces for this source yet - only accept nonce 0
+            return nonce == 0;
         }
-        // Nonce must be >= current value (not a replay)
-        return nonce >= current.get();
+        // Strict nonce ordering: only accept the next expected nonce
+        // This prevents replay attacks - once a nonce is used (via getAndIncrement),
+        // it cannot be reused
+        return nonce == current.get();
     }
 
     @Override

@@ -257,6 +257,77 @@ public class NonceTrackerTest {
     }
 
     @Test
+    public void testInMemoryStrictOrdering() {
+        var source = DigestAlgorithm.DEFAULT.getOrigin();
+
+        // New source: only nonce 0 should be valid
+        assertTrue(memoryStore.validateNonce(source, 0), "New source should accept nonce 0");
+        assertFalse(memoryStore.validateNonce(source, 1), "New source should reject nonce 1");
+        assertFalse(memoryStore.validateNonce(source, -1), "New source should reject negative nonces");
+
+        // Use nonce 0
+        assertEquals(0, memoryStore.getAndIncrement(source));
+
+        // Now only nonce 1 should be valid
+        assertFalse(memoryStore.validateNonce(source, 0), "Used nonce 0 should be invalid (replay)");
+        assertTrue(memoryStore.validateNonce(source, 1), "Next nonce 1 should be valid");
+        assertFalse(memoryStore.validateNonce(source, 2), "Future nonce 2 should be invalid");
+
+        // Use nonce 1
+        assertEquals(1, memoryStore.getAndIncrement(source));
+
+        // Now only nonce 2 should be valid
+        assertFalse(memoryStore.validateNonce(source, 0), "Old nonce 0 should be invalid");
+        assertFalse(memoryStore.validateNonce(source, 1), "Used nonce 1 should be invalid");
+        assertTrue(memoryStore.validateNonce(source, 2), "Next nonce 2 should be valid");
+        assertFalse(memoryStore.validateNonce(source, 3), "Future nonce 3 should be invalid");
+    }
+
+    @Test
+    public void testInMemoryReplayProtection() {
+        var source = DigestAlgorithm.DEFAULT.getOrigin();
+
+        // Use several nonces
+        for (int i = 0; i < 100; i++) {
+            assertEquals(i, memoryStore.getAndIncrement(source));
+        }
+
+        // Current nonce is 100, so only nonce 100 should be valid
+        assertTrue(memoryStore.validateNonce(source, 100), "Next expected nonce should be valid");
+
+        // All previously used nonces should be invalid (replay protection)
+        assertFalse(memoryStore.validateNonce(source, 0), "Old nonce 0 should be invalid");
+        assertFalse(memoryStore.validateNonce(source, 50), "Old nonce 50 should be invalid");
+        assertFalse(memoryStore.validateNonce(source, 99), "Old nonce 99 should be invalid");
+
+        // Future nonces should be invalid (strict ordering)
+        assertFalse(memoryStore.validateNonce(source, 101), "Future nonce 101 should be invalid");
+        assertFalse(memoryStore.validateNonce(source, 1000), "Future nonce 1000 should be invalid");
+    }
+
+    @Test
+    public void testInMemoryMultipleSourcesIndependent() {
+        var source1 = DigestAlgorithm.DEFAULT.digest("source1".getBytes());
+        var source2 = DigestAlgorithm.DEFAULT.digest("source2".getBytes());
+
+        // Each source should have independent nonce sequence
+        assertEquals(0, memoryStore.getAndIncrement(source1));
+        assertEquals(0, memoryStore.getAndIncrement(source2));
+        assertEquals(1, memoryStore.getAndIncrement(source1));
+        assertEquals(1, memoryStore.getAndIncrement(source2));
+
+        // Validation should be independent - each source expects nonce 2 next
+        assertTrue(memoryStore.validateNonce(source1, 2), "Source1 should expect nonce 2");
+        assertTrue(memoryStore.validateNonce(source2, 2), "Source2 should expect nonce 2");
+
+        // Used nonces should be invalid for each source
+        assertFalse(memoryStore.validateNonce(source1, 0), "Source1 nonce 0 used");
+        assertFalse(memoryStore.validateNonce(source1, 1), "Source1 nonce 1 used");
+        assertFalse(memoryStore.validateNonce(source2, 0), "Source2 nonce 0 used");
+        assertFalse(memoryStore.validateNonce(source2, 1), "Source2 nonce 1 used");
+    }
+
+    @Test
     public void testFeatureFlagIntegration() {
         // With persistence enabled
         FeatureFlags.NONCE_PERSISTENCE.setEnabled(true);

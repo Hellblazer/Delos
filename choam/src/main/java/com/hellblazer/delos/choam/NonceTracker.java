@@ -47,14 +47,15 @@ public interface NonceTracker extends AutoCloseable {
     /**
      * Validate that a nonce is acceptable for the given source.
      * <p>
-     * A nonce is valid if:
-     * - It is >= current nonce for the source (not a replay)
-     * - It is within the sliding window (not too old)
-     * - The source's nonces are not expired based on block height
+     * Strict ordering: A nonce is valid only if it equals the next expected nonce.
+     * Once consumed via getAndIncrement(), the nonce becomes permanently invalid.
+     * <p>
+     * For new sources, only nonce 0 is valid. For persistent stores, entries expire
+     * after HEIGHT_WINDOW blocks based on creation height.
      *
      * @param source Transaction source identifier
      * @param nonce  Nonce to validate
-     * @return true if nonce is valid, false if replay or expired
+     * @return true if nonce is valid (equals next expected), false if replay or expired
      */
     boolean validateNonce(Digest source, int nonce);
 
