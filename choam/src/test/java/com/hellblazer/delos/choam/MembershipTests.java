@@ -121,9 +121,10 @@ public class MembershipTests {
                            .max()
                            .getAsInt();
 
+        // Activate testSubject in context before starting so cluster is aware of it
+        context.activate(testSubject);
         routers.get(testSubject.getId()).start();
         choams.get(testSubject.getId()).start();
-        context.activate(testSubject);
         final var targetMet = Utils.waitForCondition(120_000, 1_000, () -> {
             final var currentHeight = choams.get(testSubject.getId()).currentHeight();
             return currentHeight != null && currentHeight.intValue() >= target;
@@ -168,7 +169,8 @@ public class MembershipTests {
 
         SigningMember testSubject = new ControlledIdentifierMember(stereotomy.newIdentifier());
 
-        final var prefix = UUID.randomUUID().toString();
+        // Use deterministic prefix for reproducible test behavior
+        final var prefix = "test-membership-" + cardinality;
         routers = members.stream()
                          .collect(Collectors.toMap(Member::getId, m -> new LocalServer(prefix, m).router(
                          ServerConnectionCache.newBuilder().setTarget(cardinality))));
@@ -189,9 +191,7 @@ public class MembershipTests {
             }
         };
         params.getProducer().ethereal().setSigner(m);
-        if (testSubject) {
-            params.setSynchronizationCycles(1);
-        }
+        // testSubject uses default synchronizationCycles for reliable catch-up
         return new CHOAM(params.build(RuntimeParameters.newBuilder()
                                                        .setMember(m)
                                                        .setCommunications(routers.get(m.getId()))
