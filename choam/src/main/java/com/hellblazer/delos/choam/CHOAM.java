@@ -152,7 +152,7 @@ public class CHOAM implements ConsensusEngine {
                                                                 params.metrics(), r),
                                        TxnSubmitClient.getCreate(params.metrics()),
                                        TxnSubmission.getLocalLoopback(params.member(), txnSubmission));
-        var fsm = Fsm.construct(new Combiner(), Combine.Transitions.class, Mercantile.INITIAL, true);
+        var fsm = Fsm.construct(new CombinerFSM(this, log), Combine.Transitions.class, Mercantile.INITIAL, true);
         fsm.setName("CHOAM%s on: %s".formatted(params.context().getId(), params.member().getId()));
         transitions = fsm.getTransitions();
         roundScheduler = new RoundScheduler("CHOAM" + params.member().getId() + params.context().getId(),
@@ -358,6 +358,38 @@ public class CHOAM implements ConsensusEngine {
         return scheduler;
     }
 
+    public BlockChainStateHolder blockChainState() {
+        return blockChainState;
+    }
+
+    public ControlStateHolder controlState() {
+        return controlState;
+    }
+
+    public RoundScheduler roundScheduler() {
+        return roundScheduler;
+    }
+
+    public AsyncOperationStateHolder asyncOperationState() {
+        return asyncOperationState;
+    }
+
+    public BlockProcessor blockProcessor() {
+        return blockProcessor;
+    }
+
+    public CommitteeStateHolder committeeState() {
+        return committeeState;
+    }
+
+    public void transitionsBootstrap(HashedCertifiedBlock anchor) {
+        transitions.bootstrap(anchor);
+    }
+
+    public void transitionsRegenerate() {
+        transitions.regenerate();
+    }
+
     @Override
     public ULong currentHeight() {
         final var c = blockChainState.getHead();
@@ -522,7 +554,7 @@ public class CHOAM implements ConsensusEngine {
         }
     }
 
-    private void cancelSynchronization() {
+    public void cancelSynchronization() {
         final ScheduledFuture<?> fs = asyncOperationState.getSyncFuture();
         if (fs != null) {
             fs.cancel(true);
@@ -1128,7 +1160,7 @@ public class CHOAM implements ConsensusEngine {
         restore();
     }
 
-    private void rotateViewKeys() {
+    public void rotateViewKeys() {
         //        if (committeeState.getCommittee() != null && !(committeeState.getCommittee() instanceof Associate)) {
         //            log.info("rotate view calls on: {}", params.member().getId(), new Exception("Rotate view keys"));
         //        }
@@ -1440,139 +1472,6 @@ public class CHOAM implements ConsensusEngine {
     }
 
     public record nextView(ViewMember member, KeyPair consensusKeyPair) {
-    }
-
-    public class Combiner implements Combine {
-
-        @Override
-        public void anchor() {
-            HashedCertifiedBlock anchor = blockChainState.pollPending();
-            var pendingView = viewStateHolder.getPendingViews().last();
-            var pending = pendingView == null ? null : pendingView.context();
-            if (anchor != null && pending != null && blockChainState.getPendingSize() >= pending.majority()) {
-                log.info("Synchronizing from anchor: {} cardinality: {} on: {}", anchor.hash, blockChainState.getPendingSize(),
-                         params.member().getId());
-                transitions.bootstrap(anchor);
-            }
-        }
-
-        @Override
-        public void awaitRegeneration() {
-            if (!controlState.isStarted()) {
-                return;
-            }
-            final HashedCertifiedBlock g = blockChainState.getGenesis();
-            if (g != null) {
-                return;
-            }
-            HashedCertifiedBlock anchor = blockChainState.pollPending();
-            if (anchor != null) {
-                log.info("Synchronizing from anchor: {} on: {}", anchor.hash, params.member().getId());
-                transitions.bootstrap(anchor);
-                return;
-            }
-            log.info("No anchor to synchronize, waiting: {} cycles on: {}", params.synchronizationCycles(),
-                     params.member().getId());
-            roundScheduler.schedule(AWAIT_REGEN, () -> {
-                cancelSynchronization();
-                awaitRegeneration();
-            }, params.regenerationCycles());
-        }
-
-        @Override
-        public void awaitSynchronization() {
-            if (!controlState.isStarted()) {
-                return;
-            }
-            HashedCertifiedBlock anchor = blockChainState.pollPending();
-            if (anchor != null) {
-                log.info("Synchronizing from anchor: {} on: {}", anchor.hash, params.member().getId());
-                asyncOperationState.resetSyncAttempts();  // Reset attempts on successful anchor acquisition
-                transitions.bootstrap(anchor);
-                return;
-            }
-            roundScheduler.schedule(AWAIT_SYNC, () -> {
-                log.trace("Synchronization failed on: {}", params.member().getId());
-                try {
-                    synchronizationFailed();
-                } catch (IllegalStateException e) {
-                    final var c = committeeState.getCommittee();
-                    Context<Member> memberContext = context();
-                    int attempts = asyncOperationState.incrementSyncAttempts();
-                    log.debug(
-                    "Synchronization quorum formation failed: {}, members: {} desired: {} required: {}, no anchor to recover from: {} attempt: {} on: {}",
-                    e.getMessage(), memberContext.size(), context().getRingCount(), params.majority(),
-                    c == null ? "<no formation>" : c.getClass().getSimpleName(), attempts, params.member().getId());
-
-                    if (attempts >= params.maxSyncAttempts()) {
-                        log.warn("Synchronization circuit breaker triggered: max attempts ({}) exceeded on: {}",
-                                 params.maxSyncAttempts(), params.member().getId());
-                        return;
-                    }
-                    awaitSynchronization();
-                }
-            }, params.synchronizationCycles());
-        }
-
-        @Override
-        public void cancelTimer(String timer) {
-            roundScheduler.cancel(timer);
-        }
-
-        @Override
-        public void combine() {
-            log.trace("Starting block processor for: {} on: {}", context().getId(), params.member().getId());
-            blockProcessor.start();
-        }
-
-        @Override
-        public void fail() {
-            log.info("Failed!  Shutting down on: {}", params.member().getId());
-            stop();
-            params.onFailure().complete(null);
-        }
-
-        @Override
-        public void recover(HashedCertifiedBlock anchor) {
-            committeeState.setCommittee(new GenesisFormation(CHOAM.this, log));
-            asyncOperationState.resetSyncAttempts();  // Reset attempts on successful recovery
-            log.info("Anchor discovered: {} hash: {} height: {} committee: {} on: {}", anchor.block.getBodyCase(),
-                     anchor.hash, anchor.height(), committeeState.getCommittee().getClass().getSimpleName(), params.member().getId());
-            CHOAM.this.recover(anchor);
-        }
-
-        @Override
-        public void regenerate() {
-            committeeState.getCommittee().regenerate();
-        }
-
-        @Override
-        public void rotateViewKeys() {
-            CHOAM.this.rotateViewKeys();
-        }
-
-        private void synchronizationFailed() {
-            cancelSynchronization();
-            Context<Member> memberContext = context();
-            var activeCount = memberContext.size();
-            var count = context().getRingCount();
-            if (params.generateGenesis() && activeCount >= context().getRingCount()) {
-                if (committeeState.getCommittee() == null && committeeState.compareAndSetCommittee(null, new GenesisFormation(CHOAM.this, log))) {
-                    log.info(
-                    "Quorum achieved, triggering regeneration. members: {} required: {} forming Genesis committee on: {}",
-                    activeCount, count, params.member().getId());
-                    transitions.regenerate();
-                } else {
-                    log.info("Quorum achieved, members: {} required: {} existing committee: {} on: {}", activeCount,
-                             count, committeeState.getCommittee().getClass().getSimpleName(), params.member().getId());
-                }
-            } else {
-                final var c = committeeState.getCommittee();
-                log.trace("Synchronization failed; members: {}, no anchor to recover from: {} on: {}", activeCount,
-                          c == null ? "<no committee>" : c.getClass().getSimpleName(), params.member().getId());
-                awaitSynchronization();
-            }
-        }
     }
 
     /** abstract class to maintain the common state */
