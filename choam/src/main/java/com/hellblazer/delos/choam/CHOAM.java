@@ -139,7 +139,7 @@ public class CHOAM implements ConsensusEngine {
         }));
         blockChainState.setHead(new NullBlock(params.digestAlgorithm()));
         blockChainState.setView(new NullBlock(params.digestAlgorithm()));
-        final Trampoline service = new Trampoline();
+        final var service = new ConciergeService(this, log);
         comm = params.communications()
                      .create(params.member(), params.context().getId(), service, service.getClass().getCanonicalName(),
                              r -> new TerminalServer(params.communications().getClientIdentityProvider(),
@@ -733,7 +733,7 @@ public class CHOAM implements ConsensusEngine {
         }
     }
 
-    private CheckpointSegments fetch(CheckpointReplication request) {
+    public CheckpointSegments fetch(CheckpointReplication request) {
         CheckpointState state = checkpointManager.getCheckpointState(ULong.valueOf(request.getCheckpoint()));
         if (state == null) {
             log.info("No cached checkpoint for {} on: {}", request.getCheckpoint(), params.member().getId());
@@ -746,14 +746,14 @@ public class CHOAM implements ConsensusEngine {
                                  .build();
     }
 
-    private Blocks fetchBlocks(BlockReplication rep) {
+    public Blocks fetchBlocks(BlockReplication rep) {
         BloomFilter<ULong> bff = BloomFilter.from(rep.getBlocksBff());
         Blocks.Builder blocks = Blocks.newBuilder();
         store.fetchBlocks(bff, blocks, 100, ULong.valueOf(rep.getFrom()), ULong.valueOf(rep.getTo()));
         return blocks.build();
     }
 
-    private Blocks fetchViewChain(BlockReplication rep) {
+    public Blocks fetchViewChain(BlockReplication rep) {
         BloomFilter<ULong> bff = BloomFilter.from(rep.getBlocksBff());
         Blocks.Builder blocks = Blocks.newBuilder();
         store.fetchViewChain(bff, blocks, 100, ULong.valueOf(rep.getFrom()), ULong.valueOf(rep.getTo()));
@@ -783,7 +783,7 @@ public class CHOAM implements ConsensusEngine {
         return next.height().equals(h.height().add(1));
     }
 
-    private void join(SignedViewMember nextView, Digest from) {
+    public void join(SignedViewMember nextView, Digest from) {
         var c = committeeState.getCommittee();
         if (c == null) {
             log.trace("No committee for: {} to join: {} diadem: {} on: {}", from,
@@ -1164,7 +1164,7 @@ public class CHOAM implements ConsensusEngine {
         return c.submit(request);
     }
 
-    private Initial sync(Synchronize request, Digest from) {
+    public Initial sync(Synchronize request, Digest from) {
         final HashedCertifiedBlock g = blockChainState.getGenesis();
         if (g != null) {
             Initial.Builder initial = Initial.newBuilder();
@@ -1532,36 +1532,6 @@ public class CHOAM implements ConsensusEngine {
                           c == null ? "<no committee>" : c.getClass().getSimpleName(), params.member().getId());
                 awaitSynchronization();
             }
-        }
-    }
-
-    public class Trampoline implements Concierge {
-
-        @Override
-        public CheckpointSegments fetch(CheckpointReplication request, Digest from) {
-            return CHOAM.this.fetch(request);
-        }
-
-        @Override
-        public Blocks fetchBlocks(BlockReplication request, Digest from) {
-            return CHOAM.this.fetchBlocks(request);
-        }
-
-        @Override
-        public Blocks fetchViewChain(BlockReplication request, Digest from) {
-            return CHOAM.this.fetchViewChain(request);
-        }
-
-        @Override
-        public Empty join(SignedViewMember nextView, Digest from) {
-            log.trace("Member: {} joining on: {}", from, params.member().getId());
-            CHOAM.this.join(nextView, from);
-            return Empty.getDefaultInstance();
-        }
-
-        @Override
-        public Initial sync(Synchronize request, Digest from) {
-            return CHOAM.this.sync(request, from);
         }
     }
 
