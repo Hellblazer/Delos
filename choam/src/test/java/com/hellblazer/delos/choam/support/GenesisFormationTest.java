@@ -57,6 +57,9 @@ public class GenesisFormationTest {
     private CHOAM.PendingViews pendingViews;
 
     private ControlledIdentifierMember member;
+    private ControlledIdentifierMember member2;
+    private ControlledIdentifierMember member3;
+    private ControlledIdentifierMember member4;
     private Context<Member> baseContext;
     private Digest genesisViewId;
     private DigestAlgorithm digestAlgorithm;
@@ -86,17 +89,17 @@ public class GenesisFormationTest {
         var entropy2 = SecureRandom.getInstance("SHA1PRNG");
         entropy2.setSeed(new byte[]{4, 5, 6});
         var stereotomy2 = new StereotomyImpl(new MemKeyStore(), new MemKERL(DigestAlgorithm.DEFAULT), entropy2);
-        var member2 = new ControlledIdentifierMember(stereotomy2.newIdentifier());
+        member2 = new ControlledIdentifierMember(stereotomy2.newIdentifier());
 
         var entropy3 = SecureRandom.getInstance("SHA1PRNG");
         entropy3.setSeed(new byte[]{7, 8, 9});
         var stereotomy3 = new StereotomyImpl(new MemKeyStore(), new MemKERL(DigestAlgorithm.DEFAULT), entropy3);
-        var member3 = new ControlledIdentifierMember(stereotomy3.newIdentifier());
+        member3 = new ControlledIdentifierMember(stereotomy3.newIdentifier());
 
         var entropy4 = SecureRandom.getInstance("SHA1PRNG");
         entropy4.setSeed(new byte[]{10, 11, 12});
         var stereotomy4 = new StereotomyImpl(new MemKeyStore(), new MemKERL(DigestAlgorithm.DEFAULT), entropy4);
-        var member4 = new ControlledIdentifierMember(stereotomy4.newIdentifier());
+        member4 = new ControlledIdentifierMember(stereotomy4.newIdentifier());
 
         baseContext = new StaticContext<>(digestAlgorithm.getOrigin(), 0.1,
                                           List.of(member, member2, member3, member4), 3);
@@ -125,22 +128,53 @@ public class GenesisFormationTest {
         setupDefaultMocks();
     }
 
+    @SuppressWarnings("unchecked")
     private void setupDefaultMocks() {
         when(choam.params()).thenReturn(parameters);
         doReturn(comm).when(choam).getComm();
         when(choam.getScheduler()).thenReturn(Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory()));
         when(choam.getLabel()).thenReturn(member.getId().toString());
+
+        // Setup Router mock: create() should return a CommonCommunications mock
+        // This is needed for ChRbcGossip which calls communications.create() to get a comm object
+        var mockComm = mock(CommonCommunications.class);
+        when(communications.create(any(), any(), any(), any(), any(), any(), any())).thenReturn(mockComm);
     }
 
     /**
      * Helper to setup mocks for tests that construct GenesisFormation with generateGenesis=true
+     * Note: GenesisAssembly creates ChRbcGossip which requires proper context setup for ring operations.
+     * These tests are essentially integration tests that exercise full GenesisAssembly construction.
      */
-    private void setupGenerateGenesisMocks() {
+    private void setupGenerateGenesisMocks() throws Exception {
+        // Create a larger formation context to ensure proper ring distribution
+        // bftSubset() picks successors from each ring, need enough members for BFT
+        var entropy5 = SecureRandom.getInstance("SHA1PRNG");
+        entropy5.setSeed(new byte[]{13, 14, 15});
+        var stereotomy5 = new StereotomyImpl(new MemKeyStore(), new MemKERL(DigestAlgorithm.DEFAULT), entropy5);
+        var member5 = new ControlledIdentifierMember(stereotomy5.newIdentifier());
+
+        var entropy6 = SecureRandom.getInstance("SHA1PRNG");
+        entropy6.setSeed(new byte[]{16, 17, 18});
+        var stereotomy6 = new StereotomyImpl(new MemKeyStore(), new MemKERL(DigestAlgorithm.DEFAULT), entropy6);
+        var member6 = new ControlledIdentifierMember(stereotomy6.newIdentifier());
+
+        var entropy7 = SecureRandom.getInstance("SHA1PRNG");
+        entropy7.setSeed(new byte[]{19, 20, 21});
+        var stereotomy7 = new StereotomyImpl(new MemKeyStore(), new MemKERL(DigestAlgorithm.DEFAULT), entropy7);
+        var member7 = new ControlledIdentifierMember(stereotomy7.newIdentifier());
+
+        // Create larger context with 7 members (supports 3f+1 with f=2)
+        // Use genesisViewId as the context ID to match the formation context
+        var largerContext = new StaticContext<Member>(genesisViewId, 0.1,
+                                                      List.of(member, member2, member3, member4,
+                                                              member5, member6, member7), 4);
+
         var trueGenParams = Parameters.newBuilder()
                                       .setGenesisViewId(genesisViewId)
                                       .setGenerateGenesis(true)
                                       .build(Parameters.RuntimeParameters.newBuilder()
-                                                                         .setContext(baseContext)
+                                                                         .setContext(largerContext)
                                                                          .setMember(member)
                                                                          .setCommunications(communications)
                                                                          .setProcessor(Parameters.RuntimeParameters.NOOP_PROCESSOR)
@@ -150,7 +184,7 @@ public class GenesisFormationTest {
         when(choam.getNextView()).thenReturn(nextView);
 
         // Mock pendingViews to return a PendingView with proper context
-        var pendingView = new CHOAM.PendingView(genesisViewId, baseContext);
+        var pendingView = new CHOAM.PendingView(genesisViewId, largerContext);
         when(pendingViews.last()).thenReturn(pendingView);
         when(choam.pendingViews()).thenReturn(() -> pendingViews);
     }
@@ -160,7 +194,7 @@ public class GenesisFormationTest {
      * Should create GenesisAssembly and cache signer.
      */
     @Test
-    public void testConstructorWithFormationMember() {
+    public void testConstructorWithFormationMember() throws Exception {
         // Arrange
         var blockProducer = mock(BlockProducer.class);
         setupGenerateGenesisMocks();
@@ -182,22 +216,28 @@ public class GenesisFormationTest {
      * Should NOT create GenesisAssembly (assembly remains null).
      */
     @Test
-    public void testConstructorWithNonFormationMember() {
-        // Arrange - use a different genesis view ID that doesn't include this member
-        var differentViewId = digestAlgorithm.getOrigin().prefix(999);
+    public void testConstructorWithNonFormationMember() throws Exception {
+        // Arrange - create a context that doesn't include the test member
+        // Use only member2, member3, member4 so bftSubset() won't include 'member'
+        var entropy5 = SecureRandom.getInstance("SHA1PRNG");
+        entropy5.setSeed(new byte[]{22, 23, 24});
+        var stereotomy5 = new StereotomyImpl(new MemKeyStore(), new MemKERL(DigestAlgorithm.DEFAULT), entropy5);
+        var member5 = new ControlledIdentifierMember(stereotomy5.newIdentifier());
+
+        var contextWithoutMember = new StaticContext<>(digestAlgorithm.getOrigin(), 0.1,
+                                                       List.of(member2, member3, member4, member5), 3);
+
         var differentParams = Parameters.newBuilder()
-                                        .setGenesisViewId(differentViewId)
+                                        .setGenesisViewId(genesisViewId)
                                         .setGenerateGenesis(true)
                                         .build(Parameters.RuntimeParameters.newBuilder()
-                                                                           .setContext(baseContext)
+                                                                           .setContext(contextWithoutMember)
                                                                            .setMember(member)
                                                                            .setCommunications(communications)
                                                                            .setProcessor(Parameters.RuntimeParameters.NOOP_PROCESSOR)
                                                                            .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
                                                                            .build());
         when(choam.params()).thenReturn(differentParams);
-        when(choam.getNextView()).thenReturn(nextView);
-        when(choam.pendingViews()).thenReturn(() -> pendingViews); // Need this for constructor
 
         // Act
         var formation = new GenesisFormation(choam, log);
@@ -266,7 +306,7 @@ public class GenesisFormationTest {
      * Test complete() when assembly exists - should stop assembly.
      */
     @Test
-    public void testCompleteWithAssembly() {
+    public void testCompleteWithAssembly() throws Exception {
         // Arrange
         var blockProducer = mock(BlockProducer.class);
         setupGenerateGenesisMocks();
@@ -313,14 +353,21 @@ public class GenesisFormationTest {
      * Test isMember() returns false when member is not in formation.
      */
     @Test
-    public void testIsMemberFalse() {
-        // Arrange - use different view ID
-        var differentViewId = digestAlgorithm.getOrigin().prefix(999);
+    public void testIsMemberFalse() throws Exception {
+        // Arrange - create a context that doesn't include the test member
+        var entropy5 = SecureRandom.getInstance("SHA1PRNG");
+        entropy5.setSeed(new byte[]{25, 26, 27});
+        var stereotomy5 = new StereotomyImpl(new MemKeyStore(), new MemKERL(DigestAlgorithm.DEFAULT), entropy5);
+        var member5 = new ControlledIdentifierMember(stereotomy5.newIdentifier());
+
+        var contextWithoutMember = new StaticContext<>(digestAlgorithm.getOrigin(), 0.1,
+                                                       List.of(member2, member3, member4, member5), 3);
+
         var differentParams = Parameters.newBuilder()
-                                        .setGenesisViewId(differentViewId)
+                                        .setGenesisViewId(genesisViewId)
                                         .setGenerateGenesis(false)
                                         .build(Parameters.RuntimeParameters.newBuilder()
-                                                                           .setContext(baseContext)
+                                                                           .setContext(contextWithoutMember)
                                                                            .setMember(member)
                                                                            .setProcessor(Parameters.RuntimeParameters.NOOP_PROCESSOR)
                                                                            .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
@@ -397,7 +444,7 @@ public class GenesisFormationTest {
      * Test regenerate() when assembly exists - should start assembly.
      */
     @Test
-    public void testRegenerateWithAssembly() {
+    public void testRegenerateWithAssembly() throws Exception {
         // Arrange
         var blockProducer = mock(BlockProducer.class);
         setupGenerateGenesisMocks();
@@ -503,7 +550,7 @@ public class GenesisFormationTest {
      * This tests the defensive logging in the constructor.
      */
     @Test
-    public void testConstructorLogsConsensusKeyInfo() {
+    public void testConstructorLogsConsensusKeyInfo() throws Exception {
         // Arrange
         var blockProducer = mock(BlockProducer.class);
         setupGenerateGenesisMocks();
@@ -520,7 +567,47 @@ public class GenesisFormationTest {
     // Helper methods
 
     private CertifiedBlock createMockGenesisBlock() {
-        var genesis = Genesis.newBuilder().build();
+        // Create proper Reconfigure with joins for BFT validation
+        // Need at least 4 joins for BFT (3f+1 with f=1 tolerance)
+        var join1 = Join.newBuilder()
+                       .setMember(SignedViewMember.newBuilder()
+                                                  .setVm(ViewMember.newBuilder()
+                                                                   .setId(member.getId().toDigeste())
+                                                                   .build())
+                                                  .build())
+                       .build();
+        var join2 = Join.newBuilder()
+                       .setMember(SignedViewMember.newBuilder()
+                                                  .setVm(ViewMember.newBuilder()
+                                                                   .setId(member2.getId().toDigeste())
+                                                                   .build())
+                                                  .build())
+                       .build();
+        var join3 = Join.newBuilder()
+                       .setMember(SignedViewMember.newBuilder()
+                                                  .setVm(ViewMember.newBuilder()
+                                                                   .setId(member3.getId().toDigeste())
+                                                                   .build())
+                                                  .build())
+                       .build();
+        var join4 = Join.newBuilder()
+                       .setMember(SignedViewMember.newBuilder()
+                                                  .setVm(ViewMember.newBuilder()
+                                                                   .setId(member4.getId().toDigeste())
+                                                                   .build())
+                                                  .build())
+                       .build();
+
+        var reconfigure = Reconfigure.newBuilder()
+                                    .addJoins(join1)
+                                    .addJoins(join2)
+                                    .addJoins(join3)
+                                    .addJoins(join4)
+                                    .build();
+
+        var genesis = Genesis.newBuilder()
+                            .setInitialView(reconfigure)
+                            .build();
         var header = Header.newBuilder()
                           .setHeight(0)
                           .setPrevious(digestAlgorithm.getOrigin().toDigeste())
