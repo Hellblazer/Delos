@@ -97,6 +97,7 @@ public class CHOAM implements ConsensusEngine {
     private final    Combine.Transitions                                   transitions;
     private final    TransSubmission                                       txnSubmission         = new TransSubmission();
     private final    ScheduledExecutorService                              scheduler;
+    private final    com.chiralbehaviors.tron.Fsm<Combine, Combine.Transitions> fsm;
     public final     ReadWriteLock                                         headLock;
     public final     ReentrantLock                                         viewStateLock;
 
@@ -152,9 +153,25 @@ public class CHOAM implements ConsensusEngine {
                                                                 params.metrics(), r),
                                        TxnSubmitClient.getCreate(params.metrics()),
                                        TxnSubmission.getLocalLoopback(params.member(), txnSubmission));
-        var fsm = Fsm.construct(new CombinerFSM(this, log), Combine.Transitions.class, Mercantile.INITIAL, true);
+        this.fsm = Fsm.construct(new CombinerFSM(this, log), Combine.Transitions.class, Mercantile.INITIAL, true);
         fsm.setName("CHOAM%s on: %s".formatted(params.context().getId(), params.member().getId()));
-        transitions = fsm.getTransitions();
+
+        // Conditionally wrap transitions with validation decorator
+        var rawTransitions = fsm.getTransitions();
+        if (com.hellblazer.delos.choam.FeatureFlags.STATE_VALIDATION.isEnabled()) {
+            var matrix = com.hellblazer.delos.choam.support.StateTransitionMatrix.getInstance();
+            // Use dedicated registry for validation metrics
+            var validationMetrics = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+            var validator = new com.hellblazer.delos.choam.support.StateTransitionValidator(matrix, validationMetrics);
+            this.transitions = new com.hellblazer.delos.choam.support.ValidatingCombineTransitions(
+                rawTransitions,
+                validator,
+                this::captureStateSnapshot
+            );
+            log.info("State machine validation ENABLED on: {}", params.member().getId());
+        } else {
+            this.transitions = rawTransitions;
+        }
         roundScheduler = new RoundScheduler("CHOAM" + params.member().getId() + params.context().getId(),
                                             params.context().timeToLive());
         combine.register(_ -> roundScheduler.tick());
@@ -1700,6 +1717,58 @@ public class CHOAM implements ConsensusEngine {
 
         record Attempt(Member m, ListenableFuture<Empty> fs) {
         }
+    }
+
+    /**
+     * Capture current CHOAM state snapshot for validation.
+     * Called by ValidatingCombineTransitions to obtain pre/post snapshots.
+     *
+     * @return Immutable snapshot of current state
+     */
+    private com.hellblazer.delos.choam.support.CHOAMStateSnapshot captureStateSnapshot() {
+        // Capture from StateHolders (lock-free atomic reads)
+        var started = controlState.isStarted();
+        var joinOngoing = controlState.isJoinOngoing();
+
+        var committee = committeeState.getCommittee();
+        var hasCommittee = committee != null;
+        var committeeType = committee == null ? null :
+            (committee instanceof com.hellblazer.delos.choam.support.GenesisFormation ? "GenesisFormation" : "Standard");
+
+        var head = blockChainState.getHead();
+        var hasGenesis = head != null && !(head instanceof com.hellblazer.delos.choam.support.HashedCertifiedBlock.NullBlock);
+        var hasHead = hasGenesis;  // Same condition
+        var headHeight = hasHead ? head.height().longValue() : -1L;
+
+        var viewId = viewStateHolder.getNextViewId();
+        var hasView = viewId != null;
+        var viewHeight = hasView ? blockChainState.getView().height().longValue() : -1L;
+        var pendingViewCount = viewStateHolder.getPendingViews().size();
+
+        var syncAttempts = asyncOperationState.getSyncAttempts();
+        var bootstrapActive = asyncOperationState.getBootstrapFuture() != null;
+        var syncScheduled = asyncOperationState.getSyncFuture() != null;
+
+        // Get FSM state name
+        var currentState = fsm.getCurrentState();
+        var fsmStateName = currentState.toString();  // Mercantile enum name
+
+        return new com.hellblazer.delos.choam.support.CHOAMStateSnapshot(
+            started,
+            joinOngoing,
+            hasCommittee,
+            committeeType,
+            hasGenesis,
+            hasHead,
+            headHeight,
+            hasView,
+            viewHeight,
+            pendingViewCount,
+            syncAttempts,
+            bootstrapActive,
+            syncScheduled,
+            fsmStateName
+        );
     }
 
     /** a member of the current committee */
