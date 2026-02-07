@@ -72,7 +72,38 @@ public enum FeatureFlags {
      */
     QUEUE_EVICTION("feature.queue.eviction",
                   "LRU eviction policy for pending queues",
-                  false);
+                  false),
+
+    /**
+     * State Machine Transition Validation (Phase 1-2, Delos-ckvy)
+     *
+     * When enabled: Validates state invariants, transition preconditions,
+     * and postconditions for all CHOAM state transitions. Provides defensive
+     * infrastructure for debugging and Byzantine fault detection.
+     *
+     * Validation checks:
+     * - State invariants: OPERATIONAL requires genesis + committee + view
+     * - Preconditions: INITIAL→start requires !started
+     * - Postconditions: start() must result in started=true
+     *
+     * Performance overhead:
+     * - Target: p95 < 244 μs (10% of baseline 2.44ms)
+     * - Snapshot capture: ~0.2 μs (lock-free AtomicReference reads)
+     * - Pre/post validation: ~10 μs combined
+     *
+     * Modes:
+     * - LOG_ONLY (default): Log violations, continue execution
+     * - ENFORCE: Throw IllegalStateException on violations
+     * - METRICS_ONLY: Record metrics, no logging
+     *
+     * Location: CHOAM.java constructor (ValidatingCombineTransitions decorator)
+     * Monitoring: validation.latency histogram, validation.violations counter
+     *
+     * See: .claude/choam-state-validation-revised-plan.md
+     */
+    STATE_VALIDATION("feature.state.validation",
+                    "State machine transition validation with pre/postconditions",
+                    false);
 
     private final String  systemProperty;
     private final String  description;
