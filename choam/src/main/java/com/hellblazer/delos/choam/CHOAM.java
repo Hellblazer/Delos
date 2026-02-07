@@ -912,6 +912,22 @@ public class CHOAM implements ConsensusEngine {
                  params.member().getId());
     }
 
+    public boolean validate(HashedCertifiedBlock hb, Map<Member, Verifier> validators) {
+        if (hb == null || validators == null) {
+            return false;
+        }
+        var certifications = hb.certifiedBlock.getCertificationsList();
+        var required = validators.size() / 2 + 1; // Simple majority
+        var valid = certifications.stream()
+                                   .filter(cert -> {
+                                       var validator = validators.get(params.context().getMember(Digest.from(cert.getId())));
+                                       return validator != null && validator.verify(JohnHancock.from(cert.getSignature()), hb.block.toByteString());
+                                   })
+                                   .limit(required)
+                                   .count();
+        return valid >= required;
+    }
+
     /**
      * Collect callbacks for two-phase reconfiguration (Phase 3A.2 pattern).
      *
@@ -1146,7 +1162,7 @@ public class CHOAM implements ConsensusEngine {
                                                                   : lastView.block.getReconfigure();
             blockChainState.setView(lastView);
             var validators = validatorsOf(reconfigure, params.context(), params.member().getId(), log);
-            committeeState.setCommittee(new Synchronizer(validators));
+            committeeState.setCommittee(new CommitteeSynchronizer(this, validators, log));
             log.info("Reconfigured to checkpoint view: {} committee: {} on: {}", new Digest(reconfigure.getId()),
                      committeeState.getCommittee().getClass().getSimpleName(), params.member().getId());
         }
@@ -1736,52 +1752,6 @@ public class CHOAM implements ConsensusEngine {
 
         public Client(Map<Member, Verifier> validators, Digest viewId) {
             super(validators, viewId);
-        }
-    }
-
-    /** a synchronizer of the current committee */
-    private class Synchronizer implements Committee {
-
-        private final Map<Member, Verifier> validators;
-
-        public Synchronizer(Map<Member, Verifier> validators) {
-            this.validators = validators;
-        }
-
-        @Override
-        public void accept(HashedCertifiedBlock next) {
-            process();
-        }
-
-        @Override
-        public void complete() {
-        }
-
-        @Override
-        public boolean isMember() {
-            return false;
-        }
-
-        @Override
-        public Logger log() {
-            return log;
-        }
-
-        @Override
-        public void nextView(Digest diadem, Context<Member> pendingView) {
-            log.info("Acquiring new view, size: {} on: {}", pendingView.size(), params.member().getId());
-            params.context().setContext(pendingView);
-            viewStateHolder.setPendingViews(viewStateHolder.getPendingViews().add(diadem, pendingView));
-        }
-
-        @Override
-        public Parameters params() {
-            return params;
-        }
-
-        @Override
-        public boolean validate(HashedCertifiedBlock hb) {
-            return validate(hb, validators);
         }
     }
 
