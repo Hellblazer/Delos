@@ -912,22 +912,6 @@ public class CHOAM implements ConsensusEngine {
                  params.member().getId());
     }
 
-    public boolean validate(HashedCertifiedBlock hb, Map<Member, Verifier> validators) {
-        if (hb == null || validators == null) {
-            return false;
-        }
-        var certifications = hb.certifiedBlock.getCertificationsList();
-        var required = validators.size() / 2 + 1; // Simple majority
-        var valid = certifications.stream()
-                                   .filter(cert -> {
-                                       var validator = validators.get(params.context().getMember(Digest.from(cert.getId())));
-                                       return validator != null && validator.verify(JohnHancock.from(cert.getSignature()), hb.block.toByteString());
-                                   })
-                                   .limit(required)
-                                   .count();
-        return valid >= required;
-    }
-
     /**
      * Collect callbacks for two-phase reconfiguration (Phase 3A.2 pattern).
      *
