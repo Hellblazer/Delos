@@ -10,7 +10,10 @@ package com.hellblazer.delos.choam.support;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.RouterImpl.CommonCommunications;
 import com.hellblazer.delos.choam.CHOAM;
-import com.hellblazer.delos.choam.CHOAM.BlockProducer;
+import com.hellblazer.delos.choam.BlockProducer;
+import com.hellblazer.delos.choam.NextView;
+import com.hellblazer.delos.choam.PendingViews;
+import com.hellblazer.delos.choam.PendingViews.PendingView;
 import com.hellblazer.delos.choam.Parameters;
 import com.hellblazer.delos.choam.comm.Concierge;
 import com.hellblazer.delos.choam.comm.Terminal;
@@ -54,7 +57,7 @@ public class GenesisFormationTest {
     private CommonCommunications<Terminal, ?> comm;
     private Router communications;
     private Parameters parameters;
-    private CHOAM.PendingViews pendingViews;
+    private PendingViews pendingViews;
 
     private ControlledIdentifierMember member;
     private ControlledIdentifierMember member2;
@@ -63,7 +66,7 @@ public class GenesisFormationTest {
     private Context<Member> baseContext;
     private Digest genesisViewId;
     private DigestAlgorithm digestAlgorithm;
-    private CHOAM.nextView nextView;
+    private NextView nextView;
 
     @BeforeEach
     @SuppressWarnings("unchecked")
@@ -72,7 +75,7 @@ public class GenesisFormationTest {
         choam = mock(CHOAM.class);
         comm = mock(CommonCommunications.class);
         communications = mock(Router.class);
-        pendingViews = mock(CHOAM.PendingViews.class);
+        pendingViews = mock(PendingViews.class);
 
         // Create test member with identity
         var entropy = SecureRandom.getInstance("SHA1PRNG");
@@ -122,7 +125,7 @@ public class GenesisFormationTest {
                                   .setView(genesisViewId.toDigeste())
                                   .setConsensusKey(bs(consensusKeyPair.getPublic()))
                                   .setSignature(member.sign(bs(consensusKeyPair.getPublic()).toByteString()).toSig());
-        nextView = new CHOAM.nextView(vmBuilder.build(), consensusKeyPair);
+        nextView = new NextView(vmBuilder.build(), consensusKeyPair);
 
         // Configure mocks with default behavior
         setupDefaultMocks();
@@ -184,7 +187,7 @@ public class GenesisFormationTest {
         when(choam.getNextView()).thenReturn(nextView);
 
         // Mock pendingViews to return a PendingView with proper context
-        var pendingView = new CHOAM.PendingView(genesisViewId, largerContext);
+        var pendingView = new PendingViews.PendingView(genesisViewId, largerContext);
         when(pendingViews.last()).thenReturn(pendingView);
         when(choam.pendingViews()).thenReturn(() -> pendingViews);
     }

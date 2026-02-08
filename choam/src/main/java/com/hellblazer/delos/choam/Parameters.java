@@ -12,7 +12,7 @@ import com.netflix.concurrency.limits.limit.AIMDLimit;
 import com.netflix.concurrency.limits.limiter.LifoBlockingLimiter;
 import com.netflix.concurrency.limits.limiter.SimpleLimiter;
 import com.hellblazer.delos.archipelago.Router;
-import com.hellblazer.delos.choam.CHOAM.TransactionExecutor;
+import com.hellblazer.delos.choam.TransactionExecutor;
 import com.hellblazer.delos.choam.proto.FoundationSeal;
 import com.hellblazer.delos.choam.proto.Join;
 import com.hellblazer.delos.choam.proto.Transaction;

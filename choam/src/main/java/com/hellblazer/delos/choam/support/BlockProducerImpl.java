@@ -7,6 +7,7 @@
  */
 package com.hellblazer.delos.choam.support;
 
+import com.hellblazer.delos.choam.BlockProducer;
 import com.hellblazer.delos.choam.CHOAM;
 import com.hellblazer.delos.choam.CheckpointManager;
 import com.hellblazer.delos.choam.Parameters;
@@ -33,7 +34,7 @@ import static com.hellblazer.delos.choam.support.HashedBlock.buildHeader;
  *
  * @author hal.hildebrand
  */
-public class BlockProducerImpl implements CHOAM.BlockProducer {
+public class BlockProducerImpl implements BlockProducer {
     private final Parameters                                     params;
     private final BlockChainStateHolder                          blockChainState;
     private final CheckpointManager                              checkpointManager;

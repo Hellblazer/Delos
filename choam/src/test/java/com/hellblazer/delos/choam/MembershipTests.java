@@ -9,7 +9,7 @@ package com.hellblazer.delos.choam;
 import com.hellblazer.delos.archipelago.LocalServer;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
-import com.hellblazer.delos.choam.CHOAM.TransactionExecutor;
+import com.hellblazer.delos.choam.TransactionExecutor;
 import com.hellblazer.delos.choam.Parameters.BootstrapParameters;
 import com.hellblazer.delos.choam.Parameters.ProducerParameters;
 import com.hellblazer.delos.choam.Parameters.RuntimeParameters;

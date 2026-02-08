@@ -6,7 +6,8 @@
  */
 package com.hellblazer.delos.choam;
 
-import com.hellblazer.delos.choam.CHOAM.BlockProducer;
+import com.hellblazer.delos.choam.BlockProducer;
+import com.hellblazer.delos.choam.PendingViews;
 import com.hellblazer.delos.choam.proto.Validate;
 import com.hellblazer.delos.context.Context;
 import com.hellblazer.delos.cryptography.Signer;
@@ -21,7 +22,7 @@ import java.util.function.Supplier;
  */
 public class GenesisContext extends ViewContext {
 
-    public GenesisContext(Context<Member> context, Supplier<CHOAM.PendingViews> pendingView, Parameters params,
+    public GenesisContext(Context<Member> context, Supplier<PendingViews> pendingView, Parameters params,
                           Signer signer, BlockProducer blockProducer) {
         super(context, params, pendingView, signer, Collections.emptyMap(), blockProducer);
     }

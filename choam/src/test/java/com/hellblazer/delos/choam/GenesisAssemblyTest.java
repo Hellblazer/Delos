@@ -10,7 +10,7 @@ import com.google.protobuf.Empty;
 import com.hellblazer.delos.archipelago.LocalServer;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
-import com.hellblazer.delos.choam.CHOAM.BlockProducer;
+import com.hellblazer.delos.choam.BlockProducer;
 import com.hellblazer.delos.choam.Parameters.ProducerParameters;
 import com.hellblazer.delos.choam.Parameters.RuntimeParameters;
 import com.hellblazer.delos.choam.comm.Concierge;
@@ -162,7 +162,7 @@ public class GenesisAssemblyTest {
                 }
             };
             var immutablePending = ImmutablePendingViews.EMPTY.add(base.getId(), base);
-            var pending = new CHOAM.PendingViews(immutablePending);
+            var pending = new PendingViews(immutablePending);
             var view = new GenesisContext(committee, () -> pending, built, sm, reconfigure);
 
             KeyPair keyPair = params.getViewSigAlgorithm().generateKeyPair();

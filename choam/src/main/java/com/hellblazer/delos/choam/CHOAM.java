@@ -309,8 +309,8 @@ public class CHOAM implements ConsensusEngine {
         return params;
     }
 
-    public nextView getNextView() {
-        return (nextView) viewStateHolder.getNext();
+    public NextView getNextView() {
+        return (NextView) viewStateHolder.getNext();
     }
 
     public void setNextViewId(Digest viewId) {
@@ -766,7 +766,7 @@ public class CHOAM implements ConsensusEngine {
             try {
                 if (validators.containsKey(params.member())) {
                     if (Dag.validate(validators.size())) {
-                        newCommittee = new Associate(h, validators, (nextView) currentView);
+                        newCommittee = new Associate(h, validators, (NextView) currentView);
                     } else {
                         log.warn("Reconfiguration to associate failed: {} committee: {} in view: {} on:{}",
                                  validators.size(), hash, committeeState.getCommittee().getClass().getSimpleName(),
@@ -933,7 +933,7 @@ public class CHOAM implements ConsensusEngine {
                   params.digestAlgorithm().digest(pubKey.getEncoded()),
                   params.digestAlgorithm().digest(signed.toSig().toByteString()),
                   committee == null ? "<no formation>" : committee.getClass().getSimpleName(), params.member().getId());
-        viewStateHolder.setNext(new nextView(ViewMember.newBuilder()
+        viewStateHolder.setNext(new NextView(ViewMember.newBuilder()
                                         .setId(params.member().getId().toDigeste())
                                         .setConsensusKey(pubKey)
                                         .setSignature(signed.toSig())
@@ -1003,87 +1003,6 @@ public class CHOAM implements ConsensusEngine {
 
     private void synchronizedProcess(CertifiedBlock certifiedBlock) {
         syncValidator.processSynchronizedBlock(certifiedBlock);
-    }
-
-    public interface BlockProducer {
-        Block checkpoint();
-
-        Block genesis(Map<Digest, Join> joining, Digest nextViewId, HashedBlock previous);
-
-        void onFailure();
-
-        Block produce(ULong height, Digest prev, Assemble assemble, HashedBlock checkpoint);
-
-        Block produce(ULong height, Digest prev, Executions executions, HashedBlock checkpoint);
-
-        void publish(Digest hash, CertifiedBlock cb, boolean beacon);
-
-        Block reconfigure(Map<Digest, Join> joining, Digest nextViewId, HashedBlock previous, HashedBlock checkpoint);
-    }
-
-    @FunctionalInterface
-    public interface TransactionExecutor {
-        default void beginBlock(ULong height, Digest hash) {
-        }
-
-        default void endBlock(ULong height, Digest hash) {
-        }
-
-        @SuppressWarnings("rawtypes")
-        void execute(int index, Digest hash, Transaction tx, CompletableFuture onComplete);
-
-        default void genesis(Digest hash, List<Transaction> initialization) {
-        }
-    }
-
-    /**
-     * Lightweight wrapper for ImmutablePendingViews that maintains API compatibility.
-     *
-     * KEY INSIGHT: This class has NO internal locks. It's just a read-only view of
-     * an ImmutablePendingViews instance. Thread safety is provided by immutability.
-     *
-     * This wrapper exists solely to maintain the existing API for ViewContext and other
-     * consumers that expect CHOAM.PendingViews type.
-     */
-    public static class PendingViews {
-        private final ImmutablePendingViews delegate;
-
-        public PendingViews(ImmutablePendingViews delegate) {
-            this.delegate = delegate;
-        }
-
-        public PendingView get(Digest diadem) {
-            var immutablePv = delegate.get(diadem);
-            return immutablePv == null ? null : new PendingView(immutablePv.diadem(), immutablePv.context());
-        }
-
-        public Views.Builder getViews(Digest hash) {
-            return delegate.getViews(hash);
-        }
-
-        public PendingView last() {
-            var immutablePv = delegate.last();
-            return immutablePv == null ? null : new PendingView(immutablePv.diadem(), immutablePv.context());
-        }
-    }
-
-    public record PendingView(Digest diadem, Context<Member> context) {
-        /**
-         * Answer the view created by finding the successors of the supplied hash on this Context
-         *
-         * @param hash - the "cut" across the rings of the context, determining the successors and thus the committee
-         *             members of the view
-         * @return the Vue determined by this Context and the supplied hash value
-         */
-        public View getView(Digest hash) {
-            var builder = View.newBuilder().setDiadem(diadem.toDigeste()).setMajority(context.majority());
-            ((Context<? super Member>) context).bftSubset(hash)
-                                               .forEach(d -> builder.addCommittee(d.getId().toDigeste()));
-            return builder.build();
-        }
-    }
-
-    public record nextView(ViewMember member, KeyPair consensusKeyPair) {
     }
 
     /** abstract class to maintain the common state */
@@ -1225,8 +1144,8 @@ public class CHOAM implements ConsensusEngine {
             Collections.shuffle(sampled);
             log.trace("Joining view: {} diadem: {} servers: {} on: {}", viewId, Digest.from(view.getDiadem()),
                       sampled.stream().map(Member::getId).toList(), params.member().getId());
-            final var c = (nextView) viewStateHolder.getNext();
-            var inView = ViewMember.newBuilder(c.member)
+            final var c = (NextView) viewStateHolder.getNext();
+            var inView = ViewMember.newBuilder(c.member())
                                    .setDiadem(view.getDiadem())
                                    .setView(viewStateHolder.getNextViewId().toDigeste())
                                    .build();
@@ -1355,17 +1274,17 @@ public class CHOAM implements ConsensusEngine {
 
         private final Producer producer;
 
-        Associate(HashedCertifiedBlock viewChange, Map<Member, Verifier> validators, nextView nextView) {
+        Associate(HashedCertifiedBlock viewChange, Map<Member, Verifier> validators, NextView nextView) {
             super(validators, new Digest(
             viewChange.block.hasGenesis() ? viewChange.block.getGenesis().getInitialView().getId()
                                           : viewChange.block.getReconfigure().getId()));
             var context = new StaticContext<>(viewId, params.context().getProbabilityByzantine(), 3,
                                               validators.keySet(), params.context().getEpsilon(), validators.size());
             log.trace("Using consensus key: {} sig: {} for view: {} on: {}",
-                      params.digestAlgorithm().digest(nextView.consensusKeyPair.getPublic().getEncoded()),
-                      params.digestAlgorithm().digest(nextView.member.getSignature().toByteString()), viewId,
+                      params.digestAlgorithm().digest(nextView.consensusKeyPair().getPublic().getEncoded()),
+                      params.digestAlgorithm().digest(nextView.member().getSignature().toByteString()), viewId,
                       params.member().getId());
-            Signer signer = new SignerImpl(nextView.consensusKeyPair.getPrivate(), ULong.MIN);
+            Signer signer = new SignerImpl(nextView.consensusKeyPair().getPrivate(), ULong.MIN);
             var pv = pendingViews();
             producer = new Producer(viewStateHolder.getNextViewId(),
                                     new ViewContext(context, params, pv, signer, validators, constructBlock()),

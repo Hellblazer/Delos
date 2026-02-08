@@ -58,7 +58,7 @@ public class ViewStateHolder {
 
     /**
      * Next view member: pending signed view membership.
-     * Type is generic to support CHOAM.nextView or other view member representations.
+     * Type is generic to support NextView or other view member representations.
      */
     private final AtomicReference<Object> next = new AtomicReference<>();
 
