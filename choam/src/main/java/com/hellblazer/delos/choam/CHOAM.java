@@ -98,6 +98,8 @@ public class CHOAM implements ConsensusEngine {
     private final    TransSubmission                                       txnSubmission         = new TransSubmission();
     private final    ScheduledExecutorService                              scheduler;
     private final    com.chiralbehaviors.tron.Fsm<Combine, Combine.Transitions> fsm;
+    private final    ByzantineDetectionMapper                             byzantineMapper;
+    private final    StallDiagnostics                                     stallDiagnostics;
     public final     ReadWriteLock                                         headLock;
     public final     ReentrantLock                                         viewStateLock;
 
@@ -153,6 +155,12 @@ public class CHOAM implements ConsensusEngine {
                                                                 params.metrics(), r),
                                        TxnSubmitClient.getCreate(params.metrics()),
                                        TxnSubmission.getLocalLoopback(params.member(), txnSubmission));
+
+        // Initialize stall diagnostics for root cause analysis
+        this.byzantineMapper = new ByzantineDetectionMapper();
+        var diagnosticsMetrics = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        this.stallDiagnostics = new StallDiagnostics(params.context(), comm, byzantineMapper, diagnosticsMetrics);
+
         this.fsm = Fsm.construct(new CombinerFSM(this, log), Combine.Transitions.class, Mercantile.INITIAL, true);
         fsm.setName("CHOAM%s on: %s".formatted(params.context().getId(), params.member().getId()));
 
@@ -181,12 +189,23 @@ public class CHOAM implements ConsensusEngine {
     /**
      * Handle stall detection events from the block processor.
      * <p>
-     * This method is invoked when the block processor detects a stall condition
-     * (MAX_EMPTY_POLLS consecutive empty polls). Currently logs the event for
-     * diagnosis. Future enhancements will include:
-     * - Root cause diagnosis (PARTITION vs CONSENSUS_SLOW vs BYZANTINE)
-     * - Automated recovery strategies based on diagnosis
-     * - Metrics emission for monitoring
+     * Invoked when the block processor detects a stall condition (MAX_EMPTY_POLLS
+     * consecutive empty polls). Diagnoses the root cause using {@link StallDiagnostics}
+     * and initiates appropriate recovery via {@link StallRecoveryStrategy}.
+     * <p>
+     * Diagnosis analyzes three categories of signals:
+     * <ul>
+     *   <li><b>Partition</b>: Gossip heartbeat failures from Fireflies</li>
+     *   <li><b>Consensus Slow</b>: Consensus participation rate from Ethereal</li>
+     *   <li><b>Byzantine</b>: Signature failures and timing anomalies</li>
+     * </ul>
+     * <p>
+     * Recovery strategies:
+     * <ul>
+     *   <li><b>PARTITION</b> → {@link StallRecoveryStrategy.ReconnectRecovery}</li>
+     *   <li><b>CONSENSUS_SLOW</b> → {@link StallRecoveryStrategy.ResyncRecovery}</li>
+     *   <li><b>BYZANTINE</b> → {@link StallRecoveryStrategy.ViewChangeRecovery}</li>
+     * </ul>
      *
      * @param event The stall detection event containing diagnostic information
      */
@@ -194,11 +213,14 @@ public class CHOAM implements ConsensusEngine {
         log.warn("Stall detected: {} empty polls, last height: {}, duration: {} on: {}",
                  event.emptyPollCount(), event.lastProcessedHeight(), event.stallDuration(),
                  params.member().getId());
-        // Future work: diagnose cause and initiate recovery
-        // - Check network connectivity (PARTITION)
-        // - Check consensus progress (CONSENSUS_SLOW)
-        // - Check for Byzantine indicators (BYZANTINE)
-        // - Initiate appropriate recovery (reconnect, resync, exclude member)
+
+        // Diagnose root cause
+        var cause = stallDiagnostics.diagnose(event);
+        log.info("Stall diagnosed as {} on: {}", cause, params.member().getId());
+
+        // Initiate recovery
+        var strategy = StallRecoveryStrategy.forCause(cause);
+        strategy.recover(this, event, cause);
     }
 
     /**
