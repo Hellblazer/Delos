@@ -102,6 +102,7 @@ public class CHOAM implements ConsensusEngine {
     private final    StallDiagnostics                                     stallDiagnostics;
     private final    BlockConsumer                                        blockConsumer;
     private final    SynchronizedBlockValidator                          syncValidator;
+    private final    BlockProducerImpl                                   blockProducer;
     public final     ReadWriteLock                                         headLock;
     public final     ReentrantLock                                         viewStateLock;
 
@@ -184,6 +185,7 @@ public class CHOAM implements ConsensusEngine {
         }
         this.blockConsumer = new BlockConsumer(blockChainState, committeeState, params.runtime(), transitions, log);
         this.syncValidator = new SynchronizedBlockValidator(controlState, blockChainState, committeeState, params.runtime(), transitions, log, params.digestAlgorithm());
+        this.blockProducer = new BlockProducerImpl(params, blockChainState, checkpointManager, combine, transitions, log, this::checkpoint);
         roundScheduler = new RoundScheduler("CHOAM" + params.member().getId() + params.context().getId(),
                                             params.context().timeToLive());
         combine.register(_ -> roundScheduler.tick());
@@ -595,90 +597,7 @@ public class CHOAM implements ConsensusEngine {
     }
 
     public BlockProducer constructBlock() {
-        return new BlockProducer() {
-            @Override
-            public Block checkpoint() {
-                return CHOAM.this.checkpoint();
-            }
-
-            @Override
-            public Block genesis(Map<Digest, Join> joining, Digest nextViewId, HashedBlock previous) {
-                final HashedCertifiedBlock cp = checkpointManager.currentCheckpoint();
-                final HashedCertifiedBlock v = blockChainState.getView();
-                log.trace("Genesis cp: {} view: {} previous: {} on: {}", cp.hash, v.hash, previous.hash,
-                          params.member().getId());
-                var g = CHOAM.genesis(nextViewId, joining, previous, v, params, cp, params.genesisData()
-                                                                                          .apply(joining.keySet()
-                                                                                                        .stream()
-                                                                                                        .map(
-                                                                                                        m -> params.context()
-                                                                                                                   .getMember(
-                                                                                                                   m))
-                                                                                                        .filter(
-                                                                                                        Objects::nonNull)
-                                                                                                        .collect(
-                                                                                                        Collectors.toMap(
-                                                                                                        m -> m,
-                                                                                                        m -> joining.get(
-                                                                                                        m.getId())))));
-                log.info("Create genesis: {} on: {}", nextViewId, params.member().getId());
-                return g;
-            }
-
-            @Override
-            public void onFailure() {
-                transitions.fail();
-            }
-
-            @Override
-            public Block produce(ULong height, Digest prev, Assemble assemble, HashedBlock checkpoint) {
-                final HashedCertifiedBlock v = blockChainState.getView();
-                return Block.newBuilder()
-                            .setHeader(
-                            buildHeader(params.digestAlgorithm(), assemble, prev, height, checkpoint.height(),
-                                        checkpoint.hash, v.height(), v.hash))
-                            .setAssemble(assemble)
-                            .build();
-            }
-
-            @Override
-            public Block produce(ULong height, Digest prev, Executions executions, HashedBlock checkpoint) {
-                final HashedCertifiedBlock v = blockChainState.getView();
-                var block = Block.newBuilder()
-                                 .setHeader(
-                                 buildHeader(params.digestAlgorithm(), executions, prev, height, checkpoint.height(),
-                                             checkpoint.hash, v.height(), v.hash))
-                                 .setExecutions(executions)
-                                 .build();
-                log.trace("Produce block: {} height: {} on: {}", block.getBodyCase(), block.getHeader().getHeight(),
-                          params.member().getId());
-                return block;
-            }
-
-            @Override
-            public void publish(Digest hash, CertifiedBlock cb, boolean beacon) {
-                if (beacon) {
-                    log.trace("Publishing beacon: {} hash: {} height: {} certifications: {} on: {}",
-                              cb.getBlock().getBodyCase(), hash, ULong.valueOf(cb.getBlock().getHeader().getHeight()),
-                              cb.getCertificationsCount(), params.member().getId());
-                } else {
-                    log.info("Publishing: {} hash: {} height: {} certifications: {} on: {}",
-                             cb.getBlock().getBodyCase(), hash, ULong.valueOf(cb.getBlock().getHeader().getHeight()),
-                             cb.getCertificationsCount(), params.member().getId());
-                }
-                combine.publish(cb, !beacon);
-            }
-
-            @Override
-            public Block reconfigure(Map<Digest, Join> joining, Digest nextViewId, HashedBlock previous,
-                                     HashedBlock checkpoint) {
-                final HashedCertifiedBlock v = blockChainState.getView();
-                var block = CHOAM.reconfigure(nextViewId, joining, previous, v, params, checkpoint);
-                log.trace("Produced block: {} height: {} on: {}", block.getBodyCase(), block.getHeader().getHeight(),
-                          params.member().getId());
-                return block;
-            }
-        };
+        return blockProducer;
     }
 
     private void consume(HashedCertifiedBlock next) {
