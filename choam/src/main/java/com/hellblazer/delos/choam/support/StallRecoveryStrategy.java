@@ -73,10 +73,20 @@ public interface StallRecoveryStrategy {
      * <p>
      * <b>Strategy</b>:
      * <ol>
-     *   <li>Wait for partition healing (gossip heartbeats resume)</li>
-     *   <li>Reconnect to majority partition via Fireflies</li>
-     *   <li>Resynchronize state if necessary</li>
+     *   <li>Monitor Fireflies for partition healing (heartbeat resumption)</li>
+     *   <li>Reconnect to majority partition when available</li>
+     *   <li>Trigger resync via CHOAM.recover() to catch up on missed blocks</li>
+     *   <li>Resume block processing once synchronized</li>
      * </ol>
+     * </p>
+     * <p>
+     * <b>Implementation Requirements</b>:
+     * <ul>
+     *   <li>Fireflies Integration: Register listener for heartbeat success events</li>
+     *   <li>Partition Detection: Monitor Context for majority partition availability</li>
+     *   <li>State Divergence: Compare local head with majority head to detect divergence</li>
+     *   <li>Resync Trigger: Invoke CHOAM.recover() if divergence detected</li>
+     * </ul>
      * </p>
      * <p>
      * <b>SLA</b>: Recovery completes within 30s of partition healing
@@ -87,17 +97,39 @@ public interface StallRecoveryStrategy {
 
         @Override
         public void recover(CHOAM choam, StallDetectedEvent event, StallCause cause) {
-            log.info("Initiating partition recovery: waiting for gossip heartbeats to resume on: {}",
-                     choam.logState());
+            log.info("Initiating partition recovery: triggering resync on: {}", choam.logState());
 
-            // TODO (Milestone M5.3): Implement partition recovery
-            // 1. Register heartbeat success listener with Fireflies
-            // 2. Once heartbeats resume, trigger reconnect to majority partition
-            // 3. Invoke resync if local state diverged during partition
-            // 4. Resume block processing
+            // Step 1: Get current head block as resync anchor
+            var head = choam.blockChainState().getHead();
+            if (head == null) {
+                log.warn("Partition recovery: cannot resync without head block on: {}", choam.logState());
+                return;
+            }
 
-            log.warn("ReconnectRecovery not yet implemented - stall remains unresolved on: {}",
-                     choam.logState());
+            // Step 2: Trigger resync to catch up on missed blocks during partition
+            // The CHOAM.recover() method will use Bootstrapper to fetch missing blocks
+            // from healthy nodes via Ethereal consensus
+            log.info("Partition recovery: triggering resync from head: {} height: {} on: {}",
+                     head.hash, head.height(), choam.logState());
+
+            try {
+                choam.recover(head);
+                log.info("Partition recovery: resync initiated successfully on: {}", choam.logState());
+            } catch (Exception e) {
+                log.error("Partition recovery: resync failed on: {}", choam.logState(), e);
+            }
+
+            // Note: Full partition healing detection requires Fireflies integration
+            // TODO: Monitor partition status before triggering resync
+            // 1. Check Fireflies heartbeat status for majority availability
+            // 2. Only trigger resync when partition is actually healed
+            // 3. Register listener for partition healing events if still partitioned
+            // 4. Retry recovery when partition heals
+            // Implementation requires:
+            // - Access to Fireflies heartbeat event stream
+            // - Callback registration for partition healing notification
+            // - Automatic retry mechanism when partition heals
+            // - Cleanup of listener when recovery succeeds or times out
         }
     }
 
@@ -195,10 +227,23 @@ public interface StallRecoveryStrategy {
      * <p>
      * <b>Strategy</b>:
      * <ol>
-     *   <li>Force view change to exclude Byzantine node</li>
+     *   <li>Identify Byzantine member via ByzantineDetectionMapper violation patterns</li>
+     *   <li>Propose view change to exclude Byzantine node from committee</li>
+     *   <li>Wait for consensus on view change (requires 2f+1 agreement)</li>
      *   <li>Reconfigure committee without malicious member</li>
-     *   <li>Log Byzantine incident for forensic analysis</li>
+     *   <li>Log Byzantine incident with forensic evidence for analysis</li>
+     *   <li>Resume consensus participation in new view</li>
      * </ol>
+     * </p>
+     * <p>
+     * <b>Implementation Requirements</b>:
+     * <ul>
+     *   <li>Byzantine Identification: Analyze ByzantineDetectionMapper violation history</li>
+     *   <li>Forensic Logging: Capture violation evidence (signatures, timing data, state snapshots)</li>
+     *   <li>View Change Protocol: Integrate with Ethereal/CHOAM view change mechanism</li>
+     *   <li>Committee Reconfiguration: Build reconfiguration block excluding Byzantine member</li>
+     *   <li>Consensus Resume: Ensure consensus restarts in new view</li>
+     * </ul>
      * </p>
      * <p>
      * <b>SLA</b>: View change completes within 30s
@@ -209,18 +254,82 @@ public interface StallRecoveryStrategy {
 
         @Override
         public void recover(CHOAM choam, StallDetectedEvent event, StallCause cause) {
-            log.warn("Initiating Byzantine recovery: forcing view change to exclude malicious node on: {}",
+            log.warn("Initiating Byzantine recovery: analyzing violations and preparing view change on: {}",
                      choam.logState());
 
-            // TODO (Milestone M5.3): Implement Byzantine recovery
-            // 1. Identify Byzantine node via ByzantineDetectionMapper violation patterns
-            // 2. Trigger view change via Ethereal (exclude Byzantine node from committee)
-            // 3. Wait for view change to complete
-            // 4. Log Byzantine incident with forensic details
-            // 5. Resume consensus in new view
+            // Step 1: Analyze Byzantine violations to identify suspect member(s)
+            // For now, log the detection - full implementation requires Byzantine violation correlation
+            log.error("Byzantine behavior detected during stall at height {} on: {}",
+                      event.lastProcessedHeight(), choam.logState());
 
-            log.error("ViewChangeRecovery not yet implemented - Byzantine stall remains unresolved on: {}",
+            // Step 2: Log forensic evidence
+            logByzantineIncident(choam, event);
+
+            // Step 3: Attempt view change (requires Ethereal/CHOAM integration)
+            // TODO: Full implementation requires:
+            // 1. Identify Byzantine member from violation patterns:
+            //    - Correlate signature failures with specific member
+            //    - Track timing anomalies per member
+            //    - Analyze equivocation sources
+            //    - Use ByzantineDetectionMapper.getRecentViolations() for pattern analysis
+            //
+            // 2. Propose view change excluding Byzantine member:
+            //    - Create ViewChange record with leaving=[byzantineMember]
+            //    - Invoke CHOAM reconfigure mechanism
+            //    - Requires integration with Committee view change protocol
+            //
+            // 3. Wait for view change consensus (2f+1 agreement):
+            //    - Monitor view change progress
+            //    - Handle view change rejection (Byzantine may block if f > 1)
+            //    - Timeout and fallback if view change stalls
+            //
+            // 4. Verify new view excludes Byzantine member:
+            //    - Check committee composition after view change
+            //    - Ensure Byzantine member not in active set
+            //
+            // 5. Resume consensus in new view:
+            //    - Verify consensus progresses
+            //    - Monitor for continued stall (may indicate multiple Byzantine nodes)
+
+            log.error("ViewChangeRecovery requires Ethereal/Committee integration - Byzantine stall unresolved on: {}",
                       choam.logState());
+        }
+
+        /**
+         * Logs Byzantine incident with forensic evidence for post-mortem analysis.
+         *
+         * @param choam The CHOAM instance
+         * @param event The stall event
+         */
+        private void logByzantineIncident(CHOAM choam, StallDetectedEvent event) {
+            log.error("""
+                      BYZANTINE INCIDENT DETECTED
+                      ===========================
+                      Node:            {}
+                      Stall Height:    {}
+                      Stall Duration:  {}
+                      Empty Polls:     {}
+                      Context:         {}
+
+                      FORENSIC EVIDENCE REQUIRED:
+                      - Signature failure logs from ByzantineDetectionMapper
+                      - Timing anomaly patterns
+                      - State transition violations
+                      - Network partition status
+                      - Committee membership at stall time
+
+                      ACTION REQUIRED:
+                      1. Extract violation history from ByzantineDetectionMapper
+                      2. Correlate violations with specific member(s)
+                      3. Initiate view change to exclude Byzantine member
+                      4. Archive forensic evidence for security analysis
+                      ===========================
+                      """,
+                      choam.params().member().getId(),
+                      event.lastProcessedHeight(),
+                      event.stallDuration(),
+                      event.emptyPollCount(),
+                      event.context().getId());
         }
     }
 
@@ -238,7 +347,7 @@ public interface StallRecoveryStrategy {
         public void recover(CHOAM choam, StallDetectedEvent event, StallCause cause) {
             callCount++;
             log.debug("NoOpRecovery invoked (count: {}) for cause: {} on: {}",
-                      callCount, cause, choam.logState());
+                      callCount, cause, choam != null ? choam.logState() : "null");
         }
 
         public int getCallCount() {
