@@ -106,6 +106,7 @@ public class CHOAM implements ConsensusEngine {
     private final    RecoveryCoordinator                                 recoveryCoordinator;
     private final    BlockDispatcher                                     blockDispatcher;
     private final    StateRestorer                                       stateRestorer;
+    private final    CheckpointBlockBuilder                              checkpointBlockBuilder;
     public final     ReadWriteLock                                         headLock;
     public final     ReentrantLock                                         viewStateLock;
 
@@ -188,6 +189,7 @@ public class CHOAM implements ConsensusEngine {
         }
         this.blockConsumer = new BlockConsumer(blockChainState, committeeState, params.runtime(), transitions, log);
         this.syncValidator = new SynchronizedBlockValidator(controlState, blockChainState, committeeState, params.runtime(), transitions, log, params.digestAlgorithm());
+        this.checkpointBlockBuilder = new CheckpointBlockBuilder(params.runtime(), blockChainState, checkpointManager, transitions, log, params.digestAlgorithm());
         this.blockProducer = new BlockProducerImpl(params, blockChainState, checkpointManager, combine, transitions, log, this::checkpoint);
         this.recoveryCoordinator = new RecoveryCoordinator(blockChainState, checkpointManager, store, params.runtime(), transitions, controlState, syncValidator, log, params.digestAlgorithm(), this::restoreFrom);
         this.blockDispatcher = new BlockDispatcher(committeeState, blockChainState, params.runtime(), checkpointManager, store, log, this::cancelSynchronization, this::cancelBootstrap, this::genesisInitialization, this::reconfigure, this::execute);
@@ -548,36 +550,7 @@ public class CHOAM implements ConsensusEngine {
     }
 
     private Block checkpoint() {
-        transitions.beginCheckpoint();
-        HashedBlock lb = blockChainState.getHead();
-        File state = params.checkpointer().apply(lb.height());
-        if (state == null) {
-            log.error("Cannot create checkpoint on: {}", params.member().getId());
-            transitions.fail();
-            return null;
-        }
-        final HashedBlock c = checkpointManager.currentCheckpoint();
-        final ULong newHeight = lb.height().add(1);
-
-        // Use consolidated checkpoint manager for creation and caching
-        Checkpoint cp = checkpointManager.createCheckpointAndGet(newHeight, state);
-        if (cp == null) {
-            transitions.fail();
-            return null;
-        }
-
-        final HashedCertifiedBlock v = blockChainState.getView();
-        final Block block = Block.newBuilder()
-                                 .setHeader(
-                                 buildHeader(params.digestAlgorithm(), cp, lb.hash, newHeight, c.height(),
-                                             c.hash, v.height(), v.hash))
-                                 .setCheckpoint(cp)
-                                 .build();
-
-        HashedBlock hb = new HashedBlock(params.digestAlgorithm(), block);
-        log.info("Created checkpoint: {} height: {} on: {}", hb.hash, hb.height(), params.member().getId());
-        transitions.finishCheckpoint();
-        return block;
+        return checkpointBlockBuilder.createCheckpoint();
     }
 
     private void combine(List<Msg> messages) {
