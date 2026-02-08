@@ -185,9 +185,13 @@ abstract class Administration implements Committee {
                     log.trace("Rescheduling join of: {} diadem: {} joins: {} on: {}", choam.viewStateHolder().getNextViewId(),
                               Digest.from(view.getDiadem()), joined.get(), choam.params().member().getId());
                     scheduler.schedule(action.get(), 50, TimeUnit.MILLISECONDS);
+                } else {
+                    // Join was cancelled while we were waiting - clean up scheduler
+                    scheduler.shutdown();  // R12: Clean up scheduler when join cancelled during wait
                 }
             } else {
-                scheduler.shutdown();  // R12: Clean up scheduler when join cancelled or completes
+                // Join was cancelled before we even started - clean up scheduler
+                scheduler.shutdown();  // R12: Clean up scheduler when join cancelled immediately
             }
         });
         scheduler.schedule(action.get(), 50, TimeUnit.MILLISECONDS);
