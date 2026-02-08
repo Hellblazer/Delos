@@ -101,6 +101,7 @@ public class CHOAM implements ConsensusEngine {
     private final    ByzantineDetectionMapper                             byzantineMapper;
     private final    StallDiagnostics                                     stallDiagnostics;
     private final    BlockConsumer                                        blockConsumer;
+    private final    SynchronizedBlockValidator                          syncValidator;
     public final     ReadWriteLock                                         headLock;
     public final     ReentrantLock                                         viewStateLock;
 
@@ -182,6 +183,7 @@ public class CHOAM implements ConsensusEngine {
             this.transitions = rawTransitions;
         }
         this.blockConsumer = new BlockConsumer(blockChainState, committeeState, params.runtime(), transitions, log);
+        this.syncValidator = new SynchronizedBlockValidator(controlState, blockChainState, committeeState, params.runtime(), transitions, log, params.digestAlgorithm());
         roundScheduler = new RoundScheduler("CHOAM" + params.member().getId() + params.context().getId(),
                                             params.context().timeToLive());
         combine.register(_ -> roundScheduler.tick());
@@ -1225,95 +1227,7 @@ public class CHOAM implements ConsensusEngine {
     }
 
     private void synchronizedProcess(CertifiedBlock certifiedBlock) {
-        if (!controlState.isStarted()) {
-            log.info("Not started on: {}", params.member().getId());
-            return;
-        }
-        HashedCertifiedBlock hcb = new HashedCertifiedBlock(params.digestAlgorithm(), certifiedBlock);
-        Block block = hcb.block;
-        log.info("Synchronizing block: {}:{} height: {} on: {}", hcb.hash, block.getBodyCase(), hcb.height(),
-                 params.member().getId());
-        final HashedCertifiedBlock previousBlock = blockChainState.getHead();
-        Header header = block.getHeader();
-        if (previousBlock != null) {
-            Digest prev = digest(header.getPrevious());
-            ULong prevHeight = previousBlock.height();
-            if (prevHeight == null) {
-                if (!hcb.height().equals(ULong.valueOf(0))) {
-                    if (!blockChainState.addPending(hcb)) {
-                        log.warn("Rejected pending block: {} hash: {} height: {} on: {}", hcb.block.getBodyCase(),
-                                 hcb.hash, hcb.height(), params.member().getId());
-                    }
-                    log.debug("Deferring block: {} hash: {} height should be {} and block height is {} on: {}",
-                              hcb.block.getBodyCase(), hcb.hash, 0, header.getHeight(), params.member().getId());
-                    return;
-                }
-            } else {
-                if (hcb.height().compareTo(prevHeight) <= 0) {
-                    log.trace("Discarding previously committed block: {} height: {} current height: {} on: {}",
-                              hcb.hash, hcb.height(), prevHeight, params.member().getId());
-                    if (!blockChainState.addPending(hcb)) {
-                        log.warn("Rejected pending block: {} hash: {} height: {} on: {}", hcb.block.getBodyCase(),
-                                 hcb.hash, hcb.height(), params.member().getId());
-                    }
-                    return;
-                }
-                if (!hcb.height().equals(prevHeight.add(1))) {
-                    if (!blockChainState.addPending(hcb)) {
-                        log.warn("Rejected pending block: {} hash: {} height: {} on: {}", hcb.block.getBodyCase(),
-                                 hcb.hash, hcb.height(), params.member().getId());
-                    }
-                    log.debug("Deferring block: {} hash: {} height should be {} and block height is {} on: {}",
-                              hcb.block.getBodyCase(), hcb.hash, previousBlock.height().add(1), header.getHeight(),
-                              params.member().getId());
-                    return;
-                }
-            }
-            if (!previousBlock.hash.equals(prev)) {
-                log.error(
-                "Protocol violation on: {}. New block does not refer to current block hash. Should be: {} and next block's prev is: {}, current height: {} next height: {} on: {}",
-                params.member().getId(), previousBlock.hash, prev, prevHeight, hcb.height(), params.member().getId());
-                return;
-            }
-            final var c = committeeState.getCommittee();
-            if (c == null) {
-                log.error("No committee for synchronized process on: {}", params.member().getId());
-                transitions.fail();
-                return;
-            }
-            if (!c.validate(hcb)) {
-                log.error("Protocol violation. New block is not validated: {} hash: {} on: {}", hcb.block.getBodyCase(),
-                          hcb.hash, params.member().getId());
-                return;
-            }
-        } else {
-            if (!block.hasGenesis()) {
-                if (!blockChainState.addPending(hcb)) {
-                    log.warn("Rejected pending block: {} hash: {} height: {} on: {}", hcb.block.getBodyCase(), hcb.hash,
-                             hcb.height(), params.member().getId());
-                }
-                log.info("Deferring block on: {}.  Block: {} hash: {} height should be {} and block height is {}",
-                         params.member().getId(), hcb.block.getBodyCase(), hcb.hash, 0, header.getHeight());
-                return;
-            }
-            final var c = committeeState.getCommittee();
-            if (c == null) {
-                log.error("No committee for genesis block validation on: {}", params.member().getId());
-                transitions.fail();
-                return;
-            }
-            if (!c.validateRegeneration(hcb)) {
-                log.error("Protocol violation. Genesis block is not validated: {} hash {} on: {}",
-                          hcb.block.getBodyCase(), hcb.hash, params.member().getId());
-                return;
-            }
-        }
-        log.info("Deferring block on: {}. Block: {} hash: {} height is {}", params.member().getId(),
-                 hcb.block.getBodyCase(), hcb.hash, header.getHeight());
-        if (!blockChainState.addPending(hcb)) {
-            log.warn("Rejected pending block: {} hash: {} height: {} on: {}", hcb.block.getBodyCase(), hcb.hash,
-                     hcb.height(), params.member().getId());
-        }
+        syncValidator.processSynchronizedBlock(certifiedBlock);
     }
 
     public interface BlockProducer {
