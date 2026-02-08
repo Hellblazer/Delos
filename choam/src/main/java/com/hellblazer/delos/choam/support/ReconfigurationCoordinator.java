@@ -128,7 +128,10 @@ public class ReconfigurationCoordinator {
                     throw t; // Fail-fast on Error types (OOM, StackOverflow, etc.)
                 }
                 log.error("Callback {} execution failed during reconfigure on: {}", i, params.runtime().member().getId(), t);
-                // Continue with remaining callbacks for non-fatal exceptions
+                // Note: Callbacks themselves call transitions methods (rotateViewKeys, etc.).
+                // If a callback fails, the FSM state is already updated by the callback's internal
+                // transition calls. Adding an unconditional fail() here would double-report failures.
+                // Continue with remaining callbacks for diagnostics and cleanup.
             }
         }
     }
