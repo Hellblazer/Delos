@@ -109,33 +109,77 @@ public interface StallRecoveryStrategy {
      * <p>
      * <b>Strategy</b>:
      * <ol>
-     *   <li>Fetch missing blocks from healthy nodes via Ethereal</li>
-     *   <li>Validate chain continuity (no forks)</li>
+     *   <li>Fetch missing blocks from healthy nodes via Bootstrapper</li>
+     *   <li>Synchronize blocks via CHOAM's synchronize() method</li>
      *   <li>Resume consensus participation</li>
      * </ol>
+     * </p>
+     * <p>
+     * <b>Circuit Breaker</b>: Protects against infinite recovery loops
+     * <ul>
+     *   <li>Failure threshold: 3 consecutive failures</li>
+     *   <li>Reset timeout: 5 minutes</li>
+     *   <li>Fail-fast when circuit OPEN</li>
+     * </ul>
      * </p>
      * <p>
      * <b>SLA</b>: Resync completes within 30s (circuit breaker at 60s)
      * </p>
      */
     class ResyncRecovery implements StallRecoveryStrategy {
-        private static final Logger log = LoggerFactory.getLogger(ResyncRecovery.class);
+        private static final Logger        log            = LoggerFactory.getLogger(ResyncRecovery.class);
+        private final        CircuitBreaker circuitBreaker = new CircuitBreaker(3, Duration.ofMinutes(5));
 
         @Override
         public void recover(CHOAM choam, StallDetectedEvent event, StallCause cause) {
-            log.info("Initiating resync recovery: fetching missing blocks from height {} on: {}",
-                     event.lastProcessedHeight(), choam.logState());
+            log.info("Initiating resync recovery: fetching missing blocks from height {} on: {} (circuit: {})",
+                     event.lastProcessedHeight(), choam.logState(), circuitBreaker.getState());
 
-            // TODO (Milestone M5.2): Implement resync recovery with circuit breaker
-            // 1. Determine target height from healthy consensus participants
-            // 2. Fetch blocks [lastProcessedHeight+1, targetHeight] via Ethereal
-            // 3. Validate chain continuity (prev hash matches)
-            // 4. Process blocks sequentially
-            // 5. Resume consensus participation
-            // Circuit breaker: Abort after 60s if resync stalls
+            try {
+                circuitBreaker.execute(() -> {
+                    // Trigger resync via CHOAM's recoverWith() method
+                    // This uses the Bootstrapper pattern to fetch missing blocks from peers
+                    var anchor = choam.blockChainState().getHead();
+                    if (anchor == null) {
+                        log.error("Cannot resync: no head block available on: {}", choam.logState());
+                        throw new IllegalStateException("No head block for resync anchor");
+                    }
 
-            log.warn("ResyncRecovery not yet implemented - stall remains unresolved on: {}",
-                     choam.logState());
+                    log.info("Initiating resync from anchor: {} height: {} on: {}",
+                             anchor.hash, anchor.height(), choam.logState());
+
+                    // Trigger recovery - this is async and will call synchronize() when complete
+                    choam.recover(anchor);
+
+                    log.info("Resync initiated successfully on: {}", choam.logState());
+                    return null;
+                });
+
+            } catch (CircuitBreaker.CircuitBreakerOpenException e) {
+                log.error("Resync recovery aborted: circuit breaker OPEN ({}  consecutive failures) on: {}",
+                          circuitBreaker.getConsecutiveFailures(), choam.logState());
+                // Circuit open - fail fast, don't attempt recovery
+
+            } catch (Exception e) {
+                log.error("Resync recovery failed on: {}", choam.logState(), e);
+                // Circuit breaker already recorded failure, just log
+            }
+        }
+
+        /**
+         * Gets the circuit breaker state (for testing/monitoring).
+         *
+         * @return Current circuit breaker state
+         */
+        public CircuitBreaker.State getCircuitState() {
+            return circuitBreaker.getState();
+        }
+
+        /**
+         * Resets the circuit breaker (for testing).
+         */
+        public void resetCircuit() {
+            circuitBreaker.reset();
         }
     }
 
