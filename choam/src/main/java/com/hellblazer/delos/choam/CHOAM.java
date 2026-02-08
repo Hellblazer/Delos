@@ -104,6 +104,7 @@ public class CHOAM implements ConsensusEngine {
     private final    SynchronizedBlockValidator                          syncValidator;
     private final    BlockProducerImpl                                   blockProducer;
     private final    RecoveryCoordinator                                 recoveryCoordinator;
+    private final    BlockDispatcher                                     blockDispatcher;
     public final     ReadWriteLock                                         headLock;
     public final     ReentrantLock                                         viewStateLock;
 
@@ -188,6 +189,7 @@ public class CHOAM implements ConsensusEngine {
         this.syncValidator = new SynchronizedBlockValidator(controlState, blockChainState, committeeState, params.runtime(), transitions, log, params.digestAlgorithm());
         this.blockProducer = new BlockProducerImpl(params, blockChainState, checkpointManager, combine, transitions, log, this::checkpoint);
         this.recoveryCoordinator = new RecoveryCoordinator(blockChainState, checkpointManager, store, params.runtime(), transitions, controlState, syncValidator, log, params.digestAlgorithm(), this::restoreFrom);
+        this.blockDispatcher = new BlockDispatcher(committeeState, blockChainState, params.runtime(), checkpointManager, store, log, this::cancelSynchronization, this::cancelBootstrap, this::genesisInitialization, this::reconfigure, this::execute);
         roundScheduler = new RoundScheduler("CHOAM" + params.member().getId() + params.context().getId(),
                                             params.context().timeToLive());
         combine.register(_ -> roundScheduler.tick());
@@ -701,45 +703,7 @@ public class CHOAM implements ConsensusEngine {
     }
 
     public void process() {
-        final var c = committeeState.getCommittee();
-        final HashedCertifiedBlock h = blockChainState.getHead();
-        log.info("Begin block: {} hash: {} height: {} committee: {} on: {}", h.block.getBodyCase(), h.hash, h.height(),
-                 c.getClass().getSimpleName(), params.member().getId());
-        switch (h.block.getBodyCase()) {
-        case RECONFIGURE: {
-            params.processor().beginBlock(h.height(), h.hash);
-            reconfigure(h.hash, h.block.getReconfigure());
-            break;
-        }
-        case GENESIS: {
-            cancelSynchronization();
-            cancelBootstrap();
-            genesisInitialization(h, h.block.getGenesis().getInitializeList());
-            reconfigure(h.hash, h.block.getGenesis().getInitialView());
-            break;
-        }
-        case ASSEMBLE: {
-            params.processor().beginBlock(h.height(), h.hash);
-            c.assemble(h.block.getAssemble());
-            break;
-        }
-        case EXECUTIONS: {
-            params.processor().beginBlock(h.height(), h.hash);
-            execute(h.block.getExecutions().getExecutionsList());
-            break;
-        }
-        case CHECKPOINT: {
-            params.processor().beginBlock(h.height(), h.hash);
-            var lastCheckpoint = checkpointManager.currentCheckpoint().height();
-            ((CheckpointManagerImpl) checkpointManager).updateCheckpoint(h);
-            store.gcFrom(h.height(), lastCheckpoint.add(1));
-        }
-        default:
-            break;
-        }
-        params.processor().endBlock(h.height(), h.hash);
-        log.info("End block: {} hash: {} height: {} on: {}", h.block.getBodyCase(), h.hash, h.height(),
-                 params.member().getId());
+        blockDispatcher.processBlock();
     }
 
     public boolean validate(HashedCertifiedBlock hb, Map<Member, Verifier> validators) {
