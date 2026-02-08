@@ -108,6 +108,7 @@ public class CHOAM implements ConsensusEngine {
     private final    StateRestorer                                       stateRestorer;
     private final    CheckpointBlockBuilder                              checkpointBlockBuilder;
     private final    ReconfigurationCoordinator                          reconfigCoordinator;
+    private final    StateSnapshotCapture                                stateSnapshotCapture;
     public final     ReadWriteLock                                         headLock;
     public final     ReentrantLock                                         viewStateLock;
 
@@ -172,6 +173,16 @@ public class CHOAM implements ConsensusEngine {
         this.fsm = Fsm.construct(new CombinerFSM(this, log), Combine.Transitions.class, Mercantile.INITIAL, true);
         fsm.setName("CHOAM%s on: %s".formatted(params.context().getId(), params.member().getId()));
 
+        // Initialize state snapshot capture for validation
+        this.stateSnapshotCapture = new StateSnapshotCapture(
+            controlState,
+            committeeState,
+            blockChainState,
+            viewStateHolder,
+            asyncOperationState,
+            fsm
+        );
+
         // Conditionally wrap transitions with validation decorator
         var rawTransitions = fsm.getTransitions();
         if (com.hellblazer.delos.choam.FeatureFlags.STATE_VALIDATION.isEnabled()) {
@@ -182,7 +193,7 @@ public class CHOAM implements ConsensusEngine {
             this.transitions = new com.hellblazer.delos.choam.support.ValidatingCombineTransitions(
                 rawTransitions,
                 validator,
-                this::captureStateSnapshot
+                stateSnapshotCapture::captureStateSnapshot
             );
             log.info("State machine validation ENABLED on: {}", params.member().getId());
         } else {
@@ -901,54 +912,12 @@ public class CHOAM implements ConsensusEngine {
 
     /**
      * Capture current CHOAM state snapshot for validation.
-     * Called by ValidatingCombineTransitions to obtain pre/post snapshots.
+     * Delegates to StateSnapshotCapture.
      *
      * @return Immutable snapshot of current state
      */
     private com.hellblazer.delos.choam.support.CHOAMStateSnapshot captureStateSnapshot() {
-        // Capture from StateHolders (lock-free atomic reads)
-        var started = controlState.isStarted();
-        var joinOngoing = controlState.isJoinOngoing();
-
-        var committee = committeeState.getCommittee();
-        var hasCommittee = committee != null;
-        var committeeType = committee == null ? null :
-            (committee instanceof com.hellblazer.delos.choam.support.GenesisFormation ? "GenesisFormation" : "Standard");
-
-        var head = blockChainState.getHead();
-        var hasGenesis = head != null && !(head instanceof com.hellblazer.delos.choam.support.HashedCertifiedBlock.NullBlock);
-        var hasHead = hasGenesis;  // Same condition
-        var headHeight = hasHead ? head.height().longValue() : -1L;
-
-        var viewId = viewStateHolder.getNextViewId();
-        var hasView = viewId != null;
-        var viewHeight = hasView ? blockChainState.getView().height().longValue() : -1L;
-        var pendingViewCount = viewStateHolder.getPendingViews().size();
-
-        var syncAttempts = asyncOperationState.getSyncAttempts();
-        var bootstrapActive = asyncOperationState.getBootstrapFuture() != null;
-        var syncScheduled = asyncOperationState.getSyncFuture() != null;
-
-        // Get FSM state name
-        var currentState = fsm.getCurrentState();
-        var fsmStateName = currentState.toString();  // Mercantile enum name
-
-        return new com.hellblazer.delos.choam.support.CHOAMStateSnapshot(
-            started,
-            joinOngoing,
-            hasCommittee,
-            committeeType,
-            hasGenesis,
-            hasHead,
-            headHeight,
-            hasView,
-            viewHeight,
-            pendingViewCount,
-            syncAttempts,
-            bootstrapActive,
-            syncScheduled,
-            fsmStateName
-        );
+        return stateSnapshotCapture.captureStateSnapshot();
     }
 
 }
