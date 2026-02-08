@@ -369,6 +369,14 @@ public class CHOAM implements ConsensusEngine {
         return committeeState;
     }
 
+    public ViewStateHolder viewStateHolder() {
+        return viewStateHolder;
+    }
+
+    public CommonCommunications<TxnSubmission, Submitter> submissionComm() {
+        return submissionComm;
+    }
+
     public void transitionsBootstrap(HashedCertifiedBlock anchor) {
         transitions.bootstrap(anchor);
     }
@@ -977,7 +985,7 @@ public class CHOAM implements ConsensusEngine {
      *
      * @return the SubmitResult describing the outcome
      */
-    private SubmitResult submit(Transaction request, Digest from) {
+    SubmitResult submit(Transaction request, Digest from) {
         if (from == null) {
             return SubmitResult.getDefaultInstance();
         }
