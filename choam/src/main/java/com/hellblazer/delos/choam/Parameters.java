@@ -751,6 +751,98 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
         private double                           minFreeMemoryRatio    = 0.15; // 85% used = 15% free threshold
         private int                              maxCachedCheckpoints  = 5;    // Keep last 5 checkpoints in memory
 
+        /**
+         * Create a Parameters.Builder initialized from a ConfigurationProfile.
+         * The profile provides environment-specific defaults which can be overridden
+         * by calling individual setter methods.
+         *
+         * @param profile the configuration profile
+         * @return a builder initialized with profile defaults
+         */
+        public static Builder from(ConfigurationProfile profile) {
+            ProfileValidator.validateOrThrow(profile);
+
+            var builder = new Builder();
+
+            // Map profile timeouts to Parameters timeouts
+            // SessionTimeout maps to submitTimeout
+            builder.setSubmitTimeout(profile.getSessionTimeout());
+
+            // GossipDuration scaled based on profile (faster for test profiles)
+            builder.setGossipDuration(profile.isTest() ?
+                                      Duration.ofMillis(500) : Duration.ofSeconds(1));
+
+            // Synchronization and regeneration cycles based on profile
+            if (profile.isProduction()) {
+                builder.setSynchronizationCycles(15);
+                builder.setRegenerationCycles(30);
+            } else if (profile.isTest()) {
+                builder.setSynchronizationCycles(5);
+                builder.setRegenerationCycles(10);
+            } else {
+                builder.setSynchronizationCycles(10);
+                builder.setRegenerationCycles(20);
+            }
+
+            // Memory management based on profile
+            if (profile.isProduction()) {
+                builder.setMinFreeMemoryRatio(0.10);  // Allow 90% memory use in production
+                builder.setMaxCachedCheckpoints(10);  // More caching for performance
+            } else if (profile.isTest()) {
+                builder.setMinFreeMemoryRatio(0.20);  // Conservative for tests
+                builder.setMaxCachedCheckpoints(3);   // Less caching for test speed
+            } else {
+                builder.setMinFreeMemoryRatio(0.15);  // Default
+                builder.setMaxCachedCheckpoints(5);   // Default
+            }
+
+            // Pending blocks and sync attempts based on profile
+            if (profile.isProduction()) {
+                builder.setMaxPendingBlocks(5000);
+                builder.setMaxSyncAttempts(15);
+            } else if (profile.isTest()) {
+                builder.setMaxPendingBlocks(500);
+                builder.setMaxSyncAttempts(5);
+            } else {
+                builder.setMaxPendingBlocks(1000);
+                builder.setMaxSyncAttempts(10);
+            }
+
+            // Bootstrap parameters based on profile
+            var bootstrapBuilder = BootstrapParameters.newBuilder()
+                .setGossipDuration(builder.getGossipDuration())
+                .setMaxViewBlocks(profile.isTest() ? 50 : 100)
+                .setMaxSyncBlocks(profile.isTest() ? 50 : 100);
+            builder.setBootstrap(bootstrapBuilder.build());
+
+            // Producer parameters based on profile
+            var producerBuilder = ProducerParameters.newBuilder()
+                .setGossipDuration(builder.getGossipDuration())
+                .setBatchInterval(profile.isTest() ? Duration.ofMillis(50) : Duration.ofMillis(100))
+                .setMaxGossipDelay(profile.isTest() ? Duration.ofSeconds(5) : Duration.ofSeconds(10));
+            builder.setProducer(producerBuilder.build());
+
+            // Submit policy (exponential backoff) based on profile
+            var policyBuilder = ExponentialBackoffPolicy.newBuilder();
+            if (profile.isTest()) {
+                policyBuilder.setInitialBackoff(Duration.ofMillis(100))
+                            .setMaxBackoff(Duration.ofSeconds(2))
+                            .setMultiplier(1.5);
+            } else if (profile.isProduction()) {
+                policyBuilder.setInitialBackoff(Duration.ofSeconds(1))
+                            .setMaxBackoff(Duration.ofSeconds(10))
+                            .setMultiplier(2.0);
+            } else {
+                policyBuilder.setInitialBackoff(Duration.ofMillis(500))
+                            .setMaxBackoff(Duration.ofSeconds(5))
+                            .setMultiplier(1.6);
+            }
+            policyBuilder.setJitter(0.2);
+            builder.setSubmitPolicy(policyBuilder);
+
+            return builder;
+        }
+
         public Parameters build(RuntimeParameters runtime) {
             if (maxSyncAttempts < 3) {
                 throw new IllegalArgumentException("maxSyncAttempts must be at least 3 (circuit breaker minimum)");
