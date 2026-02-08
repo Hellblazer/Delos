@@ -107,6 +107,7 @@ public class CHOAM implements ConsensusEngine {
     private final    BlockDispatcher                                     blockDispatcher;
     private final    StateRestorer                                       stateRestorer;
     private final    CheckpointBlockBuilder                              checkpointBlockBuilder;
+    private final    ReconfigurationCoordinator                          reconfigCoordinator;
     public final     ReadWriteLock                                         headLock;
     public final     ReentrantLock                                         viewStateLock;
 
@@ -198,6 +199,27 @@ public class CHOAM implements ConsensusEngine {
                                             params.context().timeToLive());
         combine.register(_ -> roundScheduler.tick());
         session = new Session(params, service(), scheduler);
+        this.reconfigCoordinator = new ReconfigurationCoordinator(
+            viewStateHolder,
+            viewStateLock,
+            committeeState,
+            blockChainState,
+            controlState,
+            session,
+            params,
+            transitions,
+            new ReconfigurationCallbacks() {
+                @Override
+                public Committee createAssociate(HashedCertifiedBlock viewChange, Map<Member, Verifier> validators, NextView nextView) {
+                    return new Associate(CHOAM.this, viewChange, validators, nextView);
+                }
+
+                @Override
+                public Committee createClient(Map<Member, Verifier> validators, Digest viewId) {
+                    return new Client(CHOAM.this, validators, viewId);
+                }
+            }
+        );
     }
 
     /**
@@ -734,163 +756,26 @@ public class CHOAM implements ConsensusEngine {
      * @param reconfigure Reconfiguration metadata
      * @return List of callbacks to execute in order (outside lock)
      */
-    private List<Runnable> collectReconfigureCallbacks(Digest hash, Reconfigure reconfigure) {
-        List<Runnable> callbacks = new ArrayList<>();
-
-        // Capture old committee reference for later cleanup
-        // NOTE: oldCommittee captured here - remains valid even if current is modified
-        final Committee oldCommittee = committeeState.getCommittee();
-
-        // Determine which committee type to create and the associated setup
-        var validators = validatorsOf(reconfigure, params.context(), params.member().getId(), log);
-        final HashedCertifiedBlock h = blockChainState.getHead();
-        final var currentView = viewStateHolder.getNext();
-
-        // Callback 1: Rotate view keys
-        callbacks.add(() -> {
-            log.trace("Rotating view keys on: {}", params.member().getId());
-            transitions.rotateViewKeys();
-        });
-
-        // Callback 2: Update view state and session
-        callbacks.add(() -> {
-            log.trace("Updating view state on: {}", params.member().getId());
-            blockChainState.setView(h);
-            session.setView(h);
-        });
-
-        // Callback 3: Atomic committee transition (create new, swap, stop old)
-        // CRITICAL: This callback must be atomic to avoid race conditions:
-        // 1. Create new committee (starts producer)
-        // 2. Atomically swap current reference
-        // 3. Immediately stop old committee
-        // This ensures no window where current points to a stopped producer (NO_COMMITTEE),
-        // while minimizing the window where both producers are running.
-        callbacks.add(() -> {
-            log.trace("Transitioning committee on: {}", params.member().getId());
-            Committee newCommittee = null;
-
-            // Step 1: Create new committee (may throw, old committee remains active if this fails)
-            try {
-                if (validators.containsKey(params.member())) {
-                    if (Dag.validate(validators.size())) {
-                        newCommittee = new Associate(this, h, validators, (NextView) currentView);
-                    } else {
-                        log.warn("Reconfiguration to associate failed: {} committee: {} in view: {} on:{}",
-                                 validators.size(), hash, committeeState.getCommittee().getClass().getSimpleName(),
-                                 params.member().getId());
-                        transitions.fail();
-                        return; // Keep old committee active
-                    }
-                } else {
-                    newCommittee = new Client(this, validators, getViewId());
-                }
-            } catch (Throwable e) {
-                log.error("Failed to create new committee on: {}", params.member().getId(), e);
-                transitions.fail();
-                return; // Keep old committee active
-            }
-
-            // Step 2: Atomic swap - new committee now handles all transactions
-            committeeState.setCommittee(newCommittee);
-
-            // Step 3: Stop old committee immediately after swap
-            // Note: oldCommittee can be null during recovery/startup
-            if (oldCommittee != null) {
-                try {
-                    oldCommittee.complete();
-                } catch (Throwable e) {
-                    log.error("Failed to complete old committee on: {}", params.member().getId(), e);
-                    // Continue - new committee is already active and handling transactions
-                }
-            } else {
-                log.debug("No old committee to complete (recovery scenario) on: {}", params.member().getId());
-            }
-        });
-
-        // Callback 5: Log completion
-        callbacks.add(() -> {
-            if (controlState.endJoinWithCAS()) {
-                log.trace("Halting ongoing join on: {}", params.member().getId());
-            }
-            log.info("Reconfigured to view: {} committee: {} validators: {} on: {}",
-                     hash, committeeState.getCommittee().getClass().getSimpleName(),
-                     validators.entrySet().stream()
-                                .map(e -> String.format("id: %s key: %s",
-                                                        e.getKey().getId(),
-                                                        params.digestAlgorithm()
-                                                              .digest(e.toString())))
-                                .toList(),
-                     params.member().getId());
-        });
-
-        return callbacks;
-    }
 
     /**
      * Check if memory pressure is too high for safe reconfiguration.
-     * Uses MemoryMXBean to check heap usage against configured threshold.
+     * Delegates to ReconfigurationCoordinator.
      *
      * @return true if heap usage exceeds (1.0 - minFreeMemoryRatio), false otherwise
      */
     public boolean isMemoryPressureHigh() {
-        var heapUsage = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
-        var usedRatio = (double) heapUsage.getUsed() / heapUsage.getMax();
-        var threshold = 1.0 - params.minFreeMemoryRatio();
-
-        if (usedRatio > threshold) {
-            log.warn("Memory pressure detected: {}% heap used (threshold: {}%) on: {}",
-                     String.format("%.1f", usedRatio * 100), String.format("%.1f", threshold * 100),
-                     params.member().getId());
-            return true;
-        }
-        return false;
+        return reconfigCoordinator.isMemoryPressureHigh();
     }
 
+    /**
+     * Execute view reconfiguration.
+     * Delegates to ReconfigurationCoordinator.
+     *
+     * @param hash        view identifier hash
+     * @param reconfigure reconfiguration proto
+     */
     private void reconfigure(Digest hash, Reconfigure reconfigure) {
-        // Check memory pressure before proceeding with reconfiguration
-        if (isMemoryPressureHigh()) {
-            log.error("Rejecting reconfiguration due to high memory pressure on: {}", params.member().getId());
-            throw new IllegalStateException("Memory pressure too high for reconfiguration - heap usage exceeds threshold");
-        }
-
-        // Phase 1 (locked): Collect callbacks for deterministic computation
-        List<Runnable> callbacks;
-        viewStateLock.lock();
-        try {
-            log.info("Setting next view id: {} on: {}", hash, params.member().getId());
-            viewStateHolder.setNextViewId(hash);
-
-            // Update pending views
-            var advanced = viewStateHolder.getPendingViews().advance();
-            viewStateHolder.setPendingViews(advanced);
-            var pv = advanced.last();
-            if (pv != null) {
-                params.context().setContext(pv.context());
-            }
-
-            // Collect callbacks for execution outside lock
-            callbacks = collectReconfigureCallbacks(hash, reconfigure);
-        } finally {
-            viewStateLock.unlock();
-        }
-
-        // Phase 2 (unlocked): Execute collected callbacks
-        // This allows callbacks to acquire other locks without reentrancy risks
-        log.debug("Executing reconfigure callbacks on: {}", params.member().getId());
-        for (int i = 0; i < callbacks.size(); i++) {
-            try {
-                callbacks.get(i).run();
-            } catch (Throwable t) {
-                if (t instanceof Error) {
-                    log.error("Fatal error in callback {} during reconfigure on: {}: {}", i, params.member().getId(),
-                              t.getMessage(), t);
-                    throw t; // Fail-fast on Error types (OOM, StackOverflow, etc.)
-                }
-                log.error("Callback {} execution failed during reconfigure on: {}", i, params.member().getId(), t);
-                // Continue with remaining callbacks for non-fatal exceptions
-            }
-        }
+        reconfigCoordinator.reconfigure(hash, reconfigure);
     }
 
     @Override
