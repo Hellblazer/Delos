@@ -46,8 +46,7 @@ public class Producer {
     private static final int                          MAX_PENDING_BLOCKS = 10000;  // Max pending block entries (legacy)
     private static final int                          MAX_PENDING_VALIDATIONS = 100000;  // Max orphan validations (legacy)
     private final        AtomicReference<HashedBlock> checkpoint         = new AtomicReference<>();
-    private final        Ethereal                     controller;
-    private final        ChRbcGossip                  coordinator;
+    private final        com.hellblazer.delos.choam.consensus.ConsensusOracle consensusOracle;
     private final        TxDataSource                 ds;
     private              Map<Digest, PendingBlock>    pending;  // Either EvictingPendingStore or legacy map
     private              Map<Digest, List<Validate>>  pendingValidations;  // Either EvictingPendingStore or legacy map
@@ -132,10 +131,14 @@ public class Producer {
         // Use the consensus key signer for Producer phase
         config.setSigner(view.getSigner());
         var producerMetrics = params().metrics() == null ? null : params().metrics().getProducerMetrics();
-        controller = new Ethereal(config.build(), params().producer().maxBatchByteSize() + (8 * 1024), ds, this::serial,
-                                  this::newEpoch, label, view.verifiersByPid());
-        coordinator = new ChRbcGossip(view.context().getId(), params().member(), view.membership(),
-                                      controller.processor(), params().communications(), producerMetrics, scheduler);
+
+        // Create concrete Ethereal and ChRbcGossip, then wrap with ConsensusOracle adapter
+        var ethereal = new Ethereal(config.build(), params().producer().maxBatchByteSize() + (8 * 1024), ds, this::serial,
+                                    this::newEpoch, label, view.verifiersByPid());
+        var gossip = new ChRbcGossip(view.context().getId(), params().member(), view.membership(),
+                                     ethereal.processor(), params().communications(), producerMetrics, scheduler);
+        this.consensusOracle = new com.hellblazer.delos.choam.consensus.EtherealConsensusOracle(ethereal, gossip);
+
         log.debug("Roster for: {} is: {} on: {}", getViewId(), view.roster(), params().member().getId());
 
         var onConsensus = new CompletableFuture<ViewAssembly.Vue>();
@@ -191,8 +194,7 @@ public class Producer {
         }
         log.trace("Closing producer for: {} on: {}", getViewId(), params().member().getId());
         serialize.shutdown();
-        controller.stop();
-        coordinator.stop();
+        consensusOracle.stop();  // Stops both ethereal and gossip
         ds.close();
     }
 
@@ -264,7 +266,7 @@ public class Producer {
             assembly.newEpoch();
             var last = e >= maxEpoch && assembled.get();
             if (last) {
-                controller.completeIt();
+                consensusOracle.completeIt();
                 Producer.this.transitions.viewComplete();
             } else {
                 ds.reset();
@@ -527,8 +529,7 @@ public class Producer {
         @Override
         public void startProduction() {
             log.debug("Starting production for: {} on: {}", getViewId(), params().member().getId());
-            controller.start();
-            coordinator.start(params().producer().gossipDuration());
+            consensusOracle.start(params().producer().gossipDuration());  // Starts both ethereal and gossip
         }
     }
 }
