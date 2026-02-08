@@ -95,7 +95,7 @@ public class CHOAM implements ConsensusEngine {
     private final    BlockStore                                            store;
     private final    CommonCommunications<TxnSubmission, Submitter>        submissionComm;
     private final    Combine.Transitions                                   transitions;
-    private final    TransSubmission                                       txnSubmission         = new TransSubmission();
+    private final    TransSubmission                                       txnSubmission         = new TransSubmission(this);
     private final    ScheduledExecutorService                              scheduler;
     private final    com.chiralbehaviors.tron.Fsm<Combine, Combine.Transitions> fsm;
     private final    ByzantineDetectionMapper                             byzantineMapper;
@@ -774,7 +774,7 @@ public class CHOAM implements ConsensusEngine {
             try {
                 if (validators.containsKey(params.member())) {
                     if (Dag.validate(validators.size())) {
-                        newCommittee = new Associate(h, validators, (NextView) currentView);
+                        newCommittee = new Associate(this, h, validators, (NextView) currentView);
                     } else {
                         log.warn("Reconfiguration to associate failed: {} committee: {} in view: {} on:{}",
                                  validators.size(), hash, committeeState.getCommittee().getClass().getSimpleName(),
@@ -783,7 +783,7 @@ public class CHOAM implements ConsensusEngine {
                         return; // Keep old committee active
                     }
                 } else {
-                    newCommittee = new Client(validators, getViewId());
+                    newCommittee = new Client(this, validators, getViewId());
                 }
             } catch (Throwable e) {
                 log.error("Failed to create new committee on: {}", params.member().getId(), e);
@@ -1013,217 +1013,6 @@ public class CHOAM implements ConsensusEngine {
         syncValidator.processSynchronizedBlock(certifiedBlock);
     }
 
-    /** abstract class to maintain the common state */
-    private abstract class Administration implements Committee {
-        protected final Digest                viewId;
-        private final   GroupIterator         servers;
-        private final   Map<Member, Verifier> validators;
-
-        public Administration(Map<Member, Verifier> validators, Digest viewId) {
-            this.validators = validators;
-            this.viewId = viewId;
-            servers = new GroupIterator(validators.keySet());
-        }
-
-        @Override
-        public void accept(HashedCertifiedBlock hb) {
-            process();
-        }
-
-        @Override
-        public void assemble(Assemble assemble) {
-            var mid = params.member().getId();
-            var view = assemble.getView();
-            if (view.getCommitteeList().stream().map(Digest::from).noneMatch(mid::equals)) {
-                log.info("Assemble view: {}; Not associate: {} in diadem: {} on: {}", viewId,
-                         getClass().getSimpleName(), Digest.from(view.getDiadem()), mid);
-                return;
-            }
-            log.info("Assemble view: {}; Associate in diadem: {} on: {}", viewId, Digest.from(view.getDiadem()), mid);
-            join(view);
-        }
-
-        @Override
-        public void complete() {
-        }
-
-        @Override
-        public boolean isMember() {
-            return validators.containsKey(params.member());
-        }
-
-        @Override
-        public Logger log() {
-            return log;
-        }
-
-        @Override
-        public void nextView(Digest diadem, Context<Member> pendingView) {
-            viewStateHolder.setPendingViews(viewStateHolder.getPendingViews().add(diadem, pendingView));
-            log.info("Pending context for view: {} size: {} on: {}",
-                     viewStateHolder.getNextViewId() == null ? "<null>" : viewStateHolder.getNextViewId(), pendingView.size(),
-                     params.member().getId());
-        }
-
-        @Override
-        public Parameters params() {
-            return params;
-        }
-
-        @Override
-        public SubmitResult submitTxn(Transaction transaction) {
-            if (!controlState.isStarted()) {
-                log.trace("Failed submitting txn: {} no servers available in: {} on: {}",
-                          hashOf(transaction, params.digestAlgorithm()), viewId, params.member().getId());
-                return SubmitResult.newBuilder().setResult(Result.ERROR_SUBMITTING).setErrorMsg("Shutdown").build();
-            }
-            if (!servers.hasNext()) {
-                log.trace("Failed submitting txn: {} no servers available in: {} on: {}",
-                          hashOf(transaction, params.digestAlgorithm()), viewId, params.member().getId());
-                return SubmitResult.newBuilder()
-                                   .setResult(Result.ERROR_SUBMITTING)
-                                   .setErrorMsg("no servers available")
-                                   .build();
-            }
-            Member target = servers.next();
-            try (var link = submissionComm.connect(target)) {
-                if (link == null) {
-                    log.debug("No link for: {} for submitting txn on: {}", target.getId(), params.member().getId());
-                    return SubmitResult.newBuilder().setResult(Result.UNAVAILABLE).build();
-                }
-                log.trace("Submitting txn: {} to: {} in view: {} on: {}", hashOf(transaction, params.digestAlgorithm()),
-                          link.getMember().getId(), viewId, params.member().getId());
-                return link.submit(transaction);
-            } catch (StatusRuntimeException e) {
-                log.trace("Failed submitting txn: {} status:{} to: {} in: {} on: {}",
-                          hashOf(transaction, params.digestAlgorithm()), e.getStatus(), target.getId(), viewId,
-                          params.member().getId());
-                return SubmitResult.newBuilder()
-                                   .setResult(Result.ERROR_SUBMITTING)
-                                   .setErrorMsg(e.getStatus().toString())
-                                   .build();
-            } catch (Throwable e) {
-                log.debug("Failed submitting txn: {} to: {} in: {} on: {}",
-                          hashOf(transaction, params.digestAlgorithm()), target.getId(), viewId,
-                          params.member().getId(), e);
-                return SubmitResult.newBuilder().setResult(Result.ERROR_SUBMITTING).setErrorMsg(e.toString()).build();
-            }
-        }
-
-        @Override
-        public boolean validate(HashedCertifiedBlock hb) {
-            return validate(hb, validators);
-        }
-
-        private void join(View view) {
-            if (!controlState.beginJoin()) {
-                throw new IllegalStateException("Ongoing join should have been cancelled");
-            }
-            log.trace("Joining view: {} diadem: {} on: {}", viewStateHolder.getNextViewId(), Digest.from(view.getDiadem()),
-                      params.member().getId());
-            var servers = new ConcurrentSkipListSet<>(validators.keySet());
-            var joined = new AtomicInteger();
-            log.trace("Starting join of: {} diadem {} on: {}", viewStateHolder.getNextViewId(), Digest.from(view.getDiadem()),
-                      params.member().getId());
-            var scheduler = Executors.newSingleThreadScheduledExecutor(Thread.ofVirtual().factory());
-            AtomicReference<Runnable> action = new AtomicReference<>();
-            var attempts = new AtomicInteger();
-            action.set(() -> {
-                log.trace("Join attempt: {} ongoing: {} joined: {} majority: {} on: {}", attempts.incrementAndGet(),
-                          controlState.isJoinOngoing(), joined.get(), view.getMajority(), params.member().getId());
-                if (controlState.isJoinOngoing() & joined.get() < view.getMajority()) {
-                    join(view, servers, joined);
-                    if (joined.get() >= view.getMajority()) {
-                        controlState.endJoin();
-                        log.trace("Finished join of: {} diadem: {} joins: {} on: {}", viewStateHolder.getNextViewId(),
-                                  Digest.from(view.getDiadem()), joined.get(), params.member().getId());
-                    } else if (controlState.isJoinOngoing()) {
-                        log.trace("Rescheduling join of: {} diadem: {} joins: {} on: {}", viewStateHolder.getNextViewId(),
-                                  Digest.from(view.getDiadem()), joined.get(), params.member().getId());
-                        scheduler.schedule(action.get(), 50, TimeUnit.MILLISECONDS);
-                    }
-                }
-            });
-            scheduler.schedule(action.get(), 50, TimeUnit.MILLISECONDS);
-        }
-
-        private void join(View view, Collection<Member> members, AtomicInteger joined) {
-            var sampled = new ArrayList<>(members);
-            Collections.shuffle(sampled);
-            log.trace("Joining view: {} diadem: {} servers: {} on: {}", viewId, Digest.from(view.getDiadem()),
-                      sampled.stream().map(Member::getId).toList(), params.member().getId());
-            final var c = (NextView) viewStateHolder.getNext();
-            var inView = ViewMember.newBuilder(c.member())
-                                   .setDiadem(view.getDiadem())
-                                   .setView(viewStateHolder.getNextViewId().toDigeste())
-                                   .build();
-            var svm = SignedViewMember.newBuilder()
-                                      .setVm(inView)
-                                      .setSignature(params.member().sign(inView.toByteString()).toSig())
-                                      .build();
-            var countdown = new CountDownLatch(sampled.size());
-            sampled.stream().map(m -> {
-                var connection = comm.connect(m);
-                log.trace("connect to: {} is: {} on: {}", m.getId(), connection, params.member().getId());
-                return connection;
-            }).map(t -> t == null ? null : join(view, t, svm)).forEach(t -> {
-                if (t == null) {
-                    countdown.countDown();
-                } else {
-                    t.fs.addListener(() -> {
-                        try {
-                            t.fs.get();
-                            members.remove(t.m);
-                            joined.incrementAndGet();
-                            log.trace("Joined with: {} view: {} diadem: {} on: {}", t.m.getId(),
-                                      Digest.from(inView.getId()), Digest.from(view.getDiadem()),
-                                      params.member().getId());
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                        } catch (ExecutionException e) {
-                            log.error("Failed to join with: {} view: {} diadem: {} on: {}", t.m.getId(), viewId,
-                                      Digest.from(view.getDiadem()), params.member().getId(), e.getCause());
-                        } catch (Throwable e) {
-                            log.error("Failed to join with: {} view: {} diadem: {} on: {}", t.m.getId(), viewId,
-                                      Digest.from(view.getDiadem()), params.member().getId(), e);
-                        } finally {
-                            countdown.countDown();
-                        }
-                    }, ImmediateExecutor.INSTANCE);
-                }
-            });
-            try {
-                countdown.await(5, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
-
-        private Attempt join(View view, Terminal t, SignedViewMember svm) {
-            try {
-                log.trace("Attempting to join with: {} context: {} diadem: {} on: {}", t.getMember().getId(),
-                          context().getId(), Digest.from(view.getDiadem()), params.member().getId());
-                return new Attempt(t.getMember(), t.join(svm));
-            } catch (StatusRuntimeException sre) {
-                log.trace("Failed join attempt: {} with: {} view: {} diadem: {} on: {}", sre.getStatus(),
-                          t.getMember().getId(), viewStateHolder.getNextViewId(), Digest.from(view.getDiadem()), params.member().getId(),
-                          sre);
-            } catch (Throwable throwable) {
-                log.error("Failed join attempt with: {} view: {} diadem: {} on: {}", t.getMember().getId(), viewStateHolder.getNextViewId(),
-                          Digest.from(view.getDiadem()), params.member().getId(), throwable);
-            } finally {
-                try {
-                    t.close();
-                } catch (IOException e) {
-                    // ignored
-                }
-            }
-            return null;
-        }
-
-        record Attempt(Member m, ListenableFuture<Empty> fs) {
-        }
-    }
 
     /**
      * Capture current CHOAM state snapshot for validation.
@@ -1277,63 +1066,4 @@ public class CHOAM implements ConsensusEngine {
         );
     }
 
-    /** a member of the current committee */
-    private class Associate extends Administration {
-
-        private final Producer producer;
-
-        Associate(HashedCertifiedBlock viewChange, Map<Member, Verifier> validators, NextView nextView) {
-            super(validators, new Digest(
-            viewChange.block.hasGenesis() ? viewChange.block.getGenesis().getInitialView().getId()
-                                          : viewChange.block.getReconfigure().getId()));
-            var context = new StaticContext<>(viewId, params.context().getProbabilityByzantine(), 3,
-                                              validators.keySet(), params.context().getEpsilon(), validators.size());
-            log.trace("Using consensus key: {} sig: {} for view: {} on: {}",
-                      params.digestAlgorithm().digest(nextView.consensusKeyPair().getPublic().getEncoded()),
-                      params.digestAlgorithm().digest(nextView.member().getSignature().toByteString()), viewId,
-                      params.member().getId());
-            Signer signer = new SignerImpl(nextView.consensusKeyPair().getPrivate(), ULong.MIN);
-            var pv = pendingViews();
-            producer = new Producer(viewStateHolder.getNextViewId(),
-                                    new ViewContext(context, params, pv, signer, validators, constructBlock()),
-                                    blockChainState.getHead(), checkpointManager.currentCheckpoint(), getLabel(), scheduler);
-            producer.start();
-        }
-
-        @Override
-        public void complete() {
-            producer.stop();
-        }
-
-        @Override
-        public void join(SignedViewMember nextView, Digest from) {
-            if (!from.equals(Digest.from(nextView.getVm().getId()))) {
-                log.trace("Join from: {} does not match {} from join: {} diadem: {} on: {}", from,
-                          Digest.from(nextView.getVm().getId()), Digest.from(nextView.getVm().getView()),
-                          Digest.from(nextView.getVm().getDiadem()), params.member().getId());
-                throw new StatusRuntimeException(INVALID_ARGUMENT);
-            }
-            producer.join(nextView);
-        }
-
-        @Override
-        public SubmitResult submit(Transaction request) {
-            return producer.submit(request);
-        }
-    }
-
-    /** a client of the current committee */
-    private class Client extends Administration {
-
-        public Client(Map<Member, Verifier> validators, Digest viewId) {
-            super(validators, viewId);
-        }
-    }
-
-    private class TransSubmission implements Submitter {
-        @Override
-        public SubmitResult submit(Transaction request, Digest from) {
-            return CHOAM.this.submit(request, from);
-        }
-    }
 }
