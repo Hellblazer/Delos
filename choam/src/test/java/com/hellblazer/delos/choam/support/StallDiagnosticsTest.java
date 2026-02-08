@@ -68,7 +68,9 @@ class StallDiagnosticsTest {
 
         when(context.getId()).thenReturn(DigestAlgorithm.DEFAULT.digest("test-context"));
 
-        diagnostics = new StallDiagnostics(context, communications, byzantineMapper, metrics);
+        // Wrap concrete implementation with adapter
+        var bftValidator = new com.hellblazer.delos.choam.validation.DefaultBFTValidator(byzantineMapper);
+        diagnostics = new StallDiagnostics(context, communications, bftValidator, metrics);
     }
 
     /**
@@ -316,8 +318,9 @@ class StallDiagnosticsTest {
             Duration.ofMinutes(10)   // Byzantine window (default: 5min)
         );
 
+        var bftValidator = new com.hellblazer.delos.choam.validation.DefaultBFTValidator(byzantineMapper);
         var customDiagnostics = new StallDiagnostics(
-            context, communications, byzantineMapper, customThresholds, metrics);
+            context, communications, bftValidator, customThresholds, metrics);
 
         // When: 4 heartbeat failures (would trigger default, but not custom threshold of 5)
         var member = members.get(0);
@@ -410,8 +413,9 @@ class StallDiagnosticsTest {
     @Test
     void nullMetrics_DoesNotThrowExceptions() {
         // Given: Diagnostics with null metrics
+        var bftValidator = new com.hellblazer.delos.choam.validation.DefaultBFTValidator(byzantineMapper);
         var diagnosticsWithoutMetrics = new StallDiagnostics(
-            context, communications, byzantineMapper, null);
+            context, communications, bftValidator, null);
 
         // When: Diagnose stall with Byzantine condition
         for (int i = 0; i < 100; i++) {

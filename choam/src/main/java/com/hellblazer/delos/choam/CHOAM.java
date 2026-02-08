@@ -23,6 +23,7 @@ import com.hellblazer.delos.choam.support.*;
 import com.hellblazer.delos.choam.support.CheckpointManagerImpl;
 import com.hellblazer.delos.choam.support.Bootstrapper.SynchronizedState;
 import com.hellblazer.delos.choam.support.HashedCertifiedBlock.NullBlock;
+import com.hellblazer.delos.choam.validation.DefaultBFTValidator;
 import com.hellblazer.delos.context.Context;
 import com.hellblazer.delos.context.DelegatedContext;
 import com.hellblazer.delos.context.StaticContext;
@@ -168,7 +169,10 @@ public class CHOAM implements ConsensusEngine {
         // Initialize stall diagnostics for root cause analysis
         this.byzantineMapper = new ByzantineDetectionMapper();
         var diagnosticsMetrics = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
-        this.stallDiagnostics = new StallDiagnostics(params.context(), comm, byzantineMapper, diagnosticsMetrics);
+
+        // Wrap concrete implementation with interface adapter
+        var bftValidator = new DefaultBFTValidator(byzantineMapper);
+        this.stallDiagnostics = new StallDiagnostics(params.context(), comm, bftValidator, diagnosticsMetrics);
 
         this.fsm = Fsm.construct(new CombinerFSM(this, log), Combine.Transitions.class, Mercantile.INITIAL, true);
         fsm.setName("CHOAM%s on: %s".formatted(params.context().getId(), params.member().getId()));

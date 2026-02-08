@@ -63,8 +63,9 @@ class StallRecoveryFullIntegrationTest {
         // Create diagnostics with default thresholds
         var communications = mock(CommonCommunications.class);
         var byzantineMapper = mock(ByzantineDetectionMapper.class);
+        var bftValidator = new com.hellblazer.delos.choam.validation.DefaultBFTValidator(byzantineMapper);
         var metrics = mock(MeterRegistry.class);
-        diagnostics = new StallDiagnostics(context, communications, byzantineMapper, metrics);
+        diagnostics = new StallDiagnostics(context, communications, bftValidator, metrics);
     }
 
     /**

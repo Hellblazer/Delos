@@ -8,6 +8,7 @@
 package com.hellblazer.delos.choam.support;
 
 import com.hellblazer.delos.archipelago.RouterImpl.CommonCommunications;
+import com.hellblazer.delos.choam.validation.BFTValidator;
 import com.hellblazer.delos.context.Context;
 import com.hellblazer.delos.membership.Member;
 import io.micrometer.core.instrument.Counter;
@@ -130,7 +131,7 @@ public class StallDiagnostics {
 
     private final Context<?>                       context;
     private final CommonCommunications<?, ?>       communications;
-    private final ByzantineDetectionMapper         byzantineMapper;
+    private final BFTValidator                     bftValidator;
     private final Thresholds                       thresholds;
     private final MeterRegistry                    metrics;
 
@@ -160,12 +161,12 @@ public class StallDiagnostics {
      *
      * @param context         The CHOAM context for membership information
      * @param communications  The communications layer for heartbeat tracking
-     * @param byzantineMapper The Byzantine detection mapper for violation tracking
+     * @param bftValidator    The BFT validator for violation tracking
      * @param metrics         The metrics registry for diagnostic counters
      */
     public StallDiagnostics(Context<?> context, CommonCommunications<?, ?> communications,
-                            ByzantineDetectionMapper byzantineMapper, MeterRegistry metrics) {
-        this(context, communications, byzantineMapper, Thresholds.defaults(), metrics);
+                            BFTValidator bftValidator, MeterRegistry metrics) {
+        this(context, communications, bftValidator, Thresholds.defaults(), metrics);
     }
 
     /**
@@ -173,16 +174,16 @@ public class StallDiagnostics {
      *
      * @param context         The CHOAM context for membership information
      * @param communications  The communications layer for heartbeat tracking
-     * @param byzantineMapper The Byzantine detection mapper for violation tracking
+     * @param bftValidator    The BFT validator for violation tracking
      * @param thresholds      Custom diagnostic thresholds
      * @param metrics         The metrics registry for diagnostic counters
      */
     public StallDiagnostics(Context<?> context, CommonCommunications<?, ?> communications,
-                            ByzantineDetectionMapper byzantineMapper, Thresholds thresholds,
+                            BFTValidator bftValidator, Thresholds thresholds,
                             MeterRegistry metrics) {
         this.context = context;
         this.communications = communications;
-        this.byzantineMapper = byzantineMapper;
+        this.bftValidator = bftValidator;
         this.thresholds = thresholds;
         this.metrics = metrics;
 
