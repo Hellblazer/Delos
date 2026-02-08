@@ -239,109 +239,43 @@ public class CHOAM implements ConsensusEngine {
      */
     public static Checkpoint checkpoint(DigestAlgorithm algo, File state, int segmentSize, Digest initial, int crowns,
                                         Digest id) {
-        assert segmentSize > 0 : "segment size must be > 0 : " + segmentSize;
-        long length = 0;
-        if (state != null) {
-            length = state.length();
-        }
-        int count = (int) (length / segmentSize);
-        if (length != 0 && (long) count * segmentSize < length) {
-            count++;
-        }
-        var accumulator = new HexBloom.HexAccumulator(count, crowns, initial);
-        Checkpoint.Builder builder = Checkpoint.newBuilder()
-                                               .setCount(count)
-                                               .setByteSize(length)
-                                               .setSegmentSize(segmentSize);
-
-        if (state != null) {
-            byte[] buff = new byte[segmentSize];
-            try (FileInputStream fis = new FileInputStream(state)) {
-                for (int read = fis.read(buff); read > 0; read = fis.read(buff)) {
-                    ByteString segment = ByteString.copyFrom(buff, 0, read);
-                    accumulator.add(algo.digest(segment));
-                }
-            } catch (IOException e) {
-                log.error("Invalid checkpoint!", e);
-                return null;
-            }
-        }
-        var crown = accumulator.build();
-        log.info("Checkpoint length: {} segment size: {} count: {} crown: {} initial: {} on: {}", length, segmentSize,
-                 builder.getCount(), crown.compactWrapped(), initial, id);
-        var cp = builder.setCrown(crown.toHexBloome()).build();
-
-        var deserialized = HexBloom.from(cp.getCrown());
-        log.info("Deserialized checkpoint crown: {} initial: {} on: {}", deserialized.compactWrapped(), initial, id);
-        return cp;
+        return BlockBuilders.checkpoint(algo, state, segmentSize, initial, crowns, id);
     }
 
     public static Block genesis(Digest id, Map<Digest, Join> joins, HashedBlock head, HashedBlock lastViewChange,
                                 Parameters params, HashedBlock lastCheckpoint, Iterable<Transaction> initialization) {
-        var reconfigure = reconfigure(id, joins, params.checkpointBlockDelta());
-        return Block.newBuilder()
-                    .setHeader(buildHeader(params.digestAlgorithm(), reconfigure, head.hash, ULong.valueOf(0),
-                                           lastCheckpoint.height(), lastCheckpoint.hash, lastViewChange.height(),
-                                           lastViewChange.hash))
-                    .setGenesis(Genesis.newBuilder().setInitialView(reconfigure).addAllInitialize(initialization))
-                    .build();
+        return BlockBuilders.genesis(id, joins, head, lastViewChange, params, lastCheckpoint, initialization);
     }
 
     public static Digest hashOf(Transaction transaction, DigestAlgorithm digestAlgorithm) {
-        return JohnHancock.from(transaction.getSignature()).toDigest(digestAlgorithm);
+        return BlockBuilders.hashOf(transaction, digestAlgorithm);
     }
 
     public static String print(Join join, DigestAlgorithm da) {
-        return "J[view: " + Digest.from(join.getMember().getVm().getView()) + " member: " + ViewContext.print(
-        join.getMember(), da) + "]";
+        return BlockBuilders.print(join, da);
     }
 
     public static Reconfigure reconfigure(Digest nextViewId, Map<Digest, Join> joins, int checkpointTarget) {
-        assert Dag.validate(joins.size()) : "Reconfigure joins: %s is not BFT".formatted(joins.size());
-        var builder = Reconfigure.newBuilder().setCheckpointTarget(checkpointTarget).setId(nextViewId.toDigeste());
-        joins.keySet().stream().sorted().map(joins::get).forEach(builder::addJoins);
-        return builder.build();
+        return BlockBuilders.reconfigure(nextViewId, joins, checkpointTarget);
     }
 
     public static Block reconfigure(Digest nextViewId, Map<Digest, Join> joins, HashedBlock head,
                                     HashedBlock lastViewChange, Parameters params, HashedBlock lastCheckpoint) {
-        final Block lvc = lastViewChange.block;
-        int lastTarget = lvc.hasGenesis() ? lvc.getGenesis().getInitialView().getCheckpointTarget()
-                                          : lvc.getReconfigure().getCheckpointTarget();
-        int checkpointTarget = lastTarget == 0 ? params.checkpointBlockDelta() : lastTarget - 1;
-        var reconfigure = reconfigure(nextViewId, joins, checkpointTarget);
-        return Block.newBuilder()
-                    .setHeader(buildHeader(params.digestAlgorithm(), reconfigure, head.hash, head.height().add(1),
-                                           lastCheckpoint.height(), lastCheckpoint.hash, lastViewChange.height(),
-                                           lastViewChange.hash))
-                    .setReconfigure(reconfigure)
-                    .build();
+        return BlockBuilders.reconfigure(nextViewId, joins, head, lastViewChange, params, lastCheckpoint);
     }
 
     public static List<Transaction> toGenesisData(List<? extends Message> initializationData) {
-        return toGenesisData(initializationData, DigestAlgorithm.DEFAULT, SignatureAlgorithm.DEFAULT);
+        return BlockBuilders.toGenesisData(initializationData);
     }
 
     public static List<Transaction> toGenesisData(List<? extends Message> initializationData,
                                                   DigestAlgorithm digestAlgo, SignatureAlgorithm sigAlgo) {
-        var source = digestAlgo.getOrigin();
-        SignerImpl signer = new SignerImpl(sigAlgo.generateKeyPair().getPrivate(), ULong.MIN);
-        AtomicInteger nonce = new AtomicInteger();
-        return initializationData.stream()
-                                 .map(m -> (Message) m)
-                                 .map(m -> Session.transactionOf(source, nonce.incrementAndGet(), m, signer))
-                                 .toList();
+        return BlockBuilders.toGenesisData(initializationData, digestAlgo, sigAlgo);
     }
 
     private static Block assembly(AtomicReference<Digest> nextViewId, View view, HashedBlock head,
                                   HashedBlock lastViewChange, Parameters params, HashedBlock lastCheckpoint) {
-        var body = Assemble.newBuilder().setView(view).build();
-        return Block.newBuilder()
-                    .setHeader(
-                    buildHeader(params.digestAlgorithm(), body, head.hash, ULong.valueOf(0), lastCheckpoint.height(),
-                                lastCheckpoint.hash, lastViewChange.height(), lastViewChange.hash))
-                    .setAssemble(body)
-                    .build();
+        return BlockBuilders.assembly(nextViewId, view, head, lastViewChange, params, lastCheckpoint);
     }
 
     @Override
