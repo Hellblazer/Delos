@@ -105,6 +105,7 @@ public class CHOAM implements ConsensusEngine {
     private final    BlockProducerImpl                                   blockProducer;
     private final    RecoveryCoordinator                                 recoveryCoordinator;
     private final    BlockDispatcher                                     blockDispatcher;
+    private final    StateRestorer                                       stateRestorer;
     public final     ReadWriteLock                                         headLock;
     public final     ReentrantLock                                         viewStateLock;
 
@@ -190,6 +191,7 @@ public class CHOAM implements ConsensusEngine {
         this.blockProducer = new BlockProducerImpl(params, blockChainState, checkpointManager, combine, transitions, log, this::checkpoint);
         this.recoveryCoordinator = new RecoveryCoordinator(blockChainState, checkpointManager, store, params.runtime(), transitions, controlState, syncValidator, log, params.digestAlgorithm(), this::restoreFrom);
         this.blockDispatcher = new BlockDispatcher(committeeState, blockChainState, params.runtime(), checkpointManager, store, log, this::cancelSynchronization, this::cancelBootstrap, this::genesisInitialization, this::reconfigure, this::execute);
+        this.stateRestorer = new StateRestorer(store, blockChainState, checkpointManager, committeeState, params.runtime(), log, params.digestAlgorithm(), (reconfigure, logger) -> new CommitteeSynchronizer(this, validatorsOf(reconfigure, params.context(), params.member().getId(), logger), logger));
         roundScheduler = new RoundScheduler("CHOAM" + params.member().getId() + params.context().getId(),
                                             params.context().timeToLive());
         combine.register(_ -> roundScheduler.tick());
@@ -934,35 +936,7 @@ public class CHOAM implements ConsensusEngine {
 
     @Override
     public void restore() throws IllegalStateException {
-        HashedCertifiedBlock lastBlock = store.getLastBlock();
-        if (lastBlock == null) {
-            log.info("No state to restore from on: {}", params.member().getId());
-            return;
-        }
-        HashedCertifiedBlock geni = new HashedCertifiedBlock(params.digestAlgorithm(),
-                                                             store.getCertifiedBlock(ULong.valueOf(0)));
-        blockChainState.setGenesis(geni);
-        blockChainState.setHead(geni);
-        ((CheckpointManagerImpl) checkpointManager).updateCheckpoint(geni);
-        CertifiedBlock lastCheckpoint = store.getCertifiedBlock(
-        ULong.valueOf(lastBlock.block.getHeader().getLastCheckpoint()));
-        if (lastCheckpoint != null) {
-            HashedCertifiedBlock ckpt = new HashedCertifiedBlock(params.digestAlgorithm(), lastCheckpoint);
-            ((CheckpointManagerImpl) checkpointManager).updateCheckpoint(ckpt);
-            blockChainState.setHead(ckpt);
-            HashedCertifiedBlock lastView = new HashedCertifiedBlock(params.digestAlgorithm(), store.getCertifiedBlock(
-            ULong.valueOf(ckpt.block.getHeader().getLastReconfig())));
-            Reconfigure reconfigure = lastView.block.hasGenesis() ? lastView.block.getGenesis().getInitialView()
-                                                                  : lastView.block.getReconfigure();
-            blockChainState.setView(lastView);
-            var validators = validatorsOf(reconfigure, params.context(), params.member().getId(), log);
-            committeeState.setCommittee(new CommitteeSynchronizer(this, validators, log));
-            log.info("Reconfigured to checkpoint view: {} committee: {} on: {}", new Digest(reconfigure.getId()),
-                     committeeState.getCommittee().getClass().getSimpleName(), params.member().getId());
-        }
-
-        log.info("Restored to: {} lastView: {} lastCheckpoint: {} lastBlock: {} on: {}", geni.hash, blockChainState.getView().hash,
-                 checkpointManager.currentCheckpoint().hash, lastBlock.hash, params.member().getId());
+        stateRestorer.restore();
     }
 
     private void restoreFrom(HashedCertifiedBlock block, CheckpointState checkpoint) {
