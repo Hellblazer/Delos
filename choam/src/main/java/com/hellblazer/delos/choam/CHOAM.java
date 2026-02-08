@@ -103,6 +103,7 @@ public class CHOAM implements ConsensusEngine {
     private final    BlockConsumer                                        blockConsumer;
     private final    SynchronizedBlockValidator                          syncValidator;
     private final    BlockProducerImpl                                   blockProducer;
+    private final    RecoveryCoordinator                                 recoveryCoordinator;
     public final     ReadWriteLock                                         headLock;
     public final     ReentrantLock                                         viewStateLock;
 
@@ -186,6 +187,7 @@ public class CHOAM implements ConsensusEngine {
         this.blockConsumer = new BlockConsumer(blockChainState, committeeState, params.runtime(), transitions, log);
         this.syncValidator = new SynchronizedBlockValidator(controlState, blockChainState, committeeState, params.runtime(), transitions, log, params.digestAlgorithm());
         this.blockProducer = new BlockProducerImpl(params, blockChainState, checkpointManager, combine, transitions, log, this::checkpoint);
+        this.recoveryCoordinator = new RecoveryCoordinator(blockChainState, checkpointManager, store, params.runtime(), transitions, controlState, syncValidator, log, params.digestAlgorithm(), this::restoreFrom);
         roundScheduler = new RoundScheduler("CHOAM" + params.member().getId() + params.context().getId(),
                                             params.context().timeToLive());
         combine.register(_ -> roundScheduler.tick());
@@ -1081,68 +1083,11 @@ public class CHOAM implements ConsensusEngine {
     }
 
     public Initial sync(Synchronize request, Digest from) {
-        final HashedCertifiedBlock g = blockChainState.getGenesis();
-        if (g != null) {
-            Initial.Builder initial = Initial.newBuilder();
-            initial.setGenesis(g.certifiedBlock);
-            HashedCertifiedBlock cp = checkpointManager.currentCheckpoint();
-            if (cp != null) {
-                ULong height = ULong.valueOf(request.getHeight());
-
-                while (cp.height().compareTo(height) > 0) {
-                    cp = new HashedCertifiedBlock(params.digestAlgorithm(), store.getCertifiedBlock(
-                    ULong.valueOf(cp.block.getHeader().getLastCheckpoint())));
-                }
-                final ULong lastReconfig = ULong.valueOf(cp.block.getHeader().getLastReconfig());
-                HashedCertifiedBlock lastView = null;
-
-                var stored = store.getCertifiedBlock(lastReconfig);
-                if (stored != null) {
-                    lastView = new HashedCertifiedBlock(params.digestAlgorithm(), stored);
-                }
-                if (lastView == null) {
-                    lastView = g;
-                }
-                initial.setCheckpoint(cp.certifiedBlock).setCheckpointView(lastView.certifiedBlock);
-
-                log.debug("Returning sync: {} view: {} chkpt: {} to: {} on: {}", g.hash, lastView.hash, cp.hash, from,
-                          params.member().getId());
-            } else {
-                log.debug("Returning sync: {} to: {} on: {}", g.hash, from, params.member().getId());
-            }
-            return initial.build();
-        } else {
-            log.debug("Genesis undefined, returning null sync to: {} on: {}", from, params.member().getId());
-            return Initial.getDefaultInstance();
-        }
+        return recoveryCoordinator.buildSyncState(request, from);
     }
 
     private void synchronize(SynchronizedState state) {
-        transitions.synchronizing();
-        CertifiedBlock current1;
-        if (state.lastCheckpoint() == null) {
-            log.info("Synchronizing from genesis: {} on: {}", state.genesis().hash, params.member().getId());
-            current1 = state.genesis().certifiedBlock;
-        } else {
-            log.info("Synchronizing from checkpoint: {} on: {}", state.lastCheckpoint().hash, params.member().getId());
-            assert state.checkpoint() != null : "checkpoint is null";
-            restoreFrom(state.lastCheckpoint(), state.checkpoint());
-            current1 = store.getCertifiedBlock(state.lastCheckpoint().height().add(1));
-        }
-        while (current1 != null) {
-            synchronizedProcess(current1);
-            current1 = store.getCertifiedBlock(height(current1.getBlock()).add(1));
-        }
-        log.info("Synchronized, resuming view: {} deferred blocks: {} on: {}",
-                 state.lastCheckpoint() != null ? state.lastCheckpoint().hash : state.genesis().hash, blockChainState.getPendingSize(),
-                 params.member().getId());
-        Thread.ofVirtual().start(Utils.wrapped(() -> {
-            if (!controlState.isStarted()) {
-                return;
-            }
-            transitions.synchd();
-            transitions.combine();
-        }, log));
+        recoveryCoordinator.applySyncState(state);
     }
 
     private void synchronizedProcess(CertifiedBlock certifiedBlock) {
