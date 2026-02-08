@@ -8,7 +8,7 @@ package com.hellblazer.delos.examples.kvstore;
 
 import com.google.protobuf.Message;
 import com.hellblazer.delos.choam.CHOAM;
-import com.hellblazer.delos.choam.CHOAM.TransactionExecutor;
+import com.hellblazer.delos.choam.TransactionExecutor;
 import com.hellblazer.delos.choam.proto.Transaction;
 import com.hellblazer.delos.state.Mutator;
 import com.hellblazer.delos.state.SqlStateMachine;

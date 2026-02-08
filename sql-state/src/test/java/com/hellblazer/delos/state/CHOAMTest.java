@@ -13,7 +13,7 @@ import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
 import com.hellblazer.delos.archipelago.UnsafeExecutors;
 import com.hellblazer.delos.choam.CHOAM;
-import com.hellblazer.delos.choam.CHOAM.TransactionExecutor;
+import com.hellblazer.delos.choam.TransactionExecutor;
 import com.hellblazer.delos.choam.Parameters;
 import com.hellblazer.delos.choam.Parameters.Builder;
 import com.hellblazer.delos.choam.Parameters.ProducerParameters;
