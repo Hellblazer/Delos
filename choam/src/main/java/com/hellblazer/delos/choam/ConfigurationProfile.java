@@ -7,6 +7,9 @@
  */
 package com.hellblazer.delos.choam;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.time.Duration;
 
 /**
@@ -96,6 +99,8 @@ public enum ConfigurationProfile {
         "DEBUG"                      // logLevel (verbose for Byzantine indicators)
     );
 
+    private static final Logger log = LoggerFactory.getLogger(ConfigurationProfile.class);
+
     private final String   name;
     private final Duration stallTimeout;
     private final Duration viewChangeTimeout;
@@ -106,6 +111,13 @@ public enum ConfigurationProfile {
     private final boolean  byzantineDetectionAggressive;
     private final boolean  faultInjectionEnabled;
     private final String   logLevel;
+
+    static {
+        // Validate all profiles at class initialization (defense in depth)
+        for (var profile : values()) {
+            ProfileValidator.validateOrThrow(profile);
+        }
+    }
 
     ConfigurationProfile(String name, Duration stallTimeout, Duration viewChangeTimeout,
                         Duration sessionTimeout, int minClusterSize, int maxClusterSize,
@@ -147,6 +159,12 @@ public enum ConfigurationProfile {
      * 1. System property: -Dchoam.profile=PRODUCTION
      * 2. Environment variable: CHOAM_PROFILE=PRODUCTION
      * 3. Default: TEST (safe default for most environments)
+     * <p>
+     * Security considerations:
+     * - System properties and environment variables are trusted inputs
+     * - Profile names are validated against enum values (injection protection)
+     * - Default to TEST profile (fail-safe, not fail-secure)
+     * - Production deployments MUST explicitly set profile
      *
      * @return the resolved profile
      */
@@ -154,16 +172,22 @@ public enum ConfigurationProfile {
         // Try system property first
         var sysProp = System.getProperty("choam.profile");
         if (sysProp != null) {
-            return fromString(sysProp);
+            var profile = fromString(sysProp);
+            log.info("Loaded configuration profile from system property: {}", profile.getName());
+            return profile;
         }
 
         // Try environment variable
         var envVar = System.getenv("CHOAM_PROFILE");
         if (envVar != null) {
-            return fromString(envVar);
+            var profile = fromString(envVar);
+            log.info("Loaded configuration profile from environment variable: {}", profile.getName());
+            return profile;
         }
 
         // Default to TEST (safe for most use cases)
+        log.warn("No configuration profile specified, defaulting to TEST. " +
+                 "Set -Dchoam.profile=PRODUCTION or CHOAM_PROFILE=PRODUCTION for production deployment.");
         return TEST;
     }
 

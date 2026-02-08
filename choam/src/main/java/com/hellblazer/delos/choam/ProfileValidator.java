@@ -134,22 +134,25 @@ public class ProfileValidator {
         }
 
         // Byzantine fault tolerance: n ≥ 3f+1 for f failures
-        // Minimum viable: 4 nodes (f=1)
+        // Minimum viable: 3 nodes for crash tolerance, 4 nodes for Byzantine tolerance
         if (minSize < 3) {
             violations.add(String.format(
-                "Minimum cluster size (%d) is too small for Byzantine tolerance (minimum 3 for crash tolerance, 4 for Byzantine)",
+                "Minimum cluster size (%d) is too small (minimum 3 for crash tolerance, 4 for Byzantine)",
                 minSize));
         }
+
+        // Note: n=3 provides crash tolerance (2f+1, f=1) but not Byzantine tolerance (3f+1, f=1)
+        // This is acceptable for DEVELOPMENT profile but logged for awareness
 
         // Warn if cluster size is not optimal for Byzantine tolerance
         // Optimal sizes are 3f+1: 4, 7, 10, 13, 16, 19, 22, etc.
         if (minSize > 3) {
             var f = (minSize - 1) / 3;  // Maximum f for this n
             var optimal = 3 * f + 1;
-            if (minSize != optimal && minSize != optimal - 1) {
-                // Allow n=3f or n=3f+1 as valid
+            if (minSize != optimal) {
+                // Only allow n=3f+1 as valid (n=3f violates Byzantine tolerance)
                 violations.add(String.format(
-                    "Cluster size %d is not optimal for Byzantine tolerance (closest optimal: %d for f=%d)",
+                    "Cluster size %d is not optimal for Byzantine tolerance (required: %d for f=%d)",
                     minSize, optimal, f));
             }
         }
