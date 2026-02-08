@@ -100,6 +100,7 @@ public class CHOAM implements ConsensusEngine {
     private final    com.chiralbehaviors.tron.Fsm<Combine, Combine.Transitions> fsm;
     private final    ByzantineDetectionMapper                             byzantineMapper;
     private final    StallDiagnostics                                     stallDiagnostics;
+    private final    BlockConsumer                                        blockConsumer;
     public final     ReadWriteLock                                         headLock;
     public final     ReentrantLock                                         viewStateLock;
 
@@ -180,6 +181,7 @@ public class CHOAM implements ConsensusEngine {
         } else {
             this.transitions = rawTransitions;
         }
+        this.blockConsumer = new BlockConsumer(blockChainState, committeeState, params.runtime(), transitions, log);
         roundScheduler = new RoundScheduler("CHOAM" + params.member().getId() + params.context().getId(),
                                             params.context().timeToLive());
         combine.register(_ -> roundScheduler.tick());
@@ -680,82 +682,14 @@ public class CHOAM implements ConsensusEngine {
     private void consume(HashedCertifiedBlock next) {
         headLock.writeLock().lock();
         try {
-            log.trace("Attempting to consume: {} hash: {} height: {}, head: {} height: {} on: {}", next.block.getBodyCase(),
-                      next.hash, next.height(), blockChainState.getHead().hash, blockChainState.getHead().height(), params.member().getId());
-            final HashedCertifiedBlock h = blockChainState.getHead();
-
-            if (h.height() != null && next.height().compareTo(h.height()) <= 0) {
-                // block already past tense
-                log.debug("Stale: {} hash: {} height: {} on: {}", next.block.getBodyCase(), next.hash, next.height(),
-                          params.member().getId());
-                return;
-            }
-
-            final var nlc = ULong.valueOf(next.block.getHeader().getLastReconfig());
-
-            var view = this.blockChainState.getView().height();
-            if (h.block == null || nlc.equals(view)) {
-                // same view
-                consume(next, h);
-                return;
-            }
-
-            if (view != null && nlc.compareTo(view) > 0) {
-                // later view
-                log.trace("Wait for reconfiguration @ {} block: {} hash: {} height: {} current: {} on: {}",
-                          next.block.getHeader().getLastReconfig(), next.block.getBodyCase(), next.hash, next.height(),
-                          h.height(), params.member().getId());
-                if (!blockChainState.addPending(next)) {
-                    log.warn("Rejected pending block: {} hash: {} height: {} on: {}", next.block.getBodyCase(),
-                             next.hash, next.height(), params.member().getId());
-                }
-            } else {
-                // invalid view
-                log.trace("Invalid view @ {} current: {} block: {} hash: {} height: {} current: {} on: {}", nlc, view,
-                          next.block.getBodyCase(), next.hash, next.height(), h.height(), params.member().getId());
-            }
+            blockConsumer.consume(next, this::accept, this::isNext);
         } finally {
             headLock.writeLock().unlock();
         }
     }
 
     private void consume(HashedCertifiedBlock next, HashedCertifiedBlock cur) {
-        if (next == null) {
-            return;
-        }
-        final var h = blockChainState.getHead();
-        if (isNext(next)) {
-            if (!h.hash.equals(next.getPrevious())) {
-                log.debug("Invalid previous: {} expecting: {} block: {} hash: {} height: {} on: {}", next.getPrevious(),
-                          h.hash, next.block.getBodyCase(), next.hash, next.height(), params.member().getId());
-            } else {
-                final Committee c = committeeState.getCommittee();
-                if (c == null) {
-                    log.error("No committee to validate block: {} hash: {} height: {} on: {}",
-                              next.block.getBodyCase(), next.hash, next.height(), params.member().getId());
-                    transitions.fail();
-                    return;
-                }
-                if (c.validate(next)) {
-                    log.trace("Accept: {} hash: {} height: {} on: {}", next.block.getBodyCase(), next.hash, next.height(),
-                              params.member().getId());
-                    accept(next);
-                } else {
-                    log.debug("Invalid block: {} hash: {} height: {} on: {}", next.block.getBodyCase(), next.hash,
-                              next.height(), params.member().getId());
-                }
-            }
-        } else if (h.height() != null && h.height().compareTo(next.height()) < 0) {
-            log.trace("Premature block: {} : {} height: {} current: {} on: {}", next.block.getBodyCase(), next.hash,
-                      next.height(), cur.height(), params.member().getId());
-            if (!blockChainState.addPending(next)) {
-                log.warn("Rejected pending block: {} hash: {} height: {} on: {}", next.block.getBodyCase(), next.hash,
-                         next.height(), params.member().getId());
-            }
-        } else {
-            log.trace("Stale block: {} : {} height: {} current: {} on: {}", next.block.getBodyCase(), next.hash,
-                      next.height(), cur.height(), params.member().getId());
-        }
+        blockConsumer.consumeWithValidation(next, cur, this::accept, this::isNext);
     }
 
 
