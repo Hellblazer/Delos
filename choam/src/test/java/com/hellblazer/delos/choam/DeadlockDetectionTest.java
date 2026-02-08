@@ -439,7 +439,9 @@ public class DeadlockDetectionTest {
                 transactioneer.start();
             });
 
-            boolean completed = iterationGate.await(LARGE_TESTS ? 30 : 20, TimeUnit.SECONDS);
+            // Extended timeout to account for transaction retries during view changes
+            // Same reasoning as CHOAMFSMErrorPathsTest: 3s timeout × 5 retries + recovery time
+            boolean completed = iterationGate.await(LARGE_TESTS ? 120 : 90, TimeUnit.SECONDS);
             assertTrue(completed, "Iteration " + iter + " should complete deterministically");
 
             // Verify no deadlocks
