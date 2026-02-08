@@ -14,8 +14,9 @@ import com.hellblazer.delos.stereotomy.event.proto.Binding;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -27,49 +28,76 @@ import java.util.stream.Collectors;
  * Some signature mismatches exist (registerHandler uses different types) which will be
  * addressed in Phase C when CHOAM is refactored to use this adapter.
  * <p>
- * Thread Safety: This class is thread-safe. Lifecycle operations use atomic CAS for
- * idempotency. Handler and tick listener registration delegates to BEG which provides
+ * Thread Safety: This class is thread-safe. Lifecycle operations use atomic state transitions
+ * for idempotency. Handler and tick listener registration delegates to BEG which provides
  * its own thread safety.
+ * <p>
+ * State transitions: INITIAL → STARTING → STARTED → STOPPING → STOPPED
  *
  * @author hal.hildebrand
  */
 public class FirefliesMembershipProvider implements MembershipProvider {
-    private final BoundedEpidemicGossip gossip;
-    private final DelegatedContext<Member> context;
-    private final AtomicBoolean started = new AtomicBoolean(false);
-    private final AtomicBoolean stopped = new AtomicBoolean(false);
-    private Duration gossipDuration;
+    /**
+     * Lifecycle states for the membership provider.
+     */
+    private enum State {
+        INITIAL,   // Not yet started
+        STARTING,  // Start in progress
+        STARTED,   // Fully started and operational
+        STOPPING,  // Stop in progress
+        STOPPED    // Fully stopped
+    }
+
+    private final BoundedEpidemicGossip       gossip;
+    private final DelegatedContext<Member>    context;
+    private final Duration                    gossipDuration;
+    private final AtomicReference<State>     state = new AtomicReference<>(State.INITIAL);
 
     /**
      * Constructs a FirefliesMembershipProvider wrapping the given gossip protocol.
      *
-     * @param gossip the bounded epidemic gossip instance
-     * @param context the delegated context for membership ring structure
-     * @param gossipDuration the gossip duration to use when starting
+     * @param gossip         the bounded epidemic gossip instance (must not be null)
+     * @param context        the delegated context for membership ring structure (must not be null)
+     * @param gossipDuration the gossip duration to use when starting (must not be null)
+     * @throws NullPointerException if any parameter is null
      */
     public FirefliesMembershipProvider(BoundedEpidemicGossip gossip, DelegatedContext<Member> context,
                                        Duration gossipDuration) {
-        this.gossip = gossip;
-        this.context = context;
-        this.gossipDuration = gossipDuration;
+        this.gossip = Objects.requireNonNull(gossip, "gossip cannot be null");
+        this.context = Objects.requireNonNull(context, "context cannot be null");
+        this.gossipDuration = Objects.requireNonNull(gossipDuration, "gossipDuration cannot be null");
     }
 
     @Override
     public void start() {
-        if (!started.compareAndSet(false, true)) {
-            return;  // Already started
+        if (!state.compareAndSet(State.INITIAL, State.STARTING)) {
+            return;  // Not in INITIAL state (already started or starting)
         }
 
-        gossip.start(gossipDuration);
+        try {
+            gossip.start(gossipDuration);
+            state.set(State.STARTED);
+        } catch (Exception e) {
+            // Reset to INITIAL on failure
+            state.set(State.INITIAL);
+            throw e;
+        }
     }
 
     @Override
     public void stop() {
-        if (!stopped.compareAndSet(false, true)) {
-            return;  // Already stopped
+        if (!state.compareAndSet(State.STARTED, State.STOPPING)) {
+            return;  // Not in STARTED state (already stopped, stopping, or never started)
         }
 
-        gossip.stop();
+        try {
+            gossip.stop();
+            state.set(State.STOPPED);
+        } catch (Exception e) {
+            // Even if stop fails, mark as stopped (can't retry stop operation)
+            state.set(State.STOPPED);
+            throw e;
+        }
     }
 
     @Override

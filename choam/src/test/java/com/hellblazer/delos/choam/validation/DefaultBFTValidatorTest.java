@@ -16,6 +16,7 @@ import org.mockito.MockitoAnnotations;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
 /**
@@ -160,5 +161,12 @@ class DefaultBFTValidatorTest {
         }
 
         verify(mapper, times(ByzantineViolationType.values().length)).getViolationCount(any());
+    }
+
+    @Test
+    void testNullMapper() {
+        assertThatThrownBy(() -> new DefaultBFTValidator(null))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessageContaining("mapper cannot be null");
     }
 }

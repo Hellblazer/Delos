@@ -13,6 +13,7 @@ import com.hellblazer.delos.choam.support.ByzantineViolationType;
 import com.hellblazer.delos.choam.support.ValidationResult;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Default implementation of BFTValidator wrapping ByzantineDetectionMapper.
@@ -33,10 +34,11 @@ public class DefaultBFTValidator implements BFTValidator {
     /**
      * Constructs a DefaultBFTValidator wrapping the given mapper.
      *
-     * @param mapper the Byzantine detection mapper
+     * @param mapper the Byzantine detection mapper (must not be null)
+     * @throws NullPointerException if mapper is null
      */
     public DefaultBFTValidator(ByzantineDetectionMapper mapper) {
-        this.mapper = mapper;
+        this.mapper = Objects.requireNonNull(mapper, "mapper cannot be null");
     }
 
     @Override

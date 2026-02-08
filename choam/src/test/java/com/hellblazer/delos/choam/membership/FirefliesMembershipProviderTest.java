@@ -17,6 +17,8 @@ import org.mockito.MockitoAnnotations;
 
 import java.time.Duration;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
@@ -72,6 +74,7 @@ class FirefliesMembershipProviderTest {
 
     @Test
     void testStop() {
+        provider.start();  // Must start before stopping
         provider.stop();
 
         verify(gossip).stop();
@@ -79,6 +82,7 @@ class FirefliesMembershipProviderTest {
 
     @Test
     void testStopIdempotent() {
+        provider.start();  // Must start before stopping
         provider.stop();
         provider.stop(); // Second call should be no-op
 
@@ -133,24 +137,85 @@ class FirefliesMembershipProviderTest {
 
     @Test
     void testThreadSafety() throws InterruptedException {
-        // Simulate concurrent start/stop calls from multiple threads
-        var thread1 = new Thread(() -> provider.start());
-        var thread2 = new Thread(() -> provider.start());
-        var thread3 = new Thread(() -> provider.stop());
+        var startLatch = new CountDownLatch(2);
+
+        // Simulate concurrent start calls from multiple threads
+        var thread1 = new Thread(() -> {
+            provider.start();
+            startLatch.countDown();
+        });
+        var thread2 = new Thread(() -> {
+            provider.start();
+            startLatch.countDown();
+        });
 
         thread1.start();
         thread2.start();
-        thread1.join();
-        thread2.join();
 
-        // Give time for start to complete
-        Thread.sleep(10);
+        // Wait for both threads to complete (with timeout)
+        assertThat(startLatch.await(1, TimeUnit.SECONDS)).isTrue();
 
-        thread3.start();
-        thread3.join();
+        // Despite concurrent calls, start should only be called once
+        verify(gossip, times(1)).start(gossipDuration);
+    }
 
-        // Despite concurrent calls, start/stop should be called at most once each
-        verify(gossip, atMostOnce()).start(gossipDuration);
-        verify(gossip, atMostOnce()).stop();
+    @Test
+    void testConcurrentStartStop() throws InterruptedException {
+        provider.start();
+
+        var stopThread = new Thread(() -> provider.stop());
+        stopThread.start();
+        stopThread.join();
+
+        verify(gossip, times(1)).start(gossipDuration);
+        verify(gossip, times(1)).stop();
+    }
+
+    @Test
+    void testNullGossip() {
+        assertThatThrownBy(() -> new FirefliesMembershipProvider(null, context, gossipDuration))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessageContaining("gossip cannot be null");
+    }
+
+    @Test
+    void testNullContext() {
+        assertThatThrownBy(() -> new FirefliesMembershipProvider(gossip, null, gossipDuration))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessageContaining("context cannot be null");
+    }
+
+    @Test
+    void testNullGossipDuration() {
+        assertThatThrownBy(() -> new FirefliesMembershipProvider(gossip, context, null))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessageContaining("gossipDuration cannot be null");
+    }
+
+    @Test
+    void testRestartAfterStop() {
+        // Start then stop
+        provider.start();
+        provider.stop();
+
+        // Try to start again - should be no-op (can't restart)
+        provider.start();
+
+        // Verify start and stop called exactly once
+        verify(gossip, times(1)).start(gossipDuration);
+        verify(gossip, times(1)).stop();
+    }
+
+    @Test
+    void testExceptionDuringStart() {
+        // Simulate gossip.start() throwing exception
+        doThrow(new RuntimeException("Gossip start failed")).when(gossip).start(gossipDuration);
+
+        assertThatThrownBy(() -> provider.start())
+            .isInstanceOf(RuntimeException.class)
+            .hasMessageContaining("Gossip start failed");
+
+        // Provider should be back in INITIAL state after exception
+        verify(gossip, times(1)).start(gossipDuration);
     }
 }

@@ -17,6 +17,7 @@ import org.mockito.MockitoAnnotations;
 import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
 /**
@@ -63,6 +64,8 @@ class EtherealConsensusOracleTest {
 
     @Test
     void testStop() {
+        var duration = Duration.ofSeconds(1);
+        oracle.start(duration);  // Must start before stopping
         oracle.stop();
 
         // Verify stopped in reverse order (gossip before ethereal)
@@ -73,6 +76,8 @@ class EtherealConsensusOracleTest {
 
     @Test
     void testStopIdempotent() {
+        var duration = Duration.ofSeconds(1);
+        oracle.start(duration);  // Must start before stopping
         oracle.stop();
         oracle.stop(); // Second call should be no-op
 
@@ -136,5 +141,54 @@ class EtherealConsensusOracleTest {
         // Despite concurrent calls, start should only be called once
         verify(ethereal, times(1)).start();
         verify(gossip, times(1)).start(duration);
+    }
+
+    @Test
+    void testNullEthereal() {
+        assertThatThrownBy(() -> new EtherealConsensusOracle(null, gossip))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessageContaining("ethereal cannot be null");
+    }
+
+    @Test
+    void testNullGossip() {
+        assertThatThrownBy(() -> new EtherealConsensusOracle(ethereal, null))
+            .isInstanceOf(NullPointerException.class)
+            .hasMessageContaining("gossip cannot be null");
+    }
+
+    @Test
+    void testRestartAfterStop() {
+        var duration = Duration.ofSeconds(1);
+
+        // Start then stop
+        oracle.start(duration);
+        oracle.stop();
+
+        // Try to start again - should be no-op (can't restart)
+        oracle.start(duration);
+
+        // Verify start and stop called exactly once
+        verify(ethereal, times(1)).start();
+        verify(gossip, times(1)).start(duration);
+        verify(ethereal, times(1)).stop();
+        verify(gossip, times(1)).stop();
+    }
+
+    @Test
+    void testExceptionDuringStart() {
+        var duration = Duration.ofSeconds(1);
+
+        // Simulate gossip.start() throwing exception
+        doThrow(new RuntimeException("Gossip start failed")).when(gossip).start(duration);
+
+        assertThatThrownBy(() -> oracle.start(duration))
+            .isInstanceOf(RuntimeException.class)
+            .hasMessageContaining("Gossip start failed");
+
+        // Verify ethereal.stop() was called for cleanup
+        verify(ethereal).start();
+        verify(ethereal).stop();
+        verify(gossip).start(duration);
     }
 }
