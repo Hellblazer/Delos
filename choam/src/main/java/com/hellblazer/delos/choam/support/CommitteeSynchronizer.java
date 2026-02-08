@@ -68,6 +68,6 @@ public class CommitteeSynchronizer implements Committee {
 
     @Override
     public boolean validate(HashedCertifiedBlock hb) {
-        return choam.validate(hb, validators);
+        return validate(hb, validators);  // Calls Committee default method (no recursion: different signature)
     }
 }

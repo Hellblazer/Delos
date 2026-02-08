@@ -155,7 +155,7 @@ abstract class Administration implements Committee {
 
     @Override
     public boolean validate(HashedCertifiedBlock hb) {
-        return choam.validate(hb, validators);  // F1 CRITICAL: Must use choam.validate() to avoid infinite recursion
+        return validate(hb, validators);  // Calls Committee default method (no recursion: different signature)
     }
 
     private void join(View view) {
