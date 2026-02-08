@@ -126,4 +126,9 @@ public class FirefliesMembershipProvider implements MembershipProvider {
     public void registerTickListener(Consumer<Integer> tickListener) {
         gossip.register(tickListener);
     }
+
+    @Override
+    public void publish(com.google.protobuf.Message message, boolean notifyLocal) {
+        gossip.publish(message, notifyLocal);
+    }
 }

@@ -92,4 +92,14 @@ public interface MembershipProvider {
      * @param tickListener the tick listener (tick number)
      */
     void registerTickListener(Consumer<Integer> tickListener);
+
+    /**
+     * Publish a message through the gossip protocol.
+     * <p>
+     * Thread Safety: This method is thread-safe and can be called concurrently.
+     *
+     * @param message      the message to publish
+     * @param notifyLocal  whether to notify local handlers
+     */
+    void publish(com.google.protobuf.Message message, boolean notifyLocal);
 }

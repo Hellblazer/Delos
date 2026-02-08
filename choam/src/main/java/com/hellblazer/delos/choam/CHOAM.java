@@ -206,7 +206,12 @@ public class CHOAM implements ConsensusEngine {
         this.blockConsumer = new BlockConsumer(blockChainState, committeeState, params.runtime(), transitions, log);
         this.syncValidator = new SynchronizedBlockValidator(controlState, blockChainState, committeeState, params.runtime(), transitions, log, params.digestAlgorithm());
         this.checkpointBlockBuilder = new CheckpointBlockBuilder(params.runtime(), blockChainState, checkpointManager, transitions, log, params.digestAlgorithm());
-        this.blockProducer = new BlockProducerImpl(params, blockChainState, checkpointManager, combine, transitions, log, this::checkpoint);
+
+        // Wrap concrete BoundedEpidemicGossip with MembershipProvider adapter
+        var membershipProvider = new com.hellblazer.delos.choam.membership.FirefliesMembershipProvider(
+            combine, params.context(), params.gossipDuration());
+        this.blockProducer = new BlockProducerImpl(params, blockChainState, checkpointManager, membershipProvider,
+                                                   transitions, log, this::checkpoint);
         this.recoveryCoordinator = new RecoveryCoordinator(blockChainState, checkpointManager, store, params.runtime(), transitions, controlState, syncValidator, log, params.digestAlgorithm(), this::restoreFrom);
         this.blockDispatcher = new BlockDispatcher(committeeState, blockChainState, params.runtime(), checkpointManager, store, log, this::cancelSynchronization, this::cancelBootstrap, this::genesisInitialization, this::reconfigure, this::execute);
         this.stateRestorer = new StateRestorer(store, blockChainState, checkpointManager, committeeState, params.runtime(), log, params.digestAlgorithm(), (reconfigure, logger) -> new CommitteeSynchronizer(this, validatorsOf(reconfigure, params.context(), params.member().getId(), logger), logger));

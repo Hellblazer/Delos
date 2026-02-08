@@ -38,7 +38,7 @@ public class BlockProducerImpl implements BlockProducer {
     private final Parameters                                     params;
     private final BlockChainStateHolder                          blockChainState;
     private final CheckpointManager                              checkpointManager;
-    private final BoundedEpidemicGossip                          combine;
+    private final com.hellblazer.delos.choam.membership.MembershipProvider combine;
     private final Combine.Transitions                            transitions;
     private final Logger                                         log;
     private final Supplier<Block>                                checkpointSupplier;
@@ -49,13 +49,14 @@ public class BlockProducerImpl implements BlockProducer {
      * @param params              full parameters (includes runtime + genesis data)
      * @param blockChainState     holder for blockchain head/view state
      * @param checkpointManager   manager for checkpoint state
-     * @param combine             epidemic gossip for block publication
+     * @param combine             membership provider for block publication via gossip
      * @param transitions         FSM transitions for error handling
      * @param log                 logger instance
      * @param checkpointSupplier  supplier for checkpoint blocks (delegates to CHOAM.checkpoint())
      */
     public BlockProducerImpl(Parameters params, BlockChainStateHolder blockChainState,
-                             CheckpointManager checkpointManager, BoundedEpidemicGossip combine,
+                             CheckpointManager checkpointManager,
+                             com.hellblazer.delos.choam.membership.MembershipProvider combine,
                              Combine.Transitions transitions, Logger log, Supplier<Block> checkpointSupplier) {
         this.params = params;
         this.blockChainState = blockChainState;
