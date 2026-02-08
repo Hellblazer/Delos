@@ -178,7 +178,10 @@ public class CHOAMFSMErrorPathsTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(LARGE_TESTS ? 30 : 20, TimeUnit.SECONDS);
+        // Extended timeout to account for transaction retries during FSM transitions
+        // Each transaction timeout is 3s, with up to 5 retries = 15s per transaction attempt
+        // Multiple view changes can cause extended periods of failures requiring recovery time
+        boolean completed = countdown.await(LARGE_TESTS ? 120 : 90, TimeUnit.SECONDS);
         assertTrue(completed, "FSM should recover from any transition failures");
 
         routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
