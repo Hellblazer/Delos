@@ -15,7 +15,6 @@ import org.slf4j.LoggerFactory;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
@@ -49,6 +48,7 @@ public class ByzantineTestFramework {
     private final AtomicLong                                faultCounter      = new AtomicLong(0);
     private final AtomicBoolean                             enabled           = new AtomicBoolean(false);
     private final MockBFTValidator                          validator;
+    private final Random                                    random            = new Random(1337L);  // Deterministic testing with fixed seed
 
     /**
      * Byzantine fault types that can be injected.
@@ -167,7 +167,7 @@ public class ByzantineTestFramework {
         }
 
         var config = faultConfigs.get(member);
-        if (config == null || ThreadLocalRandom.current().nextDouble() > config.signatureFailureRate) {
+        if (config == null || random.nextDouble() > config.signatureFailureRate) {
             return false;
         }
 
@@ -200,7 +200,7 @@ public class ByzantineTestFramework {
         }
 
         var config = faultConfigs.get(member);
-        if (config == null || ThreadLocalRandom.current().nextDouble() > config.stateCorruptionRate) {
+        if (config == null || random.nextDouble() > config.stateCorruptionRate) {
             return false;
         }
 
@@ -232,7 +232,7 @@ public class ByzantineTestFramework {
         }
 
         var config = faultConfigs.get(member);
-        if (config == null || ThreadLocalRandom.current().nextDouble() > config.timingAnomalyRate) {
+        if (config == null || random.nextDouble() > config.timingAnomalyRate) {
             return false;
         }
 
@@ -265,7 +265,7 @@ public class ByzantineTestFramework {
         }
 
         var config = faultConfigs.get(member);
-        if (config == null || ThreadLocalRandom.current().nextDouble() > config.equivocationRate) {
+        if (config == null || random.nextDouble() > config.equivocationRate) {
             return false;
         }
 

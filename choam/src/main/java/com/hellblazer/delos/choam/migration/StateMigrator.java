@@ -94,8 +94,11 @@ public interface StateMigrator {
      * <p>
      * Useful for pre-flight checks before upgrade. Default implementation
      * attempts migration to a null output stream.
+     * <p>
+     * <b>Important</b>: This method consumes the source stream. Caller is responsible
+     * for closing the source stream and should use mark/reset if stream reuse is needed.
      *
-     * @param source checkpoint stream to validate
+     * @param source checkpoint stream to validate (caller must close)
      * @return true if migration would succeed, false otherwise
      */
     default boolean canMigrate(InputStream source) {

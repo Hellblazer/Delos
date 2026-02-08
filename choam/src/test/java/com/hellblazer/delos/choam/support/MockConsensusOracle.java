@@ -126,12 +126,31 @@ public class MockConsensusOracle implements ConsensusOracle {
     }
 
     /**
-     * Reset the mock to INITIAL state (useful for test reuse).
-     * This violates the "cannot restart" contract but is useful for test cleanup.
+     * Reset the mock to INITIAL state for test reuse.
+     * <p>
+     * <b>WARNING</b>: This violates the ConsensusOracle "cannot restart" contract.
+     * Use only in test setup/teardown, not during normal operation. Production
+     * code expects oracles to be single-use and will not call this method.
+     * <p>
+     * Renamed from {@code reset()} to {@code resetForTesting()} to make the
+     * test-only nature explicit.
+     *
+     * @deprecated Use only in test cleanup, not production code
      */
-    public void reset() {
+    @Deprecated(forRemoval = false)
+    public void resetForTesting() {
         state.set(State.INITIAL);
         completed.set(false);
         lastGossipDuration = null;
+    }
+
+    /**
+     * Legacy reset method. Use {@link #resetForTesting()} instead for clarity.
+     *
+     * @deprecated Use resetForTesting() to make test-only usage explicit
+     */
+    @Deprecated(forRemoval = true)
+    public void reset() {
+        resetForTesting();
     }
 }

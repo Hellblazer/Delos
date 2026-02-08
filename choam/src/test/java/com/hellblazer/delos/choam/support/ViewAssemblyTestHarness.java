@@ -43,10 +43,11 @@ public class ViewAssemblyTestHarness {
     private final List<ViewProposal>                            viewProposals   = new CopyOnWriteArrayList<>();
     private final List<MemberVote>                              memberVotes     = new CopyOnWriteArrayList<>();
     private final List<Consumer<ViewTransition>>                transitionListeners = new CopyOnWriteArrayList<>();
+    private final List<ViewTransition>                          transitionHistory   = new CopyOnWriteArrayList<>();
     private final AtomicBoolean                                 byzantineMode   = new AtomicBoolean(false);
     private volatile Digest                                     currentViewId;
     private volatile Digest                                     nextViewId;
-    private final CountDownLatch                                transitionComplete = new CountDownLatch(1);
+    private volatile CountDownLatch                             transitionComplete = new CountDownLatch(1);
 
     /**
      * Member availability state for testing.
@@ -194,6 +195,7 @@ public class ViewAssemblyTestHarness {
      */
     public void transitionTo(Digest toViewId, Set<Member> newMembers, Set<Member> departedMembers) {
         var transition = new ViewTransition(currentViewId, toViewId, newMembers, departedMembers);
+        transitionHistory.add(transition);  // Record for debugging
         currentViewId = toViewId;
 
         // Notify listeners
@@ -231,17 +233,19 @@ public class ViewAssemblyTestHarness {
 
     /**
      * Inject a conflicting vote (Byzantine behavior).
-     * Only works if Byzantine mode is enabled.
+     * Only works if Byzantine mode is enabled via {@link #setByzantineMode(boolean)}.
      *
      * @param voter      the Byzantine voter
      * @param viewId1    first view ID
      * @param viewId2    second conflicting view ID
      * @return true if injection succeeded
+     * @throws IllegalStateException if Byzantine mode is not enabled
      */
     public boolean injectConflictingVote(Member voter, Digest viewId1, Digest viewId2) {
         if (!byzantineMode.get()) {
-            log.warn("Cannot inject conflicting vote - Byzantine mode not enabled");
-            return false;
+            throw new IllegalStateException(
+                "Byzantine mode must be enabled before injecting conflicting votes. " +
+                "Call setByzantineMode(true) first.");
         }
 
         setMemberState(voter, MemberState.BYZANTINE);
@@ -314,9 +318,15 @@ public class ViewAssemblyTestHarness {
      */
     public void assertTransitionTo(Digest expectedViewId) {
         if (!currentViewId.equals(expectedViewId)) {
+            var historyStr = transitionHistory.isEmpty() ?
+                "No transitions recorded" :
+                "Transition history:\n" + transitionHistory.stream()
+                    .map(t -> String.format("  %s -> %s", t.fromViewId, t.toViewId))
+                    .reduce((a, b) -> a + "\n" + b)
+                    .orElse("");
             throw new AssertionError(
-                String.format("Expected transition to %s but current view is %s",
-                    expectedViewId, currentViewId));
+                String.format("Expected transition to %s but current view is %s\n%s",
+                    expectedViewId, currentViewId, historyStr));
         }
     }
 
@@ -339,13 +349,15 @@ public class ViewAssemblyTestHarness {
     }
 
     /**
-     * Clear all test history.
+     * Clear all test history and reset harness state.
      */
     public void reset() {
         viewProposals.clear();
         memberVotes.clear();
         memberStates.clear();
         transitionListeners.clear();
+        transitionHistory.clear();
         byzantineMode.set(false);
+        transitionComplete = new CountDownLatch(1);  // Recreate for reusability
     }
 }

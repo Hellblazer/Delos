@@ -16,10 +16,10 @@ import java.io.*;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.ThreadLocalRandom;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -42,6 +42,7 @@ public class ZeroDowntimeUpgradeTest {
     private AtomicInteger failureCount;
     private AtomicLong totalLatencyMs;
     private List<Long> latencies;
+    private Random random;
 
     @BeforeEach
     public void setup() {
@@ -53,6 +54,7 @@ public class ZeroDowntimeUpgradeTest {
         failureCount = new AtomicInteger(0);
         totalLatencyMs = new AtomicLong(0);
         latencies = new CopyOnWriteArrayList<>();
+        random = new Random(42L);  // Deterministic testing with fixed seed
     }
 
     @Test
@@ -87,8 +89,8 @@ public class ZeroDowntimeUpgradeTest {
 
         // Assert: Latency within SLA (p95 < 10% increase)
         var p95Latency = calculateP95(latencies);
-        var baselineP95 = 100;  // Baseline: 100ms
-        assertThat(p95Latency).isLessThan(baselineP95 * 1.1);  // < 10% increase
+        var baselineP95 = 100L;  // Baseline: 100ms
+        assertThat(p95Latency).isLessThan((long) (baselineP95 * 1.1));  // < 10% increase
     }
 
     @Test
@@ -255,7 +257,7 @@ public class ZeroDowntimeUpgradeTest {
     /**
      * Simulated CHOAM node for testing.
      */
-    private static class SimulatedNode {
+    private class SimulatedNode {
         String id;
         String version;
         boolean online = true;
@@ -273,8 +275,8 @@ public class ZeroDowntimeUpgradeTest {
                 throw new IllegalStateException("Node offline");
             }
 
-            // Simulate transaction processing
-            Thread.sleep(ThreadLocalRandom.current().nextInt(50, 150));  // 50-150ms
+            // Simulate transaction processing (deterministic latency)
+            Thread.sleep(50 + random.nextInt(100));  // 50-150ms, reproducible
             state = tx;
             processedCount++;
         }

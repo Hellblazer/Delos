@@ -92,7 +92,7 @@ public class MigrationRegistry {
         var visited = new HashSet<String>();
         var distances = new HashMap<String, Integer>();
         var previous = new HashMap<String, String>();
-        var queue = new PriorityQueue<>(Comparator.comparingInt(distances::get));
+        var queue = new PriorityQueue<String>(Comparator.comparingInt((String node) -> distances.getOrDefault(node, Integer.MAX_VALUE)));
 
         distances.put(sourceVersion, 0);
         queue.add(sourceVersion);
