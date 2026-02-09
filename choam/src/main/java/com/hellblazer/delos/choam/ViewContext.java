@@ -6,7 +6,8 @@
  */
 package com.hellblazer.delos.choam;
 
-import com.hellblazer.delos.choam.CHOAM.BlockProducer;
+import com.hellblazer.delos.choam.BlockProducer;
+import com.hellblazer.delos.choam.PendingViews;
 import com.hellblazer.delos.choam.proto.*;
 import com.hellblazer.delos.choam.support.BatchVerificationHelper;
 import com.hellblazer.delos.choam.support.BatchVerificationMetrics;
@@ -38,9 +39,9 @@ public class ViewContext {
     private final        Map<Digest, Short>           roster;
     private final        Signer                       signer;
     private final        Map<Member, Verifier>        validators;
-    private final        Supplier<CHOAM.PendingViews> pendingViews;
+    private final        Supplier<PendingViews> pendingViews;
 
-    public ViewContext(Context<Member> context, Parameters params, Supplier<CHOAM.PendingViews> pendingViews,
+    public ViewContext(Context<Member> context, Parameters params, Supplier<PendingViews> pendingViews,
                        Signer signer, Map<Member, Verifier> validators, BlockProducer blockProducer) {
         this.blockProducer = blockProducer;
         this.context = context;
@@ -163,7 +164,7 @@ public class ViewContext {
         return params;
     }
 
-    public CHOAM.PendingViews pendingViews() {
+    public PendingViews pendingViews() {
         return pendingViews.get();
     }
 

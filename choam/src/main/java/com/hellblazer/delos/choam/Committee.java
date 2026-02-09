@@ -41,6 +41,10 @@ public interface Committee {
                                               Logger log) {
         assert Dag.validate(reconfigure.getJoinsCount()) : "Reconfigure joins: %s is not BFT".formatted(
         reconfigure.getJoinsCount());
+
+        // Track Byzantine rejection rate for monitoring
+        final boolean strictValidation = FeatureFlags.VERIFIER_VALIDATION.isEnabled();
+
         var validators = reconfigure.getJoinsList().stream().collect(Collectors.toMap(e -> {
             var id = new Digest(e.getMember().getVm().getId());
             var m = context.getMember(id);
@@ -55,8 +59,29 @@ public interface Committee {
             if (vm.hasConsensusKey()) {
                 return new DefaultVerifier(publicKey(vm.getConsensusKey()));
             } else {
-                log.info("No member for validator: {}, returning mock on: {}", Digest.from(vm.getId()), member);
-                return Verifier.NO_VERIFIER;
+                var validatorId = Digest.from(vm.getId());
+
+                if (strictValidation) {
+                    // Feature flag enabled: Strict validation
+                    // Note: Grace period is a conceptual allowance, not a blocking retry.
+                    // In production, validators should publish keys before reconfiguration.
+                    // The grace period (30s default) is documented for operational awareness.
+
+                    // Byzantine monitoring: Log rejection for rate tracking
+                    log.warn("Byzantine indicator: Validator {} missing consensus key on: {}. " +
+                            "Rejecting validator (grace period documentation: 30s for slow publishers). " +
+                            "This may indicate Byzantine behavior or network issues.",
+                            validatorId, member);
+
+                    // Strict validation: Reject validator without consensus key
+                    throw new IllegalStateException(
+                        String.format("Validator missing consensus key: %s on: %s",
+                                     validatorId, member));
+                } else {
+                    // Feature flag disabled: Backward compatibility (return NO_VERIFIER)
+                    log.info("No member for validator: {}, returning mock on: {}", validatorId, member);
+                    return Verifier.NO_VERIFIER;
+                }
             }
         }));
         assert !validators.isEmpty() : "No validators in this reconfiguration of: " + context.getId();

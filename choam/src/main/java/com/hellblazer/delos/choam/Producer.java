@@ -43,14 +43,13 @@ import java.util.concurrent.atomic.AtomicReference;
 public class Producer {
 
     private static final Logger                       log                = LoggerFactory.getLogger(Producer.class);
-    private static final int                          MAX_PENDING_BLOCKS = 10000;  // Max pending block entries
-    private static final int                          MAX_PENDING_VALIDATIONS = 100000;  // Max orphan validations
+    private static final int                          MAX_PENDING_BLOCKS = 10000;  // Max pending block entries (legacy)
+    private static final int                          MAX_PENDING_VALIDATIONS = 100000;  // Max orphan validations (legacy)
     private final        AtomicReference<HashedBlock> checkpoint         = new AtomicReference<>();
-    private final        Ethereal                     controller;
-    private final        ChRbcGossip                  coordinator;
+    private final        com.hellblazer.delos.choam.consensus.ConsensusOracle consensusOracle;
     private final        TxDataSource                 ds;
-    private final        Map<Digest, PendingBlock>    pending            = new ConcurrentSkipListMap<>();
-    private final        Map<Digest, List<Validate>>  pendingValidations = new ConcurrentSkipListMap<>();
+    private              Map<Digest, PendingBlock>    pending;  // Either EvictingPendingStore or legacy map
+    private              Map<Digest, List<Validate>>  pendingValidations;  // Either EvictingPendingStore or legacy map
     private final        AtomicReference<HashedBlock> previousBlock      = new AtomicReference<>();
     private final        AtomicBoolean                started            = new AtomicBoolean(false);
     private final        Transitions                  transitions;
@@ -75,6 +74,32 @@ public class Producer {
 
         final Parameters params = view.params();
         final var producerParams = params.producer();
+
+        // Initialize pending queues with DoS protection
+        if (FeatureFlags.QUEUE_EVICTION.isEnabled()) {
+            var maxPendingBlocks = producerParams.maxPendingBlocks() > 0
+                ? producerParams.maxPendingBlocks()
+                : MAX_PENDING_BLOCKS;
+            var maxPendingValidations = producerParams.maxPendingValidations() > 0
+                ? producerParams.maxPendingValidations()
+                : MAX_PENDING_VALIDATIONS;
+
+            pending = new EvictingPendingStore<PendingBlock>(maxPendingBlocks, (key, value) -> {
+                log.debug("Evicted pending block: {} height: {} on: {}", key, value.block.height(),
+                         params.member().getId());
+            });
+            pendingValidations = new EvictingPendingStore<List<Validate>>(maxPendingValidations, (key, value) -> {
+                log.debug("Evicted {} orphan validations for block: {} on: {}", value.size(), key,
+                         params.member().getId());
+            });
+            log.info("Queue eviction enabled - max blocks: {}, max validations: {} on: {}",
+                    maxPendingBlocks, maxPendingValidations, params.member().getId());
+        } else {
+            // Legacy unbounded maps (vulnerable to DoS)
+            pending = new ConcurrentSkipListMap<>();
+            pendingValidations = new ConcurrentSkipListMap<>();
+            log.debug("Using legacy unbounded queues (queue eviction disabled) on: {}", params.member().getId());
+        }
         final Builder ep = producerParams.ethereal().clone();
 
         // Number of rounds we can provide data for
@@ -106,10 +131,14 @@ public class Producer {
         // Use the consensus key signer for Producer phase
         config.setSigner(view.getSigner());
         var producerMetrics = params().metrics() == null ? null : params().metrics().getProducerMetrics();
-        controller = new Ethereal(config.build(), params().producer().maxBatchByteSize() + (8 * 1024), ds, this::serial,
-                                  this::newEpoch, label, view.verifiersByPid());
-        coordinator = new ChRbcGossip(view.context().getId(), params().member(), view.membership(),
-                                      controller.processor(), params().communications(), producerMetrics, scheduler);
+
+        // Create concrete Ethereal and ChRbcGossip, then wrap with ConsensusOracle adapter
+        var ethereal = new Ethereal(config.build(), params().producer().maxBatchByteSize() + (8 * 1024), ds, this::serial,
+                                    this::newEpoch, label, view.verifiersByPid());
+        var gossip = new ChRbcGossip(view.context().getId(), params().member(), view.membership(),
+                                     ethereal.processor(), params().communications(), producerMetrics, scheduler);
+        this.consensusOracle = new com.hellblazer.delos.choam.consensus.EtherealConsensusOracle(ethereal, gossip);
+
         log.debug("Roster for: {} is: {} on: {}", getViewId(), view.roster(), params().member().getId());
 
         var onConsensus = new CompletableFuture<ViewAssembly.Vue>();
@@ -165,8 +194,7 @@ public class Producer {
         }
         log.trace("Closing producer for: {} on: {}", getViewId(), params().member().getId());
         serialize.shutdown();
-        controller.stop();
-        coordinator.stop();
+        consensusOracle.stop();  // Stops both ethereal and gossip
         ds.close();
     }
 
@@ -238,7 +266,7 @@ public class Producer {
             assembly.newEpoch();
             var last = e >= maxEpoch && assembled.get();
             if (last) {
-                controller.completeIt();
+                consensusOracle.completeIt();
                 Producer.this.transitions.viewComplete();
             } else {
                 ds.reset();
@@ -387,14 +415,18 @@ public class Producer {
         Digest hash = Digest.from(v.getHash());
         var p = pending.get(hash);
         if (p == null) {
-            // Bounds check: reject orphan validations if queue grows too large (DoS protection)
-            if (pendingValidations.size() >= MAX_PENDING_VALIDATIONS) {
-                if (log.isDebugEnabled()) {
-                    log.debug("Rejecting orphan validation - pending validations queue at limit: {} on: {}",
-                              MAX_PENDING_VALIDATIONS, params().member().getId());
+            // DoS protection for orphan validations
+            if (!FeatureFlags.QUEUE_EVICTION.isEnabled()) {
+                // Legacy manual bounds checking
+                if (pendingValidations.size() >= MAX_PENDING_VALIDATIONS) {
+                    if (log.isDebugEnabled()) {
+                        log.debug("Rejecting orphan validation - pending validations queue at limit: {} on: {}",
+                                  MAX_PENDING_VALIDATIONS, params().member().getId());
+                    }
+                    return null;
                 }
-                return null;
             }
+            // EvictingPendingStore handles eviction automatically
             pendingValidations.computeIfAbsent(hash, _ -> new CopyOnWriteArrayList<>()).add(v);
             return null;
         }
@@ -416,20 +448,30 @@ public class Producer {
     }
 
     /**
-     * Add a pending block with bounds checking to prevent DoS attacks
+     * Add a pending block with DoS protection
+     * <p>
+     * With queue eviction enabled: EvictingPendingStore automatically evicts oldest entries.
+     * Legacy mode: Manual bounds checking to prevent unbounded growth.
      *
-     * @return true if block was added, false if rejected due to queue size limit
+     * @return true if block was added, false if rejected due to queue size limit (legacy mode only)
      */
     private boolean addPendingBlock(Digest hash, PendingBlock block) {
-        if (pending.size() >= MAX_PENDING_BLOCKS) {
-            if (log.isDebugEnabled()) {
-                log.debug("Rejecting pending block - queue at limit: {} on: {}", MAX_PENDING_BLOCKS,
-                          params().member().getId());
+        if (FeatureFlags.QUEUE_EVICTION.isEnabled()) {
+            // EvictingPendingStore handles eviction automatically
+            pending.put(hash, block);
+            return true;
+        } else {
+            // Legacy manual bounds checking
+            if (pending.size() >= MAX_PENDING_BLOCKS) {
+                if (log.isDebugEnabled()) {
+                    log.debug("Rejecting pending block - queue at limit: {} on: {}", MAX_PENDING_BLOCKS,
+                              params().member().getId());
+                }
+                return false;
             }
-            return false;
+            pending.put(hash, block);
+            return true;
         }
-        pending.put(hash, block);
-        return true;
     }
 
     /** Leaf action Driven coupling for the Earner FSM */
@@ -487,8 +529,7 @@ public class Producer {
         @Override
         public void startProduction() {
             log.debug("Starting production for: {} on: {}", getViewId(), params().member().getId());
-            controller.start();
-            coordinator.start(params().producer().gossipDuration());
+            consensusOracle.start(params().producer().gossipDuration());  // Starts both ethereal and gossip
         }
     }
 }

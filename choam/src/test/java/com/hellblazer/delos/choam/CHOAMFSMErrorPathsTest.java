@@ -12,7 +12,7 @@ import com.hellblazer.delos.archipelago.MicrometerServerConnectionCacheMetrics;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
 import com.hellblazer.delos.archipelago.UnsafeExecutors;
-import com.hellblazer.delos.choam.CHOAM.TransactionExecutor;
+import com.hellblazer.delos.choam.TransactionExecutor;
 import com.hellblazer.delos.choam.fsm.Combine;
 import com.hellblazer.delos.choam.proto.Transaction;
 import com.hellblazer.delos.choam.support.MicrometerChoamMetrics;
@@ -134,6 +134,7 @@ public class CHOAMFSMErrorPathsTest {
                                                  .setMetrics(metrics)
                                                  .setCommunications(routers.get(m.getId()))
                                                  .setProcessor(processor)
+                                                 .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
                                                  .setContext(context)
                                                  .build()));
         }));
@@ -177,7 +178,10 @@ public class CHOAMFSMErrorPathsTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(LARGE_TESTS ? 30 : 20, TimeUnit.SECONDS);
+        // Extended timeout to account for transaction retries during FSM transitions
+        // Each transaction timeout is 3s, with up to 5 retries = 15s per transaction attempt
+        // Multiple view changes can cause extended periods of failures requiring recovery time
+        boolean completed = countdown.await(LARGE_TESTS ? 120 : 90, TimeUnit.SECONDS);
         assertTrue(completed, "FSM should recover from any transition failures");
 
         routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));

@@ -9,6 +9,7 @@ package com.hellblazer.delos.demo;
 
 import com.hellblazer.delos.archipelago.*;
 import com.hellblazer.delos.choam.CHOAM;
+import com.hellblazer.delos.choam.TransactionExecutor;
 import com.hellblazer.delos.comm.grpc.ClientContextSupplier;
 import com.hellblazer.delos.comm.grpc.ServerContextSupplier;
 import com.hellblazer.delos.context.DynamicContext;
@@ -263,7 +264,7 @@ public class DelosNode {
         choamParams.getProducer().ethereal().setSigner((SigningMember) member);
 
         // Simple transaction executor - just acknowledges transactions
-        final CHOAM.TransactionExecutor processor = (index, hash, t, f) -> {
+        final TransactionExecutor processor = (index, hash, t, f) -> {
             if (f != null) {
                 f.completeAsync(Object::new, executor);
             }

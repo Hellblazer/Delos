@@ -9,7 +9,7 @@ package com.hellblazer.delos.choam;
 import com.hellblazer.delos.archipelago.LocalServer;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
-import com.hellblazer.delos.choam.CHOAM.TransactionExecutor;
+import com.hellblazer.delos.choam.TransactionExecutor;
 import com.hellblazer.delos.choam.Parameters.BootstrapParameters;
 import com.hellblazer.delos.choam.Parameters.ProducerParameters;
 import com.hellblazer.delos.choam.Parameters.RuntimeParameters;
@@ -121,9 +121,10 @@ public class MembershipTests {
                            .max()
                            .getAsInt();
 
+        // Activate testSubject in context before starting so cluster is aware of it
+        context.activate(testSubject);
         routers.get(testSubject.getId()).start();
         choams.get(testSubject.getId()).start();
-        context.activate(testSubject);
         final var targetMet = Utils.waitForCondition(120_000, 1_000, () -> {
             final var currentHeight = choams.get(testSubject.getId()).currentHeight();
             return currentHeight != null && currentHeight.intValue() >= target;
@@ -168,7 +169,8 @@ public class MembershipTests {
 
         SigningMember testSubject = new ControlledIdentifierMember(stereotomy.newIdentifier());
 
-        final var prefix = UUID.randomUUID().toString();
+        // Use deterministic prefix for reproducible test behavior
+        final var prefix = "test-membership-" + cardinality;
         routers = members.stream()
                          .collect(Collectors.toMap(Member::getId, m -> new LocalServer(prefix, m).router(
                          ServerConnectionCache.newBuilder().setTarget(cardinality))));
@@ -189,13 +191,17 @@ public class MembershipTests {
             }
         };
         params.getProducer().ethereal().setSigner(m);
+        // testSubject is joining an existing cluster, not bootstrapping a new one.
+        // Disable genesis generation so it synchronizes from the existing cluster
+        // instead of attempting to form its own genesis committee.
         if (testSubject) {
-            params.setSynchronizationCycles(1);
+            params.setGenerateGenesis(false);
         }
         return new CHOAM(params.build(RuntimeParameters.newBuilder()
                                                        .setMember(m)
                                                        .setCommunications(routers.get(m.getId()))
                                                        .setProcessor(processor)
+                                                       .setRestorer(RuntimeParameters.NOOP_RESTORER)
                                                        .setContext(context)
                                                        .build()));
     }

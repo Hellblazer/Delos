@@ -11,7 +11,8 @@ import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
 import com.hellblazer.delos.archipelago.MicrometerServerConnectionCacheMetrics;
 import com.hellblazer.delos.archipelago.UnsafeExecutors;
-import com.hellblazer.delos.choam.CHOAM.TransactionExecutor;
+import com.hellblazer.delos.choam.TransactionExecutor;
+import com.hellblazer.delos.choam.Parameters.RuntimeParameters;
 import com.hellblazer.delos.choam.proto.*;
 import com.hellblazer.delos.choam.support.MicrometerChoamMetrics;
 import com.hellblazer.delos.choam.support.HashedCertifiedBlock;
@@ -135,6 +136,7 @@ public class CHOAMBlockValidationTest {
                                                  .setMetrics(metrics)
                                                  .setCommunications(routers.get(m.getId()))
                                                  .setProcessor(processor)
+                                                 .setRestorer(RuntimeParameters.NOOP_RESTORER)
                                                  .setContext(context)
                                                  .build()));
         }));

@@ -12,7 +12,7 @@ import com.netflix.concurrency.limits.limit.AIMDLimit;
 import com.netflix.concurrency.limits.limiter.LifoBlockingLimiter;
 import com.netflix.concurrency.limits.limiter.SimpleLimiter;
 import com.hellblazer.delos.archipelago.Router;
-import com.hellblazer.delos.choam.CHOAM.TransactionExecutor;
+import com.hellblazer.delos.choam.TransactionExecutor;
 import com.hellblazer.delos.choam.proto.FoundationSeal;
 import com.hellblazer.delos.choam.proto.Join;
 import com.hellblazer.delos.choam.proto.Transaction;
@@ -295,6 +295,30 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
                                     TransactionExecutor processor, BiConsumer<HashedBlock, CheckpointState> restorer,
                                     Function<ULong, File> checkpointer, ChoamMetrics metrics, Supplier<KERL_> kerl,
                                     FoundationSeal foundation, CompletableFuture<Void> onFailure) {
+
+        private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(RuntimeParameters.class);
+
+        /**
+         * No-op TransactionExecutor for test use only. Logs warnings to prevent silent data corruption.
+         * Production code MUST use setProcessor() with a real implementation.
+         */
+        public static final TransactionExecutor NOOP_PROCESSOR = new TransactionExecutor() {
+            @Override
+            @SuppressWarnings("rawtypes")
+            public void execute(int index, Digest hash, Transaction tx, CompletableFuture onComplete) {
+                log.warn("NOOP_PROCESSOR invoked - transaction {} at index {} NOT executed (test mode)", hash, index);
+                onComplete.complete(null);
+            }
+        };
+
+        /**
+         * No-op checkpoint restorer for test use only. Logs warnings to prevent silent data corruption.
+         * Production code MUST use setRestorer() with a real implementation.
+         */
+        public static final BiConsumer<HashedBlock, CheckpointState> NOOP_RESTORER = (block, state) -> {
+            log.warn("NOOP_RESTORER invoked - checkpoint at height {} NOT restored (test mode)", block.height());
+        };
+
         public static Builder newBuilder() {
             return new Builder();
         }
@@ -326,14 +350,18 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
             private Supplier<KERL_>                                kerl         = () -> KERL_.getDefaultInstance();
             private SigningMember                                  member;
             private ChoamMetrics                                   metrics;
-            private TransactionExecutor                            processor    = (i, h, t, f) -> {
-            };
-            private BiConsumer<HashedBlock, CheckpointState>       restorer     = (height, checkpointState) -> {
-            };
+            private TransactionExecutor                            processor    = null;
+            private BiConsumer<HashedBlock, CheckpointState>       restorer     = null;
 
             private CompletableFuture<Void> onFailure = new CompletableFuture<>();
 
             public RuntimeParameters build() {
+                if (processor == null) {
+                    throw new IllegalStateException("TransactionExecutor processor is required - use setProcessor() or NOOP_PROCESSOR for tests");
+                }
+                if (restorer == null) {
+                    throw new IllegalStateException("BiConsumer<HashedBlock, CheckpointState> restorer is required - use setRestorer() or NOOP_RESTORER for tests");
+                }
                 return new RuntimeParameters(new DelegatedContext<Member>(context), communications, member, genesisData,
                                              processor, restorer, checkpointer, metrics, kerl, foundation, onFailure);
             }
@@ -496,23 +524,26 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
     }
 
     public record ProducerParameters(Config.Builder ethereal, Duration gossipDuration, int maxBatchByteSize,
-                                     Duration batchInterval, int maxBatchCount, Duration maxGossipDelay) {
+                                     Duration batchInterval, int maxBatchCount, Duration maxGossipDelay,
+                                     int maxPendingBlocks, int maxPendingValidations) {
 
         public static Builder newBuilder() {
             return new Builder();
         }
 
         public static class Builder {
-            private Duration       batchInterval    = Duration.ofMillis(100);
-            private Config.Builder ethereal         = Config.newBuilder();
-            private Duration       gossipDuration   = Duration.ofSeconds(1);
-            private int            maxBatchByteSize = 2 * 1024 * 1024;
-            private int            maxBatchCount    = 10_000;
-            private Duration       maxGossipDelay   = Duration.ofSeconds(10);
+            private Duration       batchInterval          = Duration.ofMillis(100);
+            private Config.Builder ethereal               = Config.newBuilder();
+            private Duration       gossipDuration         = Duration.ofSeconds(1);
+            private int            maxBatchByteSize       = 2 * 1024 * 1024;
+            private int            maxBatchCount          = 10_000;
+            private Duration       maxGossipDelay         = Duration.ofSeconds(10);
+            private int            maxPendingBlocks       = 10_000;  // Default queue capacity
+            private int            maxPendingValidations  = 100_000;  // Default orphan validations capacity
 
             public ProducerParameters build() {
                 return new ProducerParameters(ethereal, gossipDuration, maxBatchByteSize, batchInterval, maxBatchCount,
-                                              maxGossipDelay);
+                                              maxGossipDelay, maxPendingBlocks, maxPendingValidations);
             }
 
             public Duration getBatchInterval() {
@@ -566,6 +597,24 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
 
             public Builder setMaxGossipDelay(Duration maxGossipDelay) {
                 this.maxGossipDelay = maxGossipDelay;
+                return this;
+            }
+
+            public int getMaxPendingBlocks() {
+                return maxPendingBlocks;
+            }
+
+            public Builder setMaxPendingBlocks(int maxPendingBlocks) {
+                this.maxPendingBlocks = maxPendingBlocks;
+                return this;
+            }
+
+            public int getMaxPendingValidations() {
+                return maxPendingValidations;
+            }
+
+            public Builder setMaxPendingValidations(int maxPendingValidations) {
+                this.maxPendingValidations = maxPendingValidations;
                 return this;
             }
         }
@@ -702,6 +751,98 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
         private double                           minFreeMemoryRatio    = 0.15; // 85% used = 15% free threshold
         private int                              maxCachedCheckpoints  = 5;    // Keep last 5 checkpoints in memory
 
+        /**
+         * Create a Parameters.Builder initialized from a ConfigurationProfile.
+         * The profile provides environment-specific defaults which can be overridden
+         * by calling individual setter methods.
+         *
+         * @param profile the configuration profile
+         * @return a builder initialized with profile defaults
+         */
+        public static Builder from(ConfigurationProfile profile) {
+            ProfileValidator.validateOrThrow(profile);
+
+            var builder = new Builder();
+
+            // Map profile timeouts to Parameters timeouts
+            // SessionTimeout maps to submitTimeout
+            builder.setSubmitTimeout(profile.getSessionTimeout());
+
+            // GossipDuration scaled based on profile (faster for test profiles)
+            builder.setGossipDuration(profile.isTest() ?
+                                      Duration.ofMillis(500) : Duration.ofSeconds(1));
+
+            // Synchronization and regeneration cycles based on profile
+            if (profile.isProduction()) {
+                builder.setSynchronizationCycles(15);
+                builder.setRegenerationCycles(30);
+            } else if (profile.isTest()) {
+                builder.setSynchronizationCycles(5);
+                builder.setRegenerationCycles(10);
+            } else {
+                builder.setSynchronizationCycles(10);
+                builder.setRegenerationCycles(20);
+            }
+
+            // Memory management based on profile
+            if (profile.isProduction()) {
+                builder.setMinFreeMemoryRatio(0.10);  // Allow 90% memory use in production
+                builder.setMaxCachedCheckpoints(10);  // More caching for performance
+            } else if (profile.isTest()) {
+                builder.setMinFreeMemoryRatio(0.20);  // Conservative for tests
+                builder.setMaxCachedCheckpoints(3);   // Less caching for test speed
+            } else {
+                builder.setMinFreeMemoryRatio(0.15);  // Default
+                builder.setMaxCachedCheckpoints(5);   // Default
+            }
+
+            // Pending blocks and sync attempts based on profile
+            if (profile.isProduction()) {
+                builder.setMaxPendingBlocks(5000);
+                builder.setMaxSyncAttempts(15);
+            } else if (profile.isTest()) {
+                builder.setMaxPendingBlocks(500);
+                builder.setMaxSyncAttempts(5);
+            } else {
+                builder.setMaxPendingBlocks(1000);
+                builder.setMaxSyncAttempts(10);
+            }
+
+            // Bootstrap parameters based on profile
+            var bootstrapBuilder = BootstrapParameters.newBuilder()
+                .setGossipDuration(builder.getGossipDuration())
+                .setMaxViewBlocks(profile.isTest() ? 50 : 100)
+                .setMaxSyncBlocks(profile.isTest() ? 50 : 100);
+            builder.setBootstrap(bootstrapBuilder.build());
+
+            // Producer parameters based on profile
+            var producerBuilder = ProducerParameters.newBuilder()
+                .setGossipDuration(builder.getGossipDuration())
+                .setBatchInterval(profile.isTest() ? Duration.ofMillis(50) : Duration.ofMillis(100))
+                .setMaxGossipDelay(profile.isTest() ? Duration.ofSeconds(5) : Duration.ofSeconds(10));
+            builder.setProducer(producerBuilder.build());
+
+            // Submit policy (exponential backoff) based on profile
+            var policyBuilder = ExponentialBackoffPolicy.newBuilder();
+            if (profile.isTest()) {
+                policyBuilder.setInitialBackoff(Duration.ofMillis(100))
+                            .setMaxBackoff(Duration.ofSeconds(2))
+                            .setMultiplier(1.5);
+            } else if (profile.isProduction()) {
+                policyBuilder.setInitialBackoff(Duration.ofSeconds(1))
+                            .setMaxBackoff(Duration.ofSeconds(10))
+                            .setMultiplier(2.0);
+            } else {
+                policyBuilder.setInitialBackoff(Duration.ofMillis(500))
+                            .setMaxBackoff(Duration.ofSeconds(5))
+                            .setMultiplier(1.6);
+            }
+            policyBuilder.setJitter(0.2);
+            builder.setSubmitPolicy(policyBuilder);
+
+            return builder;
+        }
+
         public Parameters build(RuntimeParameters runtime) {
             if (maxSyncAttempts < 3) {
                 throw new IllegalArgumentException("maxSyncAttempts must be at least 3 (circuit breaker minimum)");
@@ -735,7 +876,8 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
             clone.setMvBuilder(mvBuilder.clone());
             clone.setProducer(
             new ProducerParameters(producer.ethereal.clone(), producer.gossipDuration, producer.maxBatchByteSize(),
-                                   producer.batchInterval, producer.maxBatchCount(), producer.maxGossipDelay));
+                                   producer.batchInterval, producer.maxBatchCount(), producer.maxGossipDelay,
+                                   producer.maxPendingBlocks(), producer.maxPendingValidations()));
             clone.setTxnLimiterBuilder(txnLimiterBuilder.clone());
             clone.setSubmitPolicy(submitPolicy.clone());
             return clone;

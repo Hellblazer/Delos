@@ -12,7 +12,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.hellblazer.delos.bloomFilters.Hash.DigestHasher;
-import com.hellblazer.delos.choam.CHOAM.TransactionExecutor;
+import com.hellblazer.delos.choam.TransactionExecutor;
 import com.hellblazer.delos.choam.Session;
 import com.hellblazer.delos.choam.proto.Transaction;
 import com.hellblazer.delos.choam.support.CheckpointState;

@@ -58,11 +58,6 @@ public class DynamicTest {
                            .map(ControlledIdentifierMember::new)
                            .map(e -> (Member) e)
                            .toList();
-        members = IntStream.range(0, cardinality)
-                           .mapToObj(_ -> stereotomy.newIdentifier())
-                           .map(ControlledIdentifierMember::new)
-                           .map(e -> (Member) e)
-                           .toList();
         executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
         final var prefix = UUID.randomUUID().toString();
         routers = members.stream()
@@ -221,7 +216,7 @@ public class DynamicTest {
     }
 
     private CHOAM constructCHOAM(SigningMember m, Parameters.Builder params, Context<Member> context) {
-        final CHOAM.TransactionExecutor processor = (index, hash, t, f) -> {
+        final TransactionExecutor processor = (index, hash, t, f) -> {
             if (f != null) {
                 f.completeAsync(Object::new, executor);
             }
@@ -232,6 +227,7 @@ public class DynamicTest {
                                                                   .setMember(m)
                                                                   .setCommunications(routers.get(m))
                                                                   .setProcessor(processor)
+                                                                  .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
                                                                   .setContext(context)
                                                                   .build()));
     }

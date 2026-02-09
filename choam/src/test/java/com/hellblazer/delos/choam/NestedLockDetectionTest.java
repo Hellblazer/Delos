@@ -41,7 +41,7 @@ public class NestedLockDetectionTest {
     /**
      * Test: PendingViews should not have internal locks (after Phase 1).
      *
-     * This test uses reflection to inspect CHOAM.PendingViews class structure and verifies that it has
+     * This test uses reflection to inspect PendingViews class structure and verifies that it has
      * an internal ReadWriteLock field. This proves the nested locking pattern exists.
      *
      * EXPECTED WITH CURRENT CODE: FAIL (internal lock detected, proving nested locking exists)
@@ -50,8 +50,8 @@ public class NestedLockDetectionTest {
     @Test
     public void pendingViewsShouldNotHaveInternalLock() {
         try {
-            // Use reflection to access CHOAM.PendingViews (static inner class)
-            Class<?> pendingViewsClass = Class.forName("com.hellblazer.delos.choam.CHOAM$PendingViews");
+            // Use reflection to access PendingViews (top-level class)
+            Class<?> pendingViewsClass = Class.forName("com.hellblazer.delos.choam.PendingViews");
 
             // Check if PendingViews has a lock field
             Field lockField = null;
@@ -80,7 +80,7 @@ public class NestedLockDetectionTest {
                        "After Phase 1 (ImmutablePendingViews), this test should pass (no lock field).");
 
         } catch (ClassNotFoundException e) {
-            fail("Could not find CHOAM.PendingViews class via reflection. " +
+            fail("Could not find PendingViews class via reflection. " +
                  "This test validates the internal structure of CHOAM.", e);
         }
     }

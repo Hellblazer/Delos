@@ -7,6 +7,7 @@
 package com.hellblazer.delos.examples.multitenant;
 
 import com.hellblazer.delos.choam.CHOAM;
+import com.hellblazer.delos.choam.TransactionExecutor;
 import com.hellblazer.delos.choam.proto.Transaction;
 import com.hellblazer.delos.state.Mutator;
 import com.hellblazer.delos.state.SqlStateMachine;
@@ -257,7 +258,7 @@ public class MultiTenantDemo {
     /**
      * Get the transaction executor for this state machine.
      */
-    public CHOAM.TransactionExecutor getExecutor() {
+    public TransactionExecutor getExecutor() {
         return sqlStateMachine.getExecutor();
     }
 

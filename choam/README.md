@@ -412,21 +412,104 @@ Committee membership for current view.
 - `majority(): int` - Get BFT quorum size (2f+1)
 - `isMember(member: Member): boolean` - Check membership
 
+## Configuration Profiles
+
+CHOAM provides environment-specific configuration profiles to simplify parameter tuning for different deployment scenarios.
+
+### Available Profiles
+
+| Profile | Purpose | Characteristics |
+|---------|---------|-----------------|
+| **DEVELOPMENT** | Local development and debugging | Relaxed timeouts (2x production), verbose logging, small clusters (3-5 nodes) |
+| **PRODUCTION** | Production deployment | Production timeouts, minimal logging, large clusters (7-21 nodes), optimized for throughput |
+| **TEST** | Unit and integration testing | Fast timeouts (0.4-0.5x production), reduced logging, medium clusters (4-7 nodes), optimized for test speed |
+| **BYZANTINE_TEST** | Byzantine fault tolerance testing | Aggressive detection, fault injection enabled, fixed 4-node cluster, verbose logging for Byzantine indicators |
+
+### Profile Selection
+
+Profiles are selected via system property, environment variable, or programmatic API:
+
+```java
+// 1. System property (highest priority)
+// JVM arg: -Dchoam.profile=PRODUCTION
+var profile = ConfigurationProfile.fromEnvironment();
+
+// 2. Environment variable
+// Shell: export CHOAM_PROFILE=PRODUCTION
+var profile = ConfigurationProfile.fromEnvironment();
+
+// 3. Programmatic (explicit selection)
+var profile = ConfigurationProfile.PRODUCTION;
+
+// 4. Default (no configuration)
+// Defaults to TEST for safety
+var profile = ConfigurationProfile.fromEnvironment();  // Returns TEST
+```
+
+### Using Profiles with Parameters
+
+```java
+// Start with profile defaults, then customize
+Parameters.Builder builder = Parameters.Builder.from(ConfigurationProfile.PRODUCTION)
+    .setCheckpointInterval(1000)      // Override specific parameters
+    .setViewRotationInterval(100);
+
+// Build with runtime parameters
+Parameters params = builder.build(runtimeParams);
+```
+
+### Profile Timeout Mapping
+
+| Profile | Session Timeout | Sync Cycles | Memory Usage | Pending Blocks |
+|---------|-----------------|-------------|--------------|----------------|
+| DEVELOPMENT | 120s | 10 | 85% | 1,000 |
+| PRODUCTION | 60s | 15 | 90% | 5,000 |
+| TEST | 30s | 5 | 80% | 500 |
+| BYZANTINE_TEST | 30s | 5 | 80% | 500 |
+
+### Profile Validation
+
+All profiles are validated against Byzantine fault tolerance constraints:
+
+```java
+// Validate profile before use (automatic in Parameters.Builder.from())
+ProfileValidator.validateOrThrow(profile);
+
+// Or get validation result
+var result = ProfileValidator.validate(profile);
+if (!result.isValid()) {
+    System.err.println("Profile violations: " + result.getViolationSummary());
+}
+```
+
+### Byzantine Fault Tolerance Helpers
+
+```java
+// Calculate maximum Byzantine faults for cluster size
+int f = ProfileValidator.maxByzantineFaults(7);  // Returns 2 (7 = 3×2+1)
+
+// Calculate minimum cluster size for fault tolerance
+int n = ProfileValidator.minClusterSize(2);  // Returns 7 (for f=2)
+
+// Check if cluster size satisfies tolerance
+boolean ok = ProfileValidator.satisfiesByzantineTolerance(7, 2);  // true
+```
+
 ## Usage Examples
 
-### 1. Start CHOAM Node
+### 1. Start CHOAM Node with Profile
 
 ```java
 // Prerequisites: Fireflies membership, Ethereal consensus
 Context<Member> context = fireflies.currentView().getContext();
 Ethereal ethereal = new Ethereal(params, identifier, context, router, metrics);
 
-// Create CHOAM parameters
-Parameters params = Parameters.newBuilder()
-    .setCommitteeSize(7)
+// Create CHOAM parameters from production profile
+var profile = ConfigurationProfile.fromEnvironment();  // Reads CHOAM_PROFILE env var
+Parameters params = Parameters.Builder.from(profile)
     .setCheckpointInterval(1000)  // Checkpoint every 1000 blocks
     .setViewRotationInterval(100) // Rotate every 100 blocks
-    .build();
+    .build(runtimeParams);
 
 // Create and start CHOAM
 CHOAM choam = new CHOAM(
@@ -441,7 +524,34 @@ CHOAM choam = new CHOAM(
 choam.start();
 ```
 
-### 2. Submit Client Transactions
+### 2. Start CHOAM Node (Legacy)
+
+```java
+// Prerequisites: Fireflies membership, Ethereal consensus
+Context<Member> context = fireflies.currentView().getContext();
+Ethereal ethereal = new Ethereal(params, identifier, context, router, metrics);
+
+// Create CHOAM parameters manually (not using profiles)
+Parameters params = Parameters.newBuilder()
+    .setCommitteeSize(7)
+    .setCheckpointInterval(1000)  // Checkpoint every 1000 blocks
+    .setViewRotationInterval(100) // Rotate every 100 blocks
+    .build(runtimeParams);
+
+// Create and start CHOAM
+CHOAM choam = new CHOAM(
+    params,
+    identifier,
+    context,
+    ethereal,
+    router,
+    metrics
+);
+
+choam.start();
+```
+
+### 3. Submit Client Transactions
 
 ```java
 // Get session
@@ -468,7 +578,7 @@ session.submitBatch(batch).thenAccept(results -> {
 });
 ```
 
-### 3. Subscribe to Block Stream
+### 4. Subscribe to Block Stream
 
 ```java
 // Process all blocks as they're produced
@@ -489,7 +599,7 @@ choam.blocks().subscribe(block -> {
 });
 ```
 
-### 4. Monitor Committee Changes
+### 5. Monitor Committee Changes
 
 ```java
 // Subscribe to view changes
@@ -501,7 +611,7 @@ choam.views().subscribe(view -> {
 });
 ```
 
-### 5. Handle Checkpoints
+### 6. Handle Checkpoints
 
 ```java
 // Subscribe to checkpoint events
