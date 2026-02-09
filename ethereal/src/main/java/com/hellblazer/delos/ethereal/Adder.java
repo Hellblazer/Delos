@@ -55,8 +55,17 @@ import static com.hellblazer.delos.ethereal.PreUnit.id;
  *       previously processed without requiring expensive map lookups. Reduces replay check overhead
  *       from O(n) to O(1) expected time.</li>
  *   <li><b>Bounded Signature Caches</b>: The {@code signedCommits} and {@code signedPrevotes} maps
- *       use bounded LRU caches (size: {@value DEFAULT_CACHE_SIZE}) to prevent Byzantine DoS attacks
- *       via signature flooding. Attackers cannot exhaust memory by replaying signatures.</li>
+ *       use bounded LRU caches (default: {@value DEFAULT_CACHE_SIZE}, configurable via
+ *       {@link Config#replayCacheSize()}) to prevent Byzantine DoS attacks via signature flooding.
+ *       Attackers cannot exhaust memory by replaying signatures. Cache size can be tuned based on
+ *       deployment characteristics:
+ *       <ul>
+ *         <li><b>Small deployments</b> (4-10 nodes, low throughput): 1,000-5,000 entries</li>
+ *         <li><b>Medium deployments</b> (10-50 nodes, moderate throughput): 10,000-50,000 entries (default)</li>
+ *         <li><b>Large deployments</b> (50+ nodes, high throughput): 50,000-100,000 entries</li>
+ *       </ul>
+ *       The cache size should accommodate approximately 2-3 epochs worth of signatures to prevent
+ *       false evictions during normal operation. Each entry is ~100 bytes (digest + signature).</li>
  *   <li><b>Cascade Failure Recovery</b>: The {@code transientFailures} map tracks units with
  *       temporary issues (missing parents, network delays) separately from permanent Byzantine
  *       failures. Prevents cascading rejections of valid units during transient network partitions.</li>
@@ -152,8 +161,9 @@ public class Adder {
         this.metrics = metrics;
 
         // CRITICAL (Delos-0s4b): Initialize bounded LRU caches to prevent Byzantine DoS
-        this.signedCommits = new BoundedLRUCache<>(DEFAULT_CACHE_SIZE);
-        this.signedPrevotes = new BoundedLRUCache<>(DEFAULT_CACHE_SIZE);
+        // Use configurable cache size (Delos-9piy) - allows tuning for deployment scenarios
+        this.signedCommits = new BoundedLRUCache<>(conf.replayCacheSize());
+        this.signedPrevotes = new BoundedLRUCache<>(conf.replayCacheSize());
     }
 
     public static Signed<SignedCommit> commit(final Long id, final Digest hash, final short pid, Signer signer,
