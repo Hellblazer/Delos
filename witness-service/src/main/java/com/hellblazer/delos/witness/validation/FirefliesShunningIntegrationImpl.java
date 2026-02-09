@@ -10,6 +10,7 @@ package com.hellblazer.delos.witness.validation;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
+import com.hellblazer.delos.witness.detection.ByzantineDetectionMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,6 +49,7 @@ public class FirefliesShunningIntegrationImpl implements FirefliesShunningIntegr
 
     private final FirefliesViewAdapter viewAdapter;
     private final Set<Digest> localShunnedMembers;
+    private final ByzantineDetectionMetrics metrics;
 
     /**
      * Create integration with Fireflies View adapter.
@@ -59,8 +61,24 @@ public class FirefliesShunningIntegrationImpl implements FirefliesShunningIntegr
      * @throws NullPointerException if viewAdapter is null
      */
     public FirefliesShunningIntegrationImpl(FirefliesViewAdapter viewAdapter) {
+        this(viewAdapter, null);
+    }
+
+    /**
+     * Create integration with Fireflies View adapter and metrics tracking.
+     * <p>
+     * The adapter wraps the actual Fireflies View and provides
+     * a shunMember() method for Byzantine member shunning.
+     * Metrics are updated when members are shunned.
+     *
+     * @param viewAdapter Fireflies View adapter
+     * @param metrics Byzantine detection metrics (optional, can be null)
+     * @throws NullPointerException if viewAdapter is null
+     */
+    public FirefliesShunningIntegrationImpl(FirefliesViewAdapter viewAdapter, ByzantineDetectionMetrics metrics) {
         this.viewAdapter = Objects.requireNonNull(viewAdapter, "viewAdapter cannot be null");
         this.localShunnedMembers = ConcurrentHashMap.newKeySet();
+        this.metrics = metrics;
     }
 
     /**
@@ -101,6 +119,11 @@ public class FirefliesShunningIntegrationImpl implements FirefliesShunningIntegr
                     // Track locally on success
                     localShunnedMembers.add(digest);
                     log.info("Successfully marked member for shunning: {}", memberId);
+
+                    // Update metrics if available
+                    if (metrics != null) {
+                        metrics.setBlacklistedCreatorsCount(localShunnedMembers.size());
+                    }
                 }
             });
     }

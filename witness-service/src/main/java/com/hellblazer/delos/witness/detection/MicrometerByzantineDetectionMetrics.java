@@ -83,6 +83,10 @@ public class MicrometerByzantineDetectionMetrics implements ByzantineDetectionMe
     // Alerting metrics
     private static final String THRESHOLD_BREACH = PREFIX + "threshold.breach";
 
+    // Performance metrics (Phase 1C - Delos-dmve)
+    private static final String LIVENESS_TIMEOUT = PREFIX + "liveness.timeout";
+    private static final String BLACKLISTED_CREATORS = PREFIX + "blacklisted.creators";
+
     // Key rotation metrics (Phase 1C-3-A)
     private static final String ROTATION_INITIATED = PREFIX + "rotation.initiated";
     private static final String ROTATIONS_IN_PROGRESS = PREFIX + "rotation.in_progress";
@@ -121,6 +125,10 @@ public class MicrometerByzantineDetectionMetrics implements ByzantineDetectionMe
     private final AtomicReference<Double> consensusImpactValue = new AtomicReference<>(0.0);
     private final Timer falseAlarmDurationTimer;
     private final Timer timeToClearAnomaliesTimer;
+
+    // Performance metrics (Phase 1C - Delos-dmve)
+    private final Counter livenessTimeoutCounter;
+    private final AtomicInteger blacklistedCreatorsValue = new AtomicInteger(0);
 
     // Key rotation metrics (Phase 1C-3-A)
     private final Counter rotationInitiatedCounter;
@@ -298,6 +306,15 @@ public class MicrometerByzantineDetectionMetrics implements ByzantineDetectionMe
             .description("Time to clear all anomalies from first detection")
             .register(registry);
 
+        // Performance metrics (Phase 1C - Delos-dmve)
+        this.livenessTimeoutCounter = Counter.builder(LIVENESS_TIMEOUT)
+            .description("Liveness timeout events in Ethereal consensus")
+            .register(registry);
+
+        Gauge.builder(BLACKLISTED_CREATORS, blacklistedCreatorsValue, AtomicInteger::get)
+            .description("Number of creators blacklisted for equivocation")
+            .register(registry);
+
         // Key rotation metrics (Phase 1C-3-A)
         this.rotationInitiatedCounter = Counter.builder(ROTATION_INITIATED)
             .description("Key rotation initiations")
@@ -369,6 +386,7 @@ public class MicrometerByzantineDetectionMetrics implements ByzantineDetectionMe
         activeQuarantinesValue.set(0);
         membersExcludedValue.set(0);
         consensusImpactValue.set(0.0);
+        blacklistedCreatorsValue.set(0);
 
         // Reset rotation state tracking
         rotationsInProgressValue.set(0);
@@ -821,5 +839,32 @@ public class MicrometerByzantineDetectionMetrics implements ByzantineDetectionMe
 
         var counter = graceNewSignatureCounters.get(rotationId);
         return counter != null ? counter.get() : 0L;
+    }
+
+    // ===========================
+    // Performance Metrics (Phase 1C - Delos-dmve)
+    // ===========================
+
+    @Override
+    public void recordLivenessTimeout() {
+        livenessTimeoutCounter.increment();
+    }
+
+    @Override
+    public void setBlacklistedCreatorsCount(int count) {
+        if (count < 0) {
+            throw new IllegalArgumentException("Count cannot be negative: " + count);
+        }
+        blacklistedCreatorsValue.set(count);
+    }
+
+    @Override
+    public long getLivenessTimeoutsTriggered() {
+        return (long) livenessTimeoutCounter.count();
+    }
+
+    @Override
+    public int getBlacklistedCreatorsCount() {
+        return blacklistedCreatorsValue.get();
     }
 }
