@@ -65,6 +65,126 @@ public interface Oracle {
      */
     CompletableFuture<ULong> add(Subject subject);
 
+    // ==================== Batch Operations API ====================
+
+    /**
+     * Add multiple Assertions in a single batch operation.
+     * The subjects and objects of the assertions will also be added if they do not exist.
+     * This is more efficient than calling add() multiple times.
+     *
+     * @param assertions the list of assertions to add
+     * @return the future returning a list of Asserted results for each assertion
+     */
+    default CompletableFuture<List<Asserted>> batchAdd(List<Assertion> assertions) {
+        throw new UnsupportedOperationException("Batch add assertions not implemented");
+    }
+
+    /**
+     * Add multiple Subjects in a single batch operation.
+     *
+     * @param subjects the list of subjects to add
+     * @return the future returning the time value when all subjects are committed
+     */
+    default CompletableFuture<ULong> batchAddSubjects(List<Subject> subjects) {
+        throw new UnsupportedOperationException("Batch add subjects not implemented");
+    }
+
+    /**
+     * Add multiple Objects in a single batch operation.
+     *
+     * @param objects the list of objects to add
+     * @return the future returning the time value when all objects are committed
+     */
+    default CompletableFuture<ULong> batchAddObjects(List<Object> objects) {
+        throw new UnsupportedOperationException("Batch add objects not implemented");
+    }
+
+    /**
+     * Add multiple Relations in a single batch operation.
+     *
+     * @param relations the list of relations to add
+     * @return the future returning the time value when all relations are committed
+     */
+    default CompletableFuture<ULong> batchAddRelations(List<Relation> relations) {
+        throw new UnsupportedOperationException("Batch add relations not implemented");
+    }
+
+    /**
+     * Delete multiple Assertions in a single batch operation.
+     * Only the assertions are deleted, not the subjects nor objects.
+     *
+     * @param assertions the list of assertions to delete
+     * @return the future returning the time value when all deletions are committed
+     */
+    default CompletableFuture<ULong> batchDelete(List<Assertion> assertions) {
+        throw new UnsupportedOperationException("Batch delete assertions not implemented");
+    }
+
+    /**
+     * Delete multiple Assertions in a single batch operation (alias for batchDelete).
+     *
+     * @param assertions the list of assertions to delete
+     * @return the future returning the time value when all deletions are committed
+     */
+    default CompletableFuture<ULong> batchDeleteAssertions(List<Assertion> assertions) {
+        return batchDelete(assertions);
+    }
+
+    /**
+     * Delete multiple Subjects in a single batch operation.
+     * All dependent uses of the subjects (mappings and Assertions) are removed as well.
+     *
+     * @param subjects the list of subjects to delete
+     * @return the future returning the time value when all deletions are committed
+     */
+    default CompletableFuture<ULong> batchDeleteSubjects(List<Subject> subjects) {
+        throw new UnsupportedOperationException("Batch delete subjects not implemented");
+    }
+
+    /**
+     * Delete multiple Objects in a single batch operation.
+     * All dependent uses of the objects (mappings and Assertions) are removed as well.
+     *
+     * @param objects the list of objects to delete
+     * @return the future returning the time value when all deletions are committed
+     */
+    default CompletableFuture<ULong> batchDeleteObjects(List<Object> objects) {
+        throw new UnsupportedOperationException("Batch delete objects not implemented");
+    }
+
+    /**
+     * Delete multiple Relations in a single batch operation.
+     * All dependent uses of the relations (mappings, Subjects, Objects and Assertions) are removed as well.
+     *
+     * @param relations the list of relations to delete
+     * @return the future returning the time value when all deletions are committed
+     */
+    default CompletableFuture<ULong> batchDeleteRelations(List<Relation> relations) {
+        throw new UnsupportedOperationException("Batch delete relations not implemented");
+    }
+
+    /**
+     * Check multiple assertions at the current time in a single batch operation.
+     * This is more efficient than calling check() multiple times.
+     *
+     * @param assertions the list of assertions to check
+     * @return a list of boolean results, one for each assertion
+     */
+    default List<Boolean> batchCheck(List<Assertion> assertions) throws SQLException {
+        throw new UnsupportedOperationException("Batch check not implemented");
+    }
+
+    /**
+     * Check multiple assertions at a specific timestamp in a single batch operation.
+     *
+     * @param assertions the list of assertions to check
+     * @param valid the timestamp at which to check validity
+     * @return a list of boolean results, one for each assertion
+     */
+    default List<Boolean> batchCheck(List<Assertion> assertions, ULong valid) throws SQLException {
+        throw new UnsupportedOperationException("Batch check with timestamp not implemented");
+    }
+
     /**
      * Check the assertion is true at the valid time
      *
