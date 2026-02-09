@@ -58,9 +58,7 @@ public class DirectOracle extends AbstractOracle {
         if (added) {
             fireEvent(WatchEvent.assertionAdd(timestamp, assertion));
         }
-        var fs = new CompletableFuture<Asserted>();
-        fs.complete(new Asserted(timestamp, added));
-        return fs;
+        return CompletableFuture.completedFuture(new Asserted(timestamp, added));
     }
 
     /**
@@ -70,9 +68,7 @@ public class DirectOracle extends AbstractOracle {
         dslCtx.transaction(ctx -> {
             add(DSL.using(ctx), namespace);
         });
-        var fs = new CompletableFuture<ULong>();
-        fs.complete(clock.get());
-        return fs;
+        return CompletableFuture.completedFuture(clock.get());
     }
 
     /**
@@ -82,9 +78,7 @@ public class DirectOracle extends AbstractOracle {
         dslCtx.transaction(ctx -> {
             add(DSL.using(ctx), object);
         });
-        var fs = new CompletableFuture<ULong>();
-        fs.complete(clock.get());
-        return fs;
+        return CompletableFuture.completedFuture(clock.get());
     }
 
     /**
@@ -94,9 +88,7 @@ public class DirectOracle extends AbstractOracle {
         dslCtx.transaction(ctx -> {
             add(DSL.using(ctx), relation);
         });
-        var fs = new CompletableFuture<ULong>();
-        fs.complete(clock.get());
-        return fs;
+        return CompletableFuture.completedFuture(clock.get());
     }
 
     /**
@@ -106,9 +98,7 @@ public class DirectOracle extends AbstractOracle {
         dslCtx.transaction(ctx -> {
             add(DSL.using(ctx), subject);
         });
-        var fs = new CompletableFuture<ULong>();
-        fs.complete(clock.get());
-        return fs;
+        return CompletableFuture.completedFuture(clock.get());
     }
 
     @Override
@@ -167,9 +157,7 @@ public class DirectOracle extends AbstractOracle {
             delete(DSL.using(ctx), assertion, timestamp.longValue());
         });
         fireEvent(WatchEvent.assertionDelete(timestamp, assertion));
-        var fs = new CompletableFuture<ULong>();
-        fs.complete(timestamp);
-        return fs;
+        return CompletableFuture.completedFuture(timestamp);
     }
 
     /**
@@ -183,9 +171,7 @@ public class DirectOracle extends AbstractOracle {
             delete(DSL.using(ctx), namespace);
         });
         fireEvent(WatchEvent.namespaceDelete(timestamp, namespace));
-        var fs = new CompletableFuture<ULong>();
-        fs.complete(timestamp);
-        return fs;
+        return CompletableFuture.completedFuture(timestamp);
     }
 
     /**
@@ -197,9 +183,7 @@ public class DirectOracle extends AbstractOracle {
             delete(DSL.using(ctx), object);
         });
         fireEvent(WatchEvent.objectDelete(timestamp, object));
-        var fs = new CompletableFuture<ULong>();
-        fs.complete(timestamp);
-        return fs;
+        return CompletableFuture.completedFuture(timestamp);
     }
 
     /**
@@ -212,9 +196,7 @@ public class DirectOracle extends AbstractOracle {
             delete(DSL.using(ctx), relation);
         });
         fireEvent(WatchEvent.relationDelete(timestamp, relation));
-        var fs = new CompletableFuture<ULong>();
-        fs.complete(timestamp);
-        return fs;
+        return CompletableFuture.completedFuture(timestamp);
     }
 
     /**
@@ -226,9 +208,7 @@ public class DirectOracle extends AbstractOracle {
             delete(DSL.using(ctx), subject);
         });
         fireEvent(WatchEvent.subjectDelete(timestamp, subject));
-        var fs = new CompletableFuture<ULong>();
-        fs.complete(timestamp);
-        return fs;
+        return CompletableFuture.completedFuture(timestamp);
     }
 
     /**
@@ -240,9 +220,7 @@ public class DirectOracle extends AbstractOracle {
             map(parent, DSL.using(ctx), child);
         });
         fireEvent(WatchEvent.objectMap(timestamp, parent, child));
-        var fs = new CompletableFuture<ULong>();
-        fs.complete(timestamp);
-        return fs;
+        return CompletableFuture.completedFuture(timestamp);
     }
 
     /**
@@ -254,9 +232,7 @@ public class DirectOracle extends AbstractOracle {
             map(parent, DSL.using(ctx), child);
         });
         fireEvent(WatchEvent.relationMap(timestamp, parent, child));
-        var fs = new CompletableFuture<ULong>();
-        fs.complete(timestamp);
-        return fs;
+        return CompletableFuture.completedFuture(timestamp);
     }
 
     /**
@@ -268,9 +244,7 @@ public class DirectOracle extends AbstractOracle {
             map(parent, DSL.using(ctx), child);
         });
         fireEvent(WatchEvent.subjectMap(timestamp, parent, child));
-        var fs = new CompletableFuture<ULong>();
-        fs.complete(timestamp);
-        return fs;
+        return CompletableFuture.completedFuture(timestamp);
     }
 
     /**
@@ -282,9 +256,7 @@ public class DirectOracle extends AbstractOracle {
             remove(parent, DSL.using(ctx), child);
         });
         fireEvent(WatchEvent.objectUnmap(timestamp, parent, child));
-        var fs = new CompletableFuture<ULong>();
-        fs.complete(timestamp);
-        return fs;
+        return CompletableFuture.completedFuture(timestamp);
     }
 
     /**
@@ -296,9 +268,7 @@ public class DirectOracle extends AbstractOracle {
             remove(parent, DSL.using(ctx), child);
         });
         fireEvent(WatchEvent.relationUnmap(timestamp, parent, child));
-        var fs = new CompletableFuture<ULong>();
-        fs.complete(timestamp);
-        return fs;
+        return CompletableFuture.completedFuture(timestamp);
     }
 
     /**
@@ -310,9 +280,7 @@ public class DirectOracle extends AbstractOracle {
             remove(parent, DSL.using(ctx), child);
         });
         fireEvent(WatchEvent.subjectUnmap(timestamp, parent, child));
-        var fs = new CompletableFuture<ULong>();
-        fs.complete(timestamp);
-        return fs;
+        return CompletableFuture.completedFuture(timestamp);
     }
 
     // ==================== Watch API Implementation ====================
