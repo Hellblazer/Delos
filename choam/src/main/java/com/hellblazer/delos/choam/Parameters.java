@@ -47,6 +47,29 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
+ * @param runtime               runtime parameters including member, communications, processor
+ * @param combine               bounded epidemic gossip parameters
+ * @param gossipDuration        duration for gossip rounds
+ * @param maxCheckpointSegments maximum number of checkpoint segments
+ * @param submitTimeout         timeout for transaction submission
+ * @param genesisViewId         initial view identifier
+ * @param checkpointBlockDelta  checkpoint frequency in blocks (1-100000, default: 10)
+ * @param crowns                number of crowns for HexBloom
+ * @param digestAlgorithm       digest algorithm for hashing
+ * @param viewSigAlgorithm      signature algorithm for view consensus keys
+ * @param synchronizationCycles number of synchronization cycles
+ * @param regenerationCycles    number of regeneration cycles
+ * @param bootstrap             bootstrap parameters
+ * @param producer              producer parameters
+ * @param mvBuilder             MVStore builder configuration
+ * @param txnLimiterBuilder     transaction rate limiter builder
+ * @param submitPolicy          exponential backoff policy for submissions
+ * @param checkpointSegmentSize checkpoint segment size in bytes
+ * @param generateGenesis       whether to generate genesis block
+ * @param maxPendingBlocks      maximum pending blocks in queue
+ * @param maxSyncAttempts       maximum synchronization attempts
+ * @param minFreeMemoryRatio    minimum free memory ratio for reconfiguration
+ * @param maxCachedCheckpoints  maximum cached checkpoints in memory
  * @author hal.hildebrand
  */
 public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGossip.Parameters combine,
@@ -722,6 +745,10 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
     public static class Builder implements Cloneable {
 
         private BootstrapParameters              bootstrap             = BootstrapParameters.newBuilder().build();
+        /**
+         * Checkpoint frequency in blocks. Default: 10 (balanced for most workloads).
+         * Range: 1-100000. See {@link #setCheckpointBlockDelta(int)} for tuning guidance.
+         */
         private int                              checkpointBlockDelta  = 10;
         private int                              checkpointSegmentSize = 8192;
         private BoundedEpidemicGossip.Parameters   combine               = BoundedEpidemicGossip.Parameters.newBuilder()
@@ -896,7 +923,53 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
             return checkpointBlockDelta;
         }
 
+        /**
+         * Sets the checkpoint frequency in blocks.
+         * <p>
+         * Controls how often CHOAM creates checkpoints for state recovery. A checkpoint is created
+         * every N blocks where N is the checkpointBlockDelta value. The countdown starts from the
+         * initial value and decrements with each reconfigure block. When it reaches 0, a checkpoint
+         * is created and the counter resets.
+         * <p>
+         * <b>Tuning Guidance:</b>
+         * <ul>
+         *   <li><b>High Frequency (1-10 blocks):</b> Faster recovery, higher I/O overhead.
+         *       Recommended for high-value transactions or frequent restarts.</li>
+         *   <li><b>Standard (10-100 blocks):</b> Balanced trade-off (default: 10).
+         *       Suitable for most production workloads.</li>
+         *   <li><b>Low Frequency (100-1000 blocks):</b> Lower I/O overhead, slower recovery.
+         *       Suitable for write-heavy workloads with stable clusters.</li>
+         *   <li><b>Very Low Frequency (1000-100000 blocks):</b> Minimal I/O, very slow recovery.
+         *       Only for scenarios where checkpointing is expensive and recovery is rare.</li>
+         * </ul>
+         * <p>
+         * <b>Constraints:</b>
+         * <ul>
+         *   <li>Minimum: 1 (checkpoint every block - high overhead but instant recovery)</li>
+         *   <li>Maximum: 100,000 (prevents excessive memory usage between checkpoints)</li>
+         * </ul>
+         * <p>
+         * <b>Trade-offs:</b>
+         * <ul>
+         *   <li><b>Too Frequent:</b> Increased I/O load, slower block production, higher storage costs</li>
+         *   <li><b>Too Infrequent:</b> Longer recovery time, higher memory usage, larger replay log</li>
+         * </ul>
+         *
+         * @param checkpointBlockDelta frequency in blocks (1-100000)
+         * @return this builder
+         * @throws IllegalArgumentException if value is < 1 or > 100000
+         */
         public Builder setCheckpointBlockDelta(int checkpointBlockDelta) {
+            if (checkpointBlockDelta < 1) {
+                throw new IllegalArgumentException(
+                "checkpointBlockDelta must be at least 1 to prevent invalid configuration, got: "
+                + checkpointBlockDelta);
+            }
+            if (checkpointBlockDelta > 100000) {
+                throw new IllegalArgumentException(
+                "checkpointBlockDelta must be <= 100000 to prevent excessive memory usage, got: "
+                + checkpointBlockDelta);
+            }
             this.checkpointBlockDelta = checkpointBlockDelta;
             return this;
         }
