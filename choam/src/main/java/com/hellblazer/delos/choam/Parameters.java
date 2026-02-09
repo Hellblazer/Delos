@@ -68,8 +68,9 @@ import java.util.function.Supplier;
  * @param generateGenesis       whether to generate genesis block
  * @param maxPendingBlocks      maximum pending blocks in queue
  * @param maxSyncAttempts       maximum synchronization attempts
- * @param minFreeMemoryRatio    minimum free memory ratio for reconfiguration
- * @param maxCachedCheckpoints  maximum cached checkpoints in memory
+ * @param minFreeMemoryRatio       minimum free memory ratio for reconfiguration
+ * @param maxCachedCheckpoints     maximum cached checkpoints in memory
+ * @param asyncCheckpointCreation  whether to create checkpoints in background thread
  * @author hal.hildebrand
  */
 public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGossip.Parameters combine,
@@ -80,7 +81,7 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
                          Parameters.MvStoreBuilder mvBuilder, Parameters.LimiterBuilder txnLimiterBuilder,
                          ExponentialBackoffPolicy.Builder submitPolicy, int checkpointSegmentSize,
                          boolean generateGenesis, int maxPendingBlocks, int maxSyncAttempts,
-                         double minFreeMemoryRatio, int maxCachedCheckpoints) {
+                         double minFreeMemoryRatio, int maxCachedCheckpoints, boolean asyncCheckpointCreation) {
 
     public static Builder newBuilder() {
         return new Builder();
@@ -774,9 +775,10 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
         private int                              crowns                = 2;
         private boolean                          generateGenesis       = false;
         private int                              maxPendingBlocks      = 1000;
-        private int                              maxSyncAttempts       = 10;
-        private double                           minFreeMemoryRatio    = 0.15; // 85% used = 15% free threshold
-        private int                              maxCachedCheckpoints  = 5;    // Keep last 5 checkpoints in memory
+        private int                              maxSyncAttempts          = 10;
+        private double                           minFreeMemoryRatio       = 0.15; // 85% used = 15% free threshold
+        private int                              maxCachedCheckpoints     = 5;    // Keep last 5 checkpoints in memory
+        private boolean                          asyncCheckpointCreation  = false; // Default: synchronous for backward compatibility
 
         /**
          * Create a Parameters.Builder initialized from a ConfigurationProfile.
@@ -889,7 +891,8 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
                                   checkpointBlockDelta, crowns, digestAlgorithm, viewSigAlgorithm,
                                   synchronizationCycles, regenerationCycles, bootstrap, producer, mvBuilder,
                                   txnLimiterBuilder, submitPolicy, checkpointSegmentSize, generateGenesis,
-                                  maxPendingBlocks, maxSyncAttempts, minFreeMemoryRatio, maxCachedCheckpoints);
+                                  maxPendingBlocks, maxSyncAttempts, minFreeMemoryRatio, maxCachedCheckpoints,
+                                  asyncCheckpointCreation);
         }
 
         @Override
@@ -996,8 +999,9 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
             return crowns;
         }
 
-        public void setCrowns(int crowns) {
+        public Builder setCrowns(int crowns) {
             this.crowns = crowns;
+            return this;
         }
 
         public DigestAlgorithm getDigestAlgorithm() {
@@ -1170,6 +1174,40 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
                 "maxCachedCheckpoints must be in range [1, 100], got: " + maxCachedCheckpoints);
             }
             this.maxCachedCheckpoints = maxCachedCheckpoints;
+            return this;
+        }
+
+        public boolean isAsyncCheckpointCreation() {
+            return asyncCheckpointCreation;
+        }
+
+        /**
+         * Sets whether checkpoints should be created in a background thread.
+         * <p>
+         * When enabled, checkpoint serialization and I/O operations occur on a dedicated
+         * background thread, reducing latency impact on transaction processing.
+         * <p>
+         * <b>Benefits:</b>
+         * <ul>
+         *   <li>Reduced transaction processing latency during checkpointing</li>
+         *   <li>Non-blocking checkpoint creation</li>
+         *   <li>Better throughput under high transaction load</li>
+         * </ul>
+         * <p>
+         * <b>Trade-offs:</b>
+         * <ul>
+         *   <li>Checkpoint completion is asynchronous (not immediately available)</li>
+         *   <li>Requires proper thread coordination and cleanup</li>
+         *   <li>Small additional memory overhead for executor thread</li>
+         * </ul>
+         * <p>
+         * Default: false (synchronous for backward compatibility)
+         *
+         * @param asyncCheckpointCreation true to enable background checkpointing
+         * @return this builder
+         */
+        public Builder setAsyncCheckpointCreation(boolean asyncCheckpointCreation) {
+            this.asyncCheckpointCreation = asyncCheckpointCreation;
             return this;
         }
     }
