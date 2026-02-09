@@ -157,6 +157,37 @@ public class GorgoneionClientTest {
     }
 
     @Test
+    public void testCredentialsFailureReturnsFailure() {
+        var entropy = new SecureRandom();
+        entropy.setSeed(new byte[] { 8, 8, 8 });
+        final var kerl = new MemKERL(DigestAlgorithm.DEFAULT);
+        var stereotomy = new StereotomyImpl(new MemKeyStore(), kerl, entropy);
+        var client = new ControlledIdentifierMember(stereotomy.newIdentifier());
+
+        // Mock Admissions to return a valid nonce (default instance is sufficient for this test)
+        var admissions = mock(Admissions.class);
+        var mockNonce = SignedNonce.getDefaultInstance();
+        Mockito.when(admissions.apply(Mockito.any(), Mockito.any())).thenReturn(mockNonce);
+
+        // Mock attester to throw exception (simulates credentials() failure)
+        var attesterException = new RuntimeException("Attester unavailable");
+        Function<SignedNonce, Any> attester = _ -> {
+            throw attesterException;
+        };
+        final var parameters = Parameters.newBuilder().setKerl(kerl).build();
+
+        var gorgoneionClient = new GorgoneionClient(client, attester, parameters.clock(), admissions);
+
+        // Should return Failure when credentials() throws
+        var result = gorgoneionClient.apply(Duration.ofSeconds(1));
+
+        assertInstanceOf(BootstrapResult.Failure.class, result);
+        var failure = (BootstrapResult.Failure) result;
+        assertEquals(attesterException, failure.cause(),
+                     "Failure should contain the original attester exception");
+    }
+
+    @Test
     public void multiSmoke() throws Exception {
         var entropy = SecureRandom.getInstance("SHA1PRNG");
         entropy.setSeed(new byte[] { 6, 6, 6 });

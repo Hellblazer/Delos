@@ -31,11 +31,30 @@ public class GorgoneionClient {
     private final ControlledIdentifierMember member;
     private final PublicKey_                 sessionKey;
 
+    /**
+     * Create a GorgoneionClient for identity registration and admission.
+     *
+     * @param member The controlled identifier member attempting to register
+     * @param attester Function to generate attestation proof from nonce.
+     *                 Must be idempotent - may be called multiple times with the same nonce during retry scenarios.
+     * @param clock Clock for timestamp generation
+     * @param client Admissions communication client
+     */
     public GorgoneionClient(ControlledIdentifierMember member, Function<SignedNonce, Any> attester, Clock clock,
                             Admissions client) {
         this(member, attester, clock, client, null);
     }
 
+    /**
+     * Create a GorgoneionClient with an optional session key.
+     *
+     * @param member The controlled identifier member attempting to register
+     * @param attester Function to generate attestation proof from nonce.
+     *                 Must be idempotent - may be called multiple times with the same nonce during retry scenarios.
+     * @param clock Clock for timestamp generation
+     * @param client Admissions communication client
+     * @param sessionKey Optional session public key for secure communication
+     */
     public GorgoneionClient(ControlledIdentifierMember member, Function<SignedNonce, Any> attester, Clock clock,
                             Admissions client, PublicKey_ sessionKey) {
         this.member = member;
@@ -45,6 +64,26 @@ public class GorgoneionClient {
         this.sessionKey = sessionKey;
     }
 
+    /**
+     * Execute the two-phase bootstrap process: nonce acquisition followed by credential registration.
+     * <p>
+     * Phase 1: Apply for a signed nonce from the admission server using the member's KERL.
+     * Phase 2: Create credentials from the nonce and attester proof, then register with the server.
+     * <p>
+     * Result variants:
+     * - {@link BootstrapResult.Success}: Both phases completed successfully. Use establishment to integrate.
+     * - {@link BootstrapResult.PartialSuccess}: Nonce acquired but registration failed. Contains credentials
+     *   for retry via {@link #retryRegistration(Credentials, Duration)}.
+     * - {@link BootstrapResult.Failure}: Either phase failed completely. Retry the entire process.
+     * <p>
+     * Recommended retry strategy:
+     * 1. On Failure: Retry apply() with exponential backoff (network/server issues)
+     * 2. On PartialSuccess: Retry retryRegistration() (avoids generating a new nonce)
+     * 3. On Success: Proceed with establishment integration
+     *
+     * @param timeout Maximum time to wait for each network operation
+     * @return Bootstrap result indicating success, partial success with retryable credentials, or complete failure
+     */
     public BootstrapResult apply(Duration timeout) {
         KERL_ application = member.kerl();
         SignedNonce nonce;
@@ -60,17 +99,25 @@ public class GorgoneionClient {
                 ));
             }
         } catch (Exception e) {
-            log.error("Failed to apply for nonce", e);
+            log.error("Phase 1 failed: nonce acquisition failed", e);
             return new BootstrapResult.Failure(e);
         }
 
-        // Phase 2: Create credentials and register
-        Credentials credentials = credentials(nonce);
+        // Phase 2a: Create credentials from nonce
+        Credentials credentials;
+        try {
+            credentials = credentials(nonce);
+        } catch (Exception e) {
+            log.error("Phase 2a failed: credentials generation failed after nonce acquisition", e);
+            return new BootstrapResult.Failure(e);
+        }
+
+        // Phase 2b: Register credentials with server
         try {
             Establishment establishment = client.register(credentials, timeout);
             return new BootstrapResult.Success(establishment);
         } catch (Exception e) {
-            log.error("Registration failed after nonce generation", e);
+            log.error("Phase 2b failed: registration failed but credentials available for retry", e);
             return new BootstrapResult.PartialSuccess(credentials, e);
         }
     }
