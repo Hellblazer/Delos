@@ -7,6 +7,7 @@
  */
 package com.hellblazer.delos.model.stereotomy;
 
+import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.cryptography.SigningThreshold;
 import com.hellblazer.delos.cryptography.SigningThreshold.Unweighted;
@@ -50,7 +51,8 @@ public class ShardedKERLTest {
     @Test
     public void delegated() throws Exception {
         Duration timeout = Duration.ofSeconds(1000);
-        Emulator emmy = new Emulator();
+        Digest fixedBase = DigestAlgorithm.DEFAULT.getOrigin().prefix(0L);
+        Emulator emmy = new Emulator(fixedBase);
         emmy.start(Domain.boostrapMigration());
 
         ShardedKERL kerl = new ShardedKERL(emmy.newConnector(), emmy.getMutator(), timeout, DigestAlgorithm.DEFAULT);
@@ -67,7 +69,8 @@ public class ShardedKERLTest {
         assertInstanceOf(SelfAddressingIdentifier.class, identifier.getIdentifier());
         var sap = (SelfAddressingIdentifier) identifier.getIdentifier();
         assertEquals(DigestAlgorithm.DEFAULT, sap.getDigest().getAlgorithm());
-        assertEquals("6000b1b611a2a6cb27b6c569c056cf56e04da4905168020fc054d133181d379b",
+        // Updated hash value for deterministic Emulator with fixed base
+        assertEquals("7afeaeec412e4f1b4c6686931e00da3f585225f1fc1bf444d0479351814c13a9",
                      Hex.hex(sap.getDigest().getBytes()));
 
         assertEquals(1, ((Unweighted) identifier.getSigningThreshold()).getThreshold());

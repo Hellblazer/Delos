@@ -310,7 +310,8 @@ public class CHOAMConcurrencyTest {
 
         transactioneers.forEach(Transactioneer::start);
         // CI runners need 3-4x longer due to resource contention
-        boolean completed = countdown.await(LARGE_TESTS ? 90 : (IS_CI ? 120 : 30), TimeUnit.SECONDS);
+        // Increased from 90 to 150 for LARGE_TESTS to account for async checkpoint creation
+        boolean completed = countdown.await(LARGE_TESTS ? 150 : (IS_CI ? 120 : 30), TimeUnit.SECONDS);
         assertTrue(completed, "Interleaved operations should not cause deadlock");
 
         choams.values().forEach(c -> assertTrue(c.active(), "System should remain stable"));

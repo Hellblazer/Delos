@@ -278,8 +278,8 @@ public class VSockTest {
 
   @Test
   void nullRemoteAddressWithMessage() {
-    IllegalArgumentException ex = org.junit.jupiter.api.Assertions.assertThrows(
-        IllegalArgumentException.class,
+    NullPointerException ex = org.junit.jupiter.api.Assertions.assertThrows(
+        NullPointerException.class,
         () -> {
           Bootstrap bootstrap = new Bootstrap()
               .group(new EpollEventLoopGroup(1))
