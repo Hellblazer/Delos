@@ -14,7 +14,7 @@ import io.micrometer.core.instrument.binder.jvm.JvmMemoryMetrics;
 import io.micrometer.core.instrument.binder.jvm.JvmGcMetrics;
 import io.micrometer.core.instrument.binder.system.ProcessorMetrics;
 import com.hellblazer.delos.witness.detection.ByzantineDetectionMetrics;
-// import com.hellblazer.delos.witness.detection.ByzantineDetectionMetricsImpl;
+import com.hellblazer.delos.witness.detection.MicrometerByzantineDetectionMetrics;
 import com.hellblazer.delos.witness.detection.ResponseOrchestrationMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,8 +69,7 @@ public class WitnessMetricsBootstrap implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(WitnessMetricsBootstrap.class);
 
     private final MeterRegistry registry;
-    // TODO: ByzantineDetectionMetricsImpl does not exist yet - restore when implemented
-    // private final ByzantineDetectionMetricsImpl byzantineMetrics;
+    private final ByzantineDetectionMetrics byzantineMetrics;
     private final ResponseOrchestrationMetrics orchestrationMetrics;
 
     /**
@@ -82,10 +81,9 @@ public class WitnessMetricsBootstrap implements AutoCloseable {
     public WitnessMetricsBootstrap() {
         this.registry = new SimpleMeterRegistry();
 
-        // TODO: Byzantine detection metrics implementation not yet available
-        // this.byzantineMetrics = new ByzantineDetectionMetricsImpl();
-        // this.byzantineMetrics.register(registry);
-        // log.debug("Byzantine detection metrics registered");
+        // Initialize Byzantine detection metrics with Micrometer implementation
+        this.byzantineMetrics = new MicrometerByzantineDetectionMetrics(registry);
+        log.debug("Byzantine detection metrics registered");
 
         // Create response orchestration metrics (standalone, no register needed)
         this.orchestrationMetrics = new ResponseOrchestrationMetrics();
@@ -109,11 +107,10 @@ public class WitnessMetricsBootstrap implements AutoCloseable {
      * <p>
      * Use this when creating detectors, orchestrators, and escalation coordinators.
      *
-     * @return Byzantine detection metrics (currently null - implementation pending)
+     * @return Byzantine detection metrics implementation
      */
     public ByzantineDetectionMetrics getByzantineMetrics() {
-        // TODO: Return actual implementation when ByzantineDetectionMetricsImpl exists
-        return null;  // byzantineMetrics;
+        return byzantineMetrics;
     }
 
 
