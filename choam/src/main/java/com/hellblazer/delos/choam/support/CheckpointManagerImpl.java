@@ -78,7 +78,10 @@ public class CheckpointManagerImpl implements CheckpointManager {
             evictOldCheckpoints();
             log.info("Created checkpoint at height: {} on: {}", height, params.member().getId());
         } finally {
-            state.delete();
+            if (!state.delete()) {
+                log.warn("Failed to delete checkpoint state file: {} on: {}",
+                         state.getAbsolutePath(), params.member().getId());
+            }
         }
     }
 
@@ -92,11 +95,17 @@ public class CheckpointManagerImpl implements CheckpointManager {
         }
 
         MVMap<Integer, byte[]> stored = blockStore.putCheckpoint(height, state, chkpt);
-        state.delete();
-        cachedCheckpoints.put(height, new CheckpointState(chkpt, stored));
-        evictOldCheckpoints();
-        log.info("Created checkpoint at height: {} on: {}", height, params.member().getId());
-        return chkpt;
+        try {
+            cachedCheckpoints.put(height, new CheckpointState(chkpt, stored));
+            evictOldCheckpoints();
+            log.info("Created checkpoint at height: {} on: {}", height, params.member().getId());
+            return chkpt;
+        } finally {
+            if (!state.delete()) {
+                log.warn("Failed to delete checkpoint state file: {} on: {}",
+                         state.getAbsolutePath(), params.member().getId());
+            }
+        }
     }
 
     @Override

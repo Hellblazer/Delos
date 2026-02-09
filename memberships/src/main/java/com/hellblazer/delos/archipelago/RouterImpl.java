@@ -269,6 +269,7 @@ public class RouterImpl implements Router {
                 return cache.borrow(context, to, createFunction);
             } catch (IllegalStateException e) {
                 // Cache is shutting down - race between started check and borrow
+                log.debug("Cannot connect to {} during shutdown on: {}", to.getId(), from.getId());
                 return null;
             }
         }
