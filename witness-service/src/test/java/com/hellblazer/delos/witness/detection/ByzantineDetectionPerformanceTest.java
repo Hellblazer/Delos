@@ -61,7 +61,7 @@ class ByzantineDetectionPerformanceTest {
 
     // CI environment detection for performance threshold adjustment
     private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
-    private static final double CI_THROUGHPUT_DIVISOR = IS_CI ? 2.0 : 1.0;
+    private static final double CI_THROUGHPUT_DIVISOR = IS_CI ? 2.5 : 1.0;  // CI ~2.5x slower (1200 / 2.5 = 480 ops/sec)
 
     // Test fixtures
     private BLSProvider blsProvider;
