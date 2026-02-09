@@ -45,18 +45,52 @@ public class GorgoneionClient {
         this.sessionKey = sessionKey;
     }
 
-    public Establishment apply(Duration timeout) {
+    public BootstrapResult apply(Duration timeout) {
         KERL_ application = member.kerl();
-        var fs = client.apply(application, timeout);
-        if (fs == null) {
-            throw new IllegalStateException(
+        SignedNonce nonce;
+
+        // Phase 1: Apply for nonce
+        try {
+            nonce = client.apply(application, timeout);
+            if (nonce == null) {
+                return new BootstrapResult.Failure(new IllegalStateException(
                     "Failed to apply for admission: server returned null nonce. " +
                     "This typically indicates the admission server rejected the application " +
                     "or encountered an error processing the KERL."
-            );
+                ));
+            }
+        } catch (Exception e) {
+            log.error("Failed to apply for nonce", e);
+            return new BootstrapResult.Failure(e);
         }
-        Credentials credentials = credentials(fs);
-        return client.register(credentials, timeout);
+
+        // Phase 2: Create credentials and register
+        Credentials credentials = credentials(nonce);
+        try {
+            Establishment establishment = client.register(credentials, timeout);
+            return new BootstrapResult.Success(establishment);
+        } catch (Exception e) {
+            log.error("Registration failed after nonce generation", e);
+            return new BootstrapResult.PartialSuccess(credentials, e);
+        }
+    }
+
+    /**
+     * Retry registration with existing credentials from a PartialSuccess result.
+     * Use this when the initial registration failed but the nonce was successfully generated.
+     *
+     * @param credentials The credentials from the PartialSuccess result
+     * @param timeout Maximum time to wait for registration
+     * @return Success if registration completes, Failure if it fails again
+     */
+    public BootstrapResult retryRegistration(Credentials credentials, Duration timeout) {
+        try {
+            Establishment establishment = client.register(credentials, timeout);
+            return new BootstrapResult.Success(establishment);
+        } catch (Exception e) {
+            log.error("Retry registration failed", e);
+            return new BootstrapResult.Failure(e);
+        }
     }
 
     private SignedAttestation attestation(SignedNonce nonce, Any proof) {
