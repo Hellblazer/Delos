@@ -370,7 +370,7 @@ class FirefliesByzantineGossipTest {
 
         var parameters = Parameters.newBuilder()
                                    .setMaximumTxfr(CARDINALITY)
-                                   .setRebuttalTimeout(10_000)  // 10 seconds in milliseconds - faster shunning for tests
+                                   .setRebuttalTimeout(5)  // 5 TTL rounds before shunning (default is 2)
                                    .setSeedingTimout(Duration.ofSeconds(30))  // Seeding timeout for cluster formation
                                    .build();
 
