@@ -17,6 +17,7 @@ import java.io.InputStream;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.security.*;
+import java.util.Objects;
 import java.security.interfaces.EdECPrivateKey;
 import java.security.interfaces.EdECPublicKey;
 import java.security.interfaces.XECPublicKey;
@@ -524,14 +525,23 @@ public enum SignatureAlgorithm {
     abstract public int publicKeyLength();
 
     final public JohnHancock sign(ULong sequenceNumber, PrivateKey privateKey, byte[]... message) {
+        Objects.requireNonNull(sequenceNumber, "sequenceNumber must not be null");
+        Objects.requireNonNull(privateKey, "privateKey must not be null");
+        Objects.requireNonNull(message, "message must not be null");
         return sign(sequenceNumber, new PrivateKey[] { privateKey }, BbBackedInputStream.aggregate(message));
     }
 
     final public JohnHancock sign(ULong sequenceNumber, PrivateKey privateKey, ByteBuffer... buffers) {
+        Objects.requireNonNull(sequenceNumber, "sequenceNumber must not be null");
+        Objects.requireNonNull(privateKey, "privateKey must not be null");
+        Objects.requireNonNull(buffers, "buffers must not be null");
         return sign(sequenceNumber, new PrivateKey[] { privateKey }, BbBackedInputStream.aggregate(buffers));
     }
 
     final public JohnHancock sign(ULong sequenceNumber, PrivateKey privateKey, ByteString... buffers) {
+        Objects.requireNonNull(sequenceNumber, "sequenceNumber must not be null");
+        Objects.requireNonNull(privateKey, "privateKey must not be null");
+        Objects.requireNonNull(buffers, "buffers must not be null");
         return sign(sequenceNumber, new PrivateKey[] { privateKey }, BbBackedInputStream.aggregate(buffers));
     }
 
@@ -571,14 +581,23 @@ public enum SignatureAlgorithm {
     abstract public PublicKey toEncryption(PublicKey edPublicKey);
 
     final public boolean verify(PublicKey publicKey, JohnHancock signature, byte[]... message) {
+        Objects.requireNonNull(publicKey, "publicKey must not be null");
+        Objects.requireNonNull(signature, "signature must not be null");
+        Objects.requireNonNull(message, "message must not be null");
         return verify(publicKey, signature, BbBackedInputStream.aggregate(message));
     }
 
     final public boolean verify(PublicKey publicKey, JohnHancock signature, ByteBuffer... message) {
+        Objects.requireNonNull(publicKey, "publicKey must not be null");
+        Objects.requireNonNull(signature, "signature must not be null");
+        Objects.requireNonNull(message, "message must not be null");
         return verify(publicKey, signature, BbBackedInputStream.aggregate(message));
     }
 
     final public boolean verify(PublicKey publicKey, JohnHancock signature, ByteString... message) {
+        Objects.requireNonNull(publicKey, "publicKey must not be null");
+        Objects.requireNonNull(signature, "signature must not be null");
+        Objects.requireNonNull(message, "message must not be null");
         return verify(publicKey, signature, BbBackedInputStream.aggregate(message));
     }
 

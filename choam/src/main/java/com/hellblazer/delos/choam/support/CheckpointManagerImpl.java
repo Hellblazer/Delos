@@ -73,10 +73,13 @@ public class CheckpointManagerImpl implements CheckpointManager {
         }
 
         MVMap<Integer, byte[]> stored = blockStore.putCheckpoint(height, state, chkpt);
-        state.delete();
-        cachedCheckpoints.put(height, new CheckpointState(chkpt, stored));
-        evictOldCheckpoints();
-        log.info("Created checkpoint at height: {} on: {}", height, params.member().getId());
+        try {
+            cachedCheckpoints.put(height, new CheckpointState(chkpt, stored));
+            evictOldCheckpoints();
+            log.info("Created checkpoint at height: {} on: {}", height, params.member().getId());
+        } finally {
+            state.delete();
+        }
     }
 
     @Override
