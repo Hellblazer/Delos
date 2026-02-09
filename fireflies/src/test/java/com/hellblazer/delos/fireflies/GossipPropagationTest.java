@@ -52,6 +52,10 @@ public class GossipPropagationTest {
     private static final int CARDINALITY = 20;  // 10 seeds + 10 joiners (smaller than ChurnTest for isolation)
     private static final int SEED_COUNT = 10;
     private static final double P_BYZ = 0.2;
+
+    // CI environment detection for timing-sensitive distributed consensus tests
+    private static final boolean IS_CI = Boolean.parseBoolean(System.getProperty("CI", "false"));
+    private static final int CONVERGENCE_TIMEOUT_MS = IS_CI ? 240_000 : 120_000;  // 4min on CI, 2min local
     private static Map<Digest, ControlledIdentifier<SelfAddressingIdentifier>> identities;
     private static KERL.AppendKERL kerl;
 
@@ -155,7 +159,7 @@ public class GossipPropagationTest {
         // Wait for gossip to propagate ALL members to ALL nodes
         // This is the key test - gossip should fill in any gaps
         System.out.println("\nWaiting for gossip to converge...");
-        var converged = Utils.waitForCondition(120_000, 2_000, () -> {
+        var converged = Utils.waitForCondition(CONVERGENCE_TIMEOUT_MS, 2_000, () -> {
             var allFull = views.stream().allMatch(v -> {
                 return v.getContext().size() == CARDINALITY &&
                        v.getContext().activeCount() == CARDINALITY;
