@@ -70,7 +70,8 @@ public class LeydenJar {
     private final TemporalAmount                                                               operationTimeout;
     private final Duration                                                                     operationsFrequency;
     private final OpValidator                                                                  validator;
-    private       ScheduledExecutorService                                                     scheduler;
+    private final Object                                                                       schedulerLock = new Object();
+    private volatile ScheduledExecutorService                                                  scheduler;
 
     public LeydenJar(OpValidator validator, TemporalAmount operationTimeout, SigningMember member,
                      Context<Member> context, Duration operationsFrequency, Router communications, double fpr,
@@ -176,12 +177,14 @@ public class LeydenJar {
         }
         log.info("Starting context: {}:{} on: {}", context.getId(), System.identityHashCode(context), member.getId());
 
-        // Create new scheduler instance (necessary for clean restart after stop)
-        scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
+        synchronized (schedulerLock) {
+            // Create new scheduler instance (necessary for clean restart after stop)
+            scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
 
-        binderComms.register(context.getId(), borders, validator);
-        reconComms.register(context.getId(), recon, validator);
-        schedule(gossip, scheduler);
+            binderComms.register(context.getId(), borders, validator);
+            reconComms.register(context.getId(), recon, validator);
+            schedule(gossip, scheduler);
+        }
     }
 
     public void stop() {
@@ -192,21 +195,23 @@ public class LeydenJar {
         binderComms.deregister(context.getId());
         reconComms.deregister(context.getId());
 
-        // Shut down scheduler and wait for termination
-        if (scheduler != null) {
-            scheduler.shutdown();
-            try {
-                if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-                    log.warn("Scheduler did not terminate within timeout, forcing shutdown on: {}", member.getId());
-                    scheduler.shutdownNow();
+        synchronized (schedulerLock) {
+            // Shut down scheduler and wait for termination
+            if (scheduler != null) {
+                scheduler.shutdown();
+                try {
                     if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-                        log.error("Scheduler failed to terminate on: {}", member.getId());
+                        log.warn("Scheduler did not terminate within timeout, forcing shutdown on: {}", member.getId());
+                        scheduler.shutdownNow();
+                        if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                            log.error("Scheduler failed to terminate on: {}", member.getId());
+                        }
                     }
+                } catch (InterruptedException e) {
+                    log.warn("Interrupted while waiting for scheduler termination on: {}", member.getId());
+                    scheduler.shutdownNow();
+                    Thread.currentThread().interrupt();
                 }
-            } catch (InterruptedException e) {
-                log.warn("Interrupted while waiting for scheduler termination on: {}", member.getId());
-                scheduler.shutdownNow();
-                Thread.currentThread().interrupt();
             }
         }
     }
@@ -425,22 +430,39 @@ public class LeydenJar {
     private Update.Builder reconcile(Intervals intervals) {
         var biff = BloomFilter.from(intervals.getHave());
         var update = Update.newBuilder();
-        intervals.getIntervalsList()
-                 .stream()
-                 .map(KeyInterval::new)
-                 .flatMap(this::bindingsIn)
-                 .peek(d -> log.debug("reconcile digest: {} on: {}", d, member.getId()))
-                 .filter(d -> !biff.contains(d))
-                 .peek(d -> log.debug("filtered reconcile digest: {} on: {}", d, member.getId()))
-                 .map(d1 -> bottled.get(d1))
-                 .filter(Objects::nonNull)
-                 .forEach(update::addBindings);
+
+        // Collect all Bound objects inside synchronized block to prevent concurrent modification
+        List<Bound> bounds;
+        synchronized (mvMapLock) {
+            bounds = intervals.getIntervalsList()
+                              .stream()
+                              .map(KeyInterval::new)
+                              .flatMap(this::bindingsIn)
+                              .peek(d -> log.debug("reconcile digest: {} on: {}", d, member.getId()))
+                              .filter(d -> !biff.contains(d))
+                              .peek(d -> log.debug("filtered reconcile digest: {} on: {}", d, member.getId()))
+                              .map(d1 -> bottled.get(d1))
+                              .filter(Objects::nonNull)
+                              .toList();
+        }
+
+        // Add collected bounds to update outside lock
+        bounds.forEach(update::addBindings);
         return update;
     }
 
     private void schedule(Duration duration, ScheduledExecutorService scheduler) {
-        scheduler.schedule(Utils.wrapped(() -> reconcile(scheduler, duration), log), duration.toNanos(),
-                           TimeUnit.NANOSECONDS);
+        // Prevent scheduling if stopped or scheduler is shutting down
+        if (!started.get() || scheduler.isShutdown()) {
+            return;
+        }
+        try {
+            scheduler.schedule(Utils.wrapped(() -> reconcile(scheduler, duration), log), duration.toNanos(),
+                               TimeUnit.NANOSECONDS);
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            // Scheduler shutdown between check and schedule - this is expected during stop()
+            log.trace("Scheduler rejected task (shutting down) on: {}", member.getId());
+        }
     }
 
     private void update(List<Bound> bindings, Digest from) {
