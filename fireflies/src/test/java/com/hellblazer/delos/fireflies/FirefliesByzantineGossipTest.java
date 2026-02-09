@@ -118,6 +118,14 @@ class FirefliesByzantineGossipTest {
             .as("Bootstrap node did not start")
             .isTrue();
 
+        // Wait for bootstrap kernel to stabilize before allowing joins
+        var bootstrapStabilized = Utils.waitForCondition(30_000, 1_000, () ->
+            views.get(0).getContext().activeCount() == 1
+        );
+        assertThat(bootstrapStabilized)
+            .as("Bootstrap kernel did not stabilize")
+            .isTrue();
+
         // Start remaining nodes
         countdown.set(new CountDownLatch(CARDINALITY - 1));
         for (int i = 1; i < CARDINALITY; i++) {
@@ -205,6 +213,12 @@ class FirefliesByzantineGossipTest {
         views.get(0).start(() -> countdown.get().countDown(), gossipDuration, Collections.emptyList());
         assertThat(countdown.get().await(30, TimeUnit.SECONDS)).isTrue();
 
+        // Wait for bootstrap kernel to stabilize
+        var bootstrapStabilized = Utils.waitForCondition(30_000, 1_000, () ->
+            views.get(0).getContext().activeCount() == 1
+        );
+        assertThat(bootstrapStabilized).isTrue();
+
         countdown.set(new CountDownLatch(CARDINALITY - 1));
         for (int i = 1; i < CARDINALITY; i++) {
             views.get(i).start(() -> countdown.get().countDown(), gossipDuration, List.of(seeds.get(0)));
@@ -287,6 +301,12 @@ class FirefliesByzantineGossipTest {
         views.get(0).start(() -> countdown.get().countDown(), gossipDuration, Collections.emptyList());
         assertThat(countdown.get().await(30, TimeUnit.SECONDS)).isTrue();
 
+        // Wait for bootstrap kernel to stabilize
+        var bootstrapStabilized = Utils.waitForCondition(30_000, 1_000, () ->
+            views.get(0).getContext().activeCount() == 1
+        );
+        assertThat(bootstrapStabilized).isTrue();
+
         countdown.set(new CountDownLatch(CARDINALITY - 1));
         for (int i = 1; i < CARDINALITY; i++) {
             views.get(i).start(() -> countdown.get().countDown(), gossipDuration, List.of(seeds.get(0)));
@@ -351,6 +371,7 @@ class FirefliesByzantineGossipTest {
         var parameters = Parameters.newBuilder()
                                    .setMaximumTxfr(CARDINALITY)
                                    .setRebuttalTimeout(10_000)  // 10 seconds in milliseconds - faster shunning for tests
+                                   .setSeedingTimout(Duration.ofSeconds(30))  // Seeding timeout for cluster formation
                                    .build();
 
         members = identities.values()
