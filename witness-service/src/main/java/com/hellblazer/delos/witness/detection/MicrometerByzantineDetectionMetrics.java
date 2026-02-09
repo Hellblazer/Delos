@@ -132,6 +132,7 @@ public class MicrometerByzantineDetectionMetrics implements ByzantineDetectionMe
 
     // Key rotation metrics (Phase 1C-3-A)
     private final Counter rotationInitiatedCounter;
+    private final AtomicLong rotationInitiatedValue = new AtomicLong(0);  // Internal tracking for reset()
     private final AtomicInteger rotationsInProgressValue = new AtomicInteger(0);
     private final Set<Digest> currentlyRotatingMembers = ConcurrentHashMap.newKeySet();
 
@@ -146,6 +147,7 @@ public class MicrometerByzantineDetectionMetrics implements ByzantineDetectionMe
 
     // Failure tracking
     private final Counter rotationFailuresCounter;
+    private final AtomicLong rotationFailuresValue = new AtomicLong(0);  // Internal tracking for reset()
     private final Map<KeyRotationPhase, Counter> rotationFailuresPhaseCounters = new EnumMap<>(KeyRotationPhase.class);
     private final Counter rotationRecoveryAttemptsCounter;
 
@@ -389,6 +391,8 @@ public class MicrometerByzantineDetectionMetrics implements ByzantineDetectionMe
         blacklistedCreatorsValue.set(0);
 
         // Reset rotation state tracking
+        rotationInitiatedValue.set(0);
+        rotationFailuresValue.set(0);
         rotationsInProgressValue.set(0);
         currentlyRotatingMembers.clear();
         graceStatsMap.clear();
@@ -610,6 +614,7 @@ public class MicrometerByzantineDetectionMetrics implements ByzantineDetectionMe
         }
 
         rotationInitiatedCounter.increment();
+        rotationInitiatedValue.incrementAndGet();
         rotationsInProgressValue.incrementAndGet();
     }
 
@@ -710,6 +715,7 @@ public class MicrometerByzantineDetectionMetrics implements ByzantineDetectionMe
         }
 
         rotationFailuresCounter.increment();
+        rotationFailuresValue.incrementAndGet();
         log.warn("Rotation {} failed: {}", rotationId, reason);
     }
 
@@ -790,12 +796,12 @@ public class MicrometerByzantineDetectionMetrics implements ByzantineDetectionMe
 
     @Override
     public long getRotationInitiatedCount() {
-        return (long) rotationInitiatedCounter.count();
+        return rotationInitiatedValue.get();
     }
 
     @Override
     public long getRotationFailuresCount() {
-        return (long) rotationFailuresCounter.count();
+        return rotationFailuresValue.get();
     }
 
     @Override
