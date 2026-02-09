@@ -334,10 +334,10 @@ These documents establish the core concepts, security model, and deployment proc
 - **Note**: Do not import to IDEs
 - **Status**: Minimal
 
-#### Liquibase-Deterministic
+#### Liquibase-Modified
 
-**[liquibase-deterministic/README.md](../liquibase-deterministic/README.md)**
-- Deterministic schema versioning
+**[liquibase-modified/README.md](../liquibase-modified/README.md)**
+- Modified Liquibase with deterministic behavior
 - **Status**: Minimal (3 lines)
 
 #### Isolates (GraalVM Isolates)

@@ -11,7 +11,7 @@
     <modules>
         <!-- Build shaded dependencies first - required for other modules -->
         <module>h2-deterministic</module>
-        <module>liquibase-deterministic</module>
+        <module>liquibase-modified</module>
 
         <!-- Core infrastructure -->
         <module>fireflies</module>
@@ -160,7 +160,7 @@
             </dependency>
             <dependency>
                 <groupId>com.hellblazer.delos</groupId>
-                <artifactId>liquibase-deterministic</artifactId>
+                <artifactId>liquibase-modified</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

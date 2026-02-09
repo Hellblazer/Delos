@@ -126,7 +126,7 @@ Each module is a Maven module under the source root with its own README.md.
 **Platform & Storage**
 * [Schemas](schemas/README.md) - Liquibase SQL definitions
 * [Deterministic H2](h2-deterministic/README.md) - Deterministic H2 SQL database
-* [Deterministic Liquibase](liquibase-deterministic/README.md) - Deterministic Liquibase
+* [Modified Liquibase](liquibase-modified/README.md) - Modified Liquibase with deterministic behavior
 * [Isolates](isolates/README.md) - GraalVM isolate-based multi-tenant enclaves
 * [Isolate Functional Testing](isolate-ftesting/README.md) - Enclave functional testing
 

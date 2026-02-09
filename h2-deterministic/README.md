@@ -29,7 +29,7 @@ See [RISKS.md](RISKS.md) for determinism guarantees, known limitations, and Byza
 
 ## Related Modules
 
-* **liquibase-deterministic** - Deterministic schema migrations paired with H2
+* **liquibase-modified** - Modified Liquibase with deterministic behavior paired with H2
 * **sql-state** - Replicated SQL state machines using this H2 implementation
 * **schemas** - Database schema definitions
 

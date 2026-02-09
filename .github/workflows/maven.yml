@@ -211,7 +211,7 @@ jobs:
             **/target/
           key: delos-maven-tests-batch-3b-${{ github.sha }}
 
-  test-batch-3c:
+  test-batch-3c-identity:
     needs: compile
     runs-on: ubuntu-latest
 
@@ -235,15 +235,83 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Batch 3c (Identity/services layer)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl cryptography,stereotomy,thoth,java-noise,protocols,memberships,gorgoneion,gorgoneion-client,vm-socket,stereotomy-services,grpc,liquibase-deterministic,leyden --file pom.xml
-      - name: Save Maven cache after batch-3c tests
+      - name: Test Batch 3c-identity (KERI identity layer)
+        run: CI=true ./mvnw -batch-mode surefire:test -pl stereotomy,thoth,gorgoneion,gorgoneion-client,stereotomy-services --file pom.xml
+      - name: Save Maven cache after batch-3c-identity tests
         uses: actions/cache@v4
         with:
           path: |
             ~/.m2/repository
             **/target/
-          key: delos-maven-tests-batch-3c-${{ github.sha }}
+          key: delos-maven-tests-batch-3c-identity-${{ github.sha }}
+
+  test-batch-3c-infrastructure:
+    needs: compile
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          cache: 'maven'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore Maven cache from compile job
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            **/target/
+          key: delos-maven-${{ github.sha }}
+          restore-keys: |
+            delos-maven-${{ github.ref }}-
+            delos-maven-refs/heads/main-
+            delos-maven-
+          fail-on-cache-miss: false
+      - name: Test Batch 3c-infrastructure (Core infrastructure)
+        run: CI=true ./mvnw -batch-mode surefire:test -pl cryptography,java-noise,protocols,memberships,grpc --file pom.xml
+      - name: Save Maven cache after batch-3c-infrastructure tests
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            **/target/
+          key: delos-maven-tests-batch-3c-infrastructure-${{ github.sha }}
+
+  test-batch-3c-platform:
+    needs: compile
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          cache: 'maven'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore Maven cache from compile job
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            **/target/
+          key: delos-maven-${{ github.sha }}
+          restore-keys: |
+            delos-maven-${{ github.ref }}-
+            delos-maven-refs/heads/main-
+            delos-maven-
+          fail-on-cache-miss: false
+      - name: Test Batch 3c-platform (Platform support)
+        run: CI=true ./mvnw -batch-mode surefire:test -pl vm-socket,liquibase-deterministic,leyden --file pom.xml
+      - name: Save Maven cache after batch-3c-platform tests
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            **/target/
+          key: delos-maven-tests-batch-3c-platform-${{ github.sha }}
 
   test-batch-4:
     needs: compile

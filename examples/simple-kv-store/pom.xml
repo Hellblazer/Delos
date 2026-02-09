@@ -34,7 +34,7 @@
         </dependency>
         <dependency>
             <groupId>com.hellblazer.delos</groupId>
-            <artifactId>liquibase-deterministic</artifactId>
+            <artifactId>liquibase-modified</artifactId>
         </dependency>
 
         <!-- JDBC/Database -->

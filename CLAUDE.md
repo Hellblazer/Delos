@@ -94,7 +94,7 @@ Delos is a multi-tenant distributed system platform with Byzantine fault toleran
 - JUnit 5 with Mockito, AssertJ
 
 ### Deterministic SQL
-The `h2-deterministic` and `liquibase-deterministic` modules provide deterministic SQL execution for replicated state machines. The `h2-deterministic` module uses package shading and must NOT be imported into IDEs.
+The `h2-deterministic` and `liquibase-modified` modules provide deterministic SQL execution for replicated state machines. The `h2-deterministic` module uses package shading, while `liquibase-modified` uses forked source files. Both must NOT be imported into IDEs.
 
 ## Technology Stack
 - Java 25+ (configured in pom.xml) - **Required for production**

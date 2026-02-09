@@ -220,6 +220,29 @@ public interface DynamicContext<T extends Member> extends Context<T> {
      */
     Stream<DynamicContextImpl.Ring<T>> rings();
 
+    /**
+     * Listener for membership state transitions in the dynamic context.
+     * <p>
+     * <b>Partial-Failure Semantics:</b>
+     * If a listener throws an exception during notification, the exception is caught, logged,
+     * and processing continues with remaining listeners. This ensures that:
+     * <ul>
+     *   <li>One failing listener does not prevent other listeners from being notified</li>
+     *   <li>Membership state changes are always propagated to all registered listeners</li>
+     *   <li>Failures are logged for visibility and debugging</li>
+     * </ul>
+     * <p>
+     * <b>Retry Strategy Guidance:</b>
+     * <ul>
+     *   <li>Listeners should be idempotent - they may be called multiple times for the same state transition</li>
+     *   <li>If retry is needed, implement it within the listener rather than depending on re-notification</li>
+     *   <li>Consider using exponential backoff for external resource access</li>
+     *   <li>Use circuit breakers for downstream service dependencies</li>
+     * </ul>
+     * <p>
+     * Implementation note: See {@link DynamicContextImpl#activate} and {@link DynamicContextImpl#offline}
+     * for the partial-failure exception handling implementation.
+     */
     interface MembershipListener<T extends Member> {
 
         /**
