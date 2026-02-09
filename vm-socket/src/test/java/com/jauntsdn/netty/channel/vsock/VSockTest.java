@@ -52,10 +52,10 @@ public class VSockTest {
   void remoteNonVSockAddress() throws Exception {
     InetSocketAddress unsupportedAddress = new InetSocketAddress("localhost", 8080);
     org.junit.jupiter.api.Assertions.assertThrows(
-        Error.class, () -> server(unsupportedAddress, new ChannelInboundHandlerAdapter()));
+        IllegalArgumentException.class, () -> server(unsupportedAddress, new ChannelInboundHandlerAdapter()));
 
     org.junit.jupiter.api.Assertions.assertThrows(
-        Error.class, () -> client(unsupportedAddress, new ChannelInboundHandlerAdapter()));
+        IllegalArgumentException.class, () -> client(unsupportedAddress, new ChannelInboundHandlerAdapter()));
   }
 
   @Test
@@ -63,7 +63,7 @@ public class VSockTest {
     InetSocketAddress unsupportedAddress = new InetSocketAddress("localhost", 8080);
 
     org.junit.jupiter.api.Assertions.assertThrows(
-        Error.class,
+        IllegalArgumentException.class,
         () ->
             client(
                 new VSockAddress(VSockAddress.VMADDR_CID_LOCAL, 8080),

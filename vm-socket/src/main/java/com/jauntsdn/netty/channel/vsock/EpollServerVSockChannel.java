@@ -22,6 +22,7 @@ import io.netty.channel.epoll.AbstractEpollServerChannel;
 import io.netty.channel.epoll.LinuxSocket;
 import io.netty.channel.epoll.VSockAddress;
 import java.net.SocketAddress;
+import java.util.Objects;
 
 public final class EpollServerVSockChannel extends AbstractEpollServerChannel
     implements ServerVSockChannel {
@@ -49,8 +50,10 @@ public final class EpollServerVSockChannel extends AbstractEpollServerChannel
 
   @Override
   protected void doBind(SocketAddress localAddress) throws Exception {
+    Objects.requireNonNull(localAddress, "Local address cannot be null");
     if (!(localAddress instanceof VSockAddress)) {
-      throw new IllegalArgumentException("Unexpected local SocketAddress " + localAddress);
+      throw new IllegalArgumentException(
+          "Expected VSockAddress but got " + localAddress.getClass().getName());
     }
     VSockAddress localVSock = (VSockAddress) localAddress;
 
