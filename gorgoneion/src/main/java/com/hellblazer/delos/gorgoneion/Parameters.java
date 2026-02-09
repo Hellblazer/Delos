@@ -27,10 +27,23 @@ import java.util.function.Predicate;
  *                              Default: 5 seconds. Set to Duration.ZERO for strict (no future tolerance) behavior.
  *                              Used to accommodate network delays and minor clock differences in distributed systems.
  * @param kerl                  Key Event Receipt Log for identity management
+ * @param replayCacheSize       Size of the replay attack prevention cache.
+ *                              Controls how many recent nonces are tracked to prevent duplicate submissions.
+ *                              Default: 10,000. Valid range: 100 to 1,000,000.
+ *                              <p>
+ *                              Sizing guidance:
+ *                              <ul>
+ *                              <li>Low traffic (1-3 admissions/sec): 1,000-5,000 entries sufficient</li>
+ *                              <li>Medium traffic (5-10 admissions/sec): 10,000 entries (default)</li>
+ *                              <li>High traffic (>10 admissions/sec): 50,000-100,000 entries</li>
+ *                              <li>Burst scenarios: Consider maxDuration × peak rate × 1.5 safety factor</li>
+ *                              </ul>
+ *                              Cache uses LRU eviction. Entries older than maxDuration + clockSkewTolerance
+ *                              are automatically removed via TTL.
  * @author hal.hildebrand
  */
 public record Parameters(Clock clock, Duration registrationTimeout, Duration frequency, DigestAlgorithm digestAlgorithm,
-                         Duration maxDuration, Duration clockSkewTolerance, KERL kerl) {
+                         Duration maxDuration, Duration clockSkewTolerance, KERL kerl, int replayCacheSize) {
 
     public static Builder newBuilder() {
         return new Builder();
@@ -50,9 +63,14 @@ public record Parameters(Clock clock, Duration registrationTimeout, Duration fre
         private Duration        maxDuration         = Duration.ofSeconds(30);
         private Duration        clockSkewTolerance  = Duration.ofSeconds(5);
         private Duration        registrationTimeout = Duration.ofSeconds(30);
+        private int             replayCacheSize     = 10_000;
 
         public Parameters build() {
-            return new Parameters(clock, registrationTimeout, frequency, digestAlgorithm, maxDuration, clockSkewTolerance, kerl);
+            if (replayCacheSize < 100 || replayCacheSize > 1_000_000) {
+                throw new IllegalArgumentException(
+                    "replayCacheSize must be between 100 and 1,000,000 (inclusive), got: " + replayCacheSize);
+            }
+            return new Parameters(clock, registrationTimeout, frequency, digestAlgorithm, maxDuration, clockSkewTolerance, kerl, replayCacheSize);
         }
 
         public Clock getClock() {
@@ -131,6 +149,40 @@ public record Parameters(Clock clock, Duration registrationTimeout, Duration fre
          */
         public Builder setClockSkewTolerance(Duration clockSkewTolerance) {
             this.clockSkewTolerance = clockSkewTolerance;
+            return this;
+        }
+
+        /**
+         * Gets the replay cache size.
+         *
+         * @return the configured cache size
+         */
+        public int getReplayCacheSize() {
+            return replayCacheSize;
+        }
+
+        /**
+         * Sets the replay cache size for preventing replay attacks.
+         * The cache tracks recent nonces to detect and reject duplicate submissions.
+         * <p>
+         * Valid range: 100 to 1,000,000 (inclusive)
+         * <p>
+         * Default: 10,000
+         * <p>
+         * Sizing guidance:
+         * <ul>
+         * <li>Low traffic (1-3 admissions/sec): 1,000-5,000 entries</li>
+         * <li>Medium traffic (5-10 admissions/sec): 10,000 entries (default)</li>
+         * <li>High traffic (>10 admissions/sec): 50,000-100,000 entries</li>
+         * <li>Burst scenarios: maxDuration × peak rate × 1.5 safety factor</li>
+         * </ul>
+         *
+         * @param replayCacheSize the cache size (must be between 100 and 1,000,000)
+         * @return this builder
+         * @throws IllegalArgumentException if size is outside valid range (validated in build())
+         */
+        public Builder setReplayCacheSize(int replayCacheSize) {
+            this.replayCacheSize = replayCacheSize;
             return this;
         }
     }
