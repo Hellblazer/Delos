@@ -18,8 +18,7 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.*;
 import java.util.function.Supplier;
 
 /**
@@ -28,10 +27,13 @@ import java.util.function.Supplier;
 public class DirectOracle extends AbstractOracle {
 
     private static final Logger log = LoggerFactory.getLogger(DirectOracle.class);
+    private static final int DEFAULT_ASYNC_POOL_SIZE = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
 
-    private final DSLContext                  dslCtx;
-    private final Supplier<ULong>             clock;
-    private final Map<UUID, WatchListener>    watchers = new ConcurrentHashMap<>();
+    final DSLContext                                dslCtx;  // Package-private for test access
+    final Supplier<ULong>                           clock;   // Package-private for test access
+    private final Map<UUID, WatchListener>          watchers = new ConcurrentHashMap<>();
+    private final Map<UUID, AsyncWatchRegistration> asyncWatchers = new ConcurrentHashMap<>();
+    private final ExecutorService                   defaultAsyncExecutor;
 
     public DirectOracle(Connection connection) {
         this(connection, () -> ULong.valueOf(System.currentTimeMillis()));
@@ -42,9 +44,19 @@ public class DirectOracle extends AbstractOracle {
     }
 
     public DirectOracle(DSLContext dslCtx, Supplier<ULong> clock) {
+        this(dslCtx, clock, DEFAULT_ASYNC_POOL_SIZE);
+    }
+
+    public DirectOracle(DSLContext dslCtx, Supplier<ULong> clock, int asyncPoolSize) {
         super(dslCtx);
         this.dslCtx = dslCtx;
         this.clock = clock;
+        this.defaultAsyncExecutor = Executors.newFixedThreadPool(asyncPoolSize, r -> {
+            var t = new Thread(r);
+            t.setName("DirectOracle-async-watch-" + t.getId());
+            t.setDaemon(true);
+            return t;
+        });
     }
 
     /**
@@ -287,6 +299,7 @@ public class DirectOracle extends AbstractOracle {
 
     /**
      * Register a listener for authorization change events.
+     * Events are delivered synchronously on the calling thread.
      *
      * @param listener the callback to invoke on changes
      * @return UUID identifying the registration
@@ -299,27 +312,370 @@ public class DirectOracle extends AbstractOracle {
     }
 
     /**
-     * Deregister a watch listener.
+     * Register a listener for authorization change events with asynchronous delivery.
+     * Events are delivered on the specified executor, ensuring that slow listeners
+     * do not block Oracle operations.
      *
-     * @param id the UUID returned from watch()
+     * @param listener the callback to invoke on changes
+     * @param executor the executor for async delivery; if null, uses default internal executor
+     * @return UUID identifying the registration
+     */
+    public UUID watchAsync(WatchListener listener, ExecutorService executor) {
+        var id = UUID.randomUUID();
+        var effectiveExecutor = executor != null ? executor : defaultAsyncExecutor;
+        asyncWatchers.put(id, new AsyncWatchRegistration(listener, effectiveExecutor));
+        return id;
+    }
+
+    /**
+     * Deregister a watch listener (synchronous or asynchronous).
+     *
+     * @param id the UUID returned from watch() or watchAsync()
      * @return true if a listener was removed
      */
     @Override
     public boolean unwatch(UUID id) {
-        return watchers.remove(id) != null;
+        var removedSync = watchers.remove(id) != null;
+        var removedAsync = asyncWatchers.remove(id) != null;
+        return removedSync || removedAsync;
     }
 
     /**
      * Fire an event to all registered watchers.
-     * Events are delivered synchronously; listeners should not block.
+     * Synchronous watchers are notified on the calling thread.
+     * Asynchronous watchers are notified on their configured executors.
      */
     private void fireEvent(WatchEvent event) {
+        // Deliver to synchronous watchers (on calling thread)
         for (var listener : watchers.values()) {
             try {
                 listener.onEvent(event);
             } catch (Exception e) {
-                log.warn("Watch listener threw exception for event: {}", event.type(), e);
+                log.warn("Synchronous watch listener threw exception for event: {}", event.type(), e);
             }
         }
+
+        // Deliver to asynchronous watchers (on executor threads)
+        for (var registration : asyncWatchers.values()) {
+            try {
+                registration.executor.execute(() -> {
+                    try {
+                        registration.listener.onEvent(event);
+                    } catch (Exception e) {
+                        log.warn("Asynchronous watch listener threw exception for event: {}", event.type(), e);
+                    }
+                });
+            } catch (RejectedExecutionException e) {
+                log.debug("Async watch event rejected (executor shutdown?): {}", event.type(), e);
+            }
+        }
+    }
+
+    /**
+     * Internal record to track async watch registrations with their executors.
+     */
+    private record AsyncWatchRegistration(WatchListener listener, ExecutorService executor) {
+    }
+
+    /**
+     * Shutdown the async watch executor and clean up resources.
+     * Should be called when the Oracle is no longer needed.
+     * This is a best-effort shutdown; ongoing async deliveries may be interrupted.
+     */
+    public void close() {
+        defaultAsyncExecutor.shutdown();
+        try {
+            if (!defaultAsyncExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                defaultAsyncExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            defaultAsyncExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    // ==================== Batch Operations Implementation ====================
+
+    /**
+     * Add multiple Assertions in a single batch operation.
+     */
+    @Override
+    public CompletableFuture<java.util.List<Asserted>> batchAdd(java.util.List<Assertion> assertions) {
+        if (assertions.isEmpty()) {
+            return CompletableFuture.completedFuture(java.util.Collections.emptyList());
+        }
+
+        var timestamp = clock.get();
+        var results = dslCtx.transactionResult(ctx -> {
+            var context = DSL.using(ctx);
+            var assertedResults = new java.util.ArrayList<Asserted>(assertions.size());
+
+            for (var assertion : assertions) {
+                boolean added;
+                try {
+                    added = add(context, assertion, timestamp.longValue());
+                } catch (SQLException e) {
+                    throw new RuntimeException("Failed to add assertion: " + assertion, e);
+                }
+                assertedResults.add(new Asserted(timestamp, added));
+
+                if (added) {
+                    fireEvent(WatchEvent.assertionAdd(timestamp, assertion));
+                }
+            }
+
+            return assertedResults;
+        });
+
+        return CompletableFuture.completedFuture(results);
+    }
+
+    /**
+     * Add multiple Subjects in a single batch operation.
+     */
+    @Override
+    public CompletableFuture<ULong> batchAddSubjects(java.util.List<Subject> subjects) {
+        if (subjects.isEmpty()) {
+            return CompletableFuture.completedFuture(clock.get());
+        }
+
+        dslCtx.transaction(ctx -> {
+            var context = DSL.using(ctx);
+            for (var subject : subjects) {
+                try {
+                    add(context, subject);
+                } catch (SQLException e) {
+                    throw new RuntimeException("Failed to add subject: " + subject, e);
+                }
+            }
+        });
+
+        return CompletableFuture.completedFuture(clock.get());
+    }
+
+    /**
+     * Add multiple Objects in a single batch operation.
+     */
+    @Override
+    public CompletableFuture<ULong> batchAddObjects(java.util.List<Object> objects) {
+        if (objects.isEmpty()) {
+            return CompletableFuture.completedFuture(clock.get());
+        }
+
+        dslCtx.transaction(ctx -> {
+            var context = DSL.using(ctx);
+            for (var object : objects) {
+                try {
+                    add(context, object);
+                } catch (SQLException e) {
+                    throw new RuntimeException("Failed to add object: " + object, e);
+                }
+            }
+        });
+
+        return CompletableFuture.completedFuture(clock.get());
+    }
+
+    /**
+     * Add multiple Relations in a single batch operation.
+     */
+    @Override
+    public CompletableFuture<ULong> batchAddRelations(java.util.List<Relation> relations) {
+        if (relations.isEmpty()) {
+            return CompletableFuture.completedFuture(clock.get());
+        }
+
+        dslCtx.transaction(ctx -> {
+            var context = DSL.using(ctx);
+            for (var relation : relations) {
+                try {
+                    add(context, relation);
+                } catch (SQLException e) {
+                    throw new RuntimeException("Failed to add relation: " + relation, e);
+                }
+            }
+        });
+
+        return CompletableFuture.completedFuture(clock.get());
+    }
+
+    /**
+     * Delete multiple Assertions in a single batch operation.
+     */
+    @Override
+    public CompletableFuture<ULong> batchDelete(java.util.List<Assertion> assertions) {
+        if (assertions.isEmpty()) {
+            return CompletableFuture.completedFuture(clock.get());
+        }
+
+        var timestamp = clock.get();
+        dslCtx.transaction(ctx -> {
+            var context = DSL.using(ctx);
+            for (var assertion : assertions) {
+                try {
+                    delete(context, assertion, timestamp.longValue());
+                } catch (SQLException e) {
+                    throw new RuntimeException("Failed to delete assertion: " + assertion, e);
+                }
+                fireEvent(WatchEvent.assertionDelete(timestamp, assertion));
+            }
+        });
+
+        return CompletableFuture.completedFuture(timestamp);
+    }
+
+    /**
+     * Delete multiple Subjects in a single batch operation.
+     */
+    @Override
+    public CompletableFuture<ULong> batchDeleteSubjects(java.util.List<Subject> subjects) {
+        if (subjects.isEmpty()) {
+            return CompletableFuture.completedFuture(clock.get());
+        }
+
+        var timestamp = clock.get();
+        dslCtx.transaction(ctx -> {
+            var context = DSL.using(ctx);
+            for (var subject : subjects) {
+                try {
+                    delete(context, subject);
+                } catch (SQLException e) {
+                    throw new RuntimeException("Failed to delete subject: " + subject, e);
+                }
+                fireEvent(WatchEvent.subjectDelete(timestamp, subject));
+            }
+        });
+
+        return CompletableFuture.completedFuture(timestamp);
+    }
+
+    /**
+     * Delete multiple Objects in a single batch operation.
+     */
+    @Override
+    public CompletableFuture<ULong> batchDeleteObjects(java.util.List<Object> objects) {
+        if (objects.isEmpty()) {
+            return CompletableFuture.completedFuture(clock.get());
+        }
+
+        var timestamp = clock.get();
+        dslCtx.transaction(ctx -> {
+            var context = DSL.using(ctx);
+            for (var object : objects) {
+                try {
+                    delete(context, object);
+                } catch (SQLException e) {
+                    throw new RuntimeException("Failed to delete object: " + object, e);
+                }
+                fireEvent(WatchEvent.objectDelete(timestamp, object));
+            }
+        });
+
+        return CompletableFuture.completedFuture(timestamp);
+    }
+
+    /**
+     * Delete multiple Relations in a single batch operation.
+     */
+    @Override
+    public CompletableFuture<ULong> batchDeleteRelations(java.util.List<Relation> relations) {
+        if (relations.isEmpty()) {
+            return CompletableFuture.completedFuture(clock.get());
+        }
+
+        var timestamp = clock.get();
+        dslCtx.transaction(ctx -> {
+            var context = DSL.using(ctx);
+            for (var relation : relations) {
+                try {
+                    delete(context, relation);
+                } catch (SQLException e) {
+                    throw new RuntimeException("Failed to delete relation: " + relation, e);
+                }
+                fireEvent(WatchEvent.relationDelete(timestamp, relation));
+            }
+        });
+
+        return CompletableFuture.completedFuture(timestamp);
+    }
+
+    /**
+     * Check multiple assertions at the current time in a single batch operation.
+     * Uses optimized bulk query for better performance.
+     */
+    @Override
+    public java.util.List<Boolean> batchCheck(java.util.List<Assertion> assertions) throws SQLException {
+        if (assertions.isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+
+        var results = new java.util.ArrayList<Boolean>(assertions.size());
+
+        // Build a map of resolved IDs for efficient lookup
+        var resolvedAssertions = new java.util.HashMap<Assertion, NamespacedId[]>();
+        for (var assertion : assertions) {
+            var s = resolve(dslCtx, assertion.subject());
+            var o = resolve(dslCtx, assertion.object());
+            resolvedAssertions.put(assertion, new NamespacedId[]{s, o});
+        }
+
+        // Check each assertion using grants query
+        for (var assertion : assertions) {
+            var resolved = resolvedAssertions.get(assertion);
+            var s = resolved[0];
+            var o = resolved[1];
+
+            if (s == null || o == null) {
+                results.add(false);
+            } else {
+                var exists = dslCtx.fetchExists(dslCtx.selectOne().from(grants(s.id(), dslCtx, o.id())));
+                results.add(exists);
+            }
+        }
+
+        return results;
+    }
+
+    /**
+     * Check multiple assertions at a specific timestamp in a single batch operation.
+     */
+    @Override
+    public java.util.List<Boolean> batchCheck(java.util.List<Assertion> assertions, ULong valid) throws SQLException {
+        if (assertions.isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+
+        // Cannot query the future
+        var now = clock.get();
+        if (valid.compareTo(now) > 0) {
+            return java.util.Collections.nCopies(assertions.size(), false);
+        }
+
+        var results = new java.util.ArrayList<Boolean>(assertions.size());
+        var timestamp = valid.longValue();
+
+        // Build a map of resolved IDs for efficient lookup
+        var resolvedAssertions = new java.util.HashMap<Assertion, NamespacedId[]>();
+        for (var assertion : assertions) {
+            var s = resolve(dslCtx, assertion.subject());
+            var o = resolve(dslCtx, assertion.object());
+            resolvedAssertions.put(assertion, new NamespacedId[]{s, o});
+        }
+
+        // Check each assertion using temporal grants query
+        for (var assertion : assertions) {
+            var resolved = resolvedAssertions.get(assertion);
+            var s = resolved[0];
+            var o = resolved[1];
+
+            if (s == null || o == null) {
+                results.add(false);
+            } else {
+                var exists = dslCtx.fetchExists(dslCtx.selectOne().from(grants(s.id(), dslCtx, o.id(), timestamp)));
+                results.add(exists);
+            }
+        }
+
+        return results;
     }
 }
