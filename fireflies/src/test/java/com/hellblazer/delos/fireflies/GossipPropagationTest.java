@@ -54,7 +54,7 @@ public class GossipPropagationTest {
     private static final double P_BYZ = 0.2;
 
     // CI environment detection for timing-sensitive distributed consensus tests
-    private static final boolean IS_CI = Boolean.parseBoolean(System.getProperty("CI", "false"));
+    private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
     private static final int CONVERGENCE_TIMEOUT_MS = IS_CI ? 240_000 : 120_000;  // 4min on CI, 2min local
     private static Map<Digest, ControlledIdentifier<SelfAddressingIdentifier>> identities;
     private static KERL.AppendKERL kerl;
