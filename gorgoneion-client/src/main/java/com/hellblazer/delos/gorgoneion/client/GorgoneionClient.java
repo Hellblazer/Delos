@@ -48,6 +48,13 @@ public class GorgoneionClient {
     public Establishment apply(Duration timeout) {
         KERL_ application = member.kerl();
         var fs = client.apply(application, timeout);
+        if (fs == null) {
+            throw new IllegalStateException(
+                    "Failed to apply for admission: server returned null nonce. " +
+                    "This typically indicates the admission server rejected the application " +
+                    "or encountered an error processing the KERL."
+            );
+        }
         Credentials credentials = credentials(fs);
         return client.register(credentials, timeout);
     }

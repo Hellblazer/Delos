@@ -126,6 +126,34 @@ public class GorgoneionClientTest {
     }
 
     @Test
+    public void testNullApplyThrowsClearException() {
+        var entropy = new SecureRandom();
+        entropy.setSeed(new byte[] { 7, 7, 7 });
+        final var kerl = new MemKERL(DigestAlgorithm.DEFAULT);
+        var stereotomy = new StereotomyImpl(new MemKeyStore(), kerl, entropy);
+        var client = new ControlledIdentifierMember(stereotomy.newIdentifier());
+
+        // Mock Admissions to return null from apply()
+        var admissions = mock(Admissions.class);
+        Mockito.when(admissions.apply(Mockito.any(), Mockito.any())).thenReturn(null);
+
+        Function<SignedNonce, Any> attester = _ -> Any.getDefaultInstance();
+        final var parameters = Parameters.newBuilder().setKerl(kerl).build();
+
+        var gorgoneionClient = new GorgoneionClient(client, attester, parameters.clock(), admissions);
+
+        // Should throw IllegalStateException with clear message
+        var exception = assertThrows(IllegalStateException.class, () -> {
+            gorgoneionClient.apply(Duration.ofSeconds(1));
+        });
+
+        assertTrue(exception.getMessage().contains("apply"),
+                   "Exception message should mention apply operation");
+        assertTrue(exception.getMessage().contains("null") || exception.getMessage().contains("nonce"),
+                   "Exception message should mention null or nonce");
+    }
+
+    @Test
     public void multiSmoke() throws Exception {
         var entropy = SecureRandom.getInstance("SHA1PRNG");
         entropy.setSeed(new byte[] { 6, 6, 6 });
