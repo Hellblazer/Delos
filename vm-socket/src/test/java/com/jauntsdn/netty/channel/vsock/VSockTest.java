@@ -278,8 +278,9 @@ public class VSockTest {
 
   @Test
   void nullRemoteAddressWithMessage() {
-    NullPointerException ex = org.junit.jupiter.api.Assertions.assertThrows(
-        NullPointerException.class,
+    // Bootstrap.connect() throws IllegalStateException if remoteAddress is not set
+    IllegalStateException ex = org.junit.jupiter.api.Assertions.assertThrows(
+        IllegalStateException.class,
         () -> {
           Bootstrap bootstrap = new Bootstrap()
               .group(new EpollEventLoopGroup(1))
