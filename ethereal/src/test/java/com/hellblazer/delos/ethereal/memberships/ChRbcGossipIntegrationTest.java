@@ -257,6 +257,51 @@ public class ChRbcGossipIntegrationTest {
             "Expected significant gossip activity across all nodes");
     }
 
+    /**
+     * Test that equivocation exceptions are caught and handled gracefully.
+     * <p>
+     * Validates: When processor.updateFrom() throws IllegalStateException
+     * due to equivocation detection, the exception is caught and logged
+     * without disrupting the RPC or gossip service.
+     * <p>
+     * References: Delos-sxh3 (Equivocation Exception Handling)
+     */
+    @Test
+    void testEquivocationExceptionHandling() throws Exception {
+        setupClusterWithCustomProcessor(2, i -> {
+            if (i == 0) {
+                // Node 0 returns non-empty updates to trigger updateFrom on node 1
+                return new UpdateProducingProcessor();
+            } else {
+                // Node 1 throws equivocation exception on updateFrom
+                return new EquivocationProcessor();
+            }
+        });
+        startAllGossip();
+
+        // Wait for gossip to execute
+        Thread.sleep(500);
+
+        // Node 0 should continue gossiping despite node 1 throwing equivocation exceptions
+        assertTrue(processors.get(0).getGossipContextCount() > 0,
+            "Node 0 should continue gossiping");
+
+        // Node 1's equivocation processor should have been called and thrown exceptions
+        var node1Processor = (EquivocationProcessor) processors.get(1);
+        assertTrue(node1Processor.getEquivocationCount() > 0,
+            "Node 1 should have thrown equivocation exceptions");
+
+        // Verify gossip continues after equivocation exceptions
+        processors.forEach(CountingProcessor::resetCounters);
+        Thread.sleep(300);
+
+        // Both nodes should continue gossiping normally
+        assertTrue(processors.get(0).getGossipContextCount() > 0,
+            "Node 0 should continue gossiping after equivocation");
+        assertTrue(processors.get(1).getGossipContextCount() > 0,
+            "Node 1 should continue gossiping after equivocation");
+    }
+
     // ==================== Helper Methods ====================
 
     private void setupCluster(int size) throws Exception {
@@ -376,6 +421,62 @@ public class ChRbcGossipIntegrationTest {
 
         int getAttemptCount() {
             return attempts.get();
+        }
+    }
+
+    /**
+     * Processor that returns non-empty updates to trigger the updateFrom phase.
+     */
+    private static class UpdateProducingProcessor extends CountingProcessor {
+        private final AtomicInteger updateCallCount = new AtomicInteger(0);
+
+        @Override
+        public Update update(Update update) {
+            super.update(update);
+            updateCallCount.incrementAndGet();
+            log.info("UpdateProducingProcessor.update() called, count={}", updateCallCount.get());
+            // Return a non-empty update to trigger updateFrom on the receiving node
+            return Update.newBuilder()
+                         .addMissings(com.hellblazer.delos.ethereal.proto.Missing.newBuilder()
+                                          .setEpoch(0)
+                                          .build())
+                         .build();
+        }
+
+        int getUpdateCallCount() {
+            return updateCallCount.get();
+        }
+    }
+
+    /**
+     * Processor that throws IllegalStateException on updateFrom to simulate equivocation detection.
+     */
+    private static class EquivocationProcessor extends CountingProcessor {
+        private final AtomicInteger equivocationCount = new AtomicInteger(0);
+
+        @Override
+        public Update gossip(Gossip gossip) {
+            super.gossip(gossip);
+            log.info("EquivocationProcessor.gossip(Gossip) called, returning non-empty Update");
+            // Return non-empty update so that remote node's processor.update() gets called
+            return Update.newBuilder()
+                         .addMissings(com.hellblazer.delos.ethereal.proto.Missing.newBuilder()
+                                          .setEpoch(0)
+                                          .build())
+                         .build();
+        }
+
+        @Override
+        public void updateFrom(Update update) {
+            super.updateFrom(update);
+            equivocationCount.incrementAndGet();
+            log.info("EquivocationProcessor.updateFrom() called, count={}, throwing exception", equivocationCount.get());
+            throw new IllegalStateException(
+                "Equivocation detected: creator=1 height=5 produced conflicting units");
+        }
+
+        int getEquivocationCount() {
+            return equivocationCount.get();
         }
     }
 }

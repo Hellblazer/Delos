@@ -76,6 +76,15 @@ class WitnessSignatureValidatorTest {
     }
 
     /**
+     * Helper to configure mock KeyState with default single-key threshold.
+     */
+    private void configureSingleKeyMock(java.security.PublicKey publicKey) {
+        when(mockKeyState.getKeys()).thenReturn(List.of(publicKey));
+        when(mockKeyState.getSigningThreshold()).thenReturn(com.hellblazer.delos.cryptography.SigningThreshold.unweighted(1));
+        when(mockKeyState.getIdentifier()).thenReturn(mockWitnessIdentifier);
+    }
+
+    /**
      * Test 1: Verify valid signature.
      * <p>
      * Verifies:
@@ -92,8 +101,7 @@ class WitnessSignatureValidatorTest {
 
         when(mockKerlIntegration.verifyIdentifier(mockWitnessIdentifier, collectionEpoch))
             .thenReturn(Optional.of(mockKeyState));
-        when(mockKeyState.getKeys()).thenReturn(List.of(keyPair.getPublic()));
-        when(mockKeyState.getIdentifier()).thenReturn(mockWitnessIdentifier);
+        configureSingleKeyMock(keyPair.getPublic());
 
         // Act
         var result = validator.verifySignature(mockWitnessIdentifier, signature, testData, collectionEpoch);
@@ -127,7 +135,7 @@ class WitnessSignatureValidatorTest {
 
         when(mockKerlIntegration.verifyIdentifier(mockWitnessIdentifier, collectionEpoch))
             .thenReturn(Optional.of(mockKeyState));
-        when(mockKeyState.getKeys()).thenReturn(List.of(keyPair.getPublic()));
+        configureSingleKeyMock(keyPair.getPublic());
         when(mockKeyState.getIdentifier()).thenReturn(mockWitnessIdentifier);
 
         // Act - Verify signature with DIFFERENT data (should fail)
@@ -206,7 +214,7 @@ class WitnessSignatureValidatorTest {
         Thread.sleep(100); // Short sleep for test
 
         // Setup for retry
-        when(mockKeyState.getKeys()).thenReturn(List.of(keyPair.getPublic()));
+        configureSingleKeyMock(keyPair.getPublic());
         when(mockKeyState.getIdentifier()).thenReturn(mockWitnessIdentifier);
 
         // Act - Retry after timeout
@@ -242,6 +250,7 @@ class WitnessSignatureValidatorTest {
         when(mockKerlIntegration.verifyIdentifier(mockWitnessIdentifier, collectionEpoch))
             .thenReturn(Optional.of(mockKeyState));
         when(mockKeyState.getKeys()).thenReturn(List.of()); // Empty keys
+        when(mockKeyState.getSigningThreshold()).thenReturn(com.hellblazer.delos.cryptography.SigningThreshold.unweighted(1));
         when(mockKeyState.getIdentifier()).thenReturn(mockWitnessIdentifier);
 
         // Act
@@ -273,7 +282,7 @@ class WitnessSignatureValidatorTest {
 
         when(mockKerlIntegration.verifyIdentifier(mockWitnessIdentifier, collectionEpoch))
             .thenReturn(Optional.of(mockKeyState));
-        when(mockKeyState.getKeys()).thenReturn(List.of(differentKeyPair.getPublic())); // Wrong key
+        configureSingleKeyMock(differentKeyPair.getPublic());
         when(mockKeyState.getIdentifier()).thenReturn(mockWitnessIdentifier);
 
         // Act
@@ -305,7 +314,7 @@ class WitnessSignatureValidatorTest {
             .thenReturn(Optional.of(mockKeyState))
             .thenReturn(Optional.empty())
             .thenReturn(Optional.of(mockKeyState));
-        when(mockKeyState.getKeys()).thenReturn(List.of(keyPair.getPublic()));
+        configureSingleKeyMock(keyPair.getPublic());
         when(mockKeyState.getIdentifier()).thenReturn(mockWitnessIdentifier);
 
         // Act - Multiple verifications
@@ -342,7 +351,7 @@ class WitnessSignatureValidatorTest {
 
         when(mockKerlIntegration.verifyIdentifier(mockWitnessIdentifier, collectionEpoch))
             .thenReturn(Optional.of(mockKeyState));
-        when(mockKeyState.getKeys()).thenReturn(List.of(differentKeyPair.getPublic())); // Primary verification will fail
+        configureSingleKeyMock(differentKeyPair.getPublic());
         when(mockKeyState.getIdentifier()).thenReturn(mockWitnessIdentifier);
 
         // Configure KeyLookup to succeed (old key validates during grace period)
@@ -389,7 +398,7 @@ class WitnessSignatureValidatorTest {
 
         when(mockKerlIntegration.verifyIdentifier(mockWitnessIdentifier, collectionEpoch))
             .thenReturn(Optional.of(mockKeyState));
-        when(mockKeyState.getKeys()).thenReturn(List.of(newKeyPair.getPublic())); // New key only
+        configureSingleKeyMock(newKeyPair.getPublic());
         when(mockKeyState.getIdentifier()).thenReturn(mockWitnessIdentifier);
 
         // Old key validates via KeyLookup
@@ -426,8 +435,7 @@ class WitnessSignatureValidatorTest {
 
         when(mockKerlIntegration.verifyIdentifier(mockWitnessIdentifier, collectionEpoch))
             .thenReturn(Optional.of(mockKeyState));
-        when(mockKeyState.getKeys()).thenReturn(List.of(keyPair.getPublic())); // Primary verification succeeds
-        when(mockKeyState.getIdentifier()).thenReturn(mockWitnessIdentifier);
+        configureSingleKeyMock(keyPair.getPublic());
 
         // Act - Primary verification should succeed, no dual-key needed
         var result = validatorWithKeyLookup.verifySignature(mockWitnessIdentifier, signature, testData, collectionEpoch);
@@ -463,7 +471,7 @@ class WitnessSignatureValidatorTest {
 
         when(mockKerlIntegration.verifyIdentifier(mockWitnessIdentifier, collectionEpoch))
             .thenReturn(Optional.of(mockKeyState));
-        when(mockKeyState.getKeys()).thenReturn(List.of(newKeyPair.getPublic()));
+        configureSingleKeyMock(newKeyPair.getPublic());
         when(mockKeyState.getIdentifier()).thenReturn(mockWitnessIdentifier);
 
         // Grace period expired - KeyLookup returns false
@@ -507,7 +515,7 @@ class WitnessSignatureValidatorTest {
 
         when(mockKerlIntegration.verifyIdentifier(mockWitnessIdentifier, collectionEpoch))
             .thenReturn(Optional.of(mockKeyState));
-        when(mockKeyState.getKeys()).thenReturn(List.of(differentKeyPair.getPublic()));
+        configureSingleKeyMock(differentKeyPair.getPublic());
         when(mockKeyState.getIdentifier()).thenReturn(mockWitnessIdentifier);
 
         // KeyLookup throws exception
@@ -548,7 +556,7 @@ class WitnessSignatureValidatorTest {
 
         when(mockKerlIntegration.verifyIdentifier(mockWitnessIdentifier, collectionEpoch))
             .thenReturn(Optional.of(mockKeyState));
-        when(mockKeyState.getKeys()).thenReturn(List.of(differentKeyPair.getPublic()));
+        configureSingleKeyMock(differentKeyPair.getPublic());
         when(mockKeyState.getIdentifier()).thenReturn(mockWitnessIdentifier);
 
         // KeyLookup succeeds
@@ -590,7 +598,7 @@ class WitnessSignatureValidatorTest {
 
         when(mockKerlIntegration.verifyIdentifier(mockWitnessIdentifier, collectionEpoch))
             .thenReturn(Optional.of(mockKeyState));
-        when(mockKeyState.getKeys()).thenReturn(List.of(differentKeyPair.getPublic()));
+        configureSingleKeyMock(differentKeyPair.getPublic());
         when(mockKeyState.getIdentifier()).thenReturn(mockWitnessIdentifier);
 
         when(mockKeyLookup.verifyWithValidKeys(eq(mockWitnessIdentifier), eq(signature), eq(testData), any()))
