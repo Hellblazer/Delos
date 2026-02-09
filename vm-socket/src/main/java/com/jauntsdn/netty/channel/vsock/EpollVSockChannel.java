@@ -74,14 +74,14 @@ public final class EpollVSockChannel extends AbstractEpollStreamChannel implemen
   protected boolean doConnect(SocketAddress remoteAddress, SocketAddress localAddress)
       throws Exception {
     if (!(remoteAddress instanceof VSockAddress)) {
-      throw new Error("Unexpected remote SocketAddress " + remoteAddress);
+      throw new IllegalArgumentException("Unexpected remote SocketAddress " + remoteAddress);
     }
     VSockAddress remoteVSock = (VSockAddress) remoteAddress;
 
     VSockAddress localVSock = null;
     if (localAddress != null) {
       if (!(localAddress instanceof VSockAddress)) {
-        throw new Error("Unexpected local SocketAddress " + localAddress);
+        throw new IllegalArgumentException("Unexpected local SocketAddress " + localAddress);
       }
       localVSock = (VSockAddress) localAddress;
       socket.bindVSock(localVSock);

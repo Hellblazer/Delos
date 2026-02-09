@@ -50,7 +50,7 @@ public final class EpollServerVSockChannel extends AbstractEpollServerChannel
   @Override
   protected void doBind(SocketAddress localAddress) throws Exception {
     if (!(localAddress instanceof VSockAddress)) {
-      throw new Error("Unexpected local SocketAddress " + localAddress);
+      throw new IllegalArgumentException("Unexpected local SocketAddress " + localAddress);
     }
     VSockAddress localVSock = (VSockAddress) localAddress;
 
