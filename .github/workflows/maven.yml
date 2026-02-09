@@ -235,8 +235,8 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Batch 3c-identity (KERI identity layer)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl stereotomy,thoth,gorgoneion,gorgoneion-client,stereotomy-services --file pom.xml
+      - name: Test Batch 3c-identity (KERI identity layer + application services)
+        run: CI=true ./mvnw -batch-mode surefire:test -pl stereotomy,thoth,gorgoneion,gorgoneion-client,stereotomy-services,witness-service,delphinius,model --file pom.xml
       - name: Save Maven cache after batch-3c-identity tests
         uses: actions/cache@v4
         with:
@@ -304,7 +304,7 @@ jobs:
             delos-maven-
           fail-on-cache-miss: false
       - name: Test Batch 3c-platform (Platform support)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl vm-socket,liquibase-deterministic,leyden --file pom.xml
+        run: CI=true ./mvnw -batch-mode surefire:test -pl vm-socket,liquibase-modified,leyden --file pom.xml
       - name: Save Maven cache after batch-3c-platform tests
         uses: actions/cache@v4
         with:
@@ -348,21 +348,23 @@ jobs:
           key: delos-maven-tests-batch-4-${{ github.sha }}
 
   build-status:
-    needs: [test-batch-1, test-batch-2a, test-batch-2b, test-batch-3a, test-batch-3b, test-batch-3c, test-batch-4]
+    needs: [test-batch-1, test-batch-2a, test-batch-2b, test-batch-3a, test-batch-3b, test-batch-3c-identity, test-batch-3c-infrastructure, test-batch-3c-platform, test-batch-4]
     runs-on: ubuntu-latest
     if: always()
 
     steps:
       - name: Check Test Results
         run: |
-          if [ "${{ needs.test-batch-1.result }}" != "success" ] || [ "${{ needs.test-batch-2a.result }}" != "success" ] || [ "${{ needs.test-batch-2b.result }}" != "success" ] || [ "${{ needs.test-batch-3a.result }}" != "success" ] || [ "${{ needs.test-batch-3b.result }}" != "success" ] || [ "${{ needs.test-batch-3c.result }}" != "success" ] || [ "${{ needs.test-batch-4.result }}" != "success" ]; then
+          if [ "${{ needs.test-batch-1.result }}" != "success" ] || [ "${{ needs.test-batch-2a.result }}" != "success" ] || [ "${{ needs.test-batch-2b.result }}" != "success" ] || [ "${{ needs.test-batch-3a.result }}" != "success" ] || [ "${{ needs.test-batch-3b.result }}" != "success" ] || [ "${{ needs.test-batch-3c-identity.result }}" != "success" ] || [ "${{ needs.test-batch-3c-infrastructure.result }}" != "success" ] || [ "${{ needs.test-batch-3c-platform.result }}" != "success" ] || [ "${{ needs.test-batch-4.result }}" != "success" ]; then
             echo "❌ Build FAILED: One or more test jobs failed"
             echo "  test-batch-1: ${{ needs.test-batch-1.result }}"
             echo "  test-batch-2a: ${{ needs.test-batch-2a.result }}"
             echo "  test-batch-2b: ${{ needs.test-batch-2b.result }}"
             echo "  test-batch-3a: ${{ needs.test-batch-3a.result }}"
             echo "  test-batch-3b: ${{ needs.test-batch-3b.result }}"
-            echo "  test-batch-3c: ${{ needs.test-batch-3c.result }}"
+            echo "  test-batch-3c-identity: ${{ needs.test-batch-3c-identity.result }}"
+            echo "  test-batch-3c-infrastructure: ${{ needs.test-batch-3c-infrastructure.result }}"
+            echo "  test-batch-3c-platform: ${{ needs.test-batch-3c-platform.result }}"
             echo "  test-batch-4: ${{ needs.test-batch-4.result }}"
             exit 1
           fi
