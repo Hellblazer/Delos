@@ -9,6 +9,7 @@
 package com.hellblazer.delos.cryptography.bls;
 
 import com.google.protobuf.ByteString;
+import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.proto.Sig;
 
 import java.util.Arrays;
@@ -117,14 +118,16 @@ public record BLSSignature(byte[] compressedBytes) {
     }
 
     /**
-     * Equality based on signature bytes (via record's automatic implementation).
-     * Uses Arrays.equals for byte array comparison.
+     * Constant-time equality based on signature bytes to prevent timing attacks.
+     * <p>
+     * Uses constant-time comparison instead of Arrays.equals to prevent
+     * timing-based side-channel attacks (defense-in-depth for cryptographic values).
      */
     @Override
     public boolean equals(Object obj) {
         if (this == obj) return true;
         if (!(obj instanceof BLSSignature other)) return false;
-        return Arrays.equals(compressedBytes, other.compressedBytes);
+        return Digest.constantTimeEquals(compressedBytes, other.compressedBytes);
     }
 
     /**

@@ -64,6 +64,12 @@ public class JohnHancock {
         return new JohnHancock(algorithm, new byte[0][], ULong.valueOf(0));
     }
 
+    /**
+     * Constant-time equality comparison to prevent timing attacks.
+     * <p>
+     * Uses constant-time comparison for signature bytes to prevent
+     * timing-based side-channel attacks (defense-in-depth).
+     */
     @Override
     public boolean equals(Object obj) {
         if (this == obj) {
@@ -72,7 +78,19 @@ public class JohnHancock {
         if (!(obj instanceof JohnHancock other)) {
             return false;
         }
-        return algorithm == other.algorithm && Arrays.equals(bytes, other.bytes);
+        if (algorithm != other.algorithm) {
+            return false;
+        }
+        if (bytes.length != other.bytes.length) {
+            return false;
+        }
+        // Compare each signature with constant-time comparison
+        for (int i = 0; i < bytes.length; i++) {
+            if (!Digest.constantTimeEquals(bytes[i], other.bytes[i])) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public Filtered filter(SigningThreshold threshold, Map<Integer, PublicKey> keys, InputStream message) {
