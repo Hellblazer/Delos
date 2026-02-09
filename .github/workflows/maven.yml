@@ -66,7 +66,7 @@ jobs:
             delos-maven-
           fail-on-cache-miss: false
       - name: Test Batch 1 (Light CHOAM unit tests + light modules)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl choam -Dtest='DynamicTest,SessionTest,PendingQueueBoundsTest,TransactionSignatureTest' --file pom.xml && CI=true ./mvnw -batch-mode surefire:test -pl tron,schemas --file pom.xml
+        run: CI=true ./mvnw -batch-mode surefire:test -pl choam -Dtest='DynamicTest,SessionTest,PendingQueueBoundsTest,TransactionSignatureTest,VersionCompatibilityTest' --file pom.xml && CI=true ./mvnw -batch-mode surefire:test -pl tron,schemas --file pom.xml
       - name: Save Maven cache after batch-1 tests
         uses: actions/cache@v4
         with:
@@ -168,7 +168,7 @@ jobs:
             delos-maven-
           fail-on-cache-miss: false
       - name: Test Batch 3a (CHOAM concurrency + correctness tests)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl choam -Dtest='CHOAMConcurrencyTest,CHOAMFSMErrorPathsTest,CallbackReentrancyTest,ViewStateContractTest,NestedLockDetectionTest' -Dlarge_tests=true --file pom.xml
+        run: CI=true ./mvnw -batch-mode surefire:test -pl choam -Dtest='CHOAMConcurrencyTest,CHOAMFSMErrorPathsTest,CallbackReentrancyTest,ViewStateContractTest,NestedLockDetectionTest,ZeroDowntimeUpgradeTest,ConcurrentStressValidationTest' -Dlarge_tests=true --file pom.xml
       - name: Save Maven cache after batch-3a tests
         uses: actions/cache@v4
         with:
