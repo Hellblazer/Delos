@@ -188,9 +188,9 @@ class ViewAssemblyTestHarnessContractTest {
         var view1 = DigestAlgorithm.DEFAULT.digest("view1");
         var view2 = DigestAlgorithm.DEFAULT.digest("view2");
 
-        var success = harness.injectConflictingVote(member1, view1, view2);
-
-        assertThat(success).isFalse();
+        assertThatThrownBy(() -> harness.injectConflictingVote(member1, view1, view2))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("Byzantine mode must be enabled");
     }
 
     @Test

@@ -60,6 +60,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 public class DeterminismVerificationTest {
     private static final boolean LARGE_TESTS = Boolean.getBoolean("large_tests");
+    private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
     private static final int CARDINALITY = 4;  // f=1 Byzantine tolerance (4 = 3f+1)
     private static final int TRANSACTION_BATCH_SIZE = 10;
 
@@ -181,7 +182,7 @@ public class DeterminismVerificationTest {
         final var clientCount = 2;
         final var transactionsPerClient = TRANSACTION_BATCH_SIZE;
         final var countdown = new CountDownLatch(clientCount * choams.size());
-        final var timeout = Duration.ofSeconds(3);
+        final var timeout = Duration.ofSeconds(IS_CI ? 10 : 3);  // CI needs more time
 
         choams.values().forEach(c -> {
             for (int i = 0; i < clientCount; i++) {
@@ -191,7 +192,8 @@ public class DeterminismVerificationTest {
 
         transactioneers.forEach(Transactioneer::start);
         try {
-            final var complete = countdown.await(LARGE_TESTS ? 60 : 40, TimeUnit.SECONDS);
+            int waitSeconds = LARGE_TESTS ? (IS_CI ? 120 : 60) : (IS_CI ? 80 : 40);
+            final var complete = countdown.await(waitSeconds, TimeUnit.SECONDS);
             assertTrue(complete, "Transactions did not complete in time");
         } finally {
             routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));

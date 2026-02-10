@@ -141,7 +141,7 @@ public class MockBFTValidator implements BFTValidator {
      * Record a violation (used internally by mapViolation or for test injection).
      * Enforces maxHistorySize to prevent unbounded memory growth.
      */
-    private void recordViolation(ByzantineViolation violation) {
+    private synchronized void recordViolation(ByzantineViolation violation) {
         allViolations.add(violation);
         violationCounts.merge(violation.type(), 1L, Long::sum);
         violationsByType.computeIfAbsent(violation.type(), k -> new CopyOnWriteArrayList<>()).add(violation);
@@ -149,8 +149,12 @@ public class MockBFTValidator implements BFTValidator {
         // Enforce history size cap to prevent unbounded growth in long-running tests
         if (allViolations.size() > maxHistorySize * 2) {
             // Trim to maxHistorySize (keep most recent)
-            var excess = allViolations.size() - maxHistorySize;
-            allViolations.subList(0, excess).clear();
+            // NOTE: CopyOnWriteArrayList.subList().clear() is not thread-safe
+            // Create new list with last maxHistorySize elements instead
+            var size = allViolations.size();
+            var newList = new CopyOnWriteArrayList<>(allViolations.subList(size - maxHistorySize, size));
+            allViolations.clear();
+            allViolations.addAll(newList);
         }
     }
 
