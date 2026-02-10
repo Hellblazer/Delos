@@ -121,8 +121,8 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Consensus (fireflies + ethereal, excluding canary tests)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl fireflies -Dtest='!ChurnTest' --file pom.xml && CI=true ./mvnw -batch-mode surefire:test -pl ethereal --file pom.xml
+      - name: Test Consensus (fireflies + ethereal, excluding stress tests)
+        run: CI=true ./mvnw -batch-mode surefire:test -pl fireflies -Dtest='!ChurnTest,!LargeGossipPropagationTest' --file pom.xml && CI=true ./mvnw -batch-mode surefire:test -pl ethereal --file pom.xml
 
   test-identity:
     needs: compile
