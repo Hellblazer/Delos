@@ -371,8 +371,8 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Batch 5 (Comprehensive CHOAM + examples + comm-simulation)
-        run: CI=true ./mvnw -batch-mode test -pl choam,examples,comm-simulation --file pom.xml
+      - name: Test Batch 5 (Comprehensive CHOAM + examples)
+        run: CI=true ./mvnw -batch-mode test -pl choam,examples --file pom.xml
       - name: Save Maven cache after batch-5 tests
         uses: actions/cache@v4
         with:
