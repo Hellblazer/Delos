@@ -348,7 +348,7 @@ jobs:
           key: delos-maven-tests-batch-4-${{ github.sha }}
 
   test-batch-5:
-    needs: compile
+    needs: [test-batch-1, test-batch-2a, test-batch-2b, test-batch-3a, test-batch-3b, test-batch-3c-identity, test-batch-3c-infrastructure, test-batch-3c-platform, test-batch-4]
     runs-on: ubuntu-latest
 
     steps:
