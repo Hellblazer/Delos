@@ -84,15 +84,19 @@ public class CHOAMBlockValidationTest {
         var entropy = SecureRandom.getInstance("SHA1PRNG");
         entropy.setSeed(new byte[] { 1, 2, 3 });
 
+        // CI runners need longer gossip intervals for distributed consensus stability
+        int gossipMs = LARGE_TESTS ? 10 : (IS_CI ? 30 : 20);
+        int batchMs = LARGE_TESTS ? 50 : (IS_CI ? 75 : 50);
+
         var params = Parameters.newBuilder()
                                .setGenerateGenesis(true)
                                .setGenesisViewId(origin.prefix(entropy.nextLong()))
-                               .setGossipDuration(Duration.ofMillis(LARGE_TESTS ? 10 : 20))
+                               .setGossipDuration(Duration.ofMillis(gossipMs))
                                .setProducer(Parameters.ProducerParameters.newBuilder()
                                                               .setMaxBatchCount(1000)
                                                               .setMaxBatchByteSize(50 * 1024 * 1024)
-                                                              .setGossipDuration(Duration.ofMillis(LARGE_TESTS ? 10 : 20))
-                                                              .setBatchInterval(Duration.ofMillis(LARGE_TESTS ? 50 : 50))
+                                                              .setGossipDuration(Duration.ofMillis(gossipMs))
+                                                              .setBatchInterval(Duration.ofMillis(batchMs))
                                                               .setEthereal(Config.newBuilder()
                                                                                  .setNumberOfEpochs(LARGE_TESTS ? 12 : 2)
                                                                                  .setEpochLength(LARGE_TESTS ? 33 : 11))
