@@ -125,7 +125,7 @@ jobs:
         run: CI=true ./mvnw -batch-mode surefire:test -pl fireflies,ethereal --file pom.xml
 
   test-identity:
-    needs: compile
+    needs: [compile, test-consensus]
     runs-on: ubuntu-latest
 
     steps:
