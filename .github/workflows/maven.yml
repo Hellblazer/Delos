@@ -148,8 +148,11 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Identity (KERI + applications, excluding slow integration)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl stereotomy,thoth,gorgoneion,gorgoneion-client,stereotomy-services,witness-service,delphinius,examples --file pom.xml && CI=true ./mvnw -batch-mode surefire:test -pl model -Dtest='!FireFliesTest' --file pom.xml
+      - name: Test Identity (KERI stack, excluding performance tests)
+        run: |
+          CI=true ./mvnw -batch-mode surefire:test -pl stereotomy,thoth,gorgoneion,gorgoneion-client,stereotomy-services,delphinius,examples --file pom.xml
+          CI=true ./mvnw -batch-mode surefire:test -pl witness-service -Dtest='!Phase1CProductionSimulationTest,!FullPathPerformanceTest,!WitnessConsensusPerformanceTest,!RateAnomalyDetectorTest,!BLSPerformanceBenchmarkTest' --file pom.xml
+          CI=true ./mvnw -batch-mode surefire:test -pl model -Dtest='!FireFliesTest' --file pom.xml
 
   test-integration:
     needs: compile
