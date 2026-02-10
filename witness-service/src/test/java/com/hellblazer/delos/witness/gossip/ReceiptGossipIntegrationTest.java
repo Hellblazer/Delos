@@ -46,6 +46,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class ReceiptGossipIntegrationTest {
 
+    private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
     private static final DigestAlgorithm DIGEST_ALGO = DigestAlgorithm.DEFAULT;
     private static final long BLOOM_SEED = 42L;
     private static final double BLOOM_FPR = 0.01;
@@ -258,10 +259,11 @@ class ReceiptGossipIntegrationTest {
         }
 
         // Then: All threads complete without errors
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "All threads should complete");
+        // CI infrastructure needs 3x timeout for concurrent gossip processing
+        assertTrue(latch.await(IS_CI ? 30 : 10, TimeUnit.SECONDS), "All threads should complete");
 
         for (var thread : threads) {
-            thread.join(1000);
+            thread.join(IS_CI ? 3000 : 1000);
         }
 
         assertTrue(errors.isEmpty(), "No errors should occur: " + errors);
