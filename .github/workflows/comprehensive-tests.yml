@@ -103,7 +103,7 @@ jobs:
             delos-maven-comprehensive-
           fail-on-cache-miss: false
       - name: Test Witness Performance (long-running simulation and performance tests)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl witness-service -Dtest='Phase1CProductionSimulationTest,FullPathPerformanceTest,WitnessConsensusPerformanceTest,RateAnomalyDetectorTest,BLSPerformanceBenchmarkTest' --file pom.xml
+        run: CI=true ./mvnw -batch-mode surefire:test -pl witness-service -Dtest='Phase1CProductionSimulationTest,FullPathPerformanceTest,WitnessConsensusPerformanceTest,RateAnomalyDetectorTest,BLSPerformanceBenchmarkTest,ByzantineDetectionPerformanceTest' --file pom.xml
 
   test-canaries:
     needs: compile

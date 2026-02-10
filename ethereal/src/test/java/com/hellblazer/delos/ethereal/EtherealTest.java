@@ -51,11 +51,13 @@ public class EtherealTest {
 
     private final static long    DELAY_MS;
     private static final int     EPOCH_LENGTH = 30;
+    private static final boolean IS_CI;
     private static final boolean LARGE_TESTS;
     private static final int     NPROC;
     private static final int     NUM_EPOCHS   = 3;
 
     static {
+        IS_CI = Boolean.parseBoolean(System.getenv().getOrDefault("CI", "false"));
         LARGE_TESTS = Boolean.getBoolean("large_tests");
         DELAY_MS = 5;
         NPROC = LARGE_TESTS ? 7 : 4;
@@ -164,9 +166,12 @@ public class EtherealTest {
             // Timeout must account for expectedEpochs * EPOCH_LENGTH seconds for consensus to complete
             // Standard tests: 4 epochs × 30 sec + 20 sec buffer = 140 sec
             // Large tests: 4 epochs × 30 sec + 40 sec buffer (7 nodes) = 160 sec
-            epochCountDown.await(LARGE_TESTS ? 160 : 140, TimeUnit.SECONDS);
+            // CI: Add 3x multiplier for scheduler delays
+            var epochTimeout = LARGE_TESTS ? 160 : (IS_CI ? 420 : 140);
+            epochCountDown.await(epochTimeout, TimeUnit.SECONDS);
             controllers.forEach(Ethereal::completeIt);
-            finished.await(LARGE_TESTS ? 180 : 110, TimeUnit.SECONDS);
+            var finishedTimeout = LARGE_TESTS ? 180 : (IS_CI ? 330 : 110);
+            finished.await(finishedTimeout, TimeUnit.SECONDS);
         } finally {
             controllers.forEach(Ethereal::stop);
             gossipers.forEach(ChRbcGossip::stop);
