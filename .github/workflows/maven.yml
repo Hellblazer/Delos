@@ -121,11 +121,11 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Consensus (fireflies + ethereal)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl fireflies,ethereal --file pom.xml
+      - name: Test Consensus (fireflies + ethereal, excluding canary tests)
+        run: CI=true ./mvnw -batch-mode surefire:test -pl fireflies -Dtest='!ChurnTest' --file pom.xml && CI=true ./mvnw -batch-mode surefire:test -pl ethereal --file pom.xml
 
   test-identity:
-    needs: [compile, test-consensus]
+    needs: compile
     runs-on: ubuntu-latest
 
     steps:
@@ -155,35 +155,8 @@ jobs:
           CI=true ./mvnw -batch-mode surefire:test -pl witness-service -Dtest='!Phase1CProductionSimulationTest,!FullPathPerformanceTest,!WitnessConsensusPerformanceTest,!RateAnomalyDetectorTest,!BLSPerformanceBenchmarkTest' --file pom.xml
           CI=true ./mvnw -batch-mode surefire:test -pl model -Dtest='!FireFliesTest' --file pom.xml
 
-  test-integration:
-    needs: compile
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: graalvm/setup-graalvm@v1
-        with:
-          java-version: '25'
-          distribution: 'graalvm'
-          cache: 'maven'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Restore Maven cache from compile job
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.m2/repository
-            **/target/
-          key: delos-maven-${{ github.sha }}
-          restore-keys: |
-            delos-maven-${{ github.ref }}-
-            delos-maven-refs/heads/main-
-            delos-maven-
-          fail-on-cache-miss: false
-      - name: Test End-to-End Integration (FireFliesTest - full stack smoke test)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl model -Dtest='FireFliesTest' --file pom.xml
-
   build-status:
-    needs: [test-units, test-choam, test-consensus, test-identity, test-integration]
+    needs: [test-units, test-choam, test-consensus, test-identity]
     runs-on: ubuntu-latest
     if: always()
 

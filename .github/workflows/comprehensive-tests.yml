@@ -105,8 +105,35 @@ jobs:
       - name: Test Witness Performance (long-running simulation and performance tests)
         run: CI=true ./mvnw -batch-mode surefire:test -pl witness-service -Dtest='Phase1CProductionSimulationTest,FullPathPerformanceTest,WitnessConsensusPerformanceTest,RateAnomalyDetectorTest,BLSPerformanceBenchmarkTest' --file pom.xml
 
+  test-canaries:
+    needs: compile
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          cache: 'maven'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore Maven cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            **/target/
+          key: delos-maven-comprehensive-${{ github.sha }}
+          restore-keys: |
+            delos-maven-comprehensive-
+          fail-on-cache-miss: false
+      - name: Test Canary Tests (ChurnTest, FireFliesTest - resource-intensive integration tests)
+        run: |
+          CI=true ./mvnw -batch-mode surefire:test -pl fireflies -Dtest='ChurnTest' --file pom.xml
+          CI=true ./mvnw -batch-mode surefire:test -pl model -Dtest='FireFliesTest' --file pom.xml
+
   build-status:
-    needs: [test-stress, test-comprehensive-choam, test-witness-performance]
+    needs: [test-stress, test-comprehensive-choam, test-witness-performance, test-canaries]
     runs-on: ubuntu-latest
     if: always()
 
