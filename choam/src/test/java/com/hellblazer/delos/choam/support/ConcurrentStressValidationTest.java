@@ -41,6 +41,7 @@ public class ConcurrentStressValidationTest {
     private SecureRandom random;
 
     // Test configuration
+    private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
     private static final int CONCURRENT_THREADS = 100;
     private static final int VALIDATIONS_PER_THREAD = 100;
 
@@ -83,8 +84,8 @@ public class ConcurrentStressValidationTest {
             });
         });
 
-        // Wait for all threads to complete (timeout after 30 seconds)
-        assertTrue(latch.await(30, TimeUnit.SECONDS), "All validations should complete");
+        // Wait for all threads to complete - CI needs 3x longer due to resource contention
+        assertTrue(latch.await(IS_CI ? 90 : 30, TimeUnit.SECONDS), "All validations should complete");
         executor.shutdown();
         assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
 
@@ -125,7 +126,7 @@ public class ConcurrentStressValidationTest {
             });
         });
 
-        assertTrue(latch.await(30, TimeUnit.SECONDS));
+        assertTrue(latch.await(IS_CI ? 90 : 30, TimeUnit.SECONDS));
         executor.shutdown();
         assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
 
@@ -164,7 +165,7 @@ public class ConcurrentStressValidationTest {
             });
         });
 
-        assertTrue(latch.await(30, TimeUnit.SECONDS));
+        assertTrue(latch.await(IS_CI ? 90 : 30, TimeUnit.SECONDS));
         executor.shutdown();
         assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
 
@@ -213,7 +214,7 @@ public class ConcurrentStressValidationTest {
             });
         });
 
-        assertTrue(latch.await(30, TimeUnit.SECONDS));
+        assertTrue(latch.await(IS_CI ? 90 : 30, TimeUnit.SECONDS));
         executor.shutdown();
         assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
 
@@ -251,7 +252,7 @@ public class ConcurrentStressValidationTest {
             });
         });
 
-        assertTrue(latch.await(60, TimeUnit.SECONDS), "All validations should complete");
+        assertTrue(latch.await(IS_CI ? 180 : 60, TimeUnit.SECONDS), "All validations should complete");
         executor.close();
 
         var duration = (System.nanoTime() - startTime) / 1_000_000; // Convert to ms
@@ -291,7 +292,7 @@ public class ConcurrentStressValidationTest {
             });
         });
 
-        assertTrue(latch.await(30, TimeUnit.SECONDS));
+        assertTrue(latch.await(IS_CI ? 90 : 30, TimeUnit.SECONDS));
         executor.shutdown();
         assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
 
@@ -326,7 +327,7 @@ public class ConcurrentStressValidationTest {
             });
         });
 
-        assertTrue(latch.await(30, TimeUnit.SECONDS));
+        assertTrue(latch.await(IS_CI ? 90 : 30, TimeUnit.SECONDS));
         executor.shutdown();
         assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
 
