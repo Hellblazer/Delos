@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Mock implementation of BFTValidator for unit tests. Provides configurable violation tracking
@@ -29,6 +30,7 @@ public class MockBFTValidator implements BFTValidator {
     private final Map<ByzantineViolationType, Long>               violationCounts = new ConcurrentHashMap<>();
     private final CopyOnWriteArrayList<ByzantineViolation>       allViolations   = new CopyOnWriteArrayList<>();
     private final Map<ByzantineViolationType, List<ByzantineViolation>> violationsByType = new ConcurrentHashMap<>();
+    private final AtomicLong                                      totalViolationCount = new AtomicLong(0);
 
     /**
      * Configure whether violations should be automatically created for failed validations.
@@ -77,7 +79,7 @@ public class MockBFTValidator implements BFTValidator {
 
     @Override
     public long getTotalViolationCount() {
-        return allViolations.size();
+        return totalViolationCount.get();
     }
 
     @Override
@@ -142,6 +144,7 @@ public class MockBFTValidator implements BFTValidator {
      * Enforces maxHistorySize to prevent unbounded memory growth.
      */
     private synchronized void recordViolation(ByzantineViolation violation) {
+        totalViolationCount.incrementAndGet();  // Track cumulative count
         allViolations.add(violation);
         violationCounts.merge(violation.type(), 1L, Long::sum);
         violationsByType.computeIfAbsent(violation.type(), k -> new CopyOnWriteArrayList<>()).add(violation);
