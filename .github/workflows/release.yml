@@ -240,7 +240,7 @@ jobs:
             delos-maven-
           fail-on-cache-miss: false
       - name: Test Batch 3c (Identity/services layer)
-        run: ./mvnw -batch-mode surefire:test -pl cryptography,stereotomy,thoth,java-noise,protocols,memberships,gorgoneion,gorgoneion-client,vm-socket,stereotomy-services,grpc,liquibase-deterministic,leyden --file pom.xml
+        run: ./mvnw -batch-mode surefire:test -pl cryptography,stereotomy,thoth,java-noise,protocols,memberships,gorgoneion,gorgoneion-client,vm-socket,stereotomy-services,grpc,liquibase-modified,leyden --file pom.xml
       - name: Save Maven cache after batch-3c tests
         uses: actions/cache@v4
         with:
