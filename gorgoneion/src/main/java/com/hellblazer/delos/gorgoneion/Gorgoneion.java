@@ -484,7 +484,7 @@ public class Gorgoneion implements Closeable {
         this.provisioner = provisioner;
         this.metrics = metrics;
         this.scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
-        this.replayCache = new ReplayCache(10000, parameters.maxDuration(), Duration.ofSeconds(5));
+        this.replayCache = new ReplayCache(parameters.replayCacheSize(), parameters.maxDuration(), Duration.ofSeconds(5));
         this.credentialValidator = new CredentialValidator(context, parameters, member.getId());
 
         admissionsComm = admissionsRouter.create(member, context.getId(), new Admit(), ":admissions",

@@ -62,15 +62,16 @@ public class LeydenJar {
     private final SigningMember                                                                member;
     private final MVMap<Digest, Bound>                                                         bottled;
     private final MVMap<Digest, Digest>                                                        digests;
+    private final Object                                                                       mvMapLock = new Object();
     private final AtomicBoolean                                                                started   = new AtomicBoolean();
     private final NavigableMap<Digest, List<ConsensusState>>                                   pending   = new ConcurrentSkipListMap<>();
     private final Borders                                                                      borders;
     private final Reconciled                                                                   recon;
     private final TemporalAmount                                                               operationTimeout;
     private final Duration                                                                     operationsFrequency;
-    private final ScheduledExecutorService                                                     scheduler = Executors.newScheduledThreadPool(
-    1, Thread.ofVirtual().factory());
     private final OpValidator                                                                  validator;
+    private final Object                                                                       schedulerLock = new Object();
+    private volatile ScheduledExecutorService                                                  scheduler;
 
     public LeydenJar(OpValidator validator, TemporalAmount operationTimeout, SigningMember member,
                      Context<Member> context, Duration operationsFrequency, Router communications, double fpr,
@@ -175,9 +176,15 @@ public class LeydenJar {
             return;
         }
         log.info("Starting context: {}:{} on: {}", context.getId(), System.identityHashCode(context), member.getId());
-        binderComms.register(context.getId(), borders, validator);
-        reconComms.register(context.getId(), recon, validator);
-        schedule(gossip, scheduler);
+
+        synchronized (schedulerLock) {
+            // Create new scheduler instance (necessary for clean restart after stop)
+            scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
+
+            binderComms.register(context.getId(), borders, validator);
+            reconComms.register(context.getId(), recon, validator);
+            schedule(gossip, scheduler);
+        }
     }
 
     public void stop() {
@@ -187,6 +194,26 @@ public class LeydenJar {
         log.info("Stopping: {}", member.getId());
         binderComms.deregister(context.getId());
         reconComms.deregister(context.getId());
+
+        synchronized (schedulerLock) {
+            // Shut down scheduler and wait for termination
+            if (scheduler != null) {
+                scheduler.shutdown();
+                try {
+                    if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                        log.warn("Scheduler did not terminate within timeout, forcing shutdown on: {}", member.getId());
+                        scheduler.shutdownNow();
+                        if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                            log.error("Scheduler failed to terminate on: {}", member.getId());
+                        }
+                    }
+                } catch (InterruptedException e) {
+                    log.warn("Interrupted while waiting for scheduler termination on: {}", member.getId());
+                    scheduler.shutdownNow();
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
     }
 
     public void unbind(Key keyAndToken) {
@@ -221,51 +248,31 @@ public class LeydenJar {
     }
 
     private void add(Digest hash, Bound bound, Digest digest) {
-        var existing = digests.get(hash);
-        if (existing == null || !existing.equals(digest)) {
-            bottled.put(hash, bound);
-            digests.put(hash, digest);
-            log.info("Add: <{}> on: {}", bound.getKey().toStringUtf8(), member.getId());
+        synchronized (mvMapLock) {
+            var existing = digests.get(hash);
+            if (existing == null || !existing.equals(digest)) {
+                bottled.put(hash, bound);
+                digests.put(hash, digest);
+                log.info("Add: <{}> on: {}", bound.getKey().toStringUtf8(), member.getId());
+            }
         }
     }
 
     private Stream<Digest> bindingsIn(KeyInterval i) {
-        Iterator<Digest> it = new Iterator<Digest>() {
-            private final Iterator<Digest> iterate = bottled.keyIterator(i.getBegin());
-            private       Digest           next;
-
-            {
-                if (iterate.hasNext()) {
-                    next = iterate.next();
-                    if (next.compareTo(i.getEnd()) > 0) {
-                        next = null; // got nothing
-                    }
+        // Collect keys synchronously to avoid iterator issues with concurrent modifications
+        List<Digest> keys;
+        synchronized (mvMapLock) {
+            keys = new ArrayList<>();
+            var it = bottled.keyIterator(i.getBegin());
+            while (it.hasNext()) {
+                var key = it.next();
+                if (key.compareTo(i.getEnd()) > 0) {
+                    break;
                 }
+                keys.add(key);
             }
-
-            @Override
-            public boolean hasNext() {
-                return next != null;
-            }
-
-            @Override
-            public Digest next() {
-                var returned = next;
-                next = null;
-                if (returned == null) {
-                    throw new NoSuchElementException();
-                }
-                if (iterate.hasNext()) {
-                    next = iterate.next();
-                    if (next.compareTo(i.getEnd()) > 0) {
-                        next = null; // got nothing
-                    }
-                }
-                return returned;
-            }
-        };
-        Iterable<Digest> iterable = () -> it;
-        return StreamSupport.stream(iterable.spliterator(), false);
+        }
+        return keys.stream();
     }
 
     private void failedMajority(CompletableFuture<?> result, int maxAgree) {
@@ -320,17 +327,20 @@ public class LeydenJar {
     }
 
     private Biff populate(long seed, CombinedIntervals keyIntervals) {
-        BloomFilter.DigestBloomFilter bff = new BloomFilter.DigestBloomFilter(seed, Math.max(bottled.size(), 100), fpr);
-        bottled.keyIterator(algorithm.getOrigin()).forEachRemaining(d -> {
-            if (keyIntervals.test(d)) {
-                var bound = bottled.get(d);
-                if (bound != null) {
-                    var digest = algorithm.digest(bound.toByteString());
-                    bff.add(digest);
+        synchronized (mvMapLock) {
+            BloomFilter.DigestBloomFilter bff = new BloomFilter.DigestBloomFilter(seed, Math.max(bottled.size(), 100),
+                                                                                   fpr);
+            bottled.keyIterator(algorithm.getOrigin()).forEachRemaining(d -> {
+                if (keyIntervals.test(d)) {
+                    var bound = bottled.get(d);
+                    if (bound != null) {
+                        var digest = algorithm.digest(bound.toByteString());
+                        bff.add(digest);
+                    }
                 }
-            }
-        });
-        return bff.toBff();
+            });
+            return bff.toBff();
+        }
     }
 
     private <B> boolean read(CompletableFuture<B> result, HashMultiset<B> gathered, AtomicInteger tally,
@@ -420,22 +430,39 @@ public class LeydenJar {
     private Update.Builder reconcile(Intervals intervals) {
         var biff = BloomFilter.from(intervals.getHave());
         var update = Update.newBuilder();
-        intervals.getIntervalsList()
-                 .stream()
-                 .map(KeyInterval::new)
-                 .flatMap(this::bindingsIn)
-                 .peek(d -> log.debug("reconcile digest: {} on: {}", d, member.getId()))
-                 .filter(d -> !biff.contains(d))
-                 .peek(d -> log.debug("filtered reconcile digest: {} on: {}", d, member.getId()))
-                 .map(d1 -> bottled.get(d1))
-                 .filter(Objects::nonNull)
-                 .forEach(update::addBindings);
+
+        // Collect all Bound objects inside synchronized block to prevent concurrent modification
+        List<Bound> bounds;
+        synchronized (mvMapLock) {
+            bounds = intervals.getIntervalsList()
+                              .stream()
+                              .map(KeyInterval::new)
+                              .flatMap(this::bindingsIn)
+                              .peek(d -> log.debug("reconcile digest: {} on: {}", d, member.getId()))
+                              .filter(d -> !biff.contains(d))
+                              .peek(d -> log.debug("filtered reconcile digest: {} on: {}", d, member.getId()))
+                              .map(d1 -> bottled.get(d1))
+                              .filter(Objects::nonNull)
+                              .toList();
+        }
+
+        // Add collected bounds to update outside lock
+        bounds.forEach(update::addBindings);
         return update;
     }
 
     private void schedule(Duration duration, ScheduledExecutorService scheduler) {
-        scheduler.schedule(Utils.wrapped(() -> reconcile(scheduler, duration), log), duration.toNanos(),
-                           TimeUnit.NANOSECONDS);
+        // Prevent scheduling if stopped or scheduler is shutting down
+        if (!started.get() || scheduler.isShutdown()) {
+            return;
+        }
+        try {
+            scheduler.schedule(Utils.wrapped(() -> reconcile(scheduler, duration), log), duration.toNanos(),
+                               TimeUnit.NANOSECONDS);
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            // Scheduler shutdown between check and schedule - this is expected during stop()
+            log.trace("Scheduler rejected task (shutting down) on: {}", member.getId());
+        }
     }
 
     private void update(List<Bound> bindings, Digest from) {
@@ -447,7 +474,10 @@ public class LeydenJar {
         log.trace("Events to update: {} on: {}", bindings.size(), member.getId());
         for (var bound : bindings) {
             var hash = algorithm.digest(bound.getKey());
-            var existing = digests.get(hash);
+            Digest existing;
+            synchronized (mvMapLock) {
+                existing = digests.get(hash);
+            }
             var digest = algorithm.digest(bound.toByteString());
             if (existing != null && existing.equals(digest)) {
                 continue;
@@ -578,9 +608,11 @@ public class LeydenJar {
             }
             var hash = algorithm.digest(bound.getKey());
             log.debug("Bind: {} on: {}", hash, member.getId());
-            bottled.put(hash, bound);
-            var digest = algorithm.digest(bound.toByteString());
-            digests.put(hash, digest);
+            synchronized (mvMapLock) {
+                bottled.put(hash, bound);
+                var digest = algorithm.digest(bound.toByteString());
+                digests.put(hash, digest);
+            }
         }
 
         @Override
@@ -590,9 +622,11 @@ public class LeydenJar {
                 throw new StatusRuntimeException(Status.INVALID_ARGUMENT);
             }
             var hash = algorithm.digest(request.getKey());
-            var bound = bottled.getOrDefault(hash, Bound.getDefaultInstance());
-            log.debug("Get: {} bound: {} on: {}", hash, bound != null, member.getId());
-            return bound;
+            synchronized (mvMapLock) {
+                var bound = bottled.getOrDefault(hash, Bound.getDefaultInstance());
+                log.debug("Get: {} bound: {} on: {}", hash, bound != null, member.getId());
+                return bound;
+            }
         }
 
         @Override
@@ -603,8 +637,10 @@ public class LeydenJar {
             }
             var hash = algorithm.digest(request.getKey());
             log.debug("Remove: {} on: {}", hash, member.getId());
-            bottled.remove(hash);
-            digests.remove(hash);
+            synchronized (mvMapLock) {
+                bottled.remove(hash);
+                digests.remove(hash);
+            }
         }
     }
 }

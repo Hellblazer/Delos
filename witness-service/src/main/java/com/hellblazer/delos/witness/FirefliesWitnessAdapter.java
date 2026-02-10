@@ -26,28 +26,241 @@ import java.util.Objects;
 import java.util.SequencedSet;
 
 /**
- * Adapter that configures Fireflies Context to match KERI witness thresholds.
+ * Adapter that bridges KERI witness thresholds to Fireflies Byzantine fault-tolerant context configuration.
  * <p>
- * Maps KERI witness requirements (N witnesses, threshold T) to Fireflies
- * configuration (rings, bias) such that Context.majority() equals KERI threshold.
+ * <strong>Architectural Context</strong>
  * <p>
- * Key formula:
+ * KERI (Key Event Receipt Infrastructure) uses a witness-based architecture where key events require
+ * threshold signatures from a designated witness pool. Delos implements KERI witness networks using
+ * Fireflies, a gossip-based Byzantine intrusion-tolerant membership protocol. This adapter translates
+ * between KERI's explicit threshold semantics (N witnesses, T required) and Fireflies' ring-based
+ * Byzantine fault tolerance model (rings, bias, pByz).
+ * <p>
+ * The adapter ensures that Fireflies' {@code context.majority()} matches KERI's threshold T, enabling
+ * seamless integration of KERI identity management with Delos' distributed systems infrastructure.
+ * <p>
+ * <strong>KERI to Fireflies Mapping</strong>
+ * <p>
+ * KERI witness configuration:
+ * <ul>
+ *   <li><strong>N</strong>: Total number of witnesses in the pool</li>
+ *   <li><strong>T</strong>: Threshold of signatures required to validate an event (T ≤ N)</li>
+ * </ul>
+ * <p>
+ * Fireflies context configuration:
+ * <ul>
+ *   <li><strong>rings</strong>: Number of rings in the hash ring topology (set to N)</li>
+ *   <li><strong>bias</strong>: Controls Byzantine fault tolerance level</li>
+ *   <li><strong>pByz</strong>: Probability of Byzantine member (typically 0.1 for 10% assumption)</li>
+ * </ul>
+ * <p>
+ * <strong>Mathematical Derivation</strong>
+ * <p>
+ * Fireflies computes majority as:
  * <pre>
- *   majority = rings - (rings - 1) / bias
+ *   majority = rings - toleranceLevel
+ *   where: toleranceLevel = (rings - 1) / bias
  *
- *   To achieve: majority = threshold, rings = witnessCount
- *   Solve for: bias = (witnessCount - 1) / (witnessCount - threshold)
+ *   Therefore: majority = rings - (rings - 1) / bias
  * </pre>
  * <p>
- * This allows Fireflies to support any KERI threshold configuration:
+ * To achieve KERI threshold T with N witnesses:
+ * <pre>
+ *   Goal: majority = T, rings = N
+ *
+ *   T = N - (N - 1) / bias
+ *   (N - 1) / bias = N - T
+ *   bias = (N - 1) / (N - T)
+ * </pre>
+ * <p>
+ * This formula produces correct bias values for all valid KERI threshold configurations.
+ * <p>
+ * <strong>Common Threshold Configurations</strong>
+ * <table border="1">
+ *   <tr>
+ *     <th>Witnesses (N)</th>
+ *     <th>Threshold (T)</th>
+ *     <th>Bias</th>
+ *     <th>Fault Tolerance</th>
+ *     <th>Description</th>
+ *   </tr>
+ *   <tr>
+ *     <td>5</td>
+ *     <td>3</td>
+ *     <td>2</td>
+ *     <td>f=1</td>
+ *     <td>Standard 2f+1 (tolerates 1 Byzantine failure)</td>
+ *   </tr>
+ *   <tr>
+ *     <td>5</td>
+ *     <td>4</td>
+ *     <td>4</td>
+ *     <td>f=1</td>
+ *     <td>Higher security 3f+1 (requires supermajority)</td>
+ *   </tr>
+ *   <tr>
+ *     <td>7</td>
+ *     <td>5</td>
+ *     <td>3</td>
+ *     <td>f=2</td>
+ *     <td>Larger committee with 2 fault tolerance</td>
+ *   </tr>
+ *   <tr>
+ *     <td>9</td>
+ *     <td>7</td>
+ *     <td>4</td>
+ *     <td>f=2</td>
+ *     <td>Large committee with high threshold</td>
+ *   </tr>
+ *   <tr>
+ *     <td>5</td>
+ *     <td>5</td>
+ *     <td>5</td>
+ *     <td>f=0</td>
+ *     <td>Unanimous consent (no fault tolerance)</td>
+ *   </tr>
+ * </table>
+ * <p>
+ * <strong>Usage Examples</strong>
+ * <p>
+ * <em>Basic usage with default configuration:</em>
+ * <pre>{@code
+ * // Create adapter with default digest algorithm
+ * var adapter = new FirefliesWitnessAdapter();
+ *
+ * // Create Fireflies context for 5 witnesses, 3 required (standard 2f+1)
+ * DynamicContext<Member> context = adapter.createContext(
+ *     contextId,
+ *     5,    // witnessCount (N)
+ *     3,    // threshold (T)
+ *     0.1   // pByz (10% Byzantine probability)
+ * );
+ *
+ * // Select witnesses deterministically for an event
+ * SequencedSet<Member> witnesses = adapter.selectWitnesses(context, eventCoordinates);
+ *
+ * // Convert to KERI Identifier list
+ * List<Identifier> witnessIds = adapter.toWitnessIdentifiers(witnesses);
+ * }</pre>
+ * <p>
+ * <em>Production usage with metrics and monitoring:</em>
+ * <pre>{@code
+ * // Create adapter with metrics collector
+ * var metrics = new WitnessAdapterMetricsImpl(metricRegistry);
+ * var adapter = new FirefliesWitnessAdapter(DigestAlgorithm.DEFAULT, metrics);
+ *
+ * // Create context with higher security threshold (4 of 5)
+ * DynamicContext<Member> context = adapter.createContext(
+ *     contextId, 5, 4, 0.1
+ * );
+ *
+ * // Select witnesses with automatic metrics collection
+ * try {
+ *     SequencedSet<Member> witnesses = adapter.selectWitnesses(context, eventCoordinates);
+ *
+ *     // Check health periodically
+ *     if (!adapter.isHealthy()) {
+ *         var snapshot = adapter.getMetricsSnapshot();
+ *         log.warn("Adapter unhealthy: p95={}, failures={}, circuit={}",
+ *                  snapshot.getSelectionLatencyP95(),
+ *                  snapshot.getFailureRate(),
+ *                  snapshot.isCircuitBreakerOpen());
+ *     }
+ * } catch (IllegalStateException e) {
+ *     // Circuit breaker open - too many failures
+ *     log.error("Circuit breaker triggered, backing off", e);
+ * }
+ * }</pre>
+ * <p>
+ * <em>Integration with WitnessContext:</em>
+ * <pre>{@code
+ * // WitnessContext provides factory method using adapter
+ * WitnessContext witnessContext = WitnessContext.createWithAdapter(
+ *     contextId,
+ *     parameters,  // Contains witnessCount, threshold
+ *     pByz,
+ *     DigestAlgorithm.DEFAULT
+ * );
+ *
+ * // Adapter is used internally for context creation and witness selection
+ * }</pre>
+ * <p>
+ * <em>Validate configuration before deployment:</em>
+ * <pre>{@code
+ * var adapter = new FirefliesWitnessAdapter();
+ *
+ * int witnessCount = 7;
+ * int threshold = 5;
+ * int bias = adapter.computeBias(witnessCount, threshold);
+ *
+ * // Verify the configuration produces expected majority
+ * boolean valid = adapter.verifyConfiguration(witnessCount, bias, threshold);
+ * if (!valid) {
+ *     throw new IllegalStateException(
+ *         "Invalid configuration: witnesses=" + witnessCount +
+ *         ", threshold=" + threshold + ", bias=" + bias
+ *     );
+ * }
+ *
+ * // Generate documentation table
+ * String table = adapter.computeThresholdMappingTable(10);
+ * log.info("Threshold mappings:\n{}", table);
+ * }</pre>
+ * <p>
+ * <strong>SLA Targets and Monitoring</strong>
+ * <p>
+ * The adapter supports production monitoring with the following SLA targets:
  * <ul>
- *   <li>3 of 5 witnesses: bias = 2 (standard 2f+1)</li>
- *   <li>4 of 5 witnesses: bias = 4 (3f+1)</li>
- *   <li>2 of 5 witnesses: bias = 1 (simple majority)</li>
- *   <li>5 of 7 witnesses: bias = 3</li>
+ *   <li><strong>Selection latency p95 ≤ 100ms</strong>: Witness selection should complete within 100ms
+ *       for 95th percentile of requests. Higher latencies may indicate network issues or overload.</li>
+ *   <li><strong>Failure rate < 1%</strong>: Less than 1% of witness selections should fail. Higher
+ *       failure rates indicate configuration problems or system instability.</li>
+ *   <li><strong>Circuit breaker</strong>: Automatically opens after 5 consecutive failures within 10
+ *       seconds, preventing cascade failures. Health check returns false when open.</li>
+ * </ul>
+ * <p>
+ * Monitoring integration:
+ * <pre>{@code
+ * // Expose metrics via Dropwizard Metrics
+ * MetricRegistry registry = new MetricRegistry();
+ * var metrics = new WitnessAdapterMetricsImpl(registry);
+ * var adapter = new FirefliesWitnessAdapter(DigestAlgorithm.DEFAULT, metrics);
+ *
+ * // Register health check
+ * healthCheckRegistry.register("witness-adapter", new HealthCheck() {
+ *     protected Result check() {
+ *         return adapter.isHealthy() ? Result.healthy() : Result.unhealthy("SLA violation");
+ *     }
+ * });
+ *
+ * // Periodic monitoring
+ * scheduler.scheduleAtFixedRate(() -> {
+ *     var snapshot = adapter.getMetricsSnapshot();
+ *     log.info("Adapter metrics: p95={}ms, failures={}, circuit={}",
+ *              snapshot.getSelectionLatencyP95() / 1000,
+ *              snapshot.getFailureRate() * 100,
+ *              snapshot.isCircuitBreakerOpen() ? "OPEN" : "CLOSED");
+ * }, 1, 1, TimeUnit.MINUTES);
+ * }</pre>
+ * <p>
+ * <strong>Thread Safety</strong>
+ * <p>
+ * This adapter is thread-safe and can be shared across multiple contexts. Context creation and
+ * witness selection are safe to call concurrently. Metrics collection is internally synchronized.
+ * <p>
+ * <strong>Related Components</strong>
+ * <ul>
+ *   <li>{@code WitnessContext} - High-level KERI witness network implementation using this adapter</li>
+ *   <li>{@code DynamicContext} - Fireflies membership context with ring topology</li>
+ *   <li>{@code WitnessAdapterMetrics} - Metrics interface for monitoring production deployments</li>
+ *   <li>{@code EventCoordinates} - KERI event identification for deterministic witness selection</li>
  * </ul>
  *
  * @author hal.hildebrand
+ * @see WitnessContext
+ * @see DynamicContext
+ * @see EventCoordinates
+ * @see WitnessAdapterMetrics
  */
 public class FirefliesWitnessAdapter {
 

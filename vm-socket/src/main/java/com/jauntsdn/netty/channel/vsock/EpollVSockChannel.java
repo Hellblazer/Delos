@@ -24,6 +24,7 @@ import io.netty.channel.epoll.LinuxSocket;
 import io.netty.channel.epoll.Native;
 import io.netty.channel.epoll.VSockAddress;
 import java.net.SocketAddress;
+import java.util.Objects;
 
 public final class EpollVSockChannel extends AbstractEpollStreamChannel implements VSockChannel {
   private final EpollVSockChannelConfig config;
@@ -73,15 +74,18 @@ public final class EpollVSockChannel extends AbstractEpollStreamChannel implemen
   @Override
   protected boolean doConnect(SocketAddress remoteAddress, SocketAddress localAddress)
       throws Exception {
+    Objects.requireNonNull(remoteAddress, "Remote address cannot be null");
     if (!(remoteAddress instanceof VSockAddress)) {
-      throw new Error("Unexpected remote SocketAddress " + remoteAddress);
+      throw new IllegalArgumentException(
+          "Expected VSockAddress but got " + remoteAddress.getClass().getName());
     }
     VSockAddress remoteVSock = (VSockAddress) remoteAddress;
 
     VSockAddress localVSock = null;
     if (localAddress != null) {
       if (!(localAddress instanceof VSockAddress)) {
-        throw new Error("Unexpected local SocketAddress " + localAddress);
+        throw new IllegalArgumentException(
+            "Expected VSockAddress but got " + localAddress.getClass().getName());
       }
       localVSock = (VSockAddress) localAddress;
       socket.bindVSock(localVSock);

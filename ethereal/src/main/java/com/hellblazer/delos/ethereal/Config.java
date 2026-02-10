@@ -65,6 +65,7 @@ import java.util.Objects;
  * @param gossipBaseBackoffMs Base backoff delay in milliseconds for gossip retry (50-1000ms, default 100ms)
  * @param gossipMaxBackoffMs Maximum backoff delay in milliseconds for gossip retry (1000-30000ms, default 5000ms)
  * @param consumerThreadCount Number of threads for parallel unit consumption (1-32, default min(4, cores-1))
+ * @param replayCacheSize Size of replay protection caches for signatures (1-1000000, default 10000)
  * @author hal.hildebrand
  */
 public record Config(String label, short nProc, int epochLength, short pid, Signer signer,
@@ -72,7 +73,7 @@ public record Config(String label, short nProc, int epochLength, short pid, Sign
                      double fpr, long unitTimeoutMillis, long timeoutCheckIntervalMillis,
                      long shutdownDrainTimeoutMillis, long parentFailureRetryTimeoutMillis,
                      ConsumerErrorHandler consumerErrorHandler, int gossipRetryLimit, long gossipBaseBackoffMs,
-                     long gossipMaxBackoffMs, int consumerThreadCount) {
+                     long gossipMaxBackoffMs, int consumerThreadCount, int replayCacheSize) {
 
     public static Builder newBuilder() {
         return new Builder();
@@ -108,6 +109,7 @@ public record Config(String label, short nProc, int epochLength, short pid, Sign
         private long                   gossipBaseBackoffMs          = 100L;   // Default 100ms
         private long                   gossipMaxBackoffMs           = 5000L;  // Default 5000ms
         private int                    consumerThreadCount          = Math.max(1, Math.min(4, Runtime.getRuntime().availableProcessors() - 1));
+        private int                    replayCacheSize              = 10_000; // Default 10,000 entries
         private WeakThresholdKey       wtk;
 
         public Builder() {
@@ -167,10 +169,14 @@ public record Config(String label, short nProc, int epochLength, short pid, Sign
                 throw new IllegalArgumentException(
                     "consumerThreadCount must be between 1 and 32: " + consumerThreadCount);
             }
+            if (replayCacheSize < 1 || replayCacheSize > 1_000_000) {
+                throw new IllegalArgumentException(
+                    "replayCacheSize must be between 1 and 1,000,000: " + replayCacheSize);
+            }
             return new Config(label, nProc, epochLength, pid, signer, digestAlgorithm, numberOfEpochs, wtk, bias, fpr,
                               unitTimeoutMillis, timeoutCheckIntervalMillis, shutdownDrainTimeoutMillis,
                               parentFailureRetryTimeoutMillis, consumerErrorHandler, gossipRetryLimit,
-                              gossipBaseBackoffMs, gossipMaxBackoffMs, consumerThreadCount);
+                              gossipBaseBackoffMs, gossipMaxBackoffMs, consumerThreadCount, replayCacheSize);
         }
 
         @Override
@@ -359,6 +365,15 @@ public record Config(String label, short nProc, int epochLength, short pid, Sign
 
         public Builder setConsumerThreadCount(int consumerThreadCount) {
             this.consumerThreadCount = consumerThreadCount;
+            return this;
+        }
+
+        public int getReplayCacheSize() {
+            return replayCacheSize;
+        }
+
+        public Builder setReplayCacheSize(int replayCacheSize) {
+            this.replayCacheSize = replayCacheSize;
             return this;
         }
     }

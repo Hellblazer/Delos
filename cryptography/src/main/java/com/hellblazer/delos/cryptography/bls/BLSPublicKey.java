@@ -9,6 +9,7 @@
 package com.hellblazer.delos.cryptography.bls;
 
 import com.google.protobuf.ByteString;
+import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.proto.PubKey;
 
 import java.util.Arrays;
@@ -140,15 +141,17 @@ public record BLSPublicKey(byte[] g1Compressed, ProofOfPossession proofOfPossess
     }
 
     /**
-     * Equality based on G2 point only (PoP is not considered).
-     * Two public keys with the same G2 point are equal even if they have different PoPs
+     * Constant-time equality based on G1 point to prevent timing attacks.
+     * <p>
+     * Two public keys with the same G1 point are equal even if they have different PoPs
      * (which should never happen in practice, but simplifies equality semantics).
+     * Uses constant-time comparison to prevent timing-based side-channel attacks.
      */
     @Override
     public boolean equals(Object obj) {
         if (this == obj) return true;
         if (!(obj instanceof BLSPublicKey other)) return false;
-        return Arrays.equals(g1Compressed, other.g1Compressed);
+        return Digest.constantTimeEquals(g1Compressed, other.g1Compressed);
     }
 
     /**

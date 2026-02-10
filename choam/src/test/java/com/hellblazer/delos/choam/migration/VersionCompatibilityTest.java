@@ -36,7 +36,7 @@ public class VersionCompatibilityTest {
 
     @Test
     public void testDirectMigration() throws Exception {
-        // Arrange: V1 → V2 migrator
+        // Arrange: V6 → V7 migrator
         var migrator = new TestMigrator("0.0.6", "0.0.7");
         registry.register(migrator);
 
@@ -46,8 +46,8 @@ public class VersionCompatibilityTest {
         // Act: Migrate
         registry.migrate(input, "0.0.6", "0.0.7", output);
 
-        // Assert: Output is migrated state
-        assertThat(output.toString()).isEqualTo("state-v2-migrated-from-state-v1");
+        // Assert: Output is migrated state (v7 because target version is 0.0.7)
+        assertThat(output.toString()).isEqualTo("state-v7-migrated-from-state-v1");
     }
 
     @Test

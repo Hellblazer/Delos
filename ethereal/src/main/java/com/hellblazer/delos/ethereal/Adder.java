@@ -31,9 +31,79 @@ import static com.hellblazer.delos.ethereal.Creator.parentsOnPreviousLevel;
 import static com.hellblazer.delos.ethereal.PreUnit.id;
 
 /**
- * Implements the chain Reliable Broadcast of Aleph.
- *
+ * Implements the chain Reliable Broadcast of Aleph with comprehensive Byzantine replay protection.
+ * <p>
  * The public methods of the Adder correspond to the gossip replication protocol actions.
+ * <p>
+ * <b>Message Replay Protection Mechanisms:</b>
+ * <p>
+ * Ethereal defends against message replay attacks using multiple coordinated strategies:
+ * <ul>
+ *   <li><b>Monotonic Sequence Numbers</b>: Units contain monotonically increasing round numbers
+ *       and heights. Nodes reject units with round/height values that violate monotonicity or
+ *       represent already-processed states.</li>
+ *   <li><b>Cryptographic Signatures</b>: Each unit is signed by its creator using Stereotomy (KERI)
+ *       identity. Signatures are verified before acceptance, preventing forgery and ensuring
+ *       authenticity.</li>
+ *   <li><b>Equivocation Detection</b>: The {@code unitsByCreatorHeight} map tracks units by
+ *       (creator, height) pairs. If a Byzantine node produces multiple different units with the
+ *       same (creator, height), equivocation is detected and the creator is blacklisted.</li>
+ *   <li><b>Byzantine Blacklisting</b>: The {@code blacklistStore} persistently records equivocating
+ *       creators across epochs. Once blacklisted, all future units, votes, and messages from that
+ *       creator are rejected immediately without signature verification.</li>
+ *   <li><b>Bloom Filters</b>: Efficient probabilistic data structures check if units have been
+ *       previously processed without requiring expensive map lookups. Reduces replay check overhead
+ *       from O(n) to O(1) expected time.</li>
+ *   <li><b>Bounded Signature Caches</b>: The {@code signedCommits} and {@code signedPrevotes} maps
+ *       use bounded LRU caches (default: {@value DEFAULT_CACHE_SIZE}, configurable via
+ *       {@link Config#replayCacheSize()}) to prevent Byzantine DoS attacks via signature flooding.
+ *       Attackers cannot exhaust memory by replaying signatures. Cache size can be tuned based on
+ *       deployment characteristics:
+ *       <ul>
+ *         <li><b>Small deployments</b> (4-10 nodes, low throughput): 1,000-5,000 entries</li>
+ *         <li><b>Medium deployments</b> (10-50 nodes, moderate throughput): 10,000-50,000 entries (default)</li>
+ *         <li><b>Large deployments</b> (50+ nodes, high throughput): 50,000-100,000 entries</li>
+ *       </ul>
+ *       The cache size should accommodate approximately 2-3 epochs worth of signatures to prevent
+ *       false evictions during normal operation. Each entry is ~100 bytes (digest + signature).</li>
+ *   <li><b>Cascade Failure Recovery</b>: The {@code transientFailures} map tracks units with
+ *       temporary issues (missing parents, network delays) separately from permanent Byzantine
+ *       failures. Prevents cascading rejections of valid units during transient network partitions.</li>
+ * </ul>
+ * <p>
+ * <b>Defense-in-Depth Strategy:</b>
+ * <p>
+ * Replay protection operates in layers:
+ * <ol>
+ *   <li><b>Blacklist check</b> (fastest): O(1) rejection of known Byzantine actors</li>
+ *   <li><b>Bloom filter check</b>: O(1) probabilistic duplicate detection</li>
+ *   <li><b>Equivocation check</b>: O(1) map lookup for (creator, height) conflicts</li>
+ *   <li><b>Signature verification</b> (slowest): Cryptographic validation only for novel units</li>
+ * </ol>
+ * <p>
+ * This layering ensures that expensive cryptographic operations are only performed on units that
+ * pass all fast-path checks, preventing computational DoS attacks.
+ * <p>
+ * <b>Timing and Freshness:</b>
+ * <p>
+ * Unlike timestamp-based replay protection (which requires clock synchronization), Ethereal uses
+ * logical clocks (round numbers, heights) that advance deterministically based on consensus progress.
+ * This provides replay protection without timing assumptions, preserving asynchronous safety.
+ * <p>
+ * <b>Implementation References:</b>
+ * <ul>
+ *   <li>{@link #unitsByCreatorHeight} - Equivocation detection (line 67)</li>
+ *   <li>{@link #blacklistStore} - Byzantine blacklisting (line 70)</li>
+ *   <li>{@link #signedCommits}, {@link #signedPrevotes} - Bounded caches (lines 56-57)</li>
+ *   <li>{@link #transientFailures} - Cascade recovery (line 73)</li>
+ * </ul>
+ * <p>
+ * For architectural context, see {@code ethereal/README.md} sections on:
+ * <ul>
+ *   <li>Unit Structure (monotonic rounds/heights)</li>
+ *   <li>Validity Requirements (signature verification, no equivocation)</li>
+ *   <li>Byzantine Fault Tolerance (3f+1 threshold)</li>
+ * </ul>
  *
  * @author hal.hildebrand
  */
@@ -91,8 +161,9 @@ public class Adder {
         this.metrics = metrics;
 
         // CRITICAL (Delos-0s4b): Initialize bounded LRU caches to prevent Byzantine DoS
-        this.signedCommits = new BoundedLRUCache<>(DEFAULT_CACHE_SIZE);
-        this.signedPrevotes = new BoundedLRUCache<>(DEFAULT_CACHE_SIZE);
+        // Use configurable cache size (Delos-9piy) - allows tuning for deployment scenarios
+        this.signedCommits = new BoundedLRUCache<>(conf.replayCacheSize());
+        this.signedPrevotes = new BoundedLRUCache<>(conf.replayCacheSize());
     }
 
     public static Signed<SignedCommit> commit(final Long id, final Digest hash, final short pid, Signer signer,

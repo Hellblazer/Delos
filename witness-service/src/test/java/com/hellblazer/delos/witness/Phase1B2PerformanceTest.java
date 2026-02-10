@@ -43,6 +43,10 @@ import static org.assertj.core.api.Assertions.*;
  */
 class Phase1B2PerformanceTest {
 
+    // CI environment detection for performance threshold adjustment
+    private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
+    private static final double CI_LATENCY_MULTIPLIER = IS_CI ? 2.0 : 1.0;
+
     private WitnessReceiptTestHelper testHelper;
     private SecureRandom entropy;
     private DigestAlgorithm digestAlgorithm;
@@ -308,8 +312,8 @@ class Phase1B2PerformanceTest {
 
         assertThat(rejectionCount.get()).isEqualTo(totalLateSIgners);
         assertThat(avgTimeMs)
-            .describedAs("Concurrent late signer rejection avg should be <0.1ms (100 microseconds), actual: %.6fms", avgTimeMs)
-            .isLessThan(0.1);
+            .describedAs("Concurrent late signer rejection avg should be <0.1ms (100 microseconds, 200 microseconds on CI), actual: %.6fms", avgTimeMs)
+            .isLessThan(0.1 * CI_LATENCY_MULTIPLIER);
 
         System.out.printf("Concurrent Late Signer Rejection: %d rejections on %d threads in %.2fms%n",
                           totalLateSIgners, threadCount, totalTimeMs);

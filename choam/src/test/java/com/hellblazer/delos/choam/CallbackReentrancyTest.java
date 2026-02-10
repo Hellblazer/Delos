@@ -66,6 +66,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 public class CallbackReentrancyTest {
     private static final boolean LARGE_TESTS = Boolean.getBoolean("large_tests");
+    private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
     private static final int CARDINALITY = 4;  // f=1 Byzantine tolerance
 
     /**
@@ -216,7 +217,8 @@ public class CallbackReentrancyTest {
         choams.values().forEach(CHOAM::start);
 
         // Wait for consensus to form (triggers reconfigure events)
-        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 1_000,
+        // CI infrastructure needs 3x longer for genesis assembly (measured: 15s locally, 40s+ on CI)
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : (IS_CI ? 60_000 : 15_000), 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -235,7 +237,8 @@ public class CallbackReentrancyTest {
 
         transactioneers.forEach(Transactioneer::start);
         try {
-            final var complete = countdown.await(LARGE_TESTS ? 60 : 45, TimeUnit.SECONDS);
+            // CI infrastructure needs 2x timeout due to resource contention
+            final var complete = countdown.await(LARGE_TESTS ? 60 : (IS_CI ? 90 : 45), TimeUnit.SECONDS);
             assertTrue(complete, "Transactions did not complete in time");
         } finally {
             routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));

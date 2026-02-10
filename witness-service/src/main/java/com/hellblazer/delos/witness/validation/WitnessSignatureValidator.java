@@ -172,13 +172,20 @@ public class WitnessSignatureValidator {
     }
 
     /**
-     * Verify signature using KeyState public keys.
-     * Handles multi-sig by checking all keys in signing threshold.
+     * Verify signature using KeyState public keys with threshold verification.
+     * Implements KERI multi-sig semantics: T-of-N keys must sign for validation.
+     * <p>
+     * Algorithm:
+     * 1. Get signing threshold from KeyState (e.g., 2-of-3)
+     * 2. Create verifier with all public keys
+     * 3. Verify signature with threshold check
+     * 4. Return true if threshold met, false otherwise
+     * </p>
      *
-     * @param keyState    KeyState with public keys
-     * @param signature   Signature to verify
+     * @param keyState    KeyState with public keys and signing threshold
+     * @param signature   Signature (may contain multiple signatures for multi-sig)
      * @param signedData  Data that was signed
-     * @return true if signature valid
+     * @return true if signature valid and threshold met
      */
     private boolean verifyWithKeyState(KeyState keyState, JohnHancock signature, byte[] signedData) {
         var publicKeys = keyState.getKeys();
@@ -187,12 +194,14 @@ public class WitnessSignatureValidator {
             return false;
         }
 
-        // For single-sig, verify against first key
-        // For multi-sig, would need to check threshold (Phase C)
-        var publicKey = publicKeys.get(0);
-        var verifier = new Verifier.DefaultVerifier(publicKey);
+        // Get signing threshold from KeyState (KERI multi-sig)
+        var threshold = keyState.getSigningThreshold();
 
-        return verifier.verify(signature, signedData);
+        // Create verifier with all public keys (not just first)
+        var verifier = new Verifier.DefaultVerifier(publicKeys);
+
+        // Verify with threshold check (delegates to JohnHancock.verify)
+        return verifier.verify(threshold, signature, signedData);
     }
 
 

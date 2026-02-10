@@ -62,6 +62,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 public class CHOAMFSMErrorPathsTest {
     private static final boolean LARGE_TESTS = Boolean.getBoolean("large_tests");
+    private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
     private static final int CARDINALITY = 4;
 
     private Map<Digest, CHOAM> choams;
@@ -165,7 +166,8 @@ public class CHOAMFSMErrorPathsTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 1_000,
+        // CI infrastructure needs 3x longer for genesis assembly (measured: 15s locally, 40s+ on CI)
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : (IS_CI ? 60_000 : 15_000), 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -193,7 +195,8 @@ public class CHOAMFSMErrorPathsTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 1_000,
+        // CI infrastructure needs 3x longer for genesis assembly (measured: 15s locally, 40s+ on CI)
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : (IS_CI ? 60_000 : 15_000), 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -208,7 +211,8 @@ public class CHOAMFSMErrorPathsTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 1_000,
+        // CI infrastructure needs 3x longer for genesis assembly (measured: 15s locally, 40s+ on CI)
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : (IS_CI ? 60_000 : 15_000), 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -223,7 +227,8 @@ public class CHOAMFSMErrorPathsTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(LARGE_TESTS ? 45 : 25, TimeUnit.SECONDS);
+        int timeoutSeconds = LARGE_TESTS ? 45 : (IS_CI ? 60 : 25);  // CI needs more time for consensus
+        boolean completed = countdown.await(timeoutSeconds, TimeUnit.SECONDS);
         assertTrue(completed, "FSM error handling should allow continued operation");
 
         // Verify system remains active after potential errors
@@ -267,7 +272,8 @@ public class CHOAMFSMErrorPathsTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 1_000,
+        // CI infrastructure needs 3x longer for genesis assembly (measured: 15s locally, 40s+ on CI)
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : (IS_CI ? 60_000 : 15_000), 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -282,7 +288,8 @@ public class CHOAMFSMErrorPathsTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(LARGE_TESTS ? 60 : 30, TimeUnit.SECONDS);
+        int consistencyTimeoutSeconds = LARGE_TESTS ? 60 : (IS_CI ? 75 : 30);  // CI needs more time for consensus
+        boolean completed = countdown.await(consistencyTimeoutSeconds, TimeUnit.SECONDS);
         assertTrue(completed, "FSM state should remain consistent across members");
 
         // All members should be in consistent state (all active)
@@ -297,7 +304,8 @@ public class CHOAMFSMErrorPathsTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 1_000,
+        // CI infrastructure needs 3x longer for genesis assembly (measured: 15s locally, 40s+ on CI)
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : (IS_CI ? 60_000 : 15_000), 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -326,7 +334,8 @@ public class CHOAMFSMErrorPathsTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 1_000,
+        // CI infrastructure needs 3x longer for genesis assembly (measured: 15s locally, 40s+ on CI)
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : (IS_CI ? 60_000 : 15_000), 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 

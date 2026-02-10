@@ -249,6 +249,7 @@ public class SimpleKVStoreTest {
                                                        .setCheckpointer(store.getCheckpointer())
                                                        .setMetrics(metrics)
                                                        .setProcessor(store.getExecutor())
+                                                       .setRestorer(Parameters.RuntimeParameters.NOOP_RESTORER)
                                                        .build()));
     }
 }

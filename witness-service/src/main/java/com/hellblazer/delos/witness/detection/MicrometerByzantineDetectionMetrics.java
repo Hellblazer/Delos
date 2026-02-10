@@ -83,6 +83,10 @@ public class MicrometerByzantineDetectionMetrics implements ByzantineDetectionMe
     // Alerting metrics
     private static final String THRESHOLD_BREACH = PREFIX + "threshold.breach";
 
+    // Performance metrics (Phase 1C - Delos-dmve)
+    private static final String LIVENESS_TIMEOUT = PREFIX + "liveness.timeout";
+    private static final String BLACKLISTED_CREATORS = PREFIX + "blacklisted.creators";
+
     // Key rotation metrics (Phase 1C-3-A)
     private static final String ROTATION_INITIATED = PREFIX + "rotation.initiated";
     private static final String ROTATIONS_IN_PROGRESS = PREFIX + "rotation.in_progress";
@@ -122,8 +126,13 @@ public class MicrometerByzantineDetectionMetrics implements ByzantineDetectionMe
     private final Timer falseAlarmDurationTimer;
     private final Timer timeToClearAnomaliesTimer;
 
+    // Performance metrics (Phase 1C - Delos-dmve)
+    private final Counter livenessTimeoutCounter;
+    private final AtomicInteger blacklistedCreatorsValue = new AtomicInteger(0);
+
     // Key rotation metrics (Phase 1C-3-A)
     private final Counter rotationInitiatedCounter;
+    private final AtomicLong rotationInitiatedValue = new AtomicLong(0);  // Internal tracking for reset()
     private final AtomicInteger rotationsInProgressValue = new AtomicInteger(0);
     private final Set<Digest> currentlyRotatingMembers = ConcurrentHashMap.newKeySet();
 
@@ -138,6 +147,7 @@ public class MicrometerByzantineDetectionMetrics implements ByzantineDetectionMe
 
     // Failure tracking
     private final Counter rotationFailuresCounter;
+    private final AtomicLong rotationFailuresValue = new AtomicLong(0);  // Internal tracking for reset()
     private final Map<KeyRotationPhase, Counter> rotationFailuresPhaseCounters = new EnumMap<>(KeyRotationPhase.class);
     private final Counter rotationRecoveryAttemptsCounter;
 
@@ -298,6 +308,15 @@ public class MicrometerByzantineDetectionMetrics implements ByzantineDetectionMe
             .description("Time to clear all anomalies from first detection")
             .register(registry);
 
+        // Performance metrics (Phase 1C - Delos-dmve)
+        this.livenessTimeoutCounter = Counter.builder(LIVENESS_TIMEOUT)
+            .description("Liveness timeout events in Ethereal consensus")
+            .register(registry);
+
+        Gauge.builder(BLACKLISTED_CREATORS, blacklistedCreatorsValue, AtomicInteger::get)
+            .description("Number of creators blacklisted for equivocation")
+            .register(registry);
+
         // Key rotation metrics (Phase 1C-3-A)
         this.rotationInitiatedCounter = Counter.builder(ROTATION_INITIATED)
             .description("Key rotation initiations")
@@ -369,8 +388,11 @@ public class MicrometerByzantineDetectionMetrics implements ByzantineDetectionMe
         activeQuarantinesValue.set(0);
         membersExcludedValue.set(0);
         consensusImpactValue.set(0.0);
+        blacklistedCreatorsValue.set(0);
 
         // Reset rotation state tracking
+        rotationInitiatedValue.set(0);
+        rotationFailuresValue.set(0);
         rotationsInProgressValue.set(0);
         currentlyRotatingMembers.clear();
         graceStatsMap.clear();
@@ -592,6 +614,7 @@ public class MicrometerByzantineDetectionMetrics implements ByzantineDetectionMe
         }
 
         rotationInitiatedCounter.increment();
+        rotationInitiatedValue.incrementAndGet();
         rotationsInProgressValue.incrementAndGet();
     }
 
@@ -692,6 +715,7 @@ public class MicrometerByzantineDetectionMetrics implements ByzantineDetectionMe
         }
 
         rotationFailuresCounter.increment();
+        rotationFailuresValue.incrementAndGet();
         log.warn("Rotation {} failed: {}", rotationId, reason);
     }
 
@@ -772,12 +796,12 @@ public class MicrometerByzantineDetectionMetrics implements ByzantineDetectionMe
 
     @Override
     public long getRotationInitiatedCount() {
-        return (long) rotationInitiatedCounter.count();
+        return rotationInitiatedValue.get();
     }
 
     @Override
     public long getRotationFailuresCount() {
-        return (long) rotationFailuresCounter.count();
+        return rotationFailuresValue.get();
     }
 
     @Override
@@ -821,5 +845,32 @@ public class MicrometerByzantineDetectionMetrics implements ByzantineDetectionMe
 
         var counter = graceNewSignatureCounters.get(rotationId);
         return counter != null ? counter.get() : 0L;
+    }
+
+    // ===========================
+    // Performance Metrics (Phase 1C - Delos-dmve)
+    // ===========================
+
+    @Override
+    public void recordLivenessTimeout() {
+        livenessTimeoutCounter.increment();
+    }
+
+    @Override
+    public void setBlacklistedCreatorsCount(int count) {
+        if (count < 0) {
+            throw new IllegalArgumentException("Count cannot be negative: " + count);
+        }
+        blacklistedCreatorsValue.set(count);
+    }
+
+    @Override
+    public long getLivenessTimeoutsTriggered() {
+        return (long) livenessTimeoutCounter.count();
+    }
+
+    @Override
+    public int getBlacklistedCreatorsCount() {
+        return blacklistedCreatorsValue.get();
     }
 }

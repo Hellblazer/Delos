@@ -551,7 +551,7 @@ class Binding {
                                                      .setMask(ByteString.copyFrom(
                                                      Node.createInitialMask(context).toByteArray())))
                                         .setSignature(
-                                        SignatureAlgorithm.NULL_SIGNATURE.sign(ULong.MIN, null, new byte[0]).toSig())
+                                        SignatureAlgorithm.NULL_SIGNATURE.nullSignature().toSig())
                                         .build();
         return new NoteWrapper(seedNote, digestAlgo);
     }

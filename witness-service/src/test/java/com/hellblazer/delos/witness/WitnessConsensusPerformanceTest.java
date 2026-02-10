@@ -46,6 +46,10 @@ class WitnessConsensusPerformanceTest {
     private static final int WARMUP_ITERATIONS = 100;
     private static final int MEASUREMENT_ITERATIONS = 1000;
 
+    // CI environment detection for performance threshold adjustment
+    private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
+    private static final double CI_THROUGHPUT_DIVISOR = IS_CI ? 2.0 : 1.0;
+
     private WitnessReceiptTestHelper testHelper;
     private DigestAlgorithm digestAlgorithm;
     private SecureRandom entropy;
@@ -381,8 +385,9 @@ class WitnessConsensusPerformanceTest {
         System.out.printf("Signature Validation: %d validations in %.2fs = %.0f validations/sec%n",
             validationsPerformed.get(), durationSec, throughput);
 
-        assertTrue(throughput > 3000.0,
-            String.format("Validation throughput %.0f/sec should be >3000", throughput));
+        var expectedThroughput = 3000.0 / CI_THROUGHPUT_DIVISOR;
+        assertTrue(throughput > expectedThroughput,
+            String.format("Validation throughput %.0f/sec should be >%.0f (3000 local, 1500 CI)", throughput, expectedThroughput));
     }
 
     @Test

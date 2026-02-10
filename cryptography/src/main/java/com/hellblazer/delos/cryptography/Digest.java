@@ -14,6 +14,7 @@ import com.hellblazer.delos.utils.BUZ;
 import com.hellblazer.delos.utils.Hex;
 
 import java.nio.ByteBuffer;
+import java.security.MessageDigest;
 import java.util.UUID;
 import java.util.stream.Stream;
 
@@ -112,6 +113,32 @@ public class Digest implements Comparable<Digest> {
         return 0;
     }
 
+    /**
+     * Constant-time comparison of two byte arrays to prevent timing attacks.
+     * <p>
+     * This method uses MessageDigest.isEqual() which is specifically designed
+     * to perform constant-time comparison of cryptographic values. This prevents
+     * attackers from using timing information to determine if byte arrays are similar.
+     * <p>
+     * Defense-in-depth: Even though digest comparison timing leaks are difficult
+     * to exploit in practice, using constant-time comparison is a security best
+     * practice for all cryptographic value comparisons.
+     *
+     * @param a first byte array (may be null)
+     * @param b second byte array (may be null)
+     * @return true if arrays are equal, false otherwise
+     */
+    public static boolean constantTimeEquals(byte[] a, byte[] b) {
+        if (a == null) {
+            return b == null;
+        }
+        if (b == null) {
+            return false;
+        }
+        // MessageDigest.isEqual() is the Java standard library's constant-time comparison
+        return MessageDigest.isEqual(a, b);
+    }
+
     public static Digest from(Digeste d) {
         return new Digest(d);
     }
@@ -142,26 +169,48 @@ public class Digest implements Comparable<Digest> {
         return 0;
     }
 
+    /**
+     * Constant-time equality comparison to prevent timing attacks.
+     * <p>
+     * This method compares digest values using constant-time comparison to prevent
+     * attackers from using timing information to determine if digests are similar.
+     * This is a defense-in-depth security measure for all cryptographic comparisons.
+     *
+     * @param other the digest to compare against (may be null)
+     * @return true if digests are equal, false otherwise
+     */
+    public boolean constantTimeEquals(Digest other) {
+        if (this == other) {
+            return true;
+        }
+        if (other == null) {
+            return false;
+        }
+        if (algorithm != other.algorithm) {
+            return false;
+        }
+        // Use constant-time comparison for the digest bytes
+        return constantTimeEquals(this.getBytes(), other.getBytes());
+    }
+
     public int digestCode() {
         return algorithm.digestCode();
     }
 
+    /**
+     * Constant-time equality comparison to prevent timing attacks.
+     * <p>
+     * Uses constant-time comparison via constantTimeEquals() to prevent
+     * timing-based side-channel attacks. This is a defense-in-depth security
+     * measure for cryptographic value comparisons.
+     */
     @Override
     public boolean equals(Object obj) {
         if (this == obj) {
             return true;
         }
         if (obj instanceof Digest other) {
-            if (algorithm != other.algorithm) {
-                return false;
-            }
-
-            for (int i = 0; i < hash.length; i++) {
-                if (hash[i] != other.hash[i]) {
-                    return false;
-                }
-            }
-            return true;
+            return constantTimeEquals(other);
         }
         return false;
     }

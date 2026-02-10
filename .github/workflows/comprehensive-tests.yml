@@ -1,0 +1,150 @@
+name: Comprehensive Tests (Nightly)
+
+on:
+  schedule:
+    # Run at 2 AM UTC every day
+    - cron: '0 2 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          cache: 'maven'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install h2-deterministic
+        run: ./mvnw -batch-mode install -DskipTests -pl h2-deterministic
+      - name: Compile all modules
+        run: ./mvnw -batch-mode clean install -DskipTests --file pom.xml
+      - name: Save Maven cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            **/target/
+          key: delos-maven-comprehensive-${{ github.sha }}
+
+  test-stress:
+    needs: compile
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          cache: 'maven'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore Maven cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            **/target/
+          key: delos-maven-comprehensive-${{ github.sha }}
+          restore-keys: |
+            delos-maven-comprehensive-
+          fail-on-cache-miss: false
+      - name: Test Stress & Concurrency (with -Dlarge_tests=true)
+        run: CI=true ./mvnw -batch-mode surefire:test -pl choam -Dtest='ConcurrentStressValidationTest,CHOAMConcurrencyTest,CHOAMFSMErrorPathsTest,CallbackReentrancyTest,CHOAMThreadAndLockingTest,ZeroDowntimeUpgradeTest' -Dlarge_tests=true --file pom.xml
+
+  test-comprehensive-choam:
+    needs: compile
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          cache: 'maven'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore Maven cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            **/target/
+          key: delos-maven-comprehensive-${{ github.sha }}
+          restore-keys: |
+            delos-maven-comprehensive-
+          fail-on-cache-miss: false
+      - name: Test All CHOAM (comprehensive)
+        run: CI=true ./mvnw -batch-mode test -pl choam --file pom.xml
+
+  test-witness-performance:
+    needs: compile
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          cache: 'maven'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore Maven cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            **/target/
+          key: delos-maven-comprehensive-${{ github.sha }}
+          restore-keys: |
+            delos-maven-comprehensive-
+          fail-on-cache-miss: false
+      - name: Test Witness Performance (long-running simulation and performance tests)
+        run: CI=true ./mvnw -batch-mode surefire:test -pl witness-service -Dtest='Phase1CProductionSimulationTest,FullPathPerformanceTest,WitnessConsensusPerformanceTest,RateAnomalyDetectorTest,BLSPerformanceBenchmarkTest' --file pom.xml
+
+  test-canaries:
+    needs: compile
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          cache: 'maven'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore Maven cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            **/target/
+          key: delos-maven-comprehensive-${{ github.sha }}
+          restore-keys: |
+            delos-maven-comprehensive-
+          fail-on-cache-miss: false
+      - name: Test Canary Tests (ChurnTest, FireFliesTest - resource-intensive integration tests)
+        run: |
+          CI=true ./mvnw -batch-mode surefire:test -pl fireflies -Dtest='ChurnTest' --file pom.xml
+          CI=true ./mvnw -batch-mode surefire:test -pl model -Dtest='FireFliesTest' --file pom.xml
+
+  build-status:
+    needs: [test-stress, test-comprehensive-choam, test-witness-performance, test-canaries]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Check Test Results
+        run: |
+          if [ "${{ needs.test-stress.result }}" != "success" ] || [ "${{ needs.test-comprehensive-choam.result }}" != "success" ] || [ "${{ needs.test-witness-performance.result }}" != "success" ]; then
+            echo "❌ Comprehensive Tests FAILED"
+            echo "  test-stress: ${{ needs.test-stress.result }}"
+            echo "  test-comprehensive-choam: ${{ needs.test-comprehensive-choam.result }}"
+            echo "  test-witness-performance: ${{ needs.test-witness-performance.result }}"
+            exit 1
+          fi
+          echo "✅ Comprehensive Tests PASSED"

@@ -98,16 +98,18 @@ public class GorgoneionClientTest {
 
         var gorgoneionClient = new GorgoneionClient(client, attested, parameters.clock(), admin);
 
-        var establishment = gorgoneionClient.apply(Duration.ofSeconds(60));
+        var result = gorgoneionClient.apply(Duration.ofSeconds(60));
 
         gorgonRouter.close(Duration.ofSeconds(0));
         clientRouter.close(Duration.ofSeconds(0));
 
-        assertNotNull(establishment);
-        assertNotEquals(Validations.getDefaultInstance(), establishment);
-        assertEquals(1, establishment.getValidations().getValidationsCount());
+        assertInstanceOf(BootstrapResult.Success.class, result);
+        var success = (BootstrapResult.Success) result;
+        assertNotNull(success.establishment());
+        assertNotEquals(Validations.getDefaultInstance(), success.establishment());
+        assertEquals(1, success.establishment().getValidations().getValidationsCount());
         assertEquals(testMessage.getContents(),
-                     establishment.getProvisioning().unpack(ByteMessage.class).getContents());
+                     success.establishment().getProvisioning().unpack(ByteMessage.class).getContents());
 
         // Verify client KERL published
 
@@ -123,6 +125,66 @@ public class GorgoneionClientTest {
         if (clientRouter != null) {
             clientRouter.close(Duration.ofSeconds(0));
         }
+    }
+
+    @Test
+    public void testNullApplyReturnsFailure() {
+        var entropy = new SecureRandom();
+        entropy.setSeed(new byte[] { 7, 7, 7 });
+        final var kerl = new MemKERL(DigestAlgorithm.DEFAULT);
+        var stereotomy = new StereotomyImpl(new MemKeyStore(), kerl, entropy);
+        var client = new ControlledIdentifierMember(stereotomy.newIdentifier());
+
+        // Mock Admissions to return null from apply()
+        var admissions = mock(Admissions.class);
+        Mockito.when(admissions.apply(Mockito.any(), Mockito.any())).thenReturn(null);
+
+        Function<SignedNonce, Any> attester = _ -> Any.getDefaultInstance();
+        final var parameters = Parameters.newBuilder().setKerl(kerl).build();
+
+        var gorgoneionClient = new GorgoneionClient(client, attester, parameters.clock(), admissions);
+
+        // Should return Failure with IllegalStateException
+        var result = gorgoneionClient.apply(Duration.ofSeconds(1));
+
+        assertInstanceOf(BootstrapResult.Failure.class, result);
+        var failure = (BootstrapResult.Failure) result;
+        assertInstanceOf(IllegalStateException.class, failure.cause());
+        assertTrue(failure.cause().getMessage().contains("apply"),
+                   "Exception message should mention apply operation");
+        assertTrue(failure.cause().getMessage().contains("null") || failure.cause().getMessage().contains("nonce"),
+                   "Exception message should mention null or nonce");
+    }
+
+    @Test
+    public void testCredentialsFailureReturnsFailure() {
+        var entropy = new SecureRandom();
+        entropy.setSeed(new byte[] { 8, 8, 8 });
+        final var kerl = new MemKERL(DigestAlgorithm.DEFAULT);
+        var stereotomy = new StereotomyImpl(new MemKeyStore(), kerl, entropy);
+        var client = new ControlledIdentifierMember(stereotomy.newIdentifier());
+
+        // Mock Admissions to return a valid nonce (default instance is sufficient for this test)
+        var admissions = mock(Admissions.class);
+        var mockNonce = SignedNonce.getDefaultInstance();
+        Mockito.when(admissions.apply(Mockito.any(), Mockito.any())).thenReturn(mockNonce);
+
+        // Mock attester to throw exception (simulates credentials() failure)
+        var attesterException = new RuntimeException("Attester unavailable");
+        Function<SignedNonce, Any> attester = _ -> {
+            throw attesterException;
+        };
+        final var parameters = Parameters.newBuilder().setKerl(kerl).build();
+
+        var gorgoneionClient = new GorgoneionClient(client, attester, parameters.clock(), admissions);
+
+        // Should return Failure when credentials() throws
+        var result = gorgoneionClient.apply(Duration.ofSeconds(1));
+
+        assertInstanceOf(BootstrapResult.Failure.class, result);
+        var failure = (BootstrapResult.Failure) result;
+        assertEquals(attesterException, failure.cause(),
+                     "Failure should contain the original attester exception");
     }
 
     @Test
@@ -185,12 +247,14 @@ public class GorgoneionClientTest {
         Function<SignedNonce, Any> attester = sn -> Any.getDefaultInstance();
 
         var gorgoneionClient = new GorgoneionClient(client, attester, parameters.clock(), admin);
-        var establishment = gorgoneionClient.apply(Duration.ofSeconds(2_000));
-        assertNotNull(establishment);
-        assertNotEquals(Validations.getDefaultInstance(), establishment);
-        assertTrue(establishment.getValidations().getValidationsCount() >= context.majority());
+        var result = gorgoneionClient.apply(Duration.ofSeconds(2_000));
+        assertInstanceOf(BootstrapResult.Success.class, result);
+        var success = (BootstrapResult.Success) result;
+        assertNotNull(success.establishment());
+        assertNotEquals(Validations.getDefaultInstance(), success.establishment());
+        assertTrue(success.establishment().getValidations().getValidationsCount() >= context.majority());
         assertEquals(testMessage.getContents(),
-                     establishment.getProvisioning().unpack(ByteMessage.class).getContents());
+                     success.establishment().getProvisioning().unpack(ByteMessage.class).getContents());
         assertTrue(countdown.await(1, TimeUnit.SECONDS));
     }
 }

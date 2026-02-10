@@ -5,9 +5,9 @@
     <artifactId>delos.app</artifactId>
     <version>0.3.1-SNAPSHOT</version>
   </parent>
-  <artifactId>liquibase-deterministic</artifactId>
-  <name>Deterministic Liquibase</name>
-  <description>A deterministic version of Liquibase, package renamed to avoid conflicts with the standard version of Liquibase</description>
+  <artifactId>liquibase-modified</artifactId>
+  <name>Modified Liquibase</name>
+  <description>A modified version of Liquibase with deterministic behavior, using forked source files to avoid conflicts with the standard version of Liquibase</description>
   
   <dependencies>
         <dependency>

@@ -8,6 +8,8 @@
 
 package com.hellblazer.delos.cryptography.bls;
 
+import com.hellblazer.delos.cryptography.Digest;
+
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -99,13 +101,16 @@ public record ProofOfPossession(byte[] compressedSignature) {
     }
 
     /**
-     * Equality based on signature bytes.
+     * Constant-time equality based on signature bytes to prevent timing attacks.
+     * <p>
+     * Uses constant-time comparison to prevent timing-based side-channel attacks
+     * (defense-in-depth for cryptographic values).
      */
     @Override
     public boolean equals(Object obj) {
         if (this == obj) return true;
         if (!(obj instanceof ProofOfPossession other)) return false;
-        return Arrays.equals(compressedSignature, other.compressedSignature);
+        return Digest.constantTimeEquals(compressedSignature, other.compressedSignature);
     }
 
     /**

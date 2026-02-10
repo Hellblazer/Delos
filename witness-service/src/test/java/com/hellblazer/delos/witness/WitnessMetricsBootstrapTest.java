@@ -40,11 +40,10 @@ class WitnessMetricsBootstrapTest {
     @Test
     @DisplayName("should provide Byzantine detection metrics")
     void shouldProvideByzantineDetectionMetrics() {
-        // Note: getByzantineMetrics() returns null until ByzantineDetectionMetricsImpl is implemented
-        // This test documents expected behavior
+        // getByzantineMetrics() now returns MicrometerByzantineDetectionMetrics implementation
         var metrics = bootstrap.getByzantineMetrics();
-        // Currently returns null - update assertion when implementation exists
-        assertThat(metrics).isNull();
+        assertThat(metrics).isNotNull();
+        assertThat(metrics).isInstanceOf(com.hellblazer.delos.witness.detection.MicrometerByzantineDetectionMetrics.class);
     }
 
     @Test

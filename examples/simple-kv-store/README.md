@@ -137,7 +137,7 @@ simple-kv-store/
 - `sql-state` - JDBC-accessible replicated state machines
 - `choam` - Committee-based consensus on linear logs
 - `fireflies` - Byzantine fault-tolerant membership
-- `liquibase-deterministic` - Deterministic schema migrations
+- `liquibase-modified` - Modified Liquibase with deterministic behavior for schema migrations
 - `h2-deterministic` - Deterministic H2 database engine
 
 ## References

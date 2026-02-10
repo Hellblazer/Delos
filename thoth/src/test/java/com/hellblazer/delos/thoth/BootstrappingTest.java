@@ -15,6 +15,7 @@ import com.hellblazer.delos.archipelago.ServerConnectionCache;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.gorgoneion.Gorgoneion;
 import com.hellblazer.delos.gorgoneion.Parameters;
+import com.hellblazer.delos.gorgoneion.client.BootstrapResult;
 import com.hellblazer.delos.gorgoneion.client.GorgoneionClient;
 import com.hellblazer.delos.gorgoneion.client.client.comm.Admissions;
 import com.hellblazer.delos.gorgoneion.client.client.comm.AdmissionsClient;
@@ -112,10 +113,12 @@ public class BootstrappingTest extends AbstractDhtTest {
 
         var gorgoneionClient = new GorgoneionClient(client, attester, Clock.systemUTC(), admin);
 
-        final var invitation = gorgoneionClient.apply(Duration.ofSeconds(120));
-        assertNotNull(invitation);
-        assertNotEquals(Validations.getDefaultInstance(), invitation);
-        assertTrue(invitation.getValidations().getValidationsCount() >= context.majority());
+        final var result = gorgoneionClient.apply(Duration.ofSeconds(120));
+        assertNotNull(result);
+        assertInstanceOf(BootstrapResult.Success.class, result);
+        var establishment = ((BootstrapResult.Success) result).establishment();
+        assertNotEquals(Validations.getDefaultInstance(), establishment.getValidations());
+        assertTrue(establishment.getValidations().getValidationsCount() >= context.majority());
         // Verify client KERL published to at least one member (enrollment happens on subset)
         Utils.waitForCondition(30_000, 1000, () -> dhts.values().stream()
                                                         .anyMatch(d -> d.asKERL().getKeyEvent(client.getEvent().getCoordinates()) != null));

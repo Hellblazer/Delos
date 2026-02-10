@@ -497,6 +497,123 @@ public class RbcAdderTest {
         adder.commit(u.hash(), (short) 3);
     }
 
+    @Test
+    public void testDefaultReplayCacheSize() throws Exception {
+        // Test that default replay cache size is used when not explicitly configured
+        final var dag = new DagImpl(config, 0);
+
+        var adder = new Adder(0, dag, 1024 * 1024, config, new ConcurrentSkipListSet<>(), null,
+                              new BlacklistStore.InMemoryBlacklistStore());
+
+        // Verify default size is 10,000
+        assertEquals(10_000, ((BoundedLRUCache<?, ?>) adder.getSignedCommits()).getMaxSize());
+        assertEquals(10_000, ((BoundedLRUCache<?, ?>) adder.getSignedPrevotes()).getMaxSize());
+    }
+
+    @Test
+    public void testCustomReplayCacheSize() throws Exception {
+        // Test that custom replay cache size is used when configured
+        var customConfig = Config.newBuilder()
+                                 .setnProc((short) members.size())
+                                 .setSigner(members.get(0))
+                                 .setPid((short) 0)
+                                 .setReplayCacheSize(5000)
+                                 .build();
+
+        final var dag = new DagImpl(customConfig, 0);
+
+        var adder = new Adder(0, dag, 1024 * 1024, customConfig, new ConcurrentSkipListSet<>(), null,
+                              new BlacklistStore.InMemoryBlacklistStore());
+
+        // Verify custom size is used
+        assertEquals(5000, ((BoundedLRUCache<?, ?>) adder.getSignedCommits()).getMaxSize());
+        assertEquals(5000, ((BoundedLRUCache<?, ?>) adder.getSignedPrevotes()).getMaxSize());
+    }
+
+    @Test
+    public void testReplayCacheSizeValidation() {
+        // Test that replay cache size validation rejects invalid values
+
+        // Too small (< 1)
+        assertThrows(IllegalArgumentException.class, () -> {
+            Config.newBuilder()
+                  .setnProc((short) members.size())
+                  .setSigner(members.get(0))
+                  .setPid((short) 0)
+                  .setReplayCacheSize(0)
+                  .build();
+        }, "Should reject replay cache size < 1");
+
+        // Too large (> 1,000,000)
+        assertThrows(IllegalArgumentException.class, () -> {
+            Config.newBuilder()
+                  .setnProc((short) members.size())
+                  .setSigner(members.get(0))
+                  .setPid((short) 0)
+                  .setReplayCacheSize(2_000_000)
+                  .build();
+        }, "Should reject replay cache size > 1,000,000");
+
+        // Valid boundary values should work
+        var config1 = Config.newBuilder()
+                            .setnProc((short) members.size())
+                            .setSigner(members.get(0))
+                            .setPid((short) 0)
+                            .setReplayCacheSize(1)
+                            .build();
+        assertEquals(1, config1.replayCacheSize());
+
+        var config1M = Config.newBuilder()
+                             .setnProc((short) members.size())
+                             .setSigner(members.get(0))
+                             .setPid((short) 0)
+                             .setReplayCacheSize(1_000_000)
+                             .build();
+        assertEquals(1_000_000, config1M.replayCacheSize());
+    }
+
+    @Test
+    public void testReplayCacheEviction() throws Exception {
+        // Test that cache eviction works with custom size
+        var smallCacheConfig = Config.newBuilder()
+                                     .setnProc((short) members.size())
+                                     .setSigner(members.get(0))
+                                     .setPid((short) 0)
+                                     .setReplayCacheSize(5)  // Very small cache
+                                     .build();
+
+        final var dag = new DagImpl(smallCacheConfig, 0);
+
+        var verifiers = members.stream()
+                              .map(m -> (com.hellblazer.delos.cryptography.Verifier) m)
+                              .toArray(com.hellblazer.delos.cryptography.Verifier[]::new);
+
+        var adder = new Adder(0, dag, 1024 * 1024, smallCacheConfig, new ConcurrentSkipListSet<>(), verifiers,
+                              new BlacklistStore.InMemoryBlacklistStore());
+
+        // Produce units and votes to fill cache
+        for (int round = 0; round < 10; round++) {
+            var u = unit(0, 0);  // Reusing same unit but with different votes
+
+            // Create 10 commits (will exceed cache size of 5)
+            for (short voter = 0; voter < 10; voter++) {
+                var commit = Adder.commit(u.id(), u.hash(), voter,
+                                         members.get(voter % members.size()),
+                                         smallCacheConfig.digestAlgorithm());
+
+                var missing = com.hellblazer.delos.ethereal.proto.Missing.newBuilder()
+                                .setEpoch(0)
+                                .addCommits(commit.signed())
+                                .build();
+                adder.updateFrom(missing);
+            }
+        }
+
+        // Cache should not exceed configured size (5)
+        assertTrue(adder.getSignedCommits().size() <= 5,
+                  "Replay cache should not exceed configured size");
+    }
+
     private Unit unit(int pid, int level) {
         return units.get((short) pid).get(level).get(0);
     }

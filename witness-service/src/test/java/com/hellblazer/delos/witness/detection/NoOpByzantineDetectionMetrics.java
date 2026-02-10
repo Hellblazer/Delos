@@ -245,4 +245,26 @@ public class NoOpByzantineDetectionMetrics implements ByzantineDetectionMetrics 
     public long getGraceNewSignaturesAcceptedCount(String rotationId) {
         return 0L;
     }
+
+    // Performance metrics (Phase 1C - Delos-dmve)
+
+    @Override
+    public void recordLivenessTimeout() {
+        // No-op
+    }
+
+    @Override
+    public void setBlacklistedCreatorsCount(int count) {
+        // No-op
+    }
+
+    @Override
+    public long getLivenessTimeoutsTriggered() {
+        return 0L;
+    }
+
+    @Override
+    public int getBlacklistedCreatorsCount() {
+        return 0;
+    }
 }

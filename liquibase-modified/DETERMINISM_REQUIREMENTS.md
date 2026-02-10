@@ -286,7 +286,7 @@ If any hash differs, the migration is non-deterministic and MUST be fixed.
 
 ## Test Suite
 
-The `liquibase-deterministic` module includes comprehensive determinism tests:
+The `liquibase-modified` module includes comprehensive determinism tests:
 
 - **testBasicTableCreationDeterminism**: Validates table, column, and constraint creation
 - **testIndexCreationDeterminism**: Validates index creation and ordering
@@ -295,7 +295,7 @@ The `liquibase-deterministic` module includes comprehensive determinism tests:
 
 Run tests:
 ```bash
-./mvnw test -pl liquibase-deterministic
+./mvnw test -pl liquibase-modified
 ```
 
 All tests must pass before deploying migrations to production.

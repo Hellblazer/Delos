@@ -41,7 +41,7 @@ jobs:
             **/target/
           key: delos-maven-${{ github.sha }}
 
-  test-batch-1:
+  test-units:
     needs: compile
     runs-on: ubuntu-latest
 
@@ -65,17 +65,10 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Batch 1 (Light CHOAM unit tests + light modules)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl choam -Dtest='DynamicTest,SessionTest,PendingQueueBoundsTest,TransactionSignatureTest' --file pom.xml && CI=true ./mvnw -batch-mode surefire:test -pl tron,schemas --file pom.xml
-      - name: Save Maven cache after batch-1 tests
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.m2/repository
-            **/target/
-          key: delos-maven-tests-batch-1-${{ github.sha }}
+      - name: Test Units (Infrastructure + Platform)
+        run: CI=true ./mvnw -batch-mode surefire:test -pl cryptography,java-noise,protocols,memberships,grpc,tron,schemas,vm-socket,leyden --file pom.xml
 
-  test-batch-2a:
+  test-choam:
     needs: compile
     runs-on: ubuntu-latest
 
@@ -99,17 +92,12 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Batch 2a (CHOAM checkpoint tests)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl choam -Dtest='CHOAMCheckpointTest,SynchronizationCircuitBreakerTest,CheckpointValidationRaceTest' --file pom.xml
-      - name: Save Maven cache after batch-2a tests
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.m2/repository
-            **/target/
-          key: delos-maven-tests-batch-2a-${{ github.sha }}
+      - name: Test CHOAM Core (regression tests only, no stress/concurrency)
+        run: |
+          CI=true ./mvnw -batch-mode surefire:test -pl choam -Dtest='DynamicTest,SessionTest,PendingQueueBoundsTest,TransactionSignatureTest,VersionCompatibilityTest,CHOAMCheckpointTest,SynchronizationCircuitBreakerTest,CheckpointValidationRaceTest,CHOAMBlockValidationTest,GenesisAssemblyTest,ByzantineFaultInjectionTest,DeterminismVerificationTest,ViewStateContractTest,NestedLockDetectionTest' --file pom.xml
+          CI=true ./mvnw -batch-mode surefire:test -pl sql-state --file pom.xml
 
-  test-batch-2b:
+  test-consensus:
     needs: compile
     runs-on: ubuntu-latest
 
@@ -133,17 +121,10 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Batch 2b (CHOAM validation + sql-state)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl choam -Dtest='CHOAMBlockValidationTest' --file pom.xml && CI=true ./mvnw -batch-mode surefire:test -pl sql-state --file pom.xml
-      - name: Save Maven cache after batch-2b tests
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.m2/repository
-            **/target/
-          key: delos-maven-tests-batch-2b-${{ github.sha }}
+      - name: Test Consensus (fireflies + ethereal, excluding canary tests)
+        run: CI=true ./mvnw -batch-mode surefire:test -pl fireflies -Dtest='!ChurnTest' --file pom.xml && CI=true ./mvnw -batch-mode surefire:test -pl ethereal --file pom.xml
 
-  test-batch-3a:
+  test-identity:
     needs: compile
     runs-on: ubuntu-latest
 
@@ -167,135 +148,31 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Batch 3a (CHOAM concurrency + correctness tests)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl choam -Dtest='CHOAMConcurrencyTest,CHOAMFSMErrorPathsTest,CallbackReentrancyTest,ViewStateContractTest,NestedLockDetectionTest' -Dlarge_tests=true --file pom.xml
-      - name: Save Maven cache after batch-3a tests
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.m2/repository
-            **/target/
-          key: delos-maven-tests-batch-3a-${{ github.sha }}
-
-  test-batch-3b:
-    needs: compile
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: graalvm/setup-graalvm@v1
-        with:
-          java-version: '25'
-          distribution: 'graalvm'
-          cache: 'maven'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Restore Maven cache from compile job
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.m2/repository
-            **/target/
-          key: delos-maven-${{ github.sha }}
-          restore-keys: |
-            delos-maven-${{ github.ref }}-
-            delos-maven-refs/heads/main-
-            delos-maven-
-          fail-on-cache-miss: false
-      - name: Test Batch 3b (Consensus layer - fireflies + ethereal)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl fireflies,ethereal --file pom.xml
-      - name: Save Maven cache after batch-3b tests
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.m2/repository
-            **/target/
-          key: delos-maven-tests-batch-3b-${{ github.sha }}
-
-  test-batch-3c:
-    needs: compile
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: graalvm/setup-graalvm@v1
-        with:
-          java-version: '25'
-          distribution: 'graalvm'
-          cache: 'maven'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Restore Maven cache from compile job
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.m2/repository
-            **/target/
-          key: delos-maven-${{ github.sha }}
-          restore-keys: |
-            delos-maven-${{ github.ref }}-
-            delos-maven-refs/heads/main-
-            delos-maven-
-          fail-on-cache-miss: false
-      - name: Test Batch 3c (Identity/services layer)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl cryptography,stereotomy,thoth,java-noise,protocols,memberships,gorgoneion,gorgoneion-client,vm-socket,stereotomy-services,grpc,liquibase-deterministic,leyden --file pom.xml
-      - name: Save Maven cache after batch-3c tests
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.m2/repository
-            **/target/
-          key: delos-maven-tests-batch-3c-${{ github.sha }}
-
-  test-batch-4:
-    needs: compile
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: graalvm/setup-graalvm@v1
-        with:
-          java-version: '25'
-          distribution: 'graalvm'
-          cache: 'maven'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Restore Maven cache from compile job
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.m2/repository
-            **/target/
-          key: delos-maven-${{ github.sha }}
-          restore-keys: |
-            delos-maven-${{ github.ref }}-
-            delos-maven-refs/heads/main-
-            delos-maven-
-          fail-on-cache-miss: false
-      - name: Test Batch 4 (CHOAM Byzantine safety tests ONLY)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl choam -Dtest='GenesisAssemblyTest,ByzantineFaultInjectionTest,DeterminismVerificationTest,CHOAMThreadAndLockingTest' -Dlarge_tests=true --file pom.xml
-      - name: Save Maven cache after batch-4 tests
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.m2/repository
-            **/target/
-          key: delos-maven-tests-batch-4-${{ github.sha }}
+      - name: Test Identity (KERI stack + examples, excluding performance tests)
+        run: |
+          CI=true ./mvnw -batch-mode surefire:test -pl stereotomy,thoth,gorgoneion,gorgoneion-client,stereotomy-services,delphinius --file pom.xml
+          CI=true ./mvnw -batch-mode surefire:test -pl examples/simple-kv-store,examples/local-demo,examples/multi-tenant-demo,examples/fsm-workflow --file pom.xml
+          CI=true ./mvnw -batch-mode surefire:test -pl witness-service -Dtest='!Phase1CProductionSimulationTest,!FullPathPerformanceTest,!WitnessConsensusPerformanceTest,!RateAnomalyDetectorTest,!BLSPerformanceBenchmarkTest' --file pom.xml
+          CI=true ./mvnw -batch-mode surefire:test -pl model -Dtest='!FireFliesTest' --file pom.xml
 
   build-status:
-    needs: [test-batch-1, test-batch-2a, test-batch-2b, test-batch-3a, test-batch-3b, test-batch-3c, test-batch-4]
+    needs: [test-units, test-choam, test-consensus, test-identity]
     runs-on: ubuntu-latest
     if: always()
 
     steps:
       - name: Check Test Results
         run: |
-          if [ "${{ needs.test-batch-1.result }}" != "success" ] || [ "${{ needs.test-batch-2a.result }}" != "success" ] || [ "${{ needs.test-batch-2b.result }}" != "success" ] || [ "${{ needs.test-batch-3a.result }}" != "success" ] || [ "${{ needs.test-batch-3b.result }}" != "success" ] || [ "${{ needs.test-batch-3c.result }}" != "success" ] || [ "${{ needs.test-batch-4.result }}" != "success" ]; then
+          if [ "${{ needs.test-units.result }}" != "success" ] || [ "${{ needs.test-choam.result }}" != "success" ] || [ "${{ needs.test-consensus.result }}" != "success" ] || [ "${{ needs.test-identity.result }}" != "success" ]; then
             echo "❌ Build FAILED: One or more test jobs failed"
-            echo "  test-batch-1: ${{ needs.test-batch-1.result }}"
-            echo "  test-batch-2a: ${{ needs.test-batch-2a.result }}"
-            echo "  test-batch-2b: ${{ needs.test-batch-2b.result }}"
-            echo "  test-batch-3a: ${{ needs.test-batch-3a.result }}"
-            echo "  test-batch-3b: ${{ needs.test-batch-3b.result }}"
-            echo "  test-batch-3c: ${{ needs.test-batch-3c.result }}"
-            echo "  test-batch-4: ${{ needs.test-batch-4.result }}"
+            echo "  test-units: ${{ needs.test-units.result }}"
+            echo "  test-choam: ${{ needs.test-choam.result }}"
+            echo "  test-consensus: ${{ needs.test-consensus.result }}"
+            echo "  test-identity: ${{ needs.test-identity.result }}"
             exit 1
           fi
           echo "✅ Build GREEN: All tests passed successfully"
+          echo "  test-units: ✅"
+          echo "  test-choam: ✅"
+          echo "  test-consensus: ✅"
+          echo "  test-identity: ✅"

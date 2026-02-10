@@ -47,6 +47,30 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
+ * @param runtime               runtime parameters including member, communications, processor
+ * @param combine               bounded epidemic gossip parameters
+ * @param gossipDuration        duration for gossip rounds
+ * @param maxCheckpointSegments maximum number of checkpoint segments
+ * @param submitTimeout         timeout for transaction submission
+ * @param genesisViewId         initial view identifier
+ * @param checkpointBlockDelta  checkpoint frequency in blocks (1-100000, default: 10)
+ * @param crowns                number of crowns for HexBloom
+ * @param digestAlgorithm       digest algorithm for hashing
+ * @param viewSigAlgorithm      signature algorithm for view consensus keys
+ * @param synchronizationCycles number of synchronization cycles
+ * @param regenerationCycles    number of regeneration cycles
+ * @param bootstrap             bootstrap parameters
+ * @param producer              producer parameters
+ * @param mvBuilder             MVStore builder configuration
+ * @param txnLimiterBuilder     transaction rate limiter builder
+ * @param submitPolicy          exponential backoff policy for submissions
+ * @param checkpointSegmentSize checkpoint segment size in bytes
+ * @param generateGenesis       whether to generate genesis block
+ * @param maxPendingBlocks      maximum pending blocks in queue
+ * @param maxSyncAttempts       maximum synchronization attempts
+ * @param minFreeMemoryRatio       minimum free memory ratio for reconfiguration
+ * @param maxCachedCheckpoints     maximum cached checkpoints in memory
+ * @param asyncCheckpointCreation  whether to create checkpoints in background thread
  * @author hal.hildebrand
  */
 public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGossip.Parameters combine,
@@ -57,7 +81,7 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
                          Parameters.MvStoreBuilder mvBuilder, Parameters.LimiterBuilder txnLimiterBuilder,
                          ExponentialBackoffPolicy.Builder submitPolicy, int checkpointSegmentSize,
                          boolean generateGenesis, int maxPendingBlocks, int maxSyncAttempts,
-                         double minFreeMemoryRatio, int maxCachedCheckpoints) {
+                         double minFreeMemoryRatio, int maxCachedCheckpoints, boolean asyncCheckpointCreation) {
 
     public static Builder newBuilder() {
         return new Builder();
@@ -722,6 +746,10 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
     public static class Builder implements Cloneable {
 
         private BootstrapParameters              bootstrap             = BootstrapParameters.newBuilder().build();
+        /**
+         * Checkpoint frequency in blocks. Default: 10 (balanced for most workloads).
+         * Range: 1-100000. See {@link #setCheckpointBlockDelta(int)} for tuning guidance.
+         */
         private int                              checkpointBlockDelta  = 10;
         private int                              checkpointSegmentSize = 8192;
         private BoundedEpidemicGossip.Parameters   combine               = BoundedEpidemicGossip.Parameters.newBuilder()
@@ -747,9 +775,102 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
         private int                              crowns                = 2;
         private boolean                          generateGenesis       = false;
         private int                              maxPendingBlocks      = 1000;
-        private int                              maxSyncAttempts       = 10;
-        private double                           minFreeMemoryRatio    = 0.15; // 85% used = 15% free threshold
-        private int                              maxCachedCheckpoints  = 5;    // Keep last 5 checkpoints in memory
+        private int                              maxSyncAttempts          = 10;
+        private double                           minFreeMemoryRatio       = 0.15; // 85% used = 15% free threshold
+        private int                              maxCachedCheckpoints     = 5;    // Keep last 5 checkpoints in memory
+        private boolean                          asyncCheckpointCreation  = false; // Default: synchronous for backward compatibility
+
+        /**
+         * Create a Parameters.Builder initialized from a ConfigurationProfile.
+         * The profile provides environment-specific defaults which can be overridden
+         * by calling individual setter methods.
+         *
+         * @param profile the configuration profile
+         * @return a builder initialized with profile defaults
+         */
+        public static Builder from(ConfigurationProfile profile) {
+            ProfileValidator.validateOrThrow(profile);
+
+            var builder = new Builder();
+
+            // Map profile timeouts to Parameters timeouts
+            // SessionTimeout maps to submitTimeout
+            builder.setSubmitTimeout(profile.getSessionTimeout());
+
+            // GossipDuration scaled based on profile (faster for test profiles)
+            builder.setGossipDuration(profile.isTest() ?
+                                      Duration.ofMillis(500) : Duration.ofSeconds(1));
+
+            // Synchronization and regeneration cycles based on profile
+            if (profile.isProduction()) {
+                builder.setSynchronizationCycles(15);
+                builder.setRegenerationCycles(30);
+            } else if (profile.isTest()) {
+                builder.setSynchronizationCycles(5);
+                builder.setRegenerationCycles(10);
+            } else {
+                builder.setSynchronizationCycles(10);
+                builder.setRegenerationCycles(20);
+            }
+
+            // Memory management based on profile
+            if (profile.isProduction()) {
+                builder.setMinFreeMemoryRatio(0.10);  // Allow 90% memory use in production
+                builder.setMaxCachedCheckpoints(10);  // More caching for performance
+            } else if (profile.isTest()) {
+                builder.setMinFreeMemoryRatio(0.20);  // Conservative for tests
+                builder.setMaxCachedCheckpoints(3);   // Less caching for test speed
+            } else {
+                builder.setMinFreeMemoryRatio(0.15);  // Default
+                builder.setMaxCachedCheckpoints(5);   // Default
+            }
+
+            // Pending blocks and sync attempts based on profile
+            if (profile.isProduction()) {
+                builder.setMaxPendingBlocks(5000);
+                builder.setMaxSyncAttempts(15);
+            } else if (profile.isTest()) {
+                builder.setMaxPendingBlocks(500);
+                builder.setMaxSyncAttempts(5);
+            } else {
+                builder.setMaxPendingBlocks(1000);
+                builder.setMaxSyncAttempts(10);
+            }
+
+            // Bootstrap parameters based on profile
+            var bootstrapBuilder = BootstrapParameters.newBuilder()
+                .setGossipDuration(builder.getGossipDuration())
+                .setMaxViewBlocks(profile.isTest() ? 50 : 100)
+                .setMaxSyncBlocks(profile.isTest() ? 50 : 100);
+            builder.setBootstrap(bootstrapBuilder.build());
+
+            // Producer parameters based on profile
+            var producerBuilder = ProducerParameters.newBuilder()
+                .setGossipDuration(builder.getGossipDuration())
+                .setBatchInterval(profile.isTest() ? Duration.ofMillis(50) : Duration.ofMillis(100))
+                .setMaxGossipDelay(profile.isTest() ? Duration.ofSeconds(5) : Duration.ofSeconds(10));
+            builder.setProducer(producerBuilder.build());
+
+            // Submit policy (exponential backoff) based on profile
+            var policyBuilder = ExponentialBackoffPolicy.newBuilder();
+            if (profile.isTest()) {
+                policyBuilder.setInitialBackoff(Duration.ofMillis(100))
+                            .setMaxBackoff(Duration.ofSeconds(2))
+                            .setMultiplier(1.5);
+            } else if (profile.isProduction()) {
+                policyBuilder.setInitialBackoff(Duration.ofSeconds(1))
+                            .setMaxBackoff(Duration.ofSeconds(10))
+                            .setMultiplier(2.0);
+            } else {
+                policyBuilder.setInitialBackoff(Duration.ofMillis(500))
+                            .setMaxBackoff(Duration.ofSeconds(5))
+                            .setMultiplier(1.6);
+            }
+            policyBuilder.setJitter(0.2);
+            builder.setSubmitPolicy(policyBuilder);
+
+            return builder;
+        }
 
         /**
          * Create a Parameters.Builder initialized from a ConfigurationProfile.
@@ -862,7 +983,8 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
                                   checkpointBlockDelta, crowns, digestAlgorithm, viewSigAlgorithm,
                                   synchronizationCycles, regenerationCycles, bootstrap, producer, mvBuilder,
                                   txnLimiterBuilder, submitPolicy, checkpointSegmentSize, generateGenesis,
-                                  maxPendingBlocks, maxSyncAttempts, minFreeMemoryRatio, maxCachedCheckpoints);
+                                  maxPendingBlocks, maxSyncAttempts, minFreeMemoryRatio, maxCachedCheckpoints,
+                                  asyncCheckpointCreation);
         }
 
         @Override
@@ -896,7 +1018,53 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
             return checkpointBlockDelta;
         }
 
+        /**
+         * Sets the checkpoint frequency in blocks.
+         * <p>
+         * Controls how often CHOAM creates checkpoints for state recovery. A checkpoint is created
+         * every N blocks where N is the checkpointBlockDelta value. The countdown starts from the
+         * initial value and decrements with each reconfigure block. When it reaches 0, a checkpoint
+         * is created and the counter resets.
+         * <p>
+         * <b>Tuning Guidance:</b>
+         * <ul>
+         *   <li><b>High Frequency (1-10 blocks):</b> Faster recovery, higher I/O overhead.
+         *       Recommended for high-value transactions or frequent restarts.</li>
+         *   <li><b>Standard (10-100 blocks):</b> Balanced trade-off (default: 10).
+         *       Suitable for most production workloads.</li>
+         *   <li><b>Low Frequency (100-1000 blocks):</b> Lower I/O overhead, slower recovery.
+         *       Suitable for write-heavy workloads with stable clusters.</li>
+         *   <li><b>Very Low Frequency (1000-100000 blocks):</b> Minimal I/O, very slow recovery.
+         *       Only for scenarios where checkpointing is expensive and recovery is rare.</li>
+         * </ul>
+         * <p>
+         * <b>Constraints:</b>
+         * <ul>
+         *   <li>Minimum: 1 (checkpoint every block - high overhead but instant recovery)</li>
+         *   <li>Maximum: 100,000 (prevents excessive memory usage between checkpoints)</li>
+         * </ul>
+         * <p>
+         * <b>Trade-offs:</b>
+         * <ul>
+         *   <li><b>Too Frequent:</b> Increased I/O load, slower block production, higher storage costs</li>
+         *   <li><b>Too Infrequent:</b> Longer recovery time, higher memory usage, larger replay log</li>
+         * </ul>
+         *
+         * @param checkpointBlockDelta frequency in blocks (1-100000)
+         * @return this builder
+         * @throws IllegalArgumentException if value is < 1 or > 100000
+         */
         public Builder setCheckpointBlockDelta(int checkpointBlockDelta) {
+            if (checkpointBlockDelta < 1) {
+                throw new IllegalArgumentException(
+                "checkpointBlockDelta must be at least 1 to prevent invalid configuration, got: "
+                + checkpointBlockDelta);
+            }
+            if (checkpointBlockDelta > 100000) {
+                throw new IllegalArgumentException(
+                "checkpointBlockDelta must be <= 100000 to prevent excessive memory usage, got: "
+                + checkpointBlockDelta);
+            }
             this.checkpointBlockDelta = checkpointBlockDelta;
             return this;
         }
@@ -923,8 +1091,9 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
             return crowns;
         }
 
-        public void setCrowns(int crowns) {
+        public Builder setCrowns(int crowns) {
             this.crowns = crowns;
+            return this;
         }
 
         public DigestAlgorithm getDigestAlgorithm() {
@@ -1097,6 +1266,40 @@ public record Parameters(Parameters.RuntimeParameters runtime, BoundedEpidemicGo
                 "maxCachedCheckpoints must be in range [1, 100], got: " + maxCachedCheckpoints);
             }
             this.maxCachedCheckpoints = maxCachedCheckpoints;
+            return this;
+        }
+
+        public boolean isAsyncCheckpointCreation() {
+            return asyncCheckpointCreation;
+        }
+
+        /**
+         * Sets whether checkpoints should be created in a background thread.
+         * <p>
+         * When enabled, checkpoint serialization and I/O operations occur on a dedicated
+         * background thread, reducing latency impact on transaction processing.
+         * <p>
+         * <b>Benefits:</b>
+         * <ul>
+         *   <li>Reduced transaction processing latency during checkpointing</li>
+         *   <li>Non-blocking checkpoint creation</li>
+         *   <li>Better throughput under high transaction load</li>
+         * </ul>
+         * <p>
+         * <b>Trade-offs:</b>
+         * <ul>
+         *   <li>Checkpoint completion is asynchronous (not immediately available)</li>
+         *   <li>Requires proper thread coordination and cleanup</li>
+         *   <li>Small additional memory overhead for executor thread</li>
+         * </ul>
+         * <p>
+         * Default: false (synchronous for backward compatibility)
+         *
+         * @param asyncCheckpointCreation true to enable background checkpointing
+         * @return this builder
+         */
+        public Builder setAsyncCheckpointCreation(boolean asyncCheckpointCreation) {
+            this.asyncCheckpointCreation = asyncCheckpointCreation;
             return this;
         }
     }

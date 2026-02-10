@@ -43,6 +43,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * @author hal.hildebrand
  */
 public class ContainmentDomainTest {
+    private static final boolean           IS_CI           = "true".equalsIgnoreCase(System.getenv("CI"));
     private static final int               CARDINALITY     = 5;
     private static final Digest            GENESIS_VIEW_ID = DigestAlgorithm.DEFAULT.digest(
     "Give me food or give me slack or kill me".getBytes());
@@ -118,7 +119,8 @@ public class ContainmentDomainTest {
                                                                            .map(Domain::logState)
                                                                            .toList()));
         var oracle = domains.getFirst().getDelphi();
-        oracle.add(new Oracle.Namespace("test")).get(30, java.util.concurrent.TimeUnit.SECONDS);
+        // CI infrastructure needs 3-4x timeout due to resource contention (measured 45s+ timeout)
+        oracle.add(new Oracle.Namespace("test")).get(IS_CI ? 120 : 30, java.util.concurrent.TimeUnit.SECONDS);
         DomainTest.smoke(oracle);
     }
 

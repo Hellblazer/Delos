@@ -8,6 +8,7 @@
 
 package com.hellblazer.delos.cryptography.bls;
 
+import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.bls.impl.TekuBLSProvider;
 
 import java.util.ArrayList;
@@ -165,14 +166,17 @@ public record BLSAggregate(BLSSignature aggregatedSignature, byte[] signerBitmap
     }
 
     /**
-     * Equality based on aggregated signature and bitmap.
+     * Constant-time equality based on aggregated signature and bitmap.
+     * <p>
+     * Uses constant-time comparison for the signer bitmap to prevent
+     * timing-based side-channel attacks (defense-in-depth).
      */
     @Override
     public boolean equals(Object obj) {
         if (this == obj) return true;
         if (!(obj instanceof BLSAggregate other)) return false;
         return Objects.equals(aggregatedSignature, other.aggregatedSignature)
-               && Arrays.equals(signerBitmap, other.signerBitmap);
+               && Digest.constantTimeEquals(signerBitmap, other.signerBitmap);
     }
 
     /**

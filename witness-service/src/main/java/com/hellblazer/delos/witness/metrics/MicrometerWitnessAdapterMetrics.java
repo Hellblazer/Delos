@@ -14,6 +14,7 @@ import io.micrometer.core.instrument.distribution.ValueAtPercentile;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -35,6 +36,9 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class MicrometerWitnessAdapterMetrics implements WitnessAdapterMetrics {
 
+    /** Circuit breaker opens after this many consecutive failures */
+    private static final int CIRCUIT_BREAKER_FAILURE_THRESHOLD = 10;
+
     private final Timer selectionLatencyTimer;
     private final Timer contextCreationLatencyTimer;
     private final Timer hashLatencyTimer;
@@ -48,6 +52,7 @@ public class MicrometerWitnessAdapterMetrics implements WitnessAdapterMetrics {
     private final DistributionSummary biasValueSummary;
     private final AtomicBoolean circuitBreakerOpen;
     private final AtomicLong metricsStartTime;
+    private final AtomicInteger consecutiveFailures;
 
     /**
      * Create metrics instance with given registry.
@@ -132,6 +137,7 @@ public class MicrometerWitnessAdapterMetrics implements WitnessAdapterMetrics {
 
         // State tracking
         this.circuitBreakerOpen = new AtomicBoolean(false);
+        this.consecutiveFailures = new AtomicInteger(0);
         this.metricsStartTime = new AtomicLong(System.nanoTime());
 
         // Register circuit breaker state as a gauge
@@ -168,11 +174,19 @@ public class MicrometerWitnessAdapterMetrics implements WitnessAdapterMetrics {
     @Override
     public void incrementContextCreations() {
         contextCreationsCounter.increment();
+        // Reset consecutive failures on success
+        consecutiveFailures.set(0);
     }
 
     @Override
     public void incrementContextCreationFailures() {
         contextCreationFailuresCounter.increment();
+
+        // Automatic circuit breaker: open after threshold consecutive failures
+        int failures = consecutiveFailures.incrementAndGet();
+        if (failures >= CIRCUIT_BREAKER_FAILURE_THRESHOLD && !circuitBreakerOpen.get()) {
+            recordCircuitBreakerStateChange(true);
+        }
     }
 
     @Override
@@ -197,6 +211,8 @@ public class MicrometerWitnessAdapterMetrics implements WitnessAdapterMetrics {
             circuitBreakerOpenCounter.increment();
         } else {
             circuitBreakerCloseCounter.increment();
+            // Reset consecutive failures when circuit breaker is manually closed
+            consecutiveFailures.set(0);
         }
     }
 

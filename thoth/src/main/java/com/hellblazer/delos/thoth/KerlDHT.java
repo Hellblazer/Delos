@@ -848,22 +848,15 @@ public class KerlDHT implements ProtoKERLService {
         new PrintStream(new LoggingOutputStream(LoggerFactory.getLogger("liquibase"), LogLevel.INFO)));
         try (var connection = connectionPool.getConnection()) {
             var database = new H2Database();
-            try {
-                database.setConnection(new liquibase.database.jvm.JdbcConnection(connection));
-                try (Liquibase liquibase = new Liquibase("/initialize-thoth.xml", new ClassLoaderResourceAccessor(),
-                                                         database)) {
-                    liquibase.update((String) null);
-                } catch (LiquibaseException e) {
-                    log.error("Unable to initialize schema on: {}", member.getId(), e);
-                    throw new IllegalStateException(e);
-                }
-            } finally {
-                try {
-                    database.close();
-                } catch (Exception e) {
-                    log.warn("Error closing database during schema initialization on: {}", member.getId(), e);
-                }
+            database.setConnection(new liquibase.database.jvm.JdbcConnection(connection));
+            try (Liquibase liquibase = new Liquibase("/initialize-thoth.xml", new ClassLoaderResourceAccessor(),
+                                                     database)) {
+                liquibase.update((String) null);
+            } catch (LiquibaseException e) {
+                log.error("Unable to initialize schema on: {}", member.getId(), e);
+                throw new IllegalStateException(e);
             }
+            // Note: Don't close database object - try-with-resources handles connection cleanup
         } catch (SQLException e) {
             log.error("Unable to initialize schema on: {}", member.getId(), e);
             throw new IllegalStateException(e);

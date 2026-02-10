@@ -7,6 +7,7 @@
  */
 package com.hellblazer.delos.skiplist;
 
+import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 
 import java.nio.ByteBuffer;
@@ -301,7 +302,8 @@ public class AuthenticatedSkipList {
             for (var i = 2; i < proof.sequence.size(); i++) {
                 cur = proof.algorithm.commutative(cur, proof.sequence.get(i));
             }
-            return Arrays.equals(cur, hash) ? Result.CORRECT : Result.INCORRECT;
+            // Use constant-time comparison to prevent timing attacks (defense-in-depth)
+            return Digest.constantTimeEquals(cur, hash) ? Result.CORRECT : Result.INCORRECT;
         }
     }
 

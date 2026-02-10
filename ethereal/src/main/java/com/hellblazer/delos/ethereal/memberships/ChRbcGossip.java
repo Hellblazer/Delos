@@ -343,7 +343,19 @@ public class ChRbcGossip {
         @Override
         public void update(ContextUpdate request, Digest from) {
             log.trace("gossip update with {} on: {}", from, member.getId());
-            processor.updateFrom(request.getUpdate());
+            try {
+                processor.updateFrom(request.getUpdate());
+            } catch (IllegalStateException e) {
+                // CRITICAL (Delos-sxh3): Equivocation detected by Adder
+                // Log and continue gracefully - do not disrupt RPC or gossip service
+                log.warn("Equivocation detected during update from: {} on: {} - {}", from, member.getId(),
+                         e.getMessage());
+                if (log.isDebugEnabled()) {
+                    log.debug("Equivocation stack trace from: {}", from, e);
+                }
+                // Continue gracefully - exception is logged but RPC completes normally
+                // Byzantine detection is handled by Adder.addUnit() via blacklistStore
+            }
         }
     }
 }

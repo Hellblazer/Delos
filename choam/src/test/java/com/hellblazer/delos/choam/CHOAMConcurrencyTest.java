@@ -164,7 +164,8 @@ public class CHOAMConcurrencyTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 500,
+        // CI infrastructure needs 3x longer for genesis assembly (measured: 15s locally, 40s+ on CI)
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : (IS_CI ? 60_000 : 15_000), 500,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -198,7 +199,8 @@ public class CHOAMConcurrencyTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 500,
+        // CI infrastructure needs 3x longer for genesis assembly (measured: 15s locally, 40s+ on CI)
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : (IS_CI ? 60_000 : 15_000), 500,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -229,7 +231,8 @@ public class CHOAMConcurrencyTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 500,
+        // CI infrastructure needs 3x longer for genesis assembly (measured: 15s locally, 40s+ on CI)
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : (IS_CI ? 60_000 : 15_000), 500,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -246,7 +249,8 @@ public class CHOAMConcurrencyTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(LARGE_TESTS ? 90 : 25, TimeUnit.SECONDS);
+        // CI infrastructure needs 2-3x timeout due to resource contention (measured 29s timeout)
+        boolean completed = countdown.await(LARGE_TESTS ? 90 : (IS_CI ? 75 : 25), TimeUnit.SECONDS);
         assertTrue(completed, "Block acceptance during transitions should succeed");
 
         routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
@@ -260,7 +264,8 @@ public class CHOAMConcurrencyTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 500,
+        // CI infrastructure needs 3x longer for genesis assembly (measured: 15s locally, 40s+ on CI)
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : (IS_CI ? 60_000 : 15_000), 500,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -293,7 +298,8 @@ public class CHOAMConcurrencyTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 500,
+        // CI infrastructure needs 3x longer for genesis assembly (measured: 15s locally, 40s+ on CI)
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : (IS_CI ? 60_000 : 15_000), 500,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 
@@ -310,7 +316,8 @@ public class CHOAMConcurrencyTest {
 
         transactioneers.forEach(Transactioneer::start);
         // CI runners need 3-4x longer due to resource contention
-        boolean completed = countdown.await(LARGE_TESTS ? 90 : (IS_CI ? 120 : 30), TimeUnit.SECONDS);
+        // Increased from 90 to 150 for LARGE_TESTS to account for async checkpoint creation
+        boolean completed = countdown.await(LARGE_TESTS ? 150 : (IS_CI ? 120 : 30), TimeUnit.SECONDS);
         assertTrue(completed, "Interleaved operations should not cause deadlock");
 
         choams.values().forEach(c -> assertTrue(c.active(), "System should remain stable"));
@@ -326,7 +333,8 @@ public class CHOAMConcurrencyTest {
         routers.values().forEach(Router::start);
         choams.values().forEach(CHOAM::start);
 
-        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 500,
+        // CI infrastructure needs 3x longer for genesis assembly (measured: 15s locally, 40s+ on CI)
+        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : (IS_CI ? 60_000 : 15_000), 500,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 

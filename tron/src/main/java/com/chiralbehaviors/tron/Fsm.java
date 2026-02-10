@@ -49,12 +49,14 @@ public final class Fsm<Context, Transitions> {
     private volatile     Context                            context;
     private              Transitions                        current;
     private              Logger                             log;
+    private              FsmMetrics                         metrics     = FsmMetrics.NOOP;
     private              String                             name        = "";
     private              boolean                            pendingPop  = false;
     private              State<Context, Transitions>        pendingPush;
     private              PendingTransition                  popTransition;
     private              Transitions                        previous;
     private              PendingTransition                  pushTransition;
+    private              Long                               stateEntryTime;
     private              String                             transition;
 
     Fsm(Context context, boolean sync, Class<Transitions> transitionsType, ClassLoader transitionsCL) {
@@ -129,6 +131,7 @@ public final class Fsm<Context, Transitions> {
         if (log.isTraceEnabled()) {
             log.trace(String.format("[%s] Entering start state %s", name, prettyPrint(current)));
         }
+        metrics.recordStackDepth(stack.size());
         executeEntryAction();
     }
 
@@ -176,6 +179,22 @@ public final class Fsm<Context, Transitions> {
      */
     public void setLog(Logger log) {
         this.log = log;
+    }
+
+    /**
+     * @return the metrics collector for this Fsm
+     */
+    public FsmMetrics getMetrics() {
+        return locked(() -> metrics);
+    }
+
+    /**
+     * Set the metrics collector for this Fsm.
+     *
+     * @param metrics - the FsmMetrics for this Fsm
+     */
+    public void setMetrics(FsmMetrics metrics) {
+        this.metrics = metrics != null ? metrics : FsmMetrics.NOOP;
     }
 
     public String getName() {
@@ -434,12 +453,15 @@ public final class Fsm<Context, Transitions> {
                 log.trace(
                 String.format("[%s] Entry action: %s.%s", name, prettyPrint(current), prettyPrint(action)));
             }
+            var startTime = System.nanoTime();
             try {
                 // For entry actions with parameters, inject the context
                 if (action.getParameterTypes().length > 0)
                     action.invoke(current, getContext());
                 else
                     action.invoke(current);
+                var duration = System.nanoTime() - startTime;
+                metrics.recordEntryAction(prettyPrint(current), duration);
             } catch (IllegalAccessException | IllegalArgumentException e) {
                 throw new IllegalStateException(e);
             } catch (InvocationTargetException e) {
@@ -450,9 +472,17 @@ public final class Fsm<Context, Transitions> {
                 throw new IllegalStateException(targetException);
             }
         }
+        // Record state entry time for duration tracking
+        stateEntryTime = System.nanoTime();
     }
 
     private void executeExitAction() {
+        // Record state duration before exiting
+        if (stateEntryTime != null) {
+            var duration = System.nanoTime() - stateEntryTime;
+            metrics.recordStateDuration(prettyPrint(current), duration);
+        }
+
         Method action = EXIT_ACTION_CACHE.computeIfAbsent(current.getClass(), cls -> {
             for (Method m : cls.getDeclaredMethods()) {
                 if (m.isAnnotationPresent(Exit.class)) {
@@ -468,12 +498,15 @@ public final class Fsm<Context, Transitions> {
                 log.trace(
                 String.format("[%s] Exit action: %s.%s", name, prettyPrint(current), prettyPrint(action)));
             }
+            var startTime = System.nanoTime();
             try {
                 // For exit action with parameters, inject the context
                 if (action.getParameterTypes().length > 0)
                     action.invoke(current, getContext());
                 else
                     action.invoke(current);
+                var duration = System.nanoTime() - startTime;
+                metrics.recordExitAction(prettyPrint(current), duration);
             } catch (IllegalAccessException | IllegalArgumentException e) {
                 throw new IllegalStateException(e);
             } catch (InvocationTargetException e) {
@@ -508,6 +541,7 @@ public final class Fsm<Context, Transitions> {
             }
         }
 
+        var transitionStartTime = System.nanoTime();
         try {
             transition = prettyPrint(t);
             Transitions nextState;
@@ -515,10 +549,14 @@ public final class Fsm<Context, Transitions> {
             try {
                 nextState = fireTransition(lookupTransition(t), arguments);
             } catch (InvalidTransition e) {
+                metrics.recordInvalidTransition(prettyPrint(current), transition);
                 nextState = fireTransition(lookupDefaultTransition(e, t), arguments);
             }
             if (pinned == current) {
                 transitionTo(nextState);
+                var transitionDuration = System.nanoTime() - transitionStartTime;
+                metrics.recordTransition(prettyPrint(previous), prettyPrint(nextState), transition,
+                                        transitionDuration);
             } else {
                 if (nextState != null && log.isTraceEnabled()) {
                     log.trace(
@@ -527,6 +565,9 @@ public final class Fsm<Context, Transitions> {
                 }
             }
             return null;
+        } catch (Exception e) {
+            metrics.recordTransitionError(prettyPrint(current), transition, e);
+            throw e;
         } finally {
             thisFsm.set(previousFsm);
         }
@@ -695,6 +736,7 @@ public final class Fsm<Context, Transitions> {
         if (pop.context != null) {
             setContext(pop.context);
         }
+        metrics.recordStackDepth(stack.size());
         if (pendingTransition != null) {
             if (log.isTraceEnabled()) {
                 log.trace(String.format("[%s] Pop transition: %s.%s", name, prettyPrint(current),
@@ -748,6 +790,7 @@ public final class Fsm<Context, Transitions> {
         if (pushed.context != null) {
             setContext(pushed.context);
         }
+        metrics.recordStackDepth(stack.size());
         Transitions pinned = current;
         PendingTransition pushTrns = pushTransition;
         pushTransition = null;

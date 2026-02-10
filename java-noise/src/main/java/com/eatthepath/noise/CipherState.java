@@ -59,7 +59,7 @@ class CipherState {
 
     if (hasKey()) {
       final int plaintextLength = cipher.decrypt(key, nonce, associatedData, ciphertext, plaintext);
-      nonce += 1;
+      checkAndIncrementNonce();
 
       return plaintextLength;
     } else {
@@ -104,7 +104,7 @@ class CipherState {
           ciphertextLength,
           plaintext,plaintextOffset);
 
-      nonce += 1;
+      checkAndIncrementNonce();
 
       return plaintextLength;
     } else {
@@ -129,7 +129,7 @@ class CipherState {
   public int encrypt(@Nullable final byte[] associatedData, final ByteBuffer plaintext, final ByteBuffer ciphertext) throws ShortBufferException {
     if (hasKey()) {
       final int ciphertextLength = cipher.encrypt(key, nonce, associatedData, plaintext, ciphertext);
-      nonce += 1;
+      checkAndIncrementNonce();
 
       return ciphertextLength;
     } else {
@@ -175,7 +175,7 @@ class CipherState {
           ciphertext,
           ciphertextOffset);
 
-      nonce += 1;
+      checkAndIncrementNonce();
 
       return ciphertextLength;
     } else {
@@ -206,5 +206,24 @@ class CipherState {
 
   NoiseCipher getCipher() {
     return cipher;
+  }
+
+  /**
+   * Checks for nonce overflow and increments the nonce.
+   * Per the Noise protocol specification, nonces must be monotonically increasing.
+   * If nonce were to overflow from Long.MAX_VALUE to Long.MIN_VALUE (negative),
+   * this would catastrophically break AEAD security guarantees by violating
+   * nonce uniqueness requirements.
+   *
+   * @throws IllegalStateException if incrementing would cause overflow
+   */
+  private void checkAndIncrementNonce() {
+    if (nonce == Long.MAX_VALUE) {
+      throw new IllegalStateException(
+          "Nonce overflow detected. Cannot increment nonce beyond Long.MAX_VALUE. " +
+          "This would catastrophically break AEAD security by violating the Noise protocol's " +
+          "requirement for monotonically increasing nonces. A new CipherState must be established.");
+    }
+    nonce += 1;
   }
 }

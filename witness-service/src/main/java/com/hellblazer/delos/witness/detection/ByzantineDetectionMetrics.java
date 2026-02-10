@@ -424,6 +424,47 @@ public interface ByzantineDetectionMetrics {
     long getGraceNewSignaturesAcceptedCount(String rotationId);
 
     // ===========================
+    // Performance Metrics (Phase 1C - Delos-dmve)
+    // ===========================
+
+    /**
+     * Record liveness timeout event in Ethereal consensus.
+     * <p>
+     * Called when a waiting unit exceeds the configured timeout threshold
+     * without receiving required parent units. Liveness timeouts indicate
+     * Byzantine nodes withholding units or network partition scenarios.
+     * </p>
+     */
+    void recordLivenessTimeout();
+
+    /**
+     * Set current count of blacklisted creators in Ethereal.
+     * <p>
+     * Updates gauge metric with the number of creators currently blacklisted
+     * for equivocation. Blacklisted creators have their units permanently
+     * rejected to prevent repeated Byzantine attacks.
+     * </p>
+     *
+     * @param count Number of blacklisted creators
+     * @throws IllegalArgumentException if count is negative
+     */
+    void setBlacklistedCreatorsCount(int count);
+
+    /**
+     * Get total number of liveness timeout events triggered.
+     *
+     * @return Liveness timeout count since metrics initialization
+     */
+    long getLivenessTimeoutsTriggered();
+
+    /**
+     * Get current number of blacklisted creators.
+     *
+     * @return Current blacklist size
+     */
+    int getBlacklistedCreatorsCount();
+
+    // ===========================
     // Lifecycle
     // ===========================
 

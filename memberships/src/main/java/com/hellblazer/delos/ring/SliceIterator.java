@@ -39,11 +39,13 @@ public class SliceIterator<Comm extends Link> {
     private final    List<? extends Member>        slice;
     private final    ScheduledExecutorService      scheduler;
     private final    int                           majority;
+    private final    Map<Member, AtomicInteger>    retryCountPerMember;
     private volatile Member                        current;
     private volatile Iterator<? extends Member>    currentIteration;
     private volatile int                           i;
     private volatile boolean                       majoritySucceed = false;
     private volatile boolean                       majorityFailed;
+    private volatile int                           maxRetriesPerMember = Integer.MAX_VALUE;
 
     public SliceIterator(String label, SigningMember member, Collection<? extends Member> slice,
                          CommonCommunications<Comm, ?> comm) {
@@ -65,6 +67,7 @@ public class SliceIterator<Comm extends Link> {
         this.comm = comm;
         this.scheduler = scheduler;
         this.majority = majority;
+        this.retryCountPerMember = new ConcurrentHashMap<>();
         Entropy.secureShuffle(this.slice);
         this.currentIteration = slice.iterator();
         log.debug("Slice for: <{}> is: {} on: {}", label, slice.stream().map(Member::getId).toList(), member.getId());
@@ -86,6 +89,40 @@ public class SliceIterator<Comm extends Link> {
 
     public <T> void iterate(Function<Comm, T> round, SlicePredicateHandler<T, Comm> handler, Duration frequency) {
         iterate(round, handler, null, frequency);
+    }
+
+    /**
+     * Set maximum retry attempts per member. Prevents infinite retry loops.
+     * Default is unlimited (Integer.MAX_VALUE).
+     *
+     * @param max maximum retries per member (must be positive)
+     * @throws IllegalArgumentException if max <= 0
+     */
+    public void setMaxRetriesPerMember(int max) {
+        if (max <= 0) {
+            throw new IllegalArgumentException("maxRetriesPerMember must be positive: " + max);
+        }
+        this.maxRetriesPerMember = max;
+        log.debug("Set max retries per member to {} for: <{}> on: {}", max, label, member.getId());
+    }
+
+    /**
+     * Get current max retries per member configuration.
+     */
+    public int getMaxRetriesPerMember() {
+        return maxRetriesPerMember;
+    }
+
+    /**
+     * Check if all members have exhausted their retry limits.
+     */
+    private boolean allMembersExhausted() {
+        if (maxRetriesPerMember == Integer.MAX_VALUE) {
+            return false; // Unlimited retries
+        }
+        return slice.stream()
+                    .allMatch(m -> retryCountPerMember.getOrDefault(m, new AtomicInteger(0))
+                                                       .get() >= maxRetriesPerMember);
     }
 
     /**
@@ -126,6 +163,14 @@ public class SliceIterator<Comm extends Link> {
 
         SlicePredicateHandler<T, Comm> handler = (result, tally, link, m) -> {
             if (future.isDone()) {
+                return false; // Stop iteration
+            }
+
+            // Check if all members exhausted retries
+            if (link == null && allMembersExhausted()) {
+                log.warn("All members exhausted retry limits for collect: <{}> on: {}", label, member.getId());
+                future.completeExceptionally(
+                new QuorumException("Retry limits exhausted", requiredCount, collected.size()));
                 return false; // Stop iteration
             }
 
@@ -196,6 +241,16 @@ public class SliceIterator<Comm extends Link> {
                 return false; // Stop iteration
             }
 
+            // Check if all members exhausted retries
+            if (link == null && allMembersExhausted()) {
+                log.warn("All members exhausted retry limits for vote: <{}> on: {}", label, member.getId());
+                synchronized (lock) {
+                    future.completeExceptionally(
+                    new QuorumException("Retry limits exhausted", requiredCount, votes.size()));
+                }
+                return false; // Stop iteration
+            }
+
             result.ifPresent(vote -> {
                 int totalVotes;
                 synchronized (lock) {
@@ -252,26 +307,30 @@ public class SliceIterator<Comm extends Link> {
                 allowed.accept(handler.handle(Optional.empty(), tally, null, null));
                 return;
             }
-            log.trace("Iteration: {} of: <{}> to: {} on: {}", c, label, link.getMember().getId(), member.getId());
+            var targetMember = link.getMember();
+            log.trace("Iteration: {} of: <{}> to: {} on: {}", c, label, targetMember.getId(), member.getId());
             T result = null;
             try {
                 result = round.apply(link);
+                recordAttempt(targetMember); // Record attempt after RPC call
             } catch (StatusRuntimeException e) {
+                recordAttempt(targetMember); // Record attempt even on failure
                 switch (e.getStatus().getCode()) {
                 case UNAVAILABLE:
                     log.trace("Unhandled: {} applying: <{}> slice to: {} iteration: {} on: {}", e, label,
-                              link.getMember().getId(), c, member.getId());
+                              targetMember.getId(), c, member.getId());
                     break;
                 default:
                     log.debug("Unhandled: {} applying: <{}> slice to: {} iteration: {} on: {}", e, label,
-                              link.getMember().getId(), c, member.getId());
+                              targetMember.getId(), c, member.getId());
                     break;
                 }
             } catch (Throwable e) {
+                recordAttempt(targetMember); // Record attempt even on exception
                 log.debug("Unhandled: {} applying: <{}> slice to: {} iteration: {} on: {}", e, label,
-                          link.getMember().getId(), c, member.getId());
+                          targetMember.getId(), c, member.getId());
             }
-            allowed.accept(handler.handle(Optional.ofNullable(result), tally, link, link.getMember()));
+            allowed.accept(handler.handle(Optional.ofNullable(result), tally, link, targetMember));
         } catch (IOException e) {
             log.debug("Error closing", e);
         }
@@ -288,15 +347,55 @@ public class SliceIterator<Comm extends Link> {
     }
 
     private Comm next() {
-        if (!currentIteration.hasNext()) {
-            Entropy.secureShuffle(slice);
-            currentIteration = slice.iterator();
+        // Loop to find a member that hasn't exhausted retries
+        while (true) {
+            if (!currentIteration.hasNext()) {
+                Entropy.secureShuffle(slice);
+                currentIteration = slice.iterator();
+            }
+            if (!currentIteration.hasNext()) {
+                return null; // Empty slice
+            }
+
+            // Check if all members exhausted before trying to get next
+            if (allMembersExhausted()) {
+                log.warn("All members have exhausted retry limits for: <{}> on: {}", label, member.getId());
+                return null; // Signal exhaustion
+            }
+
+            current = currentIteration.next();
+
+            // Check retry limit for this member BEFORE attempting
+            var retryCount = retryCountPerMember.computeIfAbsent(current, _ -> new AtomicInteger(0));
+            var currentRetries = retryCount.get();
+
+            if (currentRetries >= maxRetriesPerMember) {
+                log.debug("Member {} has reached max retries ({}) for: <{}> on: {}", current.getId(),
+                          maxRetriesPerMember, label, member.getId());
+                // Skip this member and try next in loop
+                continue;
+            }
+
+            // Found a member within retry limit
+            return linkFor(current);
         }
-        if (!currentIteration.hasNext()) {
-            return null;
+    }
+
+    /**
+     * Record that an attempt was made to contact the current member.
+     * Called after each RPC attempt (success or failure).
+     */
+    private void recordAttempt(Member m) {
+        if (m == null) {
+            return;
         }
-        current = currentIteration.next();
-        return linkFor(current);
+        var retryCount = retryCountPerMember.computeIfAbsent(m, _ -> new AtomicInteger(0));
+        var newCount = retryCount.incrementAndGet();
+
+        if (newCount == maxRetriesPerMember - 1) {
+            log.warn("Member {} approaching max retries ({}/{}) for: <{}> on: {}", m.getId(), newCount,
+                     maxRetriesPerMember, label, member.getId());
+        }
     }
 
     private void proceed(Runnable onMajority, final boolean allow, Runnable proceed, AtomicInteger tally,

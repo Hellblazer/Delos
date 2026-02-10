@@ -50,9 +50,10 @@ import static org.junit.jupiter.api.Assertions.*;
  * @author hal.hildebrand
  */
 public class DomainTest {
-    private static final Logger log             = LoggerFactory.getLogger(DomainTest.class);
-    private static final int    CARDINALITY     = 5;
-    private static final Digest GENESIS_VIEW_ID = DigestAlgorithm.DEFAULT.digest(
+    private static final Logger  log             = LoggerFactory.getLogger(DomainTest.class);
+    private static final boolean IS_CI           = Boolean.parseBoolean(System.getenv().getOrDefault("CI", "false"));
+    private static final int     CARDINALITY     = 5;
+    private static final Digest  GENESIS_VIEW_ID = DigestAlgorithm.DEFAULT.digest(
     "Give me food or give me slack or kill me".getBytes());
 
     private final ArrayList<Domain> domains = new ArrayList<>();
@@ -256,10 +257,12 @@ public class DomainTest {
                                                                      executor);
             routers.add(localRouter);
             var dbUrl = String.format("jdbc:h2:mem:sql-%s-%s;DB_CLOSE_DELAY=-1", member.getId(), UUID.randomUUID());
-            var pdParams = new ProcessDomain.ProcessDomainParameters(dbUrl, Duration.ofMinutes(1),
+            // CI runners need longer timeouts for transaction processing
+            var txTimeout = IS_CI ? Duration.ofMinutes(2) : Duration.ofMinutes(1);
+            var pdParams = new ProcessDomain.ProcessDomainParameters(dbUrl, txTimeout,
                                                                      "jdbc:h2:mem:%s-state;DB_CLOSE_DELAY=-1".formatted(
                                                                      d), checkpointDirBase, Duration.ofMillis(10),
-                                                                     0.00125, Duration.ofMinutes(1), 3,
+                                                                     0.00125, txTimeout, 3,
                                                                      Duration.ofMillis(100), 10, 0.1);
             var domain = new ProcessDomain(group, member, pdParams, params.clone(), RuntimeParameters.newBuilder()
                                                                                                      .setFoundation(
@@ -279,7 +282,9 @@ public class DomainTest {
     @Test
     public void smoke() throws Exception {
         domains.forEach(Domain::start);
-        final var activated = Utils.waitForCondition(60_000, 1_000, () -> domains.stream().allMatch(Domain::active));
+        // CI runners need more time for distributed consensus and transaction processing
+        final var activationTimeout = IS_CI ? 120_000 : 60_000;  // 2min on CI vs 1min local
+        final var activated = Utils.waitForCondition(activationTimeout, 1_000, () -> domains.stream().allMatch(Domain::active));
         assertTrue(activated, "Domains did not fully activate: " + (domains.stream()
                                                                            .filter(c -> !c.active())
                                                                            .map(Domain::logState)
@@ -290,16 +295,20 @@ public class DomainTest {
     }
 
     private Builder params() {
+        // CI runners need longer gossip intervals for distributed consensus stability
+        int gossipMs = IS_CI ? 15 : 5;  // 3x longer on CI
+        int batchMs = IS_CI ? 75 : 50;  // 1.5x longer on CI
+
         return Parameters.newBuilder()
                          .setGenerateGenesis(true)
                          .setGenesisViewId(GENESIS_VIEW_ID)
                          .setBootstrap(
-                         Parameters.BootstrapParameters.newBuilder().setGossipDuration(Duration.ofMillis(5)).build())
+                         Parameters.BootstrapParameters.newBuilder().setGossipDuration(Duration.ofMillis(gossipMs)).build())
                          .setGenesisViewId(DigestAlgorithm.DEFAULT.getOrigin())
-                         .setGossipDuration(Duration.ofMillis(5))
+                         .setGossipDuration(Duration.ofMillis(gossipMs))
                          .setProducer(Parameters.ProducerParameters.newBuilder()
-                                                                   .setGossipDuration(Duration.ofMillis(5))
-                                                                   .setBatchInterval(Duration.ofMillis(50))
+                                                                   .setGossipDuration(Duration.ofMillis(gossipMs))
+                                                                   .setBatchInterval(Duration.ofMillis(batchMs))
                                                                    .setMaxBatchByteSize(1024 * 1024)
                                                                    .setMaxBatchCount(10_000)
                                                                    .setEthereal(Config.newBuilder()

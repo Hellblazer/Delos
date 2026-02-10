@@ -526,7 +526,7 @@ export MAVEN_OPTS="-Xmx2g"
 export LOG_LEVEL="DEBUG"
 
 # Skip some modules for faster builds
-export MAVEN_SKIP="h2-deterministic,liquibase-deterministic"
+export MAVEN_SKIP="h2-deterministic,liquibase-modified"
 ```
 
 ---

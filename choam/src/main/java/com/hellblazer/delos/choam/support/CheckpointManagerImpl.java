@@ -24,7 +24,8 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.Comparator;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -34,6 +35,12 @@ import java.util.concurrent.atomic.AtomicReference;
  * - An atomic reference to the current checkpoint block
  * - A cache of recent checkpoints for replication
  * - Integration with BlockStore for persistent checkpoint storage
+ * - Optional background thread for asynchronous checkpoint creation
+ * <p>
+ * Thread Safety:
+ * - All public methods are thread-safe
+ * - Background checkpoint creation uses a single-threaded executor for ordering
+ * - Shutdown ensures graceful termination of background operations
  *
  * @author hal.hildebrand
  */
@@ -44,11 +51,26 @@ public class CheckpointManagerImpl implements CheckpointManager {
     private final AtomicReference<HashedCertifiedBlock>  checkpoint;
     private final BlockStore                             blockStore;
     private final Parameters                             params;
+    private final ExecutorService                        checkpointExecutor;
+    private final AtomicBoolean                          shutdown          = new AtomicBoolean(false);
 
     public CheckpointManagerImpl(BlockStore blockStore, Parameters params) {
         this.blockStore = blockStore;
         this.params = params;
         this.checkpoint = new AtomicReference<>(new NullBlock(params.digestAlgorithm()));
+
+        // Create single-threaded executor for background checkpoints if async mode enabled
+        if (params.asyncCheckpointCreation()) {
+            this.checkpointExecutor = Executors.newSingleThreadExecutor(r -> {
+                var thread = new Thread(r, "checkpoint-creator-" + params.member().getId());
+                thread.setDaemon(false); // Non-daemon to allow graceful completion
+                return thread;
+            });
+            log.info("Background checkpoint creation enabled on: {}", params.member().getId());
+        } else {
+            this.checkpointExecutor = null;
+            log.debug("Synchronous checkpoint creation (default) on: {}", params.member().getId());
+        }
     }
 
     @Override
@@ -65,35 +87,45 @@ public class CheckpointManagerImpl implements CheckpointManager {
 
     @Override
     public void createCheckpoint(ULong height, File state) {
-        var cp = checkpoint.get();
-        Checkpoint chkpt = buildCheckpoint(params.digestAlgorithm(), state, params.checkpointSegmentSize(), cp.hash,
-                                           params.crowns(), params.member().getId());
-        if (chkpt == null) {
-            throw new IllegalStateException("Failed to create checkpoint at height: " + height);
+        if (shutdown.get()) {
+            throw new IllegalStateException("CheckpointManager is shut down on: " + params.member().getId());
         }
 
-        MVMap<Integer, byte[]> stored = blockStore.putCheckpoint(height, state, chkpt);
-        state.delete();
-        cachedCheckpoints.put(height, new CheckpointState(chkpt, stored));
-        evictOldCheckpoints();
-        log.info("Created checkpoint at height: {} on: {}", height, params.member().getId());
+        if (params.asyncCheckpointCreation() && checkpointExecutor != null) {
+            // Submit to background thread (non-blocking)
+            checkpointExecutor.submit(() -> createCheckpointInternal(height, state));
+            log.debug("Submitted checkpoint creation for height: {} to background thread on: {}",
+                     height, params.member().getId());
+        } else {
+            // Execute synchronously (existing behavior)
+            createCheckpointInternal(height, state);
+        }
     }
 
     @Override
     public Checkpoint createCheckpointAndGet(ULong height, File state) {
-        var cp = checkpoint.get();
-        Checkpoint chkpt = buildCheckpoint(params.digestAlgorithm(), state, params.checkpointSegmentSize(), cp.hash,
-                                           params.crowns(), params.member().getId());
-        if (chkpt == null) {
-            return null;
+        if (shutdown.get()) {
+            throw new IllegalStateException("CheckpointManager is shut down on: " + params.member().getId());
         }
 
-        MVMap<Integer, byte[]> stored = blockStore.putCheckpoint(height, state, chkpt);
-        state.delete();
-        cachedCheckpoints.put(height, new CheckpointState(chkpt, stored));
-        evictOldCheckpoints();
-        log.info("Created checkpoint at height: {} on: {}", height, params.member().getId());
-        return chkpt;
+        if (params.asyncCheckpointCreation() && checkpointExecutor != null) {
+            // For createCheckpointAndGet, we need to return the checkpoint synchronously
+            // even in async mode, so we submit and wait (but still use background thread)
+            try {
+                var future = checkpointExecutor.submit(() -> createCheckpointInternalAndGet(height, state));
+                return future.get(); // Wait for completion
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.error("Interrupted while creating checkpoint at height: {} on: {}", height, params.member().getId(), e);
+                return null;
+            } catch (ExecutionException e) {
+                log.error("Failed to create checkpoint at height: {} on: {}", height, params.member().getId(), e);
+                return null;
+            }
+        } else {
+            // Execute synchronously (existing behavior)
+            return createCheckpointInternalAndGet(height, state);
+        }
     }
 
     @Override
@@ -103,6 +135,34 @@ public class CheckpointManagerImpl implements CheckpointManager {
 
     @Override
     public void restoreFromCheckpoint(HashedCertifiedBlock checkpointBlock, CheckpointState state) {
+        // Defensive validation of checkpoint height to prevent corruption
+        ULong newHeight = checkpointBlock.height();
+
+        // Validate height is not null
+        if (newHeight == null) {
+            throw new IllegalArgumentException("Checkpoint height cannot be null");
+        }
+
+        // Validate height is positive (>0)
+        if (newHeight.longValue() == 0) {
+            throw new IllegalArgumentException("Checkpoint height must be positive, got: " + newHeight);
+        }
+
+        // Validate height is monotonically increasing
+        var currentCheckpoint = checkpoint.get();
+        ULong currentHeight = currentCheckpoint.height();
+
+        // Allow first checkpoint from genesis (currentHeight is null)
+        if (currentHeight != null) {
+            if (newHeight.compareTo(currentHeight) <= 0) {
+                throw new IllegalStateException(
+                    "Checkpoint height " + newHeight + " is not greater than current checkpoint height " +
+                    currentHeight + " on member: " + params.member().getId()
+                );
+            }
+        }
+
+        // Validation passed, proceed with restore
         cachedCheckpoints.put(checkpointBlock.height(), state);
         evictOldCheckpoints();
         params.restorer().accept(checkpointBlock, state);
@@ -131,6 +191,38 @@ public class CheckpointManagerImpl implements CheckpointManager {
     void cacheCheckpoint(ULong height, CheckpointState state) {
         cachedCheckpoints.put(height, state);
         evictOldCheckpoints();
+    }
+
+    /**
+     * Shuts down the checkpoint manager, waiting for pending checkpoint operations to complete.
+     * After shutdown, no new checkpoint operations can be started.
+     *
+     * @throws InterruptedException if interrupted while waiting for shutdown
+     */
+    public void shutdown() throws InterruptedException {
+        if (shutdown.compareAndSet(false, true)) {
+            log.info("Shutting down checkpoint manager on: {}", params.member().getId());
+
+            if (checkpointExecutor != null) {
+                checkpointExecutor.shutdown();
+                if (!checkpointExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
+                    log.warn("Checkpoint executor did not terminate within timeout, forcing shutdown on: {}",
+                            params.member().getId());
+                    checkpointExecutor.shutdownNow();
+                }
+            }
+
+            log.info("Checkpoint manager shut down on: {}", params.member().getId());
+        }
+    }
+
+    /**
+     * Returns true if this checkpoint manager has been shut down.
+     *
+     * @return true if shut down
+     */
+    public boolean isShutdown() {
+        return shutdown.get();
     }
 
     /**
@@ -165,6 +257,64 @@ public class CheckpointManagerImpl implements CheckpointManager {
             if (!toEvict.isEmpty()) {
                 log.info("Evicted {} old checkpoint(s) from cache, kept {} on: {}",
                          toEvict.size(), cachedCheckpoints.size(), params.member().getId());
+            }
+        }
+    }
+
+    /**
+     * Internal method to create a checkpoint (void return).
+     * This is the actual implementation that performs the I/O and computation.
+     *
+     * @param height the checkpoint height
+     * @param state  the state file to checkpoint
+     */
+    private void createCheckpointInternal(ULong height, File state) {
+        var cp = checkpoint.get();
+        Checkpoint chkpt = buildCheckpoint(params.digestAlgorithm(), state, params.checkpointSegmentSize(), cp.hash,
+                                           params.crowns(), params.member().getId());
+        if (chkpt == null) {
+            throw new IllegalStateException("Failed to create checkpoint at height: " + height);
+        }
+
+        MVMap<Integer, byte[]> stored = blockStore.putCheckpoint(height, state, chkpt);
+        try {
+            cachedCheckpoints.put(height, new CheckpointState(chkpt, stored));
+            evictOldCheckpoints();
+            log.info("Created checkpoint at height: {} on: {}", height, params.member().getId());
+        } finally {
+            if (!state.delete()) {
+                log.warn("Failed to delete checkpoint state file: {} on: {}",
+                         state.getAbsolutePath(), params.member().getId());
+            }
+        }
+    }
+
+    /**
+     * Internal method to create a checkpoint and return it.
+     * This is the actual implementation that performs the I/O and computation.
+     *
+     * @param height the checkpoint height
+     * @param state  the state file to checkpoint
+     * @return the created checkpoint, or null if creation fails
+     */
+    private Checkpoint createCheckpointInternalAndGet(ULong height, File state) {
+        var cp = checkpoint.get();
+        Checkpoint chkpt = buildCheckpoint(params.digestAlgorithm(), state, params.checkpointSegmentSize(), cp.hash,
+                                           params.crowns(), params.member().getId());
+        if (chkpt == null) {
+            return null;
+        }
+
+        MVMap<Integer, byte[]> stored = blockStore.putCheckpoint(height, state, chkpt);
+        try {
+            cachedCheckpoints.put(height, new CheckpointState(chkpt, stored));
+            evictOldCheckpoints();
+            log.info("Created checkpoint at height: {} on: {}", height, params.member().getId());
+            return chkpt;
+        } finally {
+            if (!state.delete()) {
+                log.warn("Failed to delete checkpoint state file: {} on: {}",
+                         state.getAbsolutePath(), params.member().getId());
             }
         }
     }
