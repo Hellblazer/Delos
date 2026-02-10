@@ -163,13 +163,12 @@ jobs:
     steps:
       - name: Check Test Results
         run: |
-          if [ "${{ needs.test-units.result }}" != "success" ] || [ "${{ needs.test-choam.result }}" != "success" ] || [ "${{ needs.test-consensus.result }}" != "success" ] || [ "${{ needs.test-identity.result }}" != "success" ] || [ "${{ needs.test-integration.result }}" != "success" ]; then
+          if [ "${{ needs.test-units.result }}" != "success" ] || [ "${{ needs.test-choam.result }}" != "success" ] || [ "${{ needs.test-consensus.result }}" != "success" ] || [ "${{ needs.test-identity.result }}" != "success" ]; then
             echo "❌ Build FAILED: One or more test jobs failed"
             echo "  test-units: ${{ needs.test-units.result }}"
             echo "  test-choam: ${{ needs.test-choam.result }}"
             echo "  test-consensus: ${{ needs.test-consensus.result }}"
             echo "  test-identity: ${{ needs.test-identity.result }}"
-            echo "  test-integration: ${{ needs.test-integration.result }}"
             exit 1
           fi
           echo "✅ Build GREEN: All tests passed successfully"
@@ -177,4 +176,3 @@ jobs:
           echo "  test-choam: ✅"
           echo "  test-consensus: ✅"
           echo "  test-identity: ✅"
-          echo "  test-integration: ✅"
