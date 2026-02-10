@@ -47,8 +47,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * @author hal.hildebrand
  */
 public class FireFliesTest {
-    private static final int    CARDINALITY     = 5;
-    private static final Digest GENESIS_VIEW_ID = DigestAlgorithm.DEFAULT.digest(
+    private static final boolean IS_CI          = "true".equalsIgnoreCase(System.getenv("CI"));
+    private static final int     CARDINALITY    = 5;
+    private static final Digest  GENESIS_VIEW_ID = DigestAlgorithm.DEFAULT.digest(
     "Give me food or give me slack or kill me".getBytes());
 
     private final List<ProcessDomain>        domains = new ArrayList<>();
@@ -193,7 +194,9 @@ public class FireFliesTest {
                                                                                               .setNumberOfEpochs(12)
                                                                                               .setEpochLength(33))
                                                                            .build())
-                                 .setCheckpointBlockDelta(200);
+                                 .setCheckpointBlockDelta(200)
+                                 // CI infrastructure needs 3x longer for distributed transactions
+                                 .setSubmitTimeout(IS_CI ? Duration.ofSeconds(180) : Duration.ofSeconds(60));
         return template;
     }
 }

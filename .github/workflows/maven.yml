@@ -148,23 +148,51 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Identity (KERI + applications)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl stereotomy,thoth,gorgoneion,gorgoneion-client,stereotomy-services,witness-service,delphinius,model,examples --file pom.xml
+      - name: Test Identity (KERI + applications, excluding slow integration)
+        run: CI=true ./mvnw -batch-mode surefire:test -pl stereotomy,thoth,gorgoneion,gorgoneion-client,stereotomy-services,witness-service,delphinius,examples --file pom.xml && CI=true ./mvnw -batch-mode surefire:test -pl model -Dtest='!FireFliesTest' --file pom.xml
+
+  test-integration:
+    needs: compile
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          cache: 'maven'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore Maven cache from compile job
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            **/target/
+          key: delos-maven-${{ github.sha }}
+          restore-keys: |
+            delos-maven-${{ github.ref }}-
+            delos-maven-refs/heads/main-
+            delos-maven-
+          fail-on-cache-miss: false
+      - name: Test End-to-End Integration (FireFliesTest - full stack smoke test)
+        run: CI=true ./mvnw -batch-mode surefire:test -pl model -Dtest='FireFliesTest' --file pom.xml
 
   build-status:
-    needs: [test-units, test-choam, test-consensus, test-identity]
+    needs: [test-units, test-choam, test-consensus, test-identity, test-integration]
     runs-on: ubuntu-latest
     if: always()
 
     steps:
       - name: Check Test Results
         run: |
-          if [ "${{ needs.test-units.result }}" != "success" ] || [ "${{ needs.test-choam.result }}" != "success" ] || [ "${{ needs.test-consensus.result }}" != "success" ] || [ "${{ needs.test-identity.result }}" != "success" ]; then
+          if [ "${{ needs.test-units.result }}" != "success" ] || [ "${{ needs.test-choam.result }}" != "success" ] || [ "${{ needs.test-consensus.result }}" != "success" ] || [ "${{ needs.test-identity.result }}" != "success" ] || [ "${{ needs.test-integration.result }}" != "success" ]; then
             echo "❌ Build FAILED: One or more test jobs failed"
             echo "  test-units: ${{ needs.test-units.result }}"
             echo "  test-choam: ${{ needs.test-choam.result }}"
             echo "  test-consensus: ${{ needs.test-consensus.result }}"
             echo "  test-identity: ${{ needs.test-identity.result }}"
+            echo "  test-integration: ${{ needs.test-integration.result }}"
             exit 1
           fi
           echo "✅ Build GREEN: All tests passed successfully"
@@ -172,3 +200,4 @@ jobs:
           echo "  test-choam: ✅"
           echo "  test-consensus: ✅"
           echo "  test-identity: ✅"
+          echo "  test-integration: ✅"
