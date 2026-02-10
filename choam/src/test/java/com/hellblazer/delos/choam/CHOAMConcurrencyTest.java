@@ -246,7 +246,8 @@ public class CHOAMConcurrencyTest {
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(LARGE_TESTS ? 90 : 25, TimeUnit.SECONDS);
+        // CI infrastructure needs 2-3x timeout due to resource contention (measured 29s timeout)
+        boolean completed = countdown.await(LARGE_TESTS ? 90 : (IS_CI ? 75 : 25), TimeUnit.SECONDS);
         assertTrue(completed, "Block acceptance during transitions should succeed");
 
         routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));

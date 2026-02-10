@@ -66,6 +66,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 public class CallbackReentrancyTest {
     private static final boolean LARGE_TESTS = Boolean.getBoolean("large_tests");
+    private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
     private static final int CARDINALITY = 4;  // f=1 Byzantine tolerance
 
     /**
@@ -235,7 +236,8 @@ public class CallbackReentrancyTest {
 
         transactioneers.forEach(Transactioneer::start);
         try {
-            final var complete = countdown.await(LARGE_TESTS ? 60 : 45, TimeUnit.SECONDS);
+            // CI infrastructure needs 2x timeout due to resource contention
+            final var complete = countdown.await(LARGE_TESTS ? 60 : (IS_CI ? 90 : 45), TimeUnit.SECONDS);
             assertTrue(complete, "Transactions did not complete in time");
         } finally {
             routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));

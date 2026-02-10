@@ -84,6 +84,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class DeadlockDetectionTest {
     private static final boolean LARGE_TESTS = Boolean.getBoolean("large_tests");
+    private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
     private static final int     CARDINALITY = 4;
 
     private Map<Digest, CHOAM>              choams;
@@ -267,7 +268,8 @@ public class DeadlockDetectionTest {
                 transactioneer2.start();
             });
 
-            boolean completed = roundGate.await(LARGE_TESTS ? 45 : 25, TimeUnit.SECONDS);
+            // CI infrastructure needs 3-4x timeout due to resource contention (measured 69s timeout)
+            boolean completed = roundGate.await(LARGE_TESTS ? 45 : (IS_CI ? 90 : 25), TimeUnit.SECONDS);
             assertTrue(completed, "Round " + round + " should complete without deadlock");
 
             // Check for deadlocks after each round
