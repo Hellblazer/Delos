@@ -113,6 +113,7 @@ public class MockBFTValidator implements BFTValidator {
 
     @Override
     public void reset() {
+        totalViolationCount.set(0);  // Reset cumulative count
         violationCounts.clear();
         allViolations.clear();
         violationsByType.clear();
