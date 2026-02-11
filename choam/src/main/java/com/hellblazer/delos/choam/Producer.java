@@ -486,28 +486,27 @@ public class Producer {
 
         @Override
         public void checkpoint() {
-            Thread.ofVirtual().start(Utils.wrapped(() -> {
-                log.info("Generating checkpoint block on: {}", params().member().getId());
-                Block ckpt = view.checkpoint();
-                if (ckpt == null) {
-                    log.error("Cannot generate checkpoint block on: {}", params().member().getId());
-                    transitions.failed();
-                    return;
-                }
-                var next = new HashedBlock(params().digestAlgorithm(), ckpt);
-                previousBlock.set(next);
-                checkpoint.set(next);
-                var validation = view.generateValidation(next);
-                ds.offer(validation);
-                final var p = new PendingBlock(next, new HashMap<>(), new AtomicBoolean());
-                addPendingBlock(next.hash, p);
-                p.witnesses.put(params().member(), validation);
-                assert next.block != null;
-                log.info("Produced: {} hash: {} height: {} for: {} on: {}", next.block.getBodyCase(), next.hash,
-                         next.height(), getViewId(), params().member().getId());
-                processPendingValidations(next, p);
-                transitions.checkpointed();
-            }, log));
+            // Execute synchronously - FSM context preserved (no virtual thread)
+            log.info("Generating checkpoint block on: {}", params().member().getId());
+            Block ckpt = view.checkpoint();
+            if (ckpt == null) {
+                log.error("Cannot generate checkpoint block on: {}", params().member().getId());
+                transitions.failed();
+                return;
+            }
+            var next = new HashedBlock(params().digestAlgorithm(), ckpt);
+            previousBlock.set(next);
+            checkpoint.set(next);
+            var validation = view.generateValidation(next);
+            ds.offer(validation);
+            final var p = new PendingBlock(next, new HashMap<>(), new AtomicBoolean());
+            addPendingBlock(next.hash, p);
+            p.witnesses.put(params().member(), validation);
+            assert next.block != null;
+            log.info("Produced: {} hash: {} height: {} for: {} on: {}", next.block.getBodyCase(), next.hash,
+                     next.height(), getViewId(), params().member().getId());
+            processPendingValidations(next, p);
+            transitions.checkpointed();
         }
 
         @Override

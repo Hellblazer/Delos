@@ -232,6 +232,59 @@ public final class Fsm<Context, Transitions> {
     }
 
     /**
+     * Assert that the current thread's FSM is in the expected state.
+     *
+     * <p>This is a defensive programming utility to catch FSM bypass bugs early.
+     * Use at transition call sites to verify FSM state is correct before calling
+     * state-specific transition methods.
+     *
+     * <p><strong>Common Issue</strong>: Virtual threads (Thread.ofVirtual()) do NOT
+     * inherit parent ThreadLocal values. If you spawn a virtual thread and call
+     * FSM transitions from it, the FSM context will be lost. This assertion will
+     * catch that bug immediately with a clear error message.
+     *
+     * <p><strong>Nested FSM Limitation</strong>: This assertion is UNRELIABLE when
+     * called from within nested FSM contexts. When FSM-A's @Entry action calls
+     * transitions on FSM-B, the ThreadLocal reflects FSM-A (the outermost active
+     * FSM) between FSM-B transitions. If you need to verify state across FSMs,
+     * query the target FSM instance directly rather than using this ThreadLocal-based
+     * assertion.
+     *
+     * <h2>Example Usage</h2>
+     * <pre>
+     * // Before calling state-specific transition
+     * Fsm.assertInState(Combine.Mercantile.CHECKPOINTING);
+     * transitions.finishCheckpoint();  // Only valid in CHECKPOINTING state
+     * </pre>
+     *
+     * @param <T> The enum type representing FSM states
+     * @param expected The expected FSM state
+     * @throws IllegalStateException if no FSM context exists in current thread
+     *         (likely due to virtual thread without FSM propagation)
+     * @throws InvalidTransition if FSM is in a different state than expected
+     */
+    public static <T extends Enum<T>> void assertInState(T expected) {
+        var fsm = thisFsm.get();
+        if (fsm == null) {
+            throw new IllegalStateException(
+                "No FSM context in current thread. " +
+                "This typically means a virtual thread was spawned without FSM context propagation. " +
+                "Virtual threads (Thread.ofVirtual()) do NOT inherit ThreadLocal values from parent threads. " +
+                "Either execute synchronously, or explicitly propagate FSM context to virtual threads."
+            );
+        }
+        var current = fsm.getCurrentState();
+        if (current != expected) {
+            throw new InvalidTransition(
+                String.format("Expected FSM state %s but currently in %s. " +
+                              "Transition methods can only be called from their valid states. " +
+                              "Check call chain to ensure proper state transitions occur before this call.",
+                              expected, current)
+            );
+        }
+    }
+
+    /**
      * @return the invalid transition excepiton based current transition attempt
      */
     public InvalidTransition invalidTransitionOn() {
