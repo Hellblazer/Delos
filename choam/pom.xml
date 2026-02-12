@@ -86,7 +86,6 @@
                             <!-- Skip the long-running consensus tests -->
                             <excludes>
                                 <exclude>**/DeterminismVerificationTest.java</exclude>
-                                <exclude>**/CHOAMConcurrencyTest.java</exclude>
                             </excludes>
                             <!-- Parallelize unit tests for speed -->
                             <threadCountSuites>4</threadCountSuites>
