@@ -630,12 +630,108 @@ public class CHOAM implements ConsensusEngine {
     }
 
     private void consume(HashedCertifiedBlock next) {
+        // Split into validation (under headLock) and dispatch (outside headLock)
+        // to prevent lock ordering violation: headLock -> viewStateLock
+        HashedCertifiedBlock accepted = null;
+
         headLock.writeLock().lock();
         try {
-            blockConsumer.consume(next, this::accept, this::isNext);
+            // Only validate and update chain state under headLock
+            accepted = validateAndAcceptBlock(next);
         } finally {
             headLock.writeLock().unlock();
         }
+
+        // Dispatch block processing OUTSIDE headLock
+        // This may acquire viewStateLock via reconfigure, maintaining lock disjointness
+        if (accepted != null) {
+            dispatchBlock(accepted);
+        }
+    }
+
+    /**
+     * Validates and accepts a block under headLock protection.
+     * Only updates blockchain state; does NOT trigger committee processing.
+     *
+     * @param next the block to validate and accept
+     * @return the accepted block if validation succeeds, null otherwise
+     */
+    private HashedCertifiedBlock validateAndAcceptBlock(HashedCertifiedBlock next) {
+        final HashedCertifiedBlock h = blockChainState.getHead();
+
+        // Check if block is stale
+        if (h.height() != null && next.height().compareTo(h.height()) <= 0) {
+            log.debug("Stale: {} hash: {} height: {} on: {}", next.block.getBodyCase(), next.hash, next.height(),
+                      params.member().getId());
+            return null;
+        }
+
+        // Check view synchronization
+        final var nlc = ULong.valueOf(next.block.getHeader().getLastReconfig());
+        var view = this.blockChainState.getView().height();
+
+        if (h.block == null || nlc.equals(view)) {
+            // Same view - validate and accept
+            if (isNext(next) && h.hash.equals(next.getPrevious())) {
+                final Committee c = committeeState.getCommittee();
+                if (c == null) {
+                    log.error("No committee to validate block: {} hash: {} height: {} on: {}",
+                              next.block.getBodyCase(), next.hash, next.height(), params.member().getId());
+                    transitions.fail();
+                    return null;
+                }
+                if (c.validate(next)) {
+                    // Update blockchain state under lock
+                    blockChainState.setHead(next);
+                    store.put(next);
+                    log.trace("Validated and accepted: {} hash: {} height: {} on: {}", next.block.getBodyCase(),
+                              next.hash, next.height(), params.member().getId());
+                    return next;
+                } else {
+                    log.debug("Invalid block: {} hash: {} height: {} on: {}", next.block.getBodyCase(), next.hash,
+                              next.height(), params.member().getId());
+                }
+            } else if (h.height() != null && h.height().compareTo(next.height()) < 0) {
+                // Premature block - add to pending
+                log.trace("Premature block: {} : {} height: {} current: {} on: {}", next.block.getBodyCase(),
+                          next.hash, next.height(), h.height(), params.member().getId());
+                if (!blockChainState.addPending(next)) {
+                    log.warn("Rejected pending block: {} hash: {} height: {} on: {}", next.block.getBodyCase(),
+                             next.hash, next.height(), params.member().getId());
+                }
+            }
+        } else if (view != null && nlc.compareTo(view) > 0) {
+            // Later view - wait for reconfiguration
+            log.trace("Wait for reconfiguration @ {} block: {} hash: {} height: {} current: {} on: {}",
+                      next.block.getHeader().getLastReconfig(), next.block.getBodyCase(), next.hash, next.height(),
+                      h.height(), params.member().getId());
+            if (!blockChainState.addPending(next)) {
+                log.warn("Rejected pending block: {} hash: {} height: {} on: {}", next.block.getBodyCase(), next.hash,
+                         next.height(), params.member().getId());
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Dispatches a validated block to the committee for processing.
+     * MUST be called outside headLock to maintain lock disjointness invariant.
+     * May acquire viewStateLock via reconfigure callback.
+     *
+     * @param accepted the validated block to dispatch
+     */
+    private void dispatchBlock(HashedCertifiedBlock accepted) {
+        final Committee c = committeeState.getCommittee();
+        if (c == null) {
+            log.error("No committee to dispatch block: {} hash: {} height: {} on: {}", accepted.block.getBodyCase(),
+                      accepted.hash, accepted.height(), params.member().getId());
+            transitions.fail();
+            return;
+        }
+        c.accept(accepted);
+        log.info("Accepted block: {} hash: {} height: {} body: {} on: {}", accepted.block.getBodyCase(),
+                 accepted.hash, accepted.height(), accepted.block.getBodyCase(), params.member().getId());
     }
 
     private void consume(HashedCertifiedBlock next, HashedCertifiedBlock cur) {
