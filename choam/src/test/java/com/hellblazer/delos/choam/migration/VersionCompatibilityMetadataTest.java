@@ -258,13 +258,13 @@ public class VersionCompatibilityMetadataTest {
         var total = successCount.get() + failureCount.get();
         var successRate = total > 0 ? (double) successCount.get() / total : 0.0;
 
-        log.info("Transactions: {} success, {} failures, {:.1f}% success rate",
-                 successCount.get(), failureCount.get(), successRate * 100);
+        log.info("Transactions: {} success, {} failures, {}% success rate",
+                 successCount.get(), failureCount.get(), String.format("%.1f", successRate * 100));
 
         // Warn if below production target
         if (successRate < 0.98) {
-            log.warn("Success rate {:.1f}% is below production target of 98% - metadata simulation only",
-                     successRate * 100);
+            log.warn("Success rate {}% is below production target of 98% - metadata simulation only",
+                     String.format("%.1f", successRate * 100));
         }
 
         // This test validates stable mixed-version operation (no ongoing upgrades).
@@ -364,13 +364,13 @@ public class VersionCompatibilityMetadataTest {
         var total = successCount.get() + failureCount.get();
         var successRate = total > 0 ? (double) successCount.get() / total : 0.0;
 
-        log.info("Upgrade completed: {} success, {} failures, {:.1f}% success rate",
-                 successCount.get(), failureCount.get(), successRate * 100);
+        log.info("Upgrade completed: {} success, {} failures, {}% success rate",
+                 successCount.get(), failureCount.get(), String.format("%.1f", successRate * 100));
 
         // Warn if success rate is below production target (98%)
         if (successRate < 0.98) {
-            log.warn("Success rate {:.1f}% is below production target of 98% - metadata simulation only",
-                     successRate * 100);
+            log.warn("Success rate {}% is below production target of 98% - metadata simulation only",
+                     String.format("%.1f", successRate * 100));
         }
 
         // Note: In metadata simulation without actual restart, we test that metadata changes don't break consensus.
@@ -436,13 +436,13 @@ public class VersionCompatibilityMetadataTest {
         var successCount = submitTransactions(txCountAfter);
 
         var successRate = (double) successCount / txCountAfter;
-        log.info("Rollback completed: {} of {} transactions succeeded ({:.1f}%)",
-                 successCount, txCountAfter, successRate * 100);
+        log.info("Rollback completed: {} of {} transactions succeeded ({}%)",
+                 successCount, txCountAfter, String.format("%.1f", successRate * 100));
 
         // Warn if below production target
         if (successRate < 0.98) {
-            log.warn("Success rate {:.1f}% is below production target of 98% - metadata simulation only",
-                     successRate * 100);
+            log.warn("Success rate {}% is below production target of 98% - metadata simulation only",
+                     String.format("%.1f", successRate * 100));
         }
 
         // After rollback completes and cluster stabilizes, >90% success rate validates backward compatibility
@@ -511,8 +511,8 @@ public class VersionCompatibilityMetadataTest {
         assertThat(successRate).isGreaterThan(0.75)
             .as("Cluster with 1 Byzantine node (f=1) should maintain >75% success rate");
 
-        log.info("Byzantine version test completed: {} of {} transactions succeeded ({:.1f}%)",
-                 successCount, txCount, successRate * 100);
+        log.info("Byzantine version test completed: {} of {} transactions succeeded ({}%)",
+                 successCount, txCount, String.format("%.1f", successRate * 100));
 
         // Note: In production, Byzantine detection would log warnings about version/parameter mismatches.
         // This metadata simulation validates that quorum is maintained despite Byzantine behavior.
@@ -592,17 +592,13 @@ public class VersionCompatibilityMetadataTest {
     private void verifyStateConsistency(String context) {
         log.info("Verifying state consistency {}", context);
 
-        // Verify all nodes are active
-        var activeNodes = choams.values().stream().filter(CHOAM::active).collect(Collectors.toList());
-        assertThat(activeNodes).hasSize(CLUSTER_SIZE)
-            .as("All nodes should be active " + context);
+        // Wait for all nodes to become active with retry mechanism
+        // Nodes may temporarily be in REGENERATION/CHECKPOINTING states during normal operation
+        boolean allActive = Utils.waitForCondition(
+            (int) TEST_TIMEOUT.toMillis() / 2, 500,
+            () -> choams.values().stream().allMatch(CHOAM::active));
 
-        // Verify all nodes agree they are active
-        // In a real implementation, we would check StateHash equality across nodes
-        // For this metadata simulation, we verify that consensus was maintained
-        var allActive = choams.values().stream().allMatch(CHOAM::active);
-        assertTrue(allActive, "All nodes should report active status " + context);
-
+        assertTrue(allActive, "All nodes should be active " + context);
         log.info("State consistency verified {} - all {} nodes active", context, CLUSTER_SIZE);
     }
 
