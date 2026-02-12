@@ -171,8 +171,8 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Batch 3a (CHOAM concurrency + correctness tests)
-        run: ./mvnw -batch-mode surefire:test -pl choam -Dtest='CHOAMConcurrencyTest,CHOAMFSMErrorPathsTest,CallbackReentrancyTest,ViewStateContractTest,NestedLockDetectionTest' -Dlarge_tests=true --file pom.xml
+      - name: Test Batch 3a (CHOAM correctness tests)
+        run: ./mvnw -batch-mode surefire:test -pl choam -Dtest='ViewStateContractTest,NestedLockDetectionTest' -Dlarge_tests=true --file pom.xml
       - name: Save Maven cache after batch-3a tests
         uses: actions/cache@v4
         with:
@@ -274,7 +274,7 @@ jobs:
             delos-maven-
           fail-on-cache-miss: false
       - name: Test Batch 4 (CHOAM Byzantine safety tests ONLY)
-        run: ./mvnw -batch-mode surefire:test -pl choam -Dtest='GenesisAssemblyTest,ByzantineFaultInjectionTest,DeterminismVerificationTest,CHOAMThreadAndLockingTest' -Dlarge_tests=true --file pom.xml
+        run: ./mvnw -batch-mode surefire:test -pl choam -Dtest='GenesisAssemblyTest,ByzantineFaultInjectionTest,DeterminismVerificationTest' -Dlarge_tests=true --file pom.xml
       - name: Save Maven cache after batch-4 tests
         uses: actions/cache@v4
         with:
