@@ -35,7 +35,6 @@ import com.hellblazer.delos.stereotomy.event.protobuf.InteractionEventImpl;
 import com.hellblazer.delos.stereotomy.event.protobuf.ProtobufEventFactory;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
-import org.h2.jdbcx.JdbcConnectionPool;
 import org.joou.ULong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -64,7 +63,60 @@ abstract public class Domain {
 
     private static final Logger log = LoggerFactory.getLogger(Domain.class);
 
-    private static final int DEFAULT_MAX_CONNECTIONS = 10;
+    /**
+     * DataSource wrapper for SqlStateMachine that ensures connection reuse.
+     * This prevents schema visibility issues with H2 in-memory databases.
+     */
+    private static class SqlStateMachineDataSource implements DataSource {
+        private final SqlStateMachine sqlStateMachine;
+
+        SqlStateMachineDataSource(SqlStateMachine sqlStateMachine) {
+            this.sqlStateMachine = sqlStateMachine;
+        }
+
+        @Override
+        public Connection getConnection() {
+            return sqlStateMachine.newConnection();
+        }
+
+        @Override
+        public Connection getConnection(String username, String password) {
+            return getConnection();
+        }
+
+        @Override
+        public java.io.PrintWriter getLogWriter() {
+            return null;
+        }
+
+        @Override
+        public void setLogWriter(java.io.PrintWriter out) {
+        }
+
+        @Override
+        public void setLoginTimeout(int seconds) {
+        }
+
+        @Override
+        public int getLoginTimeout() {
+            return 0;
+        }
+
+        @Override
+        public java.util.logging.Logger getParentLogger() {
+            return java.util.logging.Logger.getLogger("Domain");
+        }
+
+        @Override
+        public <T> T unwrap(Class<T> iface) {
+            return null;
+        }
+
+        @Override
+        public boolean isWrapperFor(Class<?> iface) {
+            return false;
+        }
+    }
 
     protected final CHOAM                      choam;
     protected final ControlledIdentifierMember member;
@@ -102,10 +154,9 @@ abstract public class Domain {
         choam = new CHOAM(this.params);
         mutator = sqlStateMachine.getMutator(choam.getSession());
 
-        // Thread-safe connection pool for Oracle read operations
-        var pool = JdbcConnectionPool.create(dbURL, "", "");
-        pool.setMaxConnections(DEFAULT_MAX_CONNECTIONS);
-        this.connectionPool = pool;
+        // Thread-safe DataSource for Oracle read operations
+        // Uses SqlStateMachine's connection supplier to ensure schema visibility
+        this.connectionPool = new SqlStateMachineDataSource(sqlStateMachine);
 
         this.oracle = new ShardedOracle(connectionPool, mutator, params.getSubmitTimeout(),
                                         () -> sqlStateMachine.getCurrentBlock().height());
