@@ -111,14 +111,36 @@ public class SubDomain extends Domain {
         return new DelegationService() {
             @Override
             public DelegationUpdate gossip(Biff identifiers, Digest from) {
-                // TODO Auto-generated method stub
-                return null;
+                if (!started.get()) {
+                    return DelegationUpdate.getDefaultInstance();
+                }
+
+                BloomFilter<Digest> bff = BloomFilter.from(identifiers);
+                var builder = DelegationUpdate.newBuilder().setHave(have());
+
+                // Filter local delegates that peer doesn't have
+                delegates.entrySet()
+                         .stream()
+                         .filter(e -> !bff.contains(Digest.from(e.getKey())))
+                         .collect(new ReservoirSampler<>(maxTransfer))
+                         .forEach(e -> builder.addUpdate(e.getValue()));
+
+                log.trace("Gossip response with {} delegates to {} on: {}", builder.getUpdateCount(), from,
+                          member.getId());
+                return builder.build();
             }
 
             @Override
             public void update(DelegationUpdate update, Digest from) {
-                // TODO Auto-generated method stub
+                if (!started.get() || update == null || update.equals(DelegationUpdate.getDefaultInstance())) {
+                    return;
+                }
 
+                log.trace("Received delegation update with {} delegates from {} on: {}", update.getUpdateCount(),
+                          from, member.getId());
+
+                // Merge received delegates into local state
+                update.getUpdateList().forEach(sd -> delegates.putIfAbsent(sd.getDelegate().getDelegate(), sd));
             }
         };
     }
