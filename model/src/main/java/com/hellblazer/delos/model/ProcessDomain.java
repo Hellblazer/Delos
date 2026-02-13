@@ -53,6 +53,7 @@ public class ProcessDomain extends Domain {
     private final   EventValidation.DelegatedValidation validations;
     private final   Verifiers.DelegatedVerifiers        verifiers;
     private final   ProcessDomainParameters             parameters;
+    private final   JdbcConnectionPool                  connectionPool;
     private final   List<BiConsumer<Context, Digest>>   lifecycleListeners = new CopyOnWriteArrayList<>();
     private final   Consumer<ViewChange>                listener           = listener();
 
@@ -64,9 +65,9 @@ public class ProcessDomain extends Domain {
         var b = DynamicContext.<Participant>newBuilder();
         b.setBias(parameters.dhtBias).setpByz(parameters.dhtPbyz).setId(group);
         var base = b.build();
-        JdbcConnectionPool connectionPool = JdbcConnectionPool.create(parameters.dhtDbUrl, "", "");
-        connectionPool.setMaxConnections(parameters.jdbcMaxConnections());
-        dht = new KerlDHT(parameters.dhtOpsFrequency, params.context(), member, connectionPool,
+        this.connectionPool = JdbcConnectionPool.create(parameters.dhtDbUrl, "", "");
+        this.connectionPool.setMaxConnections(parameters.jdbcMaxConnections());
+        dht = new KerlDHT(parameters.dhtOpsFrequency, params.context(), member, this.connectionPool,
                           params.digestAlgorithm(), params.communications(), parameters.dhtOperationsTimeout,
                           parameters.dhtFpr, stereotomyMetrics);
         validations = new EventValidation.DelegatedValidation(EventValidation.NONE);
@@ -140,6 +141,11 @@ public class ProcessDomain extends Domain {
     protected void stopServices() {
         dht.stop();
         foundation.stop();
+
+        // Dispose connection pool to prevent JDBC connection leak
+        if (connectionPool != null) {
+            connectionPool.dispose();
+        }
     }
 
     public record ProcessDomainParameters(String dbURL, Duration dhtOperationsTimeout, String dhtDbUrl,

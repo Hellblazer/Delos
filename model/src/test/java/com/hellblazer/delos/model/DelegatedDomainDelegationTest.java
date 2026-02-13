@@ -28,21 +28,21 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Delegation and Gossip Tests for SubDomain (Model Module)
+ * Delegation and Gossip Tests for DelegatedDomain (Model Module)
  *
  * Purpose: Test delegation gossip protocol, network failures, and state consistency
- * in Model module's SubDomain class.
+ * in Model module's DelegatedDomain class.
  *
  * Critical Gaps Addressed:
- * 1. SubDomain.java:115-116 - DelegationService TODO (gossip/update unimplemented)
- * 2. SubDomain.java:121-122 - oneRound() error handling for interrupted scheduler
- * 3. SubDomain.java handle() - null link and update handling
+ * 1. DelegatedDomain.java:115-116 - DelegationService TODO (gossip/update unimplemented)
+ * 2. DelegatedDomain.java:121-122 - oneRound() error handling for interrupted scheduler
+ * 3. DelegatedDomain.java handle() - null link and update handling
  * 4. Network failure scenarios in delegation communication
  *
  * @author hal.hildebrand
  */
-@DisplayName("SubDomain Delegation and Gossip Tests")
-public class SubdomainDelegationTest {
+@DisplayName("DelegatedDomain Delegation and Gossip Tests")
+public class DelegatedDomainDelegationTest {
     private ScheduledExecutorService executor;
     private SecureRandom entropy;
     private ControlledIdentifierMember member;

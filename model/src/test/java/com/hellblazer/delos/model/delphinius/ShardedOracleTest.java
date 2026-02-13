@@ -14,8 +14,13 @@ import com.hellblazer.delos.state.Emulator;
 import org.joou.ULong;
 import org.junit.jupiter.api.Test;
 
+import javax.sql.DataSource;
+import java.io.PrintWriter;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -28,10 +33,55 @@ public class ShardedOracleTest {
     public void func() throws Exception {
         Duration timeout = Duration.ofSeconds(1);
         Emulator emmy = new Emulator();
-
         emmy.start(Domain.boostrapMigration());
 
-        ShardedOracle oracle = new ShardedOracle(emmy.newConnector(), emmy.getMutator(), timeout,
+        // Simple DataSource wrapper for testing - reuses Emulator's connection
+        DataSource dataSource = new DataSource() {
+            @Override
+            public Connection getConnection() throws SQLException {
+                return emmy.newConnector();
+            }
+
+            @Override
+            public Connection getConnection(String username, String password) throws SQLException {
+                return getConnection();
+            }
+
+            @Override
+            public PrintWriter getLogWriter() {
+                return null;
+            }
+
+            @Override
+            public void setLogWriter(PrintWriter out) {
+            }
+
+            @Override
+            public void setLoginTimeout(int seconds) {
+            }
+
+            @Override
+            public int getLoginTimeout() {
+                return 0;
+            }
+
+            @Override
+            public Logger getParentLogger() {
+                return Logger.getLogger("ShardedOracleTest");
+            }
+
+            @Override
+            public <T> T unwrap(Class<T> iface) {
+                return null;
+            }
+
+            @Override
+            public boolean isWrapperFor(Class<?> iface) {
+                return false;
+            }
+        };
+
+        ShardedOracle oracle = new ShardedOracle(dataSource, emmy.getMutator(), timeout,
                                                  () -> ULong.valueOf(System.currentTimeMillis()));
         smoke(oracle);
     }

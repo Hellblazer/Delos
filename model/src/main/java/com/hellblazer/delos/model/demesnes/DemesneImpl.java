@@ -18,7 +18,7 @@ import com.hellblazer.delos.demesne.proto.SubContext;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.membership.stereotomy.ControlledIdentifierMember;
 import com.hellblazer.delos.membership.stereotomy.IdentifierMember;
-import com.hellblazer.delos.model.SubDomain;
+import com.hellblazer.delos.model.DelegatedDomain;
 import com.hellblazer.delos.model.demesnes.comm.OuterContextClient;
 import com.hellblazer.delos.stereotomy.*;
 import com.hellblazer.delos.stereotomy.caching.CachingKERL;
@@ -66,7 +66,7 @@ import io.netty.channel.socket.nio.NioDomainSocketChannel;
 import static com.hellblazer.delos.archipelago.RouterImpl.clientInterceptor;
 
 /**
- * Isolate for the Delos SubDomain stack
+ * Isolate for the Delos DelegatedDomain stack
  *
  * @author hal.hildebrand
  */
@@ -88,7 +88,7 @@ public class DemesneImpl implements Demesne {
     private final    AtomicBoolean          started  = new AtomicBoolean();
     private final    Thoth                  thoth;
     private final    DynamicContext<Member> context;
-    private volatile SubDomain              domain;
+    private volatile DelegatedDomain              domain;
     private volatile Enclave                enclave;
 
     public DemesneImpl(DemesneParameters parameters) throws GeneralSecurityException, IOException {
@@ -231,8 +231,35 @@ public class DemesneImpl implements Demesne {
     }
 
     private void registerContext(Digest ctxId) {
-        outer.register(
-        SubContext.newBuilder().setEnclave(context.getId().toDigeste()).setContext(ctxId.toDigeste()).build());
+        // Validate and normalize portal path to prevent directory traversal attacks
+        Path commDir = commDirectory();
+        Path portalPath = commDir.resolve(parameters.getPortal()).normalize();
+
+        // Security: Ensure portal path stays within communications directory
+        if (!portalPath.startsWith(commDir)) {
+            throw new SecurityException(
+            "Portal path outside communications directory: " + portalPath + " (expected within: " + commDir + ")");
+        }
+
+        // Validate Unix socket path length (104 chars on macOS, 108 on Linux)
+        String portalPathStr = portalPath.toString();
+        String os = System.getProperty("os.name").toLowerCase();
+        if (portalPathStr.length() > 104) {
+            if (os.contains("mac")) {
+                throw new IllegalArgumentException(
+                "Portal path length (" + portalPathStr.length() + ") exceeds macOS limit (104 chars): " + portalPathStr);
+            }
+            log.warn("Portal path length ({}) exceeds macOS limit (104 chars): {}", portalPathStr.length(),
+                     portalPathStr);
+        }
+
+        outer.register(SubContext.newBuilder()
+                                 .setEnclave(context.getId().toDigeste())
+                                 .setContext(ctxId.toDigeste())
+                                 .setPortalAddress(portalPathStr)
+                                 .build());
+
+        log.info("Registered subdomain context: {} with portal: {}", ctxId, portalPathStr);
     }
 
     private RuntimeParameters.Builder runtimeParameters(DemesneParameters parameters, ControlledIdentifierMember member,
@@ -245,12 +272,12 @@ public class DemesneImpl implements Demesne {
                                 .setFoundation(parameters.getFoundation());
     }
 
-    private SubDomain subdomainFrom(DemesneParameters parameters, ControlledIdentifierMember member,
+    private DelegatedDomain subdomainFrom(DemesneParameters parameters, ControlledIdentifierMember member,
                                     DynamicContext<Member> context) {
         final var gossipInterval = parameters.getGossipInterval();
         final var interval = gossipInterval.getSeconds() != 0 || gossipInterval.getNanos() != 0 ? Duration.ofSeconds(
         gossipInterval.getSeconds(), gossipInterval.getNanos()) : DEFAULT_GOSSIP_INTERVAL;
-        return new SubDomain(member, Parameters.newBuilder(), runtimeParameters(parameters, member, context),
+        return new DelegatedDomain(member, Parameters.newBuilder(), runtimeParameters(parameters, member, context),
                              parameters.getMaxTransfer(), interval, parameters.getFalsePositiveRate());
     }
 }
