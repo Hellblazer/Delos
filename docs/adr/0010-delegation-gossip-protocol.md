@@ -159,7 +159,7 @@ H2 MVStore with delegates map
   - gossip() method: Bloom filter reconciliation
   - update() method: Delegate merging
   - Reservoir sampling for bounded transfer
-  - Integration with SubDomain lifecycle
+  - Integration with DelegatedDomain lifecycle
 
 **Future Considerations:**
 - Priority delegation propagation (for time-sensitive credentials)

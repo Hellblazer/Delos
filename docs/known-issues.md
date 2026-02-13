@@ -20,8 +20,8 @@ This document tracks known issues across Delos components with their status, wor
 - **Safe After**: Commit 704269cc (2026-02-13)
 - **Details**: See ADR-0011 (JDBC Connection Pooling for Oracle)
 
-**2. SubDomain Scheduler Leak** ✅ FIXED (Delos-c3k3)
-- **Issue**: ScheduledExecutorService not shut down in SubDomain.stop()
+**2. DelegatedDomain Scheduler Leak** ✅ FIXED (Delos-c3k3)
+- **Issue**: ScheduledExecutorService not shut down in DelegatedDomain.stop()
 - **Impact**: Virtual thread pool leaked on every subdomain lifecycle
 - **Workaround**: Monitor thread count, restart periodically (no longer needed)
 - **Fix**: Added scheduler.shutdown() with 5-second timeout and force-shutdown fallback
@@ -63,7 +63,7 @@ This document tracks known issues across Delos components with their status, wor
 - **Issue**: spawn() works but no control API (start, stop, status)
 - **Impact**: Cannot manage spawned subdomains programmatically
 - **Workaround**: Do not use spawn() until API ready
-- **Fix**: Pending (SubDomainHandle API design)
+- **Fix**: Pending (DelegatedDomainHandle API design)
 - **Estimated Fix**: TBD
 
 ---
@@ -76,7 +76,7 @@ This document tracks known issues across Delos components with their status, wor
 | **ProcessDomain** | ✅ Production-ready | Yes | None |
 | **ProcessContainerDomain (single-tenant)** | ⚠️ Caution | Yes, with monitoring | All critical fixes applied (ae0f, c3k3, we2d). Event loop logging cosmetic (773l). Portal routing disabled (mka0). |
 | **ProcessContainerDomain (multi-tenant)** | ❌ Not ready | No | Portal routing broken (mka0), lifecycle API missing (mj8z), delegation gossip untested. Requires P0 fixes. |
-| **SubDomain** | ⚠️ Caution | Yes, for single-tenant only | Scheduler leak fixed (c3k3). Delegation gossip implemented (4hby) but untested in production. |
+| **DelegatedDomain** | ⚠️ Caution | Yes, for single-tenant only | Scheduler leak fixed (c3k3). Delegation gossip implemented (4hby) but untested in production. |
 
 **Legend:**
 - ✅ **Production-ready**: No known blocking issues

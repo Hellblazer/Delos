@@ -6,7 +6,7 @@
 
 **Context**
 
-Delos supports multi-tenant deployments where ProcessContainerDomain spawns multiple isolated SubDomains. Each subdomain must communicate with its parent for coordination (Oracle queries, CHOAM synchronization) while maintaining strong isolation boundaries.
+Delos supports multi-tenant deployments where ProcessContainerDomain spawns multiple isolated DelegatedDomains. Each subdomain must communicate with its parent for coordination (Oracle queries, CHOAM synchronization) while maintaining strong isolation boundaries.
 
 **Requirements:**
 1. **Isolation**: Subdomains cannot access each other's memory or state
@@ -25,7 +25,7 @@ ProcessContainerDomain (parent)
     └─ Portal (gRPC client)
           └─ Unix socket: /tmp/delos/{contextDigest}.sock
                 └─ gRPC server (subdomain)
-                      └─ SubDomain (GraalVM isolate or in-process)
+                      └─ DelegatedDomain (GraalVM isolate or in-process)
 ```
 
 Socket lifecycle:

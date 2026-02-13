@@ -34,7 +34,7 @@ import com.hellblazer.delos.stereotomy.identifier.spec.IdentifierSpecification.B
 import com.hellblazer.delos.stereotomy.identifier.spec.RotationSpecification;
 
 /**
- * Interface to SubDomain Demesne running in the GraalVM Isolate as JNI library.
+ * Interface to DelegatedDomain Demesne running in the GraalVM Isolate as JNI library.
  * Implements AutoCloseable to ensure proper resource cleanup of native isolates.
  *
  * @author hal.hildebrand

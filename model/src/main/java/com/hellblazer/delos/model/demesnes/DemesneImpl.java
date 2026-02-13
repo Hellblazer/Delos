@@ -18,7 +18,7 @@ import com.hellblazer.delos.demesne.proto.SubContext;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.membership.stereotomy.ControlledIdentifierMember;
 import com.hellblazer.delos.membership.stereotomy.IdentifierMember;
-import com.hellblazer.delos.model.SubDomain;
+import com.hellblazer.delos.model.DelegatedDomain;
 import com.hellblazer.delos.model.demesnes.comm.OuterContextClient;
 import com.hellblazer.delos.stereotomy.*;
 import com.hellblazer.delos.stereotomy.caching.CachingKERL;
@@ -66,7 +66,7 @@ import io.netty.channel.socket.nio.NioDomainSocketChannel;
 import static com.hellblazer.delos.archipelago.RouterImpl.clientInterceptor;
 
 /**
- * Isolate for the Delos SubDomain stack
+ * Isolate for the Delos DelegatedDomain stack
  *
  * @author hal.hildebrand
  */
@@ -88,7 +88,7 @@ public class DemesneImpl implements Demesne {
     private final    AtomicBoolean          started  = new AtomicBoolean();
     private final    Thoth                  thoth;
     private final    DynamicContext<Member> context;
-    private volatile SubDomain              domain;
+    private volatile DelegatedDomain              domain;
     private volatile Enclave                enclave;
 
     public DemesneImpl(DemesneParameters parameters) throws GeneralSecurityException, IOException {
@@ -245,12 +245,12 @@ public class DemesneImpl implements Demesne {
                                 .setFoundation(parameters.getFoundation());
     }
 
-    private SubDomain subdomainFrom(DemesneParameters parameters, ControlledIdentifierMember member,
+    private DelegatedDomain subdomainFrom(DemesneParameters parameters, ControlledIdentifierMember member,
                                     DynamicContext<Member> context) {
         final var gossipInterval = parameters.getGossipInterval();
         final var interval = gossipInterval.getSeconds() != 0 || gossipInterval.getNanos() != 0 ? Duration.ofSeconds(
         gossipInterval.getSeconds(), gossipInterval.getNanos()) : DEFAULT_GOSSIP_INTERVAL;
-        return new SubDomain(member, Parameters.newBuilder(), runtimeParameters(parameters, member, context),
+        return new DelegatedDomain(member, Parameters.newBuilder(), runtimeParameters(parameters, member, context),
                              parameters.getMaxTransfer(), interval, parameters.getFalsePositiveRate());
     }
 }

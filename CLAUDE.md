@@ -89,7 +89,7 @@ Delos is a multi-tenant distributed system platform with Byzantine fault toleran
 | **ProcessDomain** | ✅ Production-ready | Yes | None |
 | **ProcessContainerDomain (single-tenant)** | ⚠️ Caution | Yes, with monitoring | Thread safety fixed (Delos-ae0f), resource leaks fixed (Delos-c3k3, Delos-we2d), event loop logging cosmetic (Delos-773l P2) |
 | **ProcessContainerDomain (multi-tenant)** | ❌ Not ready | No | Portal routing blocked (Delos-mka0), lifecycle API missing (Delos-mj8z) |
-| **SubDomain** | ⚠️ Caution | Yes, single-tenant only | Scheduler leak fixed (Delos-c3k3), delegation gossip implemented but untested in multi-tenant |
+| **DelegatedDomain** | ⚠️ Caution | Yes, single-tenant only | Scheduler leak fixed (Delos-c3k3), delegation gossip implemented but untested in multi-tenant |
 
 **Legend**: ✅ Production-ready | ⚠️ Use with caution | ❌ Not production-ready
 

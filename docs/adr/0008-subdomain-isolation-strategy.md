@@ -1,4 +1,4 @@
-# ADR-0008: SubDomain Isolation Strategy
+# ADR-0008: DelegatedDomain Isolation Strategy
 
 **Status**: ACCEPTED
 
@@ -11,7 +11,7 @@ The Delos model module provides multi-tenant process domain management through a
 - **Domain**: Top-level abstraction for distributed processes
 - **ProcessDomain**: Domain running in a JVM process with SQL state machine
 - **ProcessContainerDomain**: Container for multiple isolated subdomains
-- **SubDomain**: Isolated tenant execution environment
+- **DelegatedDomain**: Isolated tenant execution environment
 
 To achieve true multi-tenant isolation, we need a mechanism to run subdomains in separate address spaces with enforced resource boundaries. This prevents:
 1. Cross-tenant memory access
@@ -21,7 +21,7 @@ To achieve true multi-tenant isolation, we need a mechanism to run subdomains in
 
 **Decision**
 
-**We adopt a dual-implementation strategy for SubDomain isolation:**
+**We adopt a dual-implementation strategy for DelegatedDomain isolation:**
 
 1. **Production/Secure Deployment: GraalVM Isolates (JniBridge)**
    - Primary implementation for AWS Nitro Enclave deployment

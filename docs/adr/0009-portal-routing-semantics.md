@@ -1,4 +1,4 @@
-# ADR-0009: Portal Routing Semantics for Multi-Tenant SubDomains
+# ADR-0009: Portal Routing Semantics for Multi-Tenant DelegatedDomains
 
 **Status**: ACCEPTED
 
@@ -6,7 +6,7 @@
 
 **Context**
 
-ProcessContainerDomain spawns isolated SubDomains via GraalVM isolates or in-process execution (see ADR-0008). Parent and subdomain communicate over Unix domain sockets using gRPC. The Portal abstraction (from `archipelago` module) provides transparent client-side routing to subdomain services.
+ProcessContainerDomain spawns isolated DelegatedDomains via GraalVM isolates or in-process execution (see ADR-0008). Parent and subdomain communicate over Unix domain sockets using gRPC. The Portal abstraction (from `archipelago` module) provides transparent client-side routing to subdomain services.
 
 **Problem**: How should the parent domain identify and route requests to the correct subdomain?
 

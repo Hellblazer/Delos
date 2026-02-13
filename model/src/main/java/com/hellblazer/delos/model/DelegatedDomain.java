@@ -43,11 +43,32 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static com.hellblazer.delos.cryptography.QualifiedBase64.qb64;
 
 /**
+ * A delegated domain for multi-tenant subdomain execution with KERI-based identity delegation.
+ * DelegatedDomain extends Domain directly (peer to ProcessDomain, not child) and adds delegation
+ * gossip for KERI credential distribution across subdomain members.
+ * <p>
+ * <b>Architecture:</b> DelegatedDomain is spawned by ProcessContainerDomain and runs in an isolated
+ * execution environment (GraalVM isolate or in-process via DemesneImpl). Communication with the
+ * parent occurs via Unix domain sockets using gRPC.
+ * <p>
+ * <b>Identity:</b> Each DelegatedDomain receives delegated KERI credentials from its parent, which
+ * are propagated to all subdomain members via anti-entropy gossip (see ADR-0010).
+ * <p>
+ * <b>Hierarchy:</b>
+ * <pre>
+ * Domain (abstract base)
+ * ├── ProcessDomain (adds DHT, Fireflies foundation)
+ * │   └── ProcessContainerDomain (adds Portal, spawn())
+ * └── DelegatedDomain (adds delegation gossip) ← Peer, not child
+ * </pre>
+ *
  * @author hal.hildebrand
+ * @see ProcessDomain
+ * @see ProcessContainerDomain
  */
-public class SubDomain extends Domain {
+public class DelegatedDomain extends Domain {
     private static final String DELEGATES_MAP_TEMPLATE = "delegates-%s";
-    private final static Logger log                    = LoggerFactory.getLogger(SubDomain.class);
+    private final static Logger log                    = LoggerFactory.getLogger(DelegatedDomain.class);
 
     private final MVMap<Digeste, SignedDelegate>      delegates;
     @SuppressWarnings("unused")
@@ -60,17 +81,17 @@ public class SubDomain extends Domain {
     private final ScheduledExecutorService            scheduler;
     private final CommonCommunications<Delegation, ?> comms;
 
-    public SubDomain(ControlledIdentifierMember member, Builder params, Path checkpointBaseDir,
+    public DelegatedDomain(ControlledIdentifierMember member, Builder params, Path checkpointBaseDir,
                      RuntimeParameters.Builder runtime, int maxTransfer, Duration gossipInterval, double fpr) {
         this(member, params, "jdbc:h2:mem:", checkpointBaseDir, runtime, maxTransfer, gossipInterval, fpr);
     }
 
-    public SubDomain(ControlledIdentifierMember member, Builder params, RuntimeParameters.Builder runtime,
+    public DelegatedDomain(ControlledIdentifierMember member, Builder params, RuntimeParameters.Builder runtime,
                      int maxTransfer, Duration gossipInterval, double fpr) {
         this(member, params, tempDirOf(member.getIdentifier()), runtime, maxTransfer, gossipInterval, fpr);
     }
 
-    public SubDomain(ControlledIdentifierMember member, Builder prm, String dbURL, Path checkpointBaseDir,
+    public DelegatedDomain(ControlledIdentifierMember member, Builder prm, String dbURL, Path checkpointBaseDir,
                      RuntimeParameters.Builder runtime, int maxTransfer, Duration gossipInterval, double fpr) {
         super(member, prm, dbURL, checkpointBaseDir, runtime);
         this.maxTransfer = maxTransfer;
@@ -91,7 +112,7 @@ public class SubDomain extends Domain {
             return;
         }
         super.start();
-        log.trace("Starting SubDomain[{}:{}]", params.context().getId(), member.getId());
+        log.trace("Starting DelegatedDomain[{}:{}]", params.context().getId(), member.getId());
         schedule(gossipInterval);
     }
 

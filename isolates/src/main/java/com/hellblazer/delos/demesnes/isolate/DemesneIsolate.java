@@ -37,7 +37,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.LogManager;
 
 /**
- * GraalVM Isolate for the Delos SubDomain stack
+ * GraalVM Isolate for the Delos DelegatedDomain stack
  *
  * @author hal.hildebrand
  */
