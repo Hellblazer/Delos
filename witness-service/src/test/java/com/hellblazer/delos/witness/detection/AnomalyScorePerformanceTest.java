@@ -28,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AnomalyScorePerformanceTest {
 
     private static final Logger log = LoggerFactory.getLogger(AnomalyScorePerformanceTest.class);
+    private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
 
     @Test
     void recordEventPerformance() {
@@ -100,12 +101,16 @@ class AnomalyScorePerformanceTest {
         log.info("  Small history (100): {} ns for {} events", smallTimeNanos, measureEvents);
         log.info("  Large history (10K): {} ns for {} events", largeTimeNanos, measureEvents);
         log.info("  Ratio (large/small): {}", String.format("%.2f", ratio));
+        log.info("  Environment: {}", IS_CI ? "CI" : "Local");
 
         // If O(1), ratio should be close to 1 (within 3x due to cache effects)
         // If O(N), ratio would be ~100 (10000/100)
+        // CI threshold relaxed to 4.5x due to resource contention and timing variability
+        double threshold = IS_CI ? 4.5 : 3.0;
         assertThat(ratio)
-            .as("Large history should not take significantly longer than small (O(1) vs O(N))")
-            .isLessThan(3.0);
+            .as("Large history should not take significantly longer than small (O(1) vs O(N)) - threshold: %.1fx (%s)",
+                threshold, IS_CI ? "CI" : "Local")
+            .isLessThan(threshold);
     }
 
     @Test
