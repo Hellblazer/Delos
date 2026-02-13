@@ -20,6 +20,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -67,10 +68,13 @@ public class ThothByzantineStateProvider implements ByzantineStateProvider {
      * Tracking structure for a single member's failures.
      */
     private static class MemberFailures {
+        private static final int MAX_RECENT_SIGNALS = 5;
+
         final AtomicInteger validationFailures = new AtomicInteger();
-        final AtomicInteger quorumFailures = new AtomicInteger();
-        final AtomicInteger timeouts = new AtomicInteger();
-        final List<String> recentSignals = Collections.synchronizedList(new ArrayList<>());
+        final AtomicInteger quorumFailures     = new AtomicInteger();
+        final AtomicInteger timeouts           = new AtomicInteger();
+        // CopyOnWriteArrayList avoids virtual thread pinning that synchronized blocks cause
+        final CopyOnWriteArrayList<String> recentSignals = new CopyOnWriteArrayList<>();
         volatile Instant lastFailure = Instant.now();
 
         void recordValidation(String reason) {
@@ -92,39 +96,33 @@ public class ThothByzantineStateProvider implements ByzantineStateProvider {
         }
 
         private void addSignal(String signal) {
-            synchronized (recentSignals) {
-                recentSignals.add(signal);
-                // Keep only recent signals
-                while (recentSignals.size() > 5) {
-                    recentSignals.remove(0);
-                }
+            recentSignals.add(signal);
+            // Trim to keep only recent signals. CopyOnWriteArrayList remove is O(n)
+            // but list is bounded to MAX_RECENT_SIGNALS + small overshoot, so acceptable.
+            while (recentSignals.size() > MAX_RECENT_SIGNALS) {
+                recentSignals.remove(0);
             }
         }
 
         double calculateScore() {
-            int weightedScore = (validationFailures.get() * VALIDATION_FAILURE_WEIGHT) +
-                               (quorumFailures.get() * QUORUM_FAILURE_WEIGHT) +
-                               (timeouts.get() * TIMEOUT_WEIGHT);
+            var weightedScore = (validationFailures.get() * VALIDATION_FAILURE_WEIGHT)
+                                + (quorumFailures.get() * QUORUM_FAILURE_WEIGHT)
+                                + (timeouts.get() * TIMEOUT_WEIGHT);
             return Math.min(1.0, (double) weightedScore / MAX_FAILURE_SCORE);
         }
 
         List<String> getSignals() {
-            synchronized (recentSignals) {
-                return new ArrayList<>(recentSignals);
-            }
+            // CopyOnWriteArrayList snapshot iteration is already thread-safe
+            return List.copyOf(recentSignals);
         }
 
         boolean hasFailures() {
-            return validationFailures.get() > 0 ||
-                   quorumFailures.get() > 0 ||
-                   timeouts.get() > 0;
+            return validationFailures.get() > 0 || quorumFailures.get() > 0 || timeouts.get() > 0;
         }
 
         String getSummary() {
-            return String.format("validation=%d, quorum=%d, timeout=%d",
-                               validationFailures.get(),
-                               quorumFailures.get(),
-                               timeouts.get());
+            return "validation=%d, quorum=%d, timeout=%d".formatted(validationFailures.get(), quorumFailures.get(),
+                                                                    timeouts.get());
         }
     }
 
