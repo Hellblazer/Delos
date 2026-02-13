@@ -539,7 +539,17 @@ public interface Oracle {
         throw new UnsupportedOperationException("Watch API not implemented");
     }
 
-    /** Callback interface for receiving authorization change events */
+    /**
+     * Callback interface for receiving authorization change events.
+     * <p>
+     * <b>IMPORTANT:</b> Implementations MUST NOT block or perform long-running operations.
+     * Synchronous watch listeners are invoked on the mutation thread, so blocking
+     * will delay all subsequent authorization changes. For potentially blocking
+     * operations, use {@link #watchAsync(WatchListener, ExecutorService)} instead.
+     * <p>
+     * Exceptions thrown by implementations are caught and logged but do not
+     * affect mutation processing.
+     */
     @FunctionalInterface
     interface WatchListener {
         /**
