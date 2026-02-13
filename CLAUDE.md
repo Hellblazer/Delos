@@ -81,6 +81,22 @@ Delos is a multi-tenant distributed system platform with Byzantine fault toleran
 - **leyden** - Additional platform features
 - **isolates** - GraalVM isolate-based multi-tenant enclaves (requires `-Pisolates`)
 
+## Architecture Decision Records
+
+Critical architectural decisions are documented in `/docs/adr/`. Key model module ADRs:
+
+- **[ADR-0008](docs/adr/0008-subdomain-isolation-strategy.md)**: Subdomain isolation strategy (GraalVM isolates vs in-process)
+- **[ADR-0009](docs/adr/0009-portal-routing-semantics.md)**: Portal routing using context digests and Unix sockets
+- **[ADR-0010](docs/adr/0010-delegation-gossip-protocol.md)**: KERI delegation propagation via anti-entropy gossip
+- **[ADR-0011](docs/adr/0011-jdbc-connection-pooling-for-oracle.md)**: Thread-safe Oracle queries via DataSource pooling
+- **[ADR-0012](docs/adr/0012-unix-domain-socket-architecture.md)**: Unix domain sockets for multi-tenant IPC
+
+See also:
+- **[ADR-0002](docs/adr/0002-keri-implementation-architecture.md)**: KERI identity architecture
+- **[ADR-0003](docs/adr/0003-bft-membership-architecture.md)**: Fireflies Byzantine membership
+- **[ADR-0004](docs/adr/0004-consensus-design-choam.md)**: CHOAM consensus design
+- **[ADR-0005](docs/adr/0005-deterministic-sql-state.md)**: Deterministic SQL state machines
+
 ## Key Patterns
 
 ### Code Generation
