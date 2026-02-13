@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Handler for processing incoming receipt gossip from Fireflies overlay.
@@ -45,10 +46,10 @@ public class ReceiptGossipHandler {
     private final WitnessReceiptManager receiptManager;
     private final ReceiptValidator validator;
 
-    // Metrics (thread-safe via volatile)
-    private volatile long receiptsReceived = 0;
-    private volatile long receiptsValidated = 0;
-    private volatile long receiptsRejected = 0;
+    // Metrics (thread-safe via AtomicLong for atomic increment operations)
+    private final AtomicLong receiptsReceived = new AtomicLong();
+    private final AtomicLong receiptsValidated = new AtomicLong();
+    private final AtomicLong receiptsRejected = new AtomicLong();
 
     /**
      * Create receipt gossip handler.
@@ -86,7 +87,7 @@ public class ReceiptGossipHandler {
 
         // Deserialize all receipts from proto
         var receipts = ReceiptGossipCodec.fromReceiptGossip(gossip);
-        receiptsReceived += receipts.size();
+        receiptsReceived.addAndGet(receipts.size());
 
         if (log.isDebugEnabled()) {
             log.debug("Received {} receipts from gossip", receipts.size());
@@ -106,7 +107,7 @@ public class ReceiptGossipHandler {
                 // Validate receipt
                 var validationResult = validator.validate(receipt);
                 if (!validationResult.isValid()) {
-                    receiptsRejected++;
+                    receiptsRejected.incrementAndGet();
                     log.warn("Rejected invalid receipt for event {}: {}",
                         receipt.eventCoordinates(),
                         validationResult.reason()
@@ -118,7 +119,7 @@ public class ReceiptGossipHandler {
                 forwardToManager(receipt);
 
                 processed.add(receipt);
-                receiptsValidated++;
+                receiptsValidated.incrementAndGet();
 
                 if (log.isDebugEnabled()) {
                     log.debug("Processed receipt for event: {} from witness: {}",
@@ -128,7 +129,7 @@ public class ReceiptGossipHandler {
                 }
 
             } catch (Exception e) {
-                receiptsRejected++;
+                receiptsRejected.incrementAndGet();
                 log.error("Error processing receipt for event {}: {}",
                     receipt.eventCoordinates(),
                     e.getMessage(),
@@ -153,7 +154,7 @@ public class ReceiptGossipHandler {
      * @return Total receipts received
      */
     public long getReceiptsReceived() {
-        return receiptsReceived;
+        return receiptsReceived.get();
     }
 
     /**
@@ -162,7 +163,7 @@ public class ReceiptGossipHandler {
      * @return Total receipts validated
      */
     public long getReceiptsValidated() {
-        return receiptsValidated;
+        return receiptsValidated.get();
     }
 
     /**
@@ -171,16 +172,16 @@ public class ReceiptGossipHandler {
      * @return Total receipts rejected
      */
     public long getReceiptsRejected() {
-        return receiptsRejected;
+        return receiptsRejected.get();
     }
 
     /**
      * Reset metrics counters (for testing).
      */
     public void resetMetrics() {
-        receiptsReceived = 0;
-        receiptsValidated = 0;
-        receiptsRejected = 0;
+        receiptsReceived.set(0);
+        receiptsValidated.set(0);
+        receiptsRejected.set(0);
     }
 
     // Private helpers

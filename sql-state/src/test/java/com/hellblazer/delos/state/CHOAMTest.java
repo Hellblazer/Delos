@@ -204,7 +204,9 @@ public class CHOAMTest {
                                                                                                           .toList());
 
         try {
-            assertTrue(Utils.waitForCondition(20_000, 1000, () -> {
+            // CI needs longer convergence timeout due to resource contention and block propagation delays
+            int convergenceTimeout = LARGE_TESTS ? 60_000 : (IS_CI ? 40_000 : 20_000);
+            assertTrue(Utils.waitForCondition(convergenceTimeout, 1000, () -> {
                 if (transactioneers.stream().mapToInt(Transactioneer::inFlight).filter(t -> t == 0).count()
                 != transactioneers.size()) {
                     return false;

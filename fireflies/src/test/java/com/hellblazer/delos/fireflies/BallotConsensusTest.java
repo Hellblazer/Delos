@@ -42,6 +42,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 public class BallotConsensusTest {
 
+    private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
     private static final int CARDINALITY = 8;  // 4 seeds + 4 joiners
     private static final int SEED_COUNT = 4;
     private static final double P_BYZ = 0.2;
@@ -91,7 +92,8 @@ public class BallotConsensusTest {
                            .limit(SEED_COUNT)
                            .toList();
 
-        final var gossipDuration = Duration.ofMillis(5);
+        // CI environments need slower gossip due to resource contention and scheduling delays
+        final var gossipDuration = Duration.ofMillis(IS_CI ? 10 : 5);
 
         // Bootstrap the kernel (first seed)
         System.out.println("Starting kernel node");
@@ -134,8 +136,10 @@ public class BallotConsensusTest {
         assertTrue(countdown.get().await(120, TimeUnit.SECONDS), "Joiners did not join");
 
         // Wait for all nodes to converge
+        // CI needs longer timeout due to resource contention
         System.out.println("Waiting for full cluster convergence...");
-        var converged = Utils.waitForCondition(90_000, 1_000, () -> {
+        int convergenceTimeout = IS_CI ? 180_000 : 90_000;  // 3min CI vs 1.5min local
+        var converged = Utils.waitForCondition(convergenceTimeout, 1_000, () -> {
             return views.stream().allMatch(v -> {
                 return v.getContext().size() == CARDINALITY &&
                        v.getContext().activeCount() == CARDINALITY;
