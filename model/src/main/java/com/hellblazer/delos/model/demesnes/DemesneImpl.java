@@ -231,12 +231,30 @@ public class DemesneImpl implements Demesne {
     }
 
     private void registerContext(Digest ctxId) {
-        var portalPath = commDirectory().resolve(parameters.getPortal()).toString();
+        // Validate and normalize portal path to prevent directory traversal attacks
+        Path commDir = commDirectory();
+        Path portalPath = commDir.resolve(parameters.getPortal()).normalize();
+
+        // Security: Ensure portal path stays within communications directory
+        if (!portalPath.startsWith(commDir)) {
+            throw new SecurityException(
+            "Portal path outside communications directory: " + portalPath + " (expected within: " + commDir + ")");
+        }
+
+        // Validate Unix socket path length (104 chars on macOS, 108 on Linux)
+        String portalPathStr = portalPath.toString();
+        if (portalPathStr.length() > 104) {
+            log.warn("Portal path length ({}) exceeds macOS limit (104 chars): {}", portalPathStr.length(),
+                     portalPathStr);
+        }
+
         outer.register(SubContext.newBuilder()
                                  .setEnclave(context.getId().toDigeste())
                                  .setContext(ctxId.toDigeste())
-                                 .setPortalAddress(portalPath)
+                                 .setPortalAddress(portalPathStr)
                                  .build());
+
+        log.info("Registered subdomain context: {} with portal: {}", ctxId, portalPathStr);
     }
 
     private RuntimeParameters.Builder runtimeParameters(DemesneParameters parameters, ControlledIdentifierMember member,

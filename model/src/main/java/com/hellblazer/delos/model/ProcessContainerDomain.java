@@ -100,6 +100,18 @@ public class ProcessContainerDomain extends ProcessDomain {
         this.subDomainSpecification = subDomainSpecification;
     }
 
+    /**
+     * Spawn a new subdomain with the given parameters.
+     * <p>
+     * <b>Route Registration Timing:</b> The subdomain is created and added to {@code hostedDomains}
+     * immediately, but route registration happens asynchronously during the KERI ceremony in
+     * {@code demesne.commit()}. There is a brief window where the subdomain exists but is not yet
+     * routable via Portal. This is expected behavior - Portal routing becomes available after
+     * the subdomain's KERI identity is established.
+     *
+     * @param prototype DemesneParameters builder with subdomain configuration
+     * @return SelfAddressingIdentifier of the spawned subdomain
+     */
     public SelfAddressingIdentifier spawn(DemesneParameters.Builder prototype) {
         final var witness = member.getIdentifier().newEphemeral().get();
         final var cloned = prototype.clone();
@@ -136,6 +148,14 @@ public class ProcessContainerDomain extends ProcessDomain {
             return (SelfAddressingIdentifier) incp.getIdentifier();
         }
         return computed.getId();
+    }
+
+    /**
+     * Package-private accessor for testing route registration.
+     * @return unmodifiable view of routes map for testing verification
+     */
+    Map<String, UnixDomainSocketAddress> getRoutes() {
+        return Collections.unmodifiableMap(routes);
     }
 
     @Override
@@ -198,14 +218,27 @@ public class ProcessContainerDomain extends ProcessDomain {
 
             @Override
             public void deregister(Digeste context) {
-                routes.remove(qb64(Digest.from(context)));
+                String routingKey = qb64(Digest.from(context));
+                UnixDomainSocketAddress removed = routes.remove(routingKey);
+                if (removed != null) {
+                    log.info("Deregistered route for context: {} path: {}", routingKey, removed.getPath());
+                } else {
+                    log.warn("Attempted to deregister non-existent route for context: {}", routingKey);
+                }
             }
 
             @Override
             public void register(SubContext context) {
                 String routingKey = qb64(Digest.from(context.getContext()));
                 UnixDomainSocketAddress address = UnixDomainSocketAddress.of(context.getPortalAddress());
-                routes.put(routingKey, address);
+                UnixDomainSocketAddress previous = routes.put(routingKey, address);
+
+                if (previous != null) {
+                    log.warn("Route registration replaced existing route for context: {} old: {} new: {}",
+                             routingKey, previous.getPath(), address.getPath());
+                } else {
+                    log.info("Registered route for context: {} path: {}", routingKey, address.getPath());
+                }
             }
         }, null);
     }
