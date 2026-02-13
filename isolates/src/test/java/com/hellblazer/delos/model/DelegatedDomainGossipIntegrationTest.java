@@ -23,22 +23,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Integration tests for DelegatedDomain delegation gossip protocol.
  * <p>
- * <b>DISABLED:</b> These tests require ProcessContainerDomain infrastructure with GraalVM isolates.
- * DelegatedDomain is designed to run inside an Enclave (via DemesneImpl) which requires the isolates
- * module built with {@code -Pisolates} profile.
+ * Tests delegation gossip anti-entropy protocol with Bloom filter reconciliation, ReservoirSampler
+ * transfer limits, and Fireflies ring topology integration. Validates convergence SLAs, Byzantine
+ * fault tolerance, network partition recovery, and CHOAM/MVStore persistence.
  * <p>
- * To enable these tests:
- * <pre>
- * ./mvnw clean install -Pisolates
- * ./mvnw test -pl model -Dtest=DelegatedDomainGossipIntegrationTest
- * </pre>
+ * DelegatedDomain instances run inside Enclave (via DemesneImpl) which requires ProcessContainerDomain
+ * infrastructure and JniBridge for isolation.
  * <p>
- * The tests verify delegation gossip convergence, Byzantine fault tolerance, network partition recovery,
- * and integration with CHOAM logs and Fireflies membership.
+ * <b>NOTE:</b> This module is only built with the {@code -Pisolates} profile which includes the native
+ * library required for GraalVM isolate support.
  *
  * @author hal.hildebrand
  */
-@Disabled("Requires ProcessContainerDomain with GraalVM isolates (-Pisolates profile)")
+@Disabled("Requires JniBridge native library - work in progress")
 public class DelegatedDomainGossipIntegrationTest {
     private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
 

@@ -23,26 +23,24 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Integration tests for multi-tenancy scalability limits, resource usage, and performance SLAs.
  * <p>
- * <b>DISABLED:</b> These tests require ProcessContainerDomain infrastructure with GraalVM isolates.
- * Scalability testing of subdomain spawn, routing, and resource consumption depends on JniBridge
- * which requires the isolates module built with {@code -Pisolates} profile.
+ * Tests ProcessContainerDomain scalability across 3 tiers:
+ * - Tier 1: 10 concurrent subdomains (baseline SLAs)
+ * - Tier 2: 50 concurrent subdomains (production baseline)
+ * - Tier 3: 100 concurrent subdomains (stretch goal, acceptable degradation)
  * <p>
- * To enable these tests:
- * <pre>
- * ./mvnw clean install -Pisolates
- * ./mvnw test -pl model -Dtest=MultiTenancyScalabilityTest
- * </pre>
+ * Performance SLAs validated:
+ * - Spawn latency: p50 < 500ms, p99 < 2s (up to 50 subdomains)
+ * - Routing latency: p50 < 20ms, p99 < 100ms (up to 50 subdomains)
+ * - Memory per subdomain: < 50MB heap, < 100MB native
+ * - Thread count: < 20 per subdomain, File descriptors: < 10 per subdomain
+ * - 24-hour soak test: no crashes, < 5% performance degradation
  * <p>
- * The tests verify:
- * - Spawn latency SLAs (p50 < 500ms, p99 < 2s for 50 subdomains)
- * - Routing latency SLAs (p50 < 20ms, p99 < 100ms for 50 subdomains)
- * - Resource limits (memory, threads, file descriptors per subdomain)
- * - 24-hour soak test stability
- * - Performance degradation as subdomain count increases
+ * <b>NOTE:</b> This module is only built with the {@code -Pisolates} profile which includes the native
+ * library required for GraalVM isolate support.
  *
  * @author hal.hildebrand
  */
-@Disabled("Requires ProcessContainerDomain with GraalVM isolates (-Pisolates profile)")
+@Disabled("Requires JniBridge native library - work in progress")
 public class MultiTenancyScalabilityTest {
     private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
 

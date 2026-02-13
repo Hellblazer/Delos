@@ -50,18 +50,16 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Integration tests for ProcessContainerDomain multi-tenancy, Portal routing, and subdomain lifecycle.
  * <p>
- * <b>DISABLED:</b> These tests require GraalVM isolates to be built with {@code -Pisolates} profile.
- * ProcessContainerDomain.spawn() uses JniBridge which depends on native library from isolates module.
+ * Tests ProcessContainerDomain.spawn() with JniBridge which creates subdomains in separate GraalVM isolates.
+ * Validates multi-tenancy scenarios: spawn latency, Portal routing, concurrent operations, shutdown cleanup,
+ * Fireflies view changes, and resource leak detection.
  * <p>
- * To run these tests:
- * <pre>
- * ./mvnw clean install -Pisolates
- * ./mvnw test -pl model -Dtest=ProcessContainerMultiTenancyTest
- * </pre>
+ * <b>NOTE:</b> This module is only built with the {@code -Pisolates} profile which includes the native
+ * library required for GraalVM isolate support.
  *
  * @author hal.hildebrand
  */
-@Disabled("Requires GraalVM isolates (-Pisolates profile)")
+@Disabled("Requires JniBridge native library - work in progress")
 public class ProcessContainerMultiTenancyTest {
     private static final boolean IS_CI       = "true".equalsIgnoreCase(System.getenv("CI"));
     private static final int     CARDINALITY = 5;

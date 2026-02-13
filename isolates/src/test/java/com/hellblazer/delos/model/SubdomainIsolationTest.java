@@ -23,25 +23,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Integration tests for subdomain isolation guarantees in ProcessContainerDomain.
  * <p>
- * <b>DISABLED:</b> These tests require ProcessContainerDomain infrastructure with GraalVM isolates.
- * Subdomain isolation (state, resources, crash boundaries) depends on JniBridge which requires
- * the isolates module built with {@code -Pisolates} profile.
+ * Tests isolation boundaries provided by GraalVM isolates:
+ * - State isolation: parent/subdomain cannot access each other's JDBC state (separate address spaces)
+ * - Resource isolation: separate thread pools, memory, file descriptors
+ * - Crash isolation: subdomain crash doesn't crash parent, routes cleaned up within 5s
+ * - Unix socket peer credentials: SO_PEERCRED validation (macOS/Linux)
+ * - Resource leak detection: threads, memory, FDs stable over 100 crash cycles
  * <p>
- * To enable these tests:
- * <pre>
- * ./mvnw clean install -Pisolates
- * ./mvnw test -pl model -Dtest=SubdomainIsolationTest
- * </pre>
- * <p>
- * The tests verify:
- * - State isolation (parent/subdomain cannot access each other's JDBC state)
- * - Resource isolation (threads, memory, file descriptors)
- * - Crash isolation (subdomain crash doesn't crash parent, route cleanup)
- * - Unix socket peer credentials (platform-dependent)
+ * <b>NOTE:</b> This module is only built with the {@code -Pisolates} profile which includes the native
+ * library required for GraalVM isolate support.
  *
  * @author hal.hildebrand
  */
-@Disabled("Requires ProcessContainerDomain with GraalVM isolates (-Pisolates profile)")
+@Disabled("Requires JniBridge native library - work in progress")
 public class SubdomainIsolationTest {
     private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
 
