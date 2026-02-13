@@ -243,7 +243,12 @@ public class DemesneImpl implements Demesne {
 
         // Validate Unix socket path length (104 chars on macOS, 108 on Linux)
         String portalPathStr = portalPath.toString();
+        String os = System.getProperty("os.name").toLowerCase();
         if (portalPathStr.length() > 104) {
+            if (os.contains("mac")) {
+                throw new IllegalArgumentException(
+                "Portal path length (" + portalPathStr.length() + ") exceeds macOS limit (104 chars): " + portalPathStr);
+            }
             log.warn("Portal path length ({}) exceeds macOS limit (104 chars): {}", portalPathStr.length(),
                      portalPathStr);
         }

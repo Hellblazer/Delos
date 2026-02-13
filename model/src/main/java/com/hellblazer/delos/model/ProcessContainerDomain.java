@@ -231,13 +231,15 @@ public class ProcessContainerDomain extends ProcessDomain {
             public void register(SubContext context) {
                 String routingKey = qb64(Digest.from(context.getContext()));
                 UnixDomainSocketAddress address = UnixDomainSocketAddress.of(context.getPortalAddress());
+                long registrationTime = System.currentTimeMillis();
                 UnixDomainSocketAddress previous = routes.put(routingKey, address);
 
                 if (previous != null) {
-                    log.warn("Route registration replaced existing route for context: {} old: {} new: {}",
-                             routingKey, previous.getPath(), address.getPath());
+                    log.warn("Route registration replaced existing route for context: {} old: {} new: {} at: {}",
+                             routingKey, previous.getPath(), address.getPath(), registrationTime);
                 } else {
-                    log.info("Registered route for context: {} path: {}", routingKey, address.getPath());
+                    log.info("Registered route for context: {} path: {} at: {}", routingKey, address.getPath(),
+                             registrationTime);
                 }
             }
         }, null);

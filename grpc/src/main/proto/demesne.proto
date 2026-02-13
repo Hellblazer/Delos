@@ -45,6 +45,7 @@ message SubContext {
   crypto.Digeste context = 2;
   // Unix domain socket path for Portal routing
   // Platform limits: 104 chars (macOS), 108 chars (Linux)
+  // Exceeding limits causes silent truncation or bind failure (platform-dependent)
   // Security: Path must be within communications directory (validated on registration)
   string portal_address = 3;
 }
