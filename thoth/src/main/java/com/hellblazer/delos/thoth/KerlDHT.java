@@ -943,6 +943,14 @@ public class KerlDHT implements ProtoKERLService {
         if (futureSailor.isEmpty()) {
             log.debug("Failed {}: {} tally: {} from: {}  on: {}", action, identifier, tally.get(),
                       destination.getMember() == null ? "<null>" : destination.getMember().getId(), member.getId());
+            // Record Byzantine provider signals for failure tracking
+            if (destination.getMember() != null) {
+                if (isTimedOut.get()) {
+                    byzantineProvider.recordTimeout(destination.getMember().getId());
+                } else {
+                    byzantineProvider.recordQuorumFailure(destination.getMember().getId());
+                }
+            }
             return !isTimedOut.get();
         }
         T content = futureSailor.get();
@@ -962,6 +970,14 @@ public class KerlDHT implements ProtoKERLService {
         if (futureSailor.isEmpty()) {
             log.debug("Failed {}: {} tally: {} from: {}  on: {}", action, identifier, tally,
                       destination.getMember() == null ? "<null>" : destination.getMember().getId(), member.getId());
+            // Record Byzantine provider signals for failure tracking
+            if (destination.getMember() != null) {
+                if (isTimedOut.get()) {
+                    byzantineProvider.recordTimeout(destination.getMember().getId());
+                } else {
+                    byzantineProvider.recordQuorumFailure(destination.getMember().getId());
+                }
+            }
             return !isTimedOut.get();
         }
         T content = futureSailor.get();

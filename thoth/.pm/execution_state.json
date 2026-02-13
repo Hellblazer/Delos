@@ -4,7 +4,7 @@
     "description": "Fix critical gaps between design intent and implementation in Byzantine fault tolerance, cryptographic validation, metrics, and resource management",
     "module": "thoth",
     "version": "0.0.11-SNAPSHOT",
-    "parentEpic": "Thoth: Byzantine Fault Tolerance Remediation",
+    "parentEpic": "Delos-icyw (Thoth: Byzantine Fault Tolerance Remediation)",
     "context": ".pm/CONTEXT_PROTOCOL.md",
     "severity": "critical",
     "business_impact": "DHT operations vulnerable to Byzantine attacks due to missing validation integration and detection infrastructure"
@@ -96,7 +96,7 @@
     "started_date": null,
     "estimated_completion": null,
     "progress_percentage": 0,
-    "epic_bead": null,
+    "epic_bead": "Delos-icyw",
     "duration_weeks": 2
   },
   "phases": [
@@ -105,7 +105,7 @@
       "name": "Infrastructure & Detection Foundation",
       "description": "Fix Byzantine detection infrastructure, add cryptographic validation to quorum operations, integrate Ani/Maat validators, implement comprehensive metrics and observability",
       "status": "pending",
-      "epic_bead": null,
+      "epic_bead": "Delos-icyw",
       "duration_weeks": 2,
       "key_deliverables": [
         "ThothByzantineStateProvider integrated and instantiated in DHT operations",
@@ -147,7 +147,7 @@
       "name": "Core Enhancement & Hardening",
       "description": "Complete multisig support, standardize error handling, improve resource management, add fork attack detection and recovery",
       "status": "pending",
-      "epic_bead": null,
+      "epic_bead": "Delos-icyw",
       "duration_weeks": 2.5,
       "key_deliverables": [
         "Multisig support complete with consistent quorum semantics",
@@ -180,7 +180,7 @@
       "name": "Integration & Scalability Testing",
       "description": "Comprehensive testing with Fireflies membership, CHOAM state machines, chaos engineering, large-scale scenarios, and production deployment",
       "status": "pending",
-      "epic_bead": null,
+      "epic_bead": "Delos-icyw",
       "duration_weeks": 2.5,
       "key_deliverables": [
         "Full integration tests with Fireflies and CHOAM (10+ scenarios)",
