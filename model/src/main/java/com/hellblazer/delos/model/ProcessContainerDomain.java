@@ -74,7 +74,7 @@ public class ProcessContainerDomain extends ProcessDomain {
     private final        Portal<Member>                                            portal;
     private final        UnixDomainSocketAddress                                   portalEndpoint;
     private final        EventLoopGroup                                            portalEventLoopGroup  = new NioEventLoopGroup();
-    private final        Map<String, UnixDomainSocketAddress>                      routes                = new HashMap<>();
+    private final        Map<String, UnixDomainSocketAddress>                      routes                = new ConcurrentHashMap<>();
     private final        IdentifierSpecification.Builder<SelfAddressingIdentifier> subDomainSpecification;
 
     public ProcessContainerDomain(Digest group, ControlledIdentifierMember member, ProcessDomainParameters parameters,
@@ -203,7 +203,9 @@ public class ProcessContainerDomain extends ProcessDomain {
 
             @Override
             public void register(SubContext context) {
-                //                routes.put("",qb64(Digest.from(context)));
+                String routingKey = qb64(Digest.from(context.getContext()));
+                UnixDomainSocketAddress address = UnixDomainSocketAddress.of(context.getPortalAddress());
+                routes.put(routingKey, address);
             }
         }, null);
     }

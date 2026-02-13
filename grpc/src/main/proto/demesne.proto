@@ -43,6 +43,7 @@ service OuterContext {
 message SubContext {
   crypto.Digeste enclave = 1;
   crypto.Digeste context = 2;
+  string portal_address = 3;  // Unix domain socket path for Portal routing
 }
 
 message DelegationUpdate {

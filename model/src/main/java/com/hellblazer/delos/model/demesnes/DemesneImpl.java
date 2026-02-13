@@ -231,8 +231,12 @@ public class DemesneImpl implements Demesne {
     }
 
     private void registerContext(Digest ctxId) {
-        outer.register(
-        SubContext.newBuilder().setEnclave(context.getId().toDigeste()).setContext(ctxId.toDigeste()).build());
+        var portalPath = commDirectory().resolve(parameters.getPortal()).toString();
+        outer.register(SubContext.newBuilder()
+                                 .setEnclave(context.getId().toDigeste())
+                                 .setContext(ctxId.toDigeste())
+                                 .setPortalAddress(portalPath)
+                                 .build());
     }
 
     private RuntimeParameters.Builder runtimeParameters(DemesneParameters parameters, ControlledIdentifierMember member,
