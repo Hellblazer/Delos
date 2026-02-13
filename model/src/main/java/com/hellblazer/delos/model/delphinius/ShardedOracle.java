@@ -12,7 +12,7 @@ import com.hellblazer.delos.delphinius.AbstractOracle;
 import com.hellblazer.delos.state.Mutator;
 import org.joou.ULong;
 
-import java.sql.Connection;
+import javax.sql.DataSource;
 import java.sql.JDBCType;
 import java.sql.SQLException;
 import java.time.Duration;
@@ -23,7 +23,8 @@ import java.util.function.Supplier;
 import static com.hellblazer.delos.choam.Session.retryNesting;
 
 /**
- * Oracle where write ops are JDBC stored procedure calls operating on the shared sql state
+ * Oracle where write ops are JDBC stored procedure calls operating on the shared sql state.
+ * Thread-safe: uses connection pool for concurrent read operations.
  *
  * @author hal.hildebrand
  */
@@ -33,8 +34,12 @@ public class ShardedOracle extends AbstractOracle {
     private final Duration        timeout;
     private final Supplier<ULong> clock;
 
-    public ShardedOracle(Connection connection, Mutator mutator, Duration timeout, Supplier<ULong> clock) {
-        super(connection);
+    /**
+     * Thread-safe constructor using connection pool.
+     * JOOQ manages connection lifecycle per operation via DataSource.
+     */
+    public ShardedOracle(DataSource connectionPool, Mutator mutator, Duration timeout, Supplier<ULong> clock) {
+        super(connectionPool);
         this.mutator = mutator;
         this.timeout = timeout;
         this.clock = clock;

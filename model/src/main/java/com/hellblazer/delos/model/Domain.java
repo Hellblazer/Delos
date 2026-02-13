@@ -35,10 +35,12 @@ import com.hellblazer.delos.stereotomy.event.protobuf.InteractionEventImpl;
 import com.hellblazer.delos.stereotomy.event.protobuf.ProtobufEventFactory;
 import com.hellblazer.delos.stereotomy.identifier.Identifier;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
+import org.h2.jdbcx.JdbcConnectionPool;
 import org.joou.ULong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.sql.DataSource;
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
@@ -62,13 +64,15 @@ abstract public class Domain {
 
     private static final Logger log = LoggerFactory.getLogger(Domain.class);
 
+    private static final int DEFAULT_MAX_CONNECTIONS = 10;
+
     protected final CHOAM                      choam;
     protected final ControlledIdentifierMember member;
     protected final Mutator                    mutator;
     protected final Oracle                     oracle;
     protected final Parameters                 params;
     protected final SqlStateMachine            sqlStateMachine;
-    protected final Connection                 stateConnection;
+    protected final DataSource                 connectionPool;
 
     public Domain(ControlledIdentifierMember member, Parameters.Builder params, String dbURL, Path checkpointBaseDir,
                   RuntimeParameters.Builder runtime) {
@@ -97,9 +101,13 @@ abstract public class Domain {
                                                     .build());
         choam = new CHOAM(this.params);
         mutator = sqlStateMachine.getMutator(choam.getSession());
-        stateConnection = sqlStateMachine.newConnection();
-        this.oracle = new ShardedOracle(stateConnection, mutator, params.getSubmitTimeout(),
-                                        //                              () -> ULong.valueOf(System.currentTimeMillis()));
+
+        // Thread-safe connection pool for Oracle read operations
+        var pool = JdbcConnectionPool.create(dbURL, "", "");
+        pool.setMaxConnections(DEFAULT_MAX_CONNECTIONS);
+        this.connectionPool = pool;
+
+        this.oracle = new ShardedOracle(connectionPool, mutator, params.getSubmitTimeout(),
                                         () -> sqlStateMachine.getCurrentBlock().height());
         log.info("Domain: {} member: {} db URL: {} checkpoint base dir: {}", this.params.context().getId(),
                  member.getId(), dbURL, checkpointBaseDir);

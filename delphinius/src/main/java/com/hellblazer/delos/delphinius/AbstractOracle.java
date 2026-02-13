@@ -15,6 +15,7 @@ import org.jooq.impl.DSL;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Arrays;
@@ -60,6 +61,13 @@ abstract public class AbstractOracle implements Oracle {
 
     public AbstractOracle(Connection connection) {
         this(DSL.using(connection, SQLDialect.H2));
+    }
+
+    /**
+     * Thread-safe constructor using connection pool. JOOQ manages connection lifecycle per operation.
+     */
+    public AbstractOracle(DataSource dataSource) {
+        this(DSL.using(dataSource, SQLDialect.H2));
     }
 
     public AbstractOracle(DSLContext dslCtx) {
