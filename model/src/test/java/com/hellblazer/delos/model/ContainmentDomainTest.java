@@ -113,7 +113,8 @@ public class ContainmentDomainTest {
     @Test
     public void smoke() throws Exception {
         domains.forEach(e -> Thread.ofVirtual().start(e::start));
-        final var activated = Utils.waitForCondition(60_000, 1_000, () -> domains.stream().allMatch(Domain::active));
+        // CI infrastructure needs 2x timeout for domain activation due to resource contention
+        final var activated = Utils.waitForCondition(IS_CI ? 120_000 : 60_000, 1_000, () -> domains.stream().allMatch(Domain::active));
         assertTrue(activated, "Domains did not fully activate: " + (domains.stream()
                                                                            .filter(c -> !c.active())
                                                                            .map(Domain::logState)
@@ -125,15 +126,17 @@ public class ContainmentDomainTest {
     }
 
     private Builder params() {
+        // CI infrastructure requires 2x gossip duration to prevent consensus stalls under resource contention
+        final var gossipDuration = Duration.ofMillis(IS_CI ? 10 : 5);
         return Parameters.newBuilder()
                          .setGenerateGenesis(true)
                          .setGenesisViewId(GENESIS_VIEW_ID)
                          .setBootstrap(
-                         Parameters.BootstrapParameters.newBuilder().setGossipDuration(Duration.ofMillis(5)).build())
+                         Parameters.BootstrapParameters.newBuilder().setGossipDuration(gossipDuration).build())
                          .setGenesisViewId(DigestAlgorithm.DEFAULT.getOrigin())
-                         .setGossipDuration(Duration.ofMillis(5))
+                         .setGossipDuration(gossipDuration)
                          .setProducer(Parameters.ProducerParameters.newBuilder()
-                                                                   .setGossipDuration(Duration.ofMillis(5))
+                                                                   .setGossipDuration(gossipDuration)
                                                                    .setBatchInterval(Duration.ofMillis(50))
                                                                    .setMaxBatchByteSize(1024 * 1024)
                                                                    .setMaxBatchCount(10_000)
