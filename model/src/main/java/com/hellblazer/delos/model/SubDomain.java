@@ -103,6 +103,20 @@ public class SubDomain extends Domain {
         try {
             super.stop();
         } finally {
+            // Shutdown scheduler to prevent thread pool leak
+            scheduler.shutdown();
+            try {
+                // Wait up to 5 seconds for running gossip tasks to complete
+                if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                    log.warn("Scheduler did not terminate in time, forcing shutdown on: {}", member.getId());
+                    scheduler.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                log.warn("Interrupted during scheduler shutdown on: {}", member.getId());
+                scheduler.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+
             store.close(500);
         }
     }
