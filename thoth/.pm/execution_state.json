@@ -1,0 +1,397 @@
+{
+  "project": {
+    "name": "Thoth Module Byzantine Fault Tolerance Remediation",
+    "description": "Fix critical gaps between design intent and implementation in Byzantine fault tolerance, cryptographic validation, metrics, and resource management",
+    "module": "thoth",
+    "version": "0.0.11-SNAPSHOT",
+    "parentEpic": "Thoth: Byzantine Fault Tolerance Remediation",
+    "context": ".pm/CONTEXT_PROTOCOL.md",
+    "severity": "critical",
+    "business_impact": "DHT operations vulnerable to Byzantine attacks due to missing validation integration and detection infrastructure"
+  },
+  "critical_issues": [
+    {
+      "id": "THOTH-BFT-001",
+      "title": "Byzantine Detection Infrastructure Unused",
+      "description": "ThothByzantineStateProvider is implemented but never instantiated. Byzantine fault detection framework exists but is not integrated into DHT operations.",
+      "severity": "critical",
+      "impact": "System cannot detect Byzantine behavior from colliding nodes",
+      "status": "pending",
+      "phase": 1,
+      "related_components": ["ThothByzantineStateProvider", "KerlDHT", "DhtService"]
+    },
+    {
+      "id": "THOTH-BFT-002",
+      "title": "No Cryptographic Validation in Quorum Operations",
+      "description": "Quorum-based store and retrieve operations do not validate signatures. Byzantine nodes can provide invalid data accepted by majority.",
+      "severity": "critical",
+      "impact": "Corrupted KERLs can be accepted due to lack of cryptographic verification",
+      "status": "pending",
+      "phase": 1,
+      "related_components": ["KerlDHT", "DhtService", "ReconciliationService"]
+    },
+    {
+      "id": "THOTH-BFT-003",
+      "title": "Validation Components Not Integrated",
+      "description": "Ani (KERI validation) and Maat (witnessing) components exist but are not integrated into DHT quorum operations. No validation hooks in store/retrieve flows.",
+      "severity": "critical",
+      "impact": "DHT operations bypass all validation, defeating KERI security model",
+      "status": "pending",
+      "phase": 1,
+      "related_components": ["KerlDHT", "Ani", "Maat", "DhtService"]
+    },
+    {
+      "id": "THOTH-BFT-004",
+      "title": "Metrics Interface Completely Empty",
+      "description": "KerlDhtMetrics and GorgoneionMetrics interfaces define empty stub methods. No operational observability for DHT health or Byzantine detection.",
+      "severity": "critical",
+      "impact": "Cannot monitor DHT health, Byzantine behavior, or performance in production",
+      "status": "pending",
+      "phase": 1,
+      "related_components": ["KerlDhtMetrics", "GorgoneionMetrics", "DhtService"]
+    }
+  ],
+  "significant_issues": [
+    {
+      "id": "THOTH-ENH-001",
+      "title": "Multisig Support Incomplete",
+      "description": "Threshold-based quorum voting not fully implemented. Some paths use simple majority, others use 3f+1.",
+      "severity": "high",
+      "impact": "Inconsistent Byzantine fault tolerance guarantees",
+      "status": "pending",
+      "phase": 2
+    },
+    {
+      "id": "THOTH-ENH-002",
+      "title": "Error Handling Inconsistencies",
+      "description": "Different error handling approaches across modules. Some fail fast, others retry indefinitely.",
+      "severity": "high",
+      "impact": "Difficult to debug failures, cascading timeouts",
+      "status": "pending",
+      "phase": 2
+    },
+    {
+      "id": "THOTH-ENH-003",
+      "title": "Resource Management Minimal",
+      "description": "Thread pools not configured, memory cleanup hooks missing, connections not bounded. No lifecycle management.",
+      "severity": "high",
+      "impact": "Memory leaks, thread exhaustion in production",
+      "status": "pending",
+      "phase": 2
+    },
+    {
+      "id": "THOTH-ENH-004",
+      "title": "No Fork Attack Detection",
+      "description": "DHT can accept different event sequences from different paths. No detection of conflicting KERLs.",
+      "severity": "high",
+      "impact": "Split-brain KERL inconsistencies",
+      "status": "pending",
+      "phase": 2
+    }
+  ],
+  "current_phase": {
+    "name": "Phase 1: Infrastructure & Detection Foundation",
+    "description": "Fix Byzantine detection infrastructure, add cryptographic validation, integrate validators, implement comprehensive metrics and observability",
+    "status": "pending",
+    "started_date": null,
+    "estimated_completion": null,
+    "progress_percentage": 0,
+    "epic_bead": null,
+    "duration_weeks": 2
+  },
+  "phases": [
+    {
+      "phase_number": 1,
+      "name": "Infrastructure & Detection Foundation",
+      "description": "Fix Byzantine detection infrastructure, add cryptographic validation to quorum operations, integrate Ani/Maat validators, implement comprehensive metrics and observability",
+      "status": "pending",
+      "epic_bead": null,
+      "duration_weeks": 2,
+      "key_deliverables": [
+        "ThothByzantineStateProvider integrated and instantiated in DHT operations",
+        "Cryptographic signature validation in all quorum store/retrieve operations",
+        "Ani and Maat validation hooks integrated into DHT flow",
+        "Comprehensive KerlDhtMetrics implementation (latency, throughput, error rates, Byzantine detection)",
+        "Byzantine fault tolerance test suite with Byzantine node injection",
+        "Architecture Decision Records (ADRs) for each critical fix"
+      ],
+      "milestones": [
+        {
+          "name": "Byzantine Detection Framework Test Suite",
+          "bead": null,
+          "status": "pending",
+          "description": "Create comprehensive test harness for Byzantine detection with node injection"
+        },
+        {
+          "name": "Metrics Infrastructure Complete",
+          "bead": null,
+          "status": "pending",
+          "description": "Implement KerlDhtMetrics with observability for all critical paths"
+        },
+        {
+          "name": "Validation Integration Complete",
+          "bead": null,
+          "status": "pending",
+          "description": "Ani and Maat fully integrated into store/retrieve/rebalance flows"
+        },
+        {
+          "name": "All Critical Issues Fixed",
+          "bead": null,
+          "status": "pending",
+          "description": "Byzantine detection, cryptographic validation, validators, metrics all working"
+        }
+      ]
+    },
+    {
+      "phase_number": 2,
+      "name": "Core Enhancement & Hardening",
+      "description": "Complete multisig support, standardize error handling, improve resource management, add fork attack detection and recovery",
+      "status": "pending",
+      "epic_bead": null,
+      "duration_weeks": 2.5,
+      "key_deliverables": [
+        "Multisig support complete with consistent quorum semantics",
+        "Unified error handling framework with retry policies and circuit breakers",
+        "Resource management: bounded thread pools, memory cleanup, connection pooling",
+        "Fork attack detection and automatic recovery procedures",
+        "Performance optimizations for large-scale deployments",
+        "Operational procedures documentation"
+      ],
+      "milestones": [
+        {
+          "name": "Multisig Refactoring Complete",
+          "bead": null,
+          "status": "pending"
+        },
+        {
+          "name": "Error Handling Framework",
+          "bead": null,
+          "status": "pending"
+        },
+        {
+          "name": "Resource Management Implemented",
+          "bead": null,
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "phase_number": 3,
+      "name": "Integration & Scalability Testing",
+      "description": "Comprehensive testing with Fireflies membership, CHOAM state machines, chaos engineering, large-scale scenarios, and production deployment",
+      "status": "pending",
+      "epic_bead": null,
+      "duration_weeks": 2.5,
+      "key_deliverables": [
+        "Full integration tests with Fireflies and CHOAM (10+ scenarios)",
+        "Chaos engineering tests (network partitions, Byzantine nodes, cascading failures)",
+        "Scalability tests with 10-100+ nodes and 1M+ identifiers",
+        "Performance benchmarks and optimization recommendations",
+        "SLA validation (latency p95, throughput, Byzantine detection window)",
+        "Deployment and operational guides with runbooks"
+      ],
+      "milestones": [
+        {
+          "name": "Integration Tests Complete",
+          "bead": null,
+          "status": "pending"
+        },
+        {
+          "name": "Chaos Engineering Validation",
+          "bead": null,
+          "status": "pending"
+        },
+        {
+          "name": "Production SLA Verification",
+          "bead": null,
+          "status": "pending"
+        }
+      ]
+    }
+  ],
+  "success_criteria": {
+    "critical_fixes": [
+      "ThothByzantineStateProvider instantiated and active in all DHT operations",
+      "100% of quorum operations include cryptographic signature validation",
+      "Ani and Maat validators integrated into all store/retrieve/rebalance flows",
+      "KerlDhtMetrics fully implemented with <1% overhead"
+    ],
+    "functional": [
+      "All core DHT operations function correctly under Byzantine fault tolerance model",
+      "KERL consistency maintained during membership changes and rebalancing",
+      "Ani validation correctly accepts valid events and rejects invalid events",
+      "Maat witnessing provides Byzantine fault-tolerant certification",
+      "Fork attacks detected and recovered automatically"
+    ],
+    "quality": [
+      "Test coverage >= 85% for core modules (KerlDHT, Ani, Maat)",
+      "Byzantine fault tolerance tests: 100+ scenarios passing (f=1,2,3 cases)",
+      "No critical or high-severity code quality issues",
+      "All documentation current and accurate",
+      "Performance SLAs met: p95 latency <=100ms, throughput >=10K ops/sec"
+    ],
+    "integration": [
+      "Successfully integrates with Fireflies membership service",
+      "Works with CHOAM state machines for replicated applications",
+      "Compatible with Stereotomy for KERI operations",
+      "gRPC service contracts stable and well-documented"
+    ]
+  },
+  "key_components": [
+    {
+      "name": "KerlDHT",
+      "description": "Core DHT implementation with Byzantine fault tolerance and gossip-based rebalancing",
+      "file": "src/main/java/com/hellblazer/delos/thoth/KerlDHT.java",
+      "responsibility": "Distributed storage and routing of KERLs based on identifier digest",
+      "issues": ["THOTH-BFT-001", "THOTH-BFT-002", "THOTH-BFT-003"]
+    },
+    {
+      "name": "Ani",
+      "description": "KERI event validation service supporting root and KERL set validation",
+      "file": "src/main/java/com/hellblazer/delos/thoth/Ani.java",
+      "responsibility": "Cryptographic validation of key events and KERL integrity",
+      "issues": ["THOTH-BFT-003"]
+    },
+    {
+      "name": "Maat",
+      "description": "Byzantine fault-tolerant witnessing and certification service",
+      "file": "src/main/java/com/hellblazer/delos/thoth/Maat.java",
+      "responsibility": "Witness coordination and consensus for event validity",
+      "issues": ["THOTH-BFT-003"]
+    },
+    {
+      "name": "ThothByzantineStateProvider",
+      "description": "Byzantine detection infrastructure for state validation",
+      "file": "src/main/java/com/hellblazer/delos/thoth/ThothByzantineStateProvider.java",
+      "responsibility": "Detect and respond to Byzantine behavior",
+      "issues": ["THOTH-BFT-001"]
+    },
+    {
+      "name": "KerlDhtMetrics",
+      "description": "Metrics interface for DHT observability",
+      "file": "src/main/java/com/hellblazer/delos/thoth/metrics/KerlDhtMetrics.java",
+      "responsibility": "Track DHT performance, Byzantine detection, and errors",
+      "issues": ["THOTH-BFT-004"]
+    },
+    {
+      "name": "DhtService",
+      "description": "gRPC service exposing DHT operations",
+      "file": "src/main/java/com/hellblazer/delos/thoth/grpc/dht/DhtService.java",
+      "responsibility": "Network interface for DHT client requests",
+      "issues": ["THOTH-BFT-002", "THOTH-BFT-003"]
+    },
+    {
+      "name": "ReconciliationService",
+      "description": "Data consistency service for DHT rebalancing during membership changes",
+      "file": "src/main/java/com/hellblazer/delos/thoth/grpc/reconciliation/ReconciliationService.java",
+      "responsibility": "Gossip protocol implementation for KERL migration",
+      "issues": ["THOTH-ENH-004"]
+    }
+  ],
+  "metrics": {
+    "test_coverage": {
+      "target": 85,
+      "current": null,
+      "by_component": {
+        "KerlDHT": null,
+        "Ani": null,
+        "Maat": null,
+        "ThothByzantineStateProvider": null,
+        "KerlDhtMetrics": null,
+        "ReconciliationService": null
+      }
+    },
+    "byzantine_ft_tests": {
+      "total_scenarios": 0,
+      "passing": 0,
+      "failing": 0,
+      "coverage": "Not measured",
+      "fault_scenarios": {
+        "f_equals_1": 0,
+        "f_equals_2": 0,
+        "f_equals_3": 0,
+        "byzantine_node_injection": 0,
+        "signature_forgery_detection": 0,
+        "fork_attack_detection": 0
+      }
+    },
+    "performance_baselines": {
+      "dht_lookup_ms": null,
+      "dht_insert_ms": null,
+      "validation_latency_ms": null,
+      "rebalancing_time_seconds": null,
+      "validation_throughput_events_per_sec": null,
+      "byzantine_detection_latency_ms": null
+    },
+    "issue_tracking": {
+      "critical_open": 4,
+      "critical_fixed": 0,
+      "significant_open": 4,
+      "significant_fixed": 0,
+      "total_issues": 8
+    }
+  },
+  "blockers": [
+    {
+      "id": "BLOCK-001",
+      "description": "Strategic planning required before Phase 1 implementation",
+      "status": "pending",
+      "depends_on": "strategic-planner review"
+    }
+  ],
+  "assumptions": [
+    "Fireflies membership service is stable and integrated",
+    "Stereotomy provides reliable KERI event generation and validation hooks",
+    "CHOAM state machine layer available for replicated applications",
+    "Java 25+ available with modern concurrency primitives",
+    "gRPC 1.68.0 and Netty 4.1.x stable for DHT networking",
+    "Byzantine detection framework design is sound and requires only integration"
+  ],
+  "dependencies": {
+    "internal": [
+      "stereotomy-services (KERI event operations and validation)",
+      "fireflies (membership and ring topology)",
+      "choam (replicated state machines)",
+      "cryptography (digest and signature operations)",
+      "memberships (context and member abstraction)"
+    ],
+    "external": [
+      "gRPC 1.68.0",
+      "Netty 4.1.127",
+      "H2 Database (for KERL persistence)",
+      "Liquibase (schema management)",
+      "Dropwizard Metrics (observability)"
+    ]
+  },
+  "integration_points": [
+    {
+      "component": "Fireflies Ring",
+      "protocol": "gRPC",
+      "direction": "Thoth queries ring topology to determine DHT successors",
+      "status": "integrated",
+      "critical": true
+    },
+    {
+      "component": "Stereotomy Services",
+      "protocol": "Java API + gRPC",
+      "direction": "Thoth validates events; Stereotomy provides KERI operations",
+      "status": "integrated",
+      "critical": true
+    },
+    {
+      "component": "CHOAM State Machines",
+      "protocol": "Java API",
+      "direction": "CHOAM applications use Thoth for key management",
+      "status": "integrated",
+      "critical": false
+    }
+  ],
+  "session_tracking": {
+    "last_checkpoint": null,
+    "last_checkpoint_date": null,
+    "last_work_session_date": null,
+    "session_count": 0,
+    "infrastructure_created_date": "2026-02-13",
+    "infrastructure_version": "2.0"
+  }
+}
