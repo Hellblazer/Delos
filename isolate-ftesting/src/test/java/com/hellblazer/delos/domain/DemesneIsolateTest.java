@@ -151,6 +151,90 @@ public class DemesneIsolateTest {
         assertEquals(0, deregistered.size());
     }
 
+    @Test
+    public void stopIsIdempotent() throws Exception {
+        eventLoopGroup = new NioEventLoopGroup();
+        Digest context = DigestAlgorithm.DEFAULT.getOrigin();
+        var commDirectory = Path.of("target").resolve(UUID.randomUUID().toString());
+        Files.createDirectories(commDirectory);
+        final var kerl = new MemKERL(DigestAlgorithm.DEFAULT);
+        Stereotomy controller = new StereotomyImpl(new MemKeyStore(), kerl, SecureRandom.getInstanceStrong());
+        var identifier = controller.newIdentifier();
+        Member serverMember = new ControlledIdentifierMember(identifier);
+        var portalAddress = UUID.randomUUID().toString();
+        var parentAddress = UUID.randomUUID().toString();
+        final var portalEndpoint = UnixDomainSocketAddress.of(commDirectory.resolve(portalAddress));
+        var serverBuilder = NettyServerBuilder.forAddress(portalEndpoint)
+                                              .protocolNegotiator(new DomainSocketNegotiator())
+                                              .channelType(serverChannelType)
+                                              .workerEventLoopGroup(eventLoopGroup)
+                                              .bossEventLoopGroup(eventLoopGroup)
+                                              .intercept(new DomainSocketServerInterceptor());
+
+        var cacheBuilder = ServerConnectionCache.newBuilder().setFactory(to -> handler(portalEndpoint));
+        Router router = new RouterImpl(serverMember, serverBuilder, cacheBuilder, null);
+        router.start();
+
+        var registered = new TreeSet<Digest>();
+        var deregistered = new TreeSet<Digest>();
+
+        final OuterContextService service = new OuterContextService() {
+
+            @Override
+            public void deregister(Digeste context) {
+                deregistered.remove(Digest.from(context));
+            }
+
+            @Override
+            public void register(SubContext context) {
+                registered.add(Digest.from(context.getContext()));
+            }
+        };
+
+        final var parentEndpoint = UnixDomainSocketAddress.of(commDirectory.resolve(parentAddress));
+        var kerlServer = new DemesneKERLServer(new ProtoKERLAdapter(kerl), null);
+        var outerService = new OuterContextServer(service, null);
+        var outerContextService = NettyServerBuilder.forAddress(parentEndpoint)
+                                                    .protocolNegotiator(new DomainSocketNegotiator())
+                                                    .channelType(NioServerDomainSocketChannel.class)
+                                                    .addService(kerlServer)
+                                                    .addService(outerService)
+                                                    .workerEventLoopGroup(new NioEventLoopGroup())
+                                                    .bossEventLoopGroup(new NioEventLoopGroup())
+                                                    .intercept(new DomainSocketServerInterceptor())
+                                                    .build();
+        outerContextService.start();
+
+        var parameters = DemesneParameters.newBuilder()
+                                          .setContext(context.toDigeste())
+                                          .setPortal(portalAddress)
+                                          .setParent(parentAddress)
+                                          .setCommDirectory(commDirectory.toString())
+                                          .setMaxTransfer(100)
+                                          .setFalsePositiveRate(.00125)
+                                          .build();
+
+        var demesne = new JniBridge(parameters);
+        Builder<SelfAddressingIdentifier> specification = IdentifierSpecification.newBuilder();
+        var incp = demesne.inception(identifier.getIdentifier().toIdent(), specification);
+
+        var seal = Seal.EventSeal.construct(incp.getIdentifier(), incp.hash(controller.digestAlgorithm()),
+                                            incp.getSequenceNumber().longValue());
+
+        var builder = InteractionSpecification.newBuilder().addAllSeals(Collections.singletonList(seal));
+        demesne.commit(identifier.seal(builder).toEventCoords());
+        demesne.start();
+        Thread.sleep(Duration.ofSeconds(1));
+
+        // Test idempotency: multiple stop() calls should be safe
+        demesne.stop();
+        demesne.stop();  // Second call should not throw or cause issues
+        demesne.stop();  // Third call should also be safe
+
+        assertEquals(1, registered.size());
+        assertTrue(registered.contains(context));
+    }
+
     private ManagedChannel handler(UnixDomainSocketAddress address) {
         return NettyChannelBuilder.forAddress(address)
                                   .eventLoopGroup(eventLoopGroup)

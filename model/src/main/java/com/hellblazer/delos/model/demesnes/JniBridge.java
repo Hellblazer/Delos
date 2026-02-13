@@ -34,11 +34,12 @@ import com.hellblazer.delos.stereotomy.identifier.spec.IdentifierSpecification.B
 import com.hellblazer.delos.stereotomy.identifier.spec.RotationSpecification;
 
 /**
- * Interface to SubDomain Demesne running in the GraalVM Isolate as JNI library
+ * Interface to SubDomain Demesne running in the GraalVM Isolate as JNI library.
+ * Implements AutoCloseable to ensure proper resource cleanup of native isolates.
  *
  * @author hal.hildebrand
  */
-public class JniBridge implements Demesne {
+public class JniBridge implements Demesne, AutoCloseable {
     private static final String DEMESNE_SHARED_LIB_NAME = "demesne";
     private static final Logger log                     = LoggerFactory.getLogger(JniBridge.class);
 
@@ -132,6 +133,11 @@ public class JniBridge implements Demesne {
     @Override
     public void stop() {
         stop(isolateId);
+    }
+
+    @Override
+    public void close() {
+        stop();
     }
 
     @Override

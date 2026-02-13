@@ -132,6 +132,38 @@ This provides stronger isolation than traditional JVM sandboxing (SecurityManage
 4. **Communication Isolation**: Unix domain sockets enforce message boundaries
 5. **Lifecycle Independence**: Subdomain crash does not affect parent process
 
+**Threat Model & Attack Surface**
+
+1. **JNI Bridge Compromise**
+   - If native library is exploited, attacker gains isolate access (not host JVM)
+   - Isolation boundary: Compromised isolate cannot access other isolates or host process memory
+   - Defense: GraalVM isolate guarantees enforced at native code level
+
+2. **Side-Channel Attacks**
+   - GraalVM isolates share CPU resources; timing attacks theoretically possible
+   - Mitigation: AWS Nitro Enclaves provide hardware-level CPU isolation
+   - Production deployment adds defense-in-depth via Nitro hardware boundaries
+
+3. **Unix Domain Socket Tampering**
+   - File permissions enforce process-level access control
+   - Socket files created with 0600 permissions (owner-only)
+   - Attack requires compromising parent process or OS privilege escalation
+
+4. **Isolate Escape Vulnerabilities**
+   - Requires GraalVM vulnerability in isolate boundary enforcement
+   - Mitigation: GraalVM security updates monitored and applied
+   - AWS Nitro provides additional containment if isolate escapes
+
+5. **Resource Exhaustion (DoS)**
+   - Malicious subdomain could exhaust isolate memory quota
+   - Mitigation: Per-isolate resource limits enforced by GraalVM
+   - Parent process monitors isolate health and terminates runaway subdomains
+
+6. **Information Leakage via Shared Libraries**
+   - Native libraries loaded into isolates are process-shared
+   - Mitigation: Isolates use separate heap; no shared global state
+   - Nitro deployment isolates entire enclave from host
+
 **Implementation Status**
 
 | Component | Status | Coverage | Notes |
@@ -175,9 +207,54 @@ This provides stronger isolation than traditional JVM sandboxing (SecurityManage
 **Related Beads**
 
 - Delos-wubr: Isolation strategy decision (CLOSED 2026-02-13)
-- Delos-bw18: Fix JniBridge.stop() resource leak (IN PROGRESS)
+- Delos-bw18: Fix JniBridge.stop() resource leak (CLOSED 2026-02-13)
 - Delos-0xf3: Platform-specific isolation tests (OPEN)
 - Delos-mka0: Portal routing implementation (OPEN)
+
+**Migration Strategy**
+
+The rollout of JniBridge-based isolation follows a phased approach to validate functionality and performance before production deployment:
+
+**Phase 1: Development & Local Testing** (Current)
+- Use DemesneImpl for rapid iteration and debugging
+- Test JniBridge locally on developer workstations
+- Validate Unix domain socket communication
+- Ensure feature parity between DemesneImpl and JniBridge
+
+**Phase 2: Integration Testing** (Q1 2026)
+- Deploy JniBridge to CI/CD pipeline
+- Run full test suite with GraalVM isolates enabled
+- Measure performance overhead vs DemesneImpl baseline
+- Validate resource isolation under adversarial workloads
+
+**Phase 3: Staging Deployment** (Q2 2026)
+- Deploy to AWS staging environment with Nitro Enclaves
+- Test attestation integration with KERI
+- Validate encrypted communication between host and enclave
+- Load testing with production-like traffic patterns
+- Measure latency, throughput, memory usage
+
+**Phase 4: Production Rollout** (Q3 2026)
+- Canary deployment: 5% of subdomains use JniBridge
+- Monitor for resource leaks, crashes, performance regressions
+- Gradual rollout: 25% → 50% → 100%
+- DemesneImpl remains available as fallback configuration
+
+**Phase 5: Optimization** (Q4 2026)
+- Performance tuning based on production telemetry
+- Resource quota optimization
+- Consider alternative deployment targets (Docker, other confidential compute platforms)
+
+**Rollback Plan**:
+- Configuration flag controls JniBridge vs DemesneImpl selection
+- Can revert to DemesneImpl per-subdomain or globally
+- No data migration required (state stored in SQL, not isolate)
+
+**Success Metrics**:
+- Zero isolate escape incidents
+- <5% performance overhead vs DemesneImpl
+- <1% resource leak rate
+- 99.9% uptime for subdomain lifecycle operations
 
 **Future Work**
 
