@@ -290,6 +290,19 @@ public class KerlDHT implements ProtoKERLService {
         if (identifier == null) {
             throw new IllegalArgumentException("append(KERL_) requires kerl with valid identifier in first event");
         }
+
+        // Phase 2: Lightweight pre-quorum structural validation for all events in KERL
+        for (var evt : kerl.getEventsList()) {
+            if (!validateEventWithAttachmentsStructure(evt)) {
+                var evtIdentifier = digestOf(evt, digestAlgorithm());
+                var reason = "STRUCTURAL_VALIDATION_FAILURE: KERL event has invalid structure";
+                log.warn("Pre-quorum structural validation failed: {} for event: {}", reason, evtIdentifier);
+                byzantineProvider.recordValidationFailure(evtIdentifier != null ? evtIdentifier : identifier, reason);
+                dhtMetrics.incrementValidationFailure("appendKERL", "structural");
+                // Advisory-only: Continue with append despite structural failure
+            }
+        }
+
         Instant timedOut = Instant.now().plus(operationTimeout);
         Supplier<Boolean> isTimedOut = () -> Instant.now().isAfter(timedOut);
         var result = new CompletableFuture<KeyStates>();
@@ -335,7 +348,17 @@ public class KerlDHT implements ProtoKERLService {
             throw new IllegalArgumentException("append(KeyEvent_) requires event with valid identifier");
         }
 
-        // Note: KERI validation happens post-quorum via DhtValidationPipeline (lines 1000-1012)
+        // Phase 2: Lightweight pre-quorum structural validation (Hybrid Validation)
+        // Check basic event structure without cryptographic validation
+        if (!validateEventStructure(event)) {
+            var reason = "STRUCTURAL_VALIDATION_FAILURE: Event has invalid structure (missing identifier, signatures, or type)";
+            log.warn("Pre-quorum structural validation failed: {} for identifier: {}", reason, identifier);
+            byzantineProvider.recordValidationFailure(identifier, reason);
+            dhtMetrics.incrementValidationFailure("appendEvent", "structural");
+            // Advisory-only: Continue with append despite structural failure
+        }
+
+        // Note: Full KERI cryptographic validation happens post-quorum via DhtValidationPipeline
         // to avoid deadlock from blocking DHT reads during write operations
 
         Instant timedOut = Instant.now().plus(operationTimeout);
@@ -1679,5 +1702,135 @@ public class KerlDHT implements ProtoKERLService {
         }
         // KeyStates should have at least one KeyState entry
         return keyStates.getKeyStatesCount() > 0;
+    }
+
+    /**
+     * Lightweight pre-quorum structural validation for KeyEventWithAttachments (Phase 2 - Hybrid Validation).
+     * <p>
+     * Validates KeyEventWithAttachments has the same structural requirements as KeyEvent_.
+     * </p>
+     *
+     * @param event Event with attachments to validate
+     * @return true if structurally valid, false otherwise
+     */
+    private static boolean validateEventWithAttachmentsStructure(KeyEventWithAttachments event) {
+        // Check event not null
+        if (event == null) {
+            return false;
+        }
+
+        // Check event has valid type (inception, rotation, or interaction)
+        if (!event.hasInception() && !event.hasRotation() && !event.hasInteraction()) {
+            return false;
+        }
+
+        // Extract identifier and common based on event type (same logic as KeyEvent_)
+        Ident identifier;
+        EventCommon common;
+
+        if (event.hasInception()) {
+            var inception = event.getInception();
+            identifier = inception.getIdentifier();
+            common = inception.getCommon();
+        } else if (event.hasRotation()) {
+            var rotation = event.getRotation();
+            if (!rotation.hasSpecification() || !rotation.getSpecification().hasHeader()) {
+                return false;
+            }
+            identifier = rotation.getSpecification().getHeader().getIdentifier();
+            common = rotation.getCommon();
+        } else {
+            // Interaction event
+            var interaction = event.getInteraction();
+            if (!interaction.hasSpecification() || !interaction.getSpecification().hasHeader()) {
+                return false;
+            }
+            identifier = interaction.getSpecification().getHeader().getIdentifier();
+            common = interaction.getCommon();
+        }
+
+        // Check identifier is valid and has a type set (not default, not NONE)
+        if (identifier == null || (!identifier.hasBasic() && !identifier.hasSelfAddressing()
+                                   && !identifier.hasSelfSigning())) {
+            return false;
+        }
+
+        // Check authentication signature has non-empty signatures list
+        if (common == null || !common.hasAuthentication() || common.getAuthentication().getSignaturesCount() == 0) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Lightweight pre-quorum structural validation (Phase 2 - Hybrid Validation).
+     * <p>
+     * Checks basic event structure without cryptographic validation.
+     * Post-quorum crypto validation happens via DhtValidationPipeline.
+     * </p>
+     * <p>
+     * Validates:
+     * <ul>
+     *   <li>Event has valid type (inception, rotation, or interaction)</li>
+     *   <li>Event has valid identifier (not null, initialized)</li>
+     *   <li>Event has authentication signature (not empty)</li>
+     * </ul>
+     * </p>
+     * <p>
+     * This method is package-private to enable unit testing.
+     * </p>
+     *
+     * @param event Event to validate
+     * @return true if structurally valid, false otherwise
+     */
+    static boolean validateEventStructure(KeyEvent_ event) {
+        // Check event not null (caller should check, but defensive)
+        if (event == null) {
+            return false;
+        }
+
+        // Check event has valid type (inception, rotation, or interaction)
+        if (!event.hasInception() && !event.hasRotation() && !event.hasInteraction()) {
+            return false;
+        }
+
+        // Extract identifier and common based on event type
+        Ident identifier;
+        EventCommon common;
+
+        if (event.hasInception()) {
+            var inception = event.getInception();
+            identifier = inception.getIdentifier();
+            common = inception.getCommon();
+        } else if (event.hasRotation()) {
+            var rotation = event.getRotation();
+            if (!rotation.hasSpecification() || !rotation.getSpecification().hasHeader()) {
+                return false;
+            }
+            identifier = rotation.getSpecification().getHeader().getIdentifier();
+            common = rotation.getCommon();
+        } else {
+            // Interaction event
+            var interaction = event.getInteraction();
+            if (!interaction.hasSpecification() || !interaction.getSpecification().hasHeader()) {
+                return false;
+            }
+            identifier = interaction.getSpecification().getHeader().getIdentifier();
+            common = interaction.getCommon();
+        }
+
+        // Check identifier is valid and has a type set (not default, not NONE)
+        if (identifier == null || (!identifier.hasBasic() && !identifier.hasSelfAddressing()
+                                   && !identifier.hasSelfSigning())) {
+            return false;
+        }
+
+        // Check authentication signature has non-empty signatures list
+        if (common == null || !common.hasAuthentication() || common.getAuthentication().getSignaturesCount() == 0) {
+            return false;
+        }
+
+        return true;
     }
 }
