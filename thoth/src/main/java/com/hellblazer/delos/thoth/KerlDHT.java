@@ -24,6 +24,9 @@ import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.cryptography.Verifier;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.membership.SigningMember;
+import com.hellblazer.delos.membership.byzantine.ByzantineIntelligenceCoordinator;
+import com.hellblazer.delos.membership.byzantine.ByzantineStateProvider;
+import com.hellblazer.delos.membership.byzantine.IntelligenceConfig;
 import com.hellblazer.delos.ring.SliceIterator;
 import com.hellblazer.delos.stereotomy.*;
 import com.hellblazer.delos.stereotomy.caching.CachingKERL;
@@ -868,6 +871,21 @@ public class KerlDHT implements ProtoKERLService {
             dhtMetrics.incrementQuorumFailure("getValidations");
             throw new IllegalStateException(e.getCause());
         }
+    }
+
+    /**
+     * Get the Byzantine state provider for coordinator registration.
+     * <p>
+     * The returned provider:
+     * - Reports layer name as {@link IntelligenceConfig#LAYER_THOTH}
+     * - Tracks validation failures, quorum failures, and timeouts
+     * - Can be registered with {@link ByzantineIntelligenceCoordinator#registerProvider(ByzantineStateProvider)}
+     * </p>
+     *
+     * @return The Byzantine state provider for this DHT instance
+     */
+    public ThothByzantineStateProvider getByzantineStateProvider() {
+        return byzantineProvider;
     }
 
     public Verifiers getVerifiers() {
