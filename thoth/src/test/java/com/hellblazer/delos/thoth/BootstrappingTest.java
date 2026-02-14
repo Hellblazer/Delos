@@ -120,8 +120,10 @@ public class BootstrappingTest extends AbstractDhtTest {
         assertNotEquals(Validations.getDefaultInstance(), establishment.getValidations());
         assertTrue(establishment.getValidations().getValidationsCount() >= context.majority());
         // Verify client KERL published to at least one member (enrollment happens on subset)
-        Utils.waitForCondition(30_000, 1000, () -> dhts.values().stream()
+        // Increased timeout to 60s to account for dual-executor validation overhead
+        var published = Utils.waitForCondition(60_000, 1000, () -> dhts.values().stream()
                                                         .anyMatch(d -> d.asKERL().getKeyEvent(client.getEvent().getCoordinates()) != null));
+        assertTrue(published, "Timeout waiting for client KERL to be published");
 
         // Find which member has the client event
         var keyS = dhts.values().stream()

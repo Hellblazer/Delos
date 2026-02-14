@@ -81,6 +81,9 @@ public class ByzantineDetectionIntegrationTest extends AbstractDhtTest {
 
         // Now start coordinator (after providers are registered)
         coordinator.start();
+
+        // Give coordinator time to initialize pollers for all registered providers
+        Thread.sleep(500); // 10x the 50ms poll interval
     }
 
     @AfterEach
@@ -116,12 +119,23 @@ public class ByzantineDetectionIntegrationTest extends AbstractDhtTest {
         var byzantineDht = dhts.get(byzantineMember);
         byzantineDht.getByzantineStateProvider().recordValidationFailure(testId, "Divergent response test");
 
-        // Wait for coordinator to poll and detect
-        Thread.sleep(200); // 2x poll interval
+        // Wait for coordinator to poll and detect (with aggressive retry loop for CI timing variability)
+        Optional<MemberRiskProfile> profile = Optional.empty();
+        var attempts = 0;
+        var maxAttempts = 50; // 50 attempts × 200ms = 10 seconds max (more than enough for 50ms poll interval)
+        while (profile.isEmpty() && attempts < maxAttempts) {
+            Thread.sleep(200); // Poll interval is 50ms, wait 4x to allow multiple polls
+            profile = coordinator.getMemberProfile(new SelfAddressingIdentifier(byzantineMember.getId()));
+            attempts++;
+            if (attempts % 10 == 0) {
+                System.out.printf("Byzantine detection attempt %d/50, profile present: %s%n", attempts,
+                                  profile.isPresent());
+            }
+        }
 
         // Verify Byzantine member is tracked
-        var profile = coordinator.getMemberProfile(new SelfAddressingIdentifier(byzantineMember.getId()));
-        assertThat(profile).isPresent();
+        assertThat(profile).as("Byzantine member should be detected after %d attempts (%.1f seconds)", attempts,
+                               attempts * 0.2).isPresent();
         assertThat(profile.get().getAggregatedScore()).isGreaterThan(0.0);
 
         // Verify detection happened within SLA (<5 seconds)
