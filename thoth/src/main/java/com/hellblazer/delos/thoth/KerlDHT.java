@@ -116,6 +116,7 @@ public class KerlDHT implements ProtoKERLService {
     private final CommonCommunications<ReconciliationService, Reconciliation> reconcileComms;
     private final Reconcile                                                   reconciliation = new Reconcile();
     private final ScheduledExecutorService                                    scheduler;
+    private final ExecutorService                                             validationExecutor;
     private final Service                                                     service        = new Service();
     private final AtomicBoolean                                               started        = new AtomicBoolean();
     private final Duration                                                    operationTimeout;
@@ -138,6 +139,7 @@ public class KerlDHT implements ProtoKERLService {
         this.scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual()
             .name("thoth-dht-", 0)
             .factory());
+        this.validationExecutor = Executors.newVirtualThreadPerTaskExecutor();
         var kerlAdapter = new KERLAdapter(this, digestAlgorithm);
         this.cache = new CachingKERL(f -> {
             try {
@@ -172,7 +174,7 @@ public class KerlDHT implements ProtoKERLService {
         });
         this.ani = new Ani(member.getId(), asKERL());
         this.validationPipeline = new DhtValidationPipeline(ani, asKERL(), operationTimeout, byzantineProvider,
-                                                             dhtMetrics, scheduler);
+                                                             this.dhtMetrics, scheduler);
     }
 
     /**
@@ -1031,6 +1033,22 @@ public class KerlDHT implements ProtoKERLService {
             Thread.currentThread().interrupt();
         }
 
+        // 4. Shutdown validation executor (separate from scheduler to avoid deadlock)
+        validationExecutor.shutdown();
+        try {
+            if (!validationExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+                log.warn("Validation executor did not terminate gracefully, forcing on: {}", member.getId());
+                var droppedTasks = validationExecutor.shutdownNow();
+                if (!droppedTasks.isEmpty()) {
+                    log.warn("Dropped {} validation tasks during forced shutdown on: {}", droppedTasks.size(),
+                             member.getId());
+                }
+            }
+        } catch (InterruptedException e) {
+            validationExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+
         // 5. Dispose connection pool
         connectionPool.dispose();
 
@@ -1077,6 +1095,7 @@ public class KerlDHT implements ProtoKERLService {
                     @SuppressWarnings("unchecked")
                     var providers = ((QuorumResponseTracker<KeyStates>) gathered).providersOf(keyStates);
                     // Run validation asynchronously - don't block result completion
+                    // Use separate validationExecutor to avoid scheduler deadlock (see ADR-0013)
                     var validationFuture = CompletableFuture.runAsync(() -> {
                         try {
                             var validationResult = validationPipeline.validateKeyStates(keyStates, providers);
@@ -1087,7 +1106,7 @@ public class KerlDHT implements ProtoKERLService {
                         } catch (Exception e) {
                             log.error("Validation failed with exception", e);
                         }
-                    }, scheduler);
+                    }, validationExecutor);
                     inFlightValidations.add(validationFuture);
                     validationFuture.whenComplete((v, ex) -> inFlightValidations.remove(validationFuture));
                 }
@@ -1189,10 +1208,12 @@ public class KerlDHT implements ProtoKERLService {
                              AtomicInteger tally, Optional<T> futureSailor, Digest identifier,
                              Supplier<Boolean> isTimedOut, DhtService destination, String action) {
         if (futureSailor.isEmpty()) {
-            log.debug("Failed {}: {} tally: {} from: {}  on: {}", action, identifier, tally,
-                      destination.getMember() == null ? "<null>" : destination.getMember().getId(), member.getId());
+            var destinationId = destination != null && destination.getMember() != null ?
+                                destination.getMember().getId().toString() : "<null>";
+            log.debug("Failed {}: {} tally: {} from: {}  on: {}", action, identifier, tally, destinationId,
+                      member.getId());
             // Record Byzantine provider signals for failure tracking
-            if (destination.getMember() != null) {
+            if (destination != null && destination.getMember() != null) {
                 if (isTimedOut.get()) {
                     byzantineProvider.recordTimeout(destination.getMember().getId());
                 } else {
@@ -1202,8 +1223,9 @@ public class KerlDHT implements ProtoKERLService {
             return !isTimedOut.get();
         }
         T content = futureSailor.get();
-        log.trace("{}: {} tally: {} from: {}  on: {}", action, identifier, tally.get(), destination.getMember().getId(),
-                  member.getId());
+        var destinationId = destination != null && destination.getMember() != null ?
+                            destination.getMember().getId().toString() : "<null>";
+        log.trace("{}: {} tally: {} from: {}  on: {}", action, identifier, tally.get(), destinationId, member.getId());
         gathered.add(content, respondingMember);
         var max = max(gathered);
         if (max != null) {
@@ -1220,6 +1242,7 @@ public class KerlDHT implements ProtoKERLService {
                     @SuppressWarnings("unchecked")
                     var providers = ((QuorumResponseTracker<KeyState_>) gathered).providersOf(keyState);
                     // Run validation asynchronously - don't block result completion
+                    // Use separate validationExecutor to avoid scheduler deadlock (see ADR-0013)
                     var validationFuture = CompletableFuture.runAsync(() -> {
                         try {
                             var validationResult = validationPipeline.validateKeyState(keyState, providers);
@@ -1230,7 +1253,7 @@ public class KerlDHT implements ProtoKERLService {
                         } catch (Exception e) {
                             log.error("Validation failed with exception", e);
                         }
-                    }, scheduler);
+                    }, validationExecutor);
                     inFlightValidations.add(validationFuture);
                     validationFuture.whenComplete((v, ex) -> inFlightValidations.remove(validationFuture));
                 }

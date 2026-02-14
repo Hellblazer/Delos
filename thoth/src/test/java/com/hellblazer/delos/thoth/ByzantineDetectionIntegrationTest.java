@@ -76,11 +76,11 @@ public class ByzantineDetectionIntegrationTest extends AbstractDhtTest {
         var serverMembers = new ConcurrentSkipListMap<Digest, Member>();
         identities.keySet().forEach(member -> instantiateWithCoordinator(member, context, serverMembers));
 
-        // Start coordinator BEFORE starting DHTs (providers must be registered before start)
-        coordinator.start();
-
-        // Now start DHTs (will register providers)
+        // Start DHTs first (providers must be registered before coordinator.start())
         dhts.values().forEach(dht -> dht.start(Duration.ofMillis(100)));
+
+        // Now start coordinator (after providers are registered)
+        coordinator.start();
     }
 
     @AfterEach

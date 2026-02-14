@@ -217,17 +217,10 @@ public class DhtValidationPipeline {
             // Validate each KeyState_ in the response - parallelize for performance
             var states = keyStates.getKeyStatesList();
 
-            // Create parallel validation tasks for all states
-            var validationFutures = states.stream()
-                .map(state -> CompletableFuture.supplyAsync(() -> validateKeyState(state, providers), scheduler))
-                .toList();
-
-            // Wait for all validations to complete
-            CompletableFuture.allOf(validationFutures.toArray(new CompletableFuture[0])).join();
-
-            // Check if any validation failed
-            for (var future : validationFutures) {
-                var stateResult = future.join();
+            // Validate each state sequentially (already running async from KerlDHT.completeIt)
+            // Avoid parallel validation with join() to prevent scheduler deadlock
+            for (var state : states) {
+                var stateResult = validateKeyState(state, providers);
                 if (!stateResult.valid()) {
                     // One invalid state makes the whole response invalid
                     var reason = "KeyStates contains invalid state: " + stateResult.failureReason();
