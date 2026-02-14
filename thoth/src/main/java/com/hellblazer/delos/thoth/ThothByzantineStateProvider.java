@@ -56,6 +56,7 @@ public class ThothByzantineStateProvider implements ByzantineStateProvider {
 
     // Failure thresholds for anomaly score calculation
     private static final int VALIDATION_FAILURE_WEIGHT = 3;  // High weight - cryptographic failure
+    private static final int SIGNATURE_FAILURE_WEIGHT = 3;   // High weight - response forgery
     private static final int QUORUM_FAILURE_WEIGHT = 2;      // Medium weight - consensus participation
     private static final int TIMEOUT_WEIGHT = 1;             // Lower weight - may be network issues
     private static final int MAX_FAILURE_SCORE = 10;         // Score at which anomaly = 1.0
@@ -71,6 +72,7 @@ public class ThothByzantineStateProvider implements ByzantineStateProvider {
         private static final int MAX_RECENT_SIGNALS = 5;
 
         final AtomicInteger validationFailures = new AtomicInteger();
+        final AtomicInteger signatureFailures  = new AtomicInteger();
         final AtomicInteger quorumFailures     = new AtomicInteger();
         final AtomicInteger timeouts           = new AtomicInteger();
         // CopyOnWriteArrayList avoids virtual thread pinning that synchronized blocks cause
@@ -81,6 +83,12 @@ public class ThothByzantineStateProvider implements ByzantineStateProvider {
         void recordValidation(String reason) {
             validationFailures.incrementAndGet();
             addSignal("VALIDATION_FAILURE:" + reason);
+            lastFailure = Instant.now();
+        }
+
+        void recordSignature(String reason) {
+            signatureFailures.incrementAndGet();
+            addSignal("SIGNATURE_FAILURE:" + reason);
             lastFailure = Instant.now();
         }
 
@@ -110,6 +118,7 @@ public class ThothByzantineStateProvider implements ByzantineStateProvider {
 
         double calculateScore() {
             var weightedScore = (validationFailures.get() * VALIDATION_FAILURE_WEIGHT)
+                                + (signatureFailures.get() * SIGNATURE_FAILURE_WEIGHT)
                                 + (quorumFailures.get() * QUORUM_FAILURE_WEIGHT)
                                 + (timeouts.get() * TIMEOUT_WEIGHT);
             return Math.min(1.0, (double) weightedScore / MAX_FAILURE_SCORE);
@@ -121,12 +130,12 @@ public class ThothByzantineStateProvider implements ByzantineStateProvider {
         }
 
         boolean hasFailures() {
-            return validationFailures.get() > 0 || quorumFailures.get() > 0 || timeouts.get() > 0;
+            return validationFailures.get() > 0 || signatureFailures.get() > 0 || quorumFailures.get() > 0 || timeouts.get() > 0;
         }
 
         String getSummary() {
-            return "validation=%d, quorum=%d, timeout=%d".formatted(validationFailures.get(), quorumFailures.get(),
-                                                                    timeouts.get());
+            return "validation=%d, signature=%d, quorum=%d, timeout=%d".formatted(
+                validationFailures.get(), signatureFailures.get(), quorumFailures.get(), timeouts.get());
         }
     }
 
@@ -278,6 +287,28 @@ public class ThothByzantineStateProvider implements ByzantineStateProvider {
      */
     public void recordTimeout(Digest memberId) {
         recordTimeout(new SelfAddressingIdentifier(memberId));
+    }
+
+    /**
+     * Record a signature verification failure for a member.
+     * <p>
+     * Called when response signature verification fails during DHT read operations.
+     * </p>
+     *
+     * @param memberId Identifier of the member with the signature failure
+     * @param reason   Description of the signature failure
+     */
+    public void recordSignatureFailure(Identifier memberId, String reason) {
+        var failures = memberFailures.computeIfAbsent(memberId, k -> new MemberFailures());
+        failures.recordSignature(reason);
+        log.debug("Recorded signature failure for {}: {}", memberId, reason);
+    }
+
+    /**
+     * Convenience method to record signature failure using Digest.
+     */
+    public void recordSignatureFailure(Digest memberId, String reason) {
+        recordSignatureFailure(new SelfAddressingIdentifier(memberId), reason);
     }
 
     // ========== Private Methods ==========

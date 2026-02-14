@@ -1231,13 +1231,23 @@ public class KerlDHT implements ProtoKERLService {
             return !isTimedOut.get();
         }
         T content = futureSailor.get();
+
+        // Verify write acknowledgment authenticity before adding to quorum
+        if (!verifyWriteAcknowledgment(content, respondingMember, destination)) {
+            log.warn("Write acknowledgment verification failed for {} from: {} on: {}", action,
+                     respondingMember.getId(), member.getId());
+            byzantineProvider.recordSignatureFailure(respondingMember.getId(),
+                                                     "Write acknowledgment verification failed");
+            return !isTimedOut.get();  // Reject this response, continue with quorum
+        }
+
         gathered.add(content, respondingMember);
         var max = gathered.maxEntry();
         if (max != null) {
             tally.set(max.getCount());
         }
-        log.warn("{}: {} tally: {} from: {} on: {}", action, identifier, tally.get(), destination.getMember().getId(),
-                 member.getId());
+        log.trace("{}: {} tally: {} from: {} on: {}", action, identifier, tally.get(), destination.getMember().getId(),
+                  member.getId());
         return !isTimedOut.get();
     }
 
@@ -1274,6 +1284,16 @@ public class KerlDHT implements ProtoKERLService {
             log.trace("{}: {} tally: {} from: {}  on: {}", action, identifier, tally.get(), destinationId,
                       member.getId());
         }
+
+        // Phase 2: Verify response signature before adding to quorum (advisory only)
+        if (!verifyResponseSignature(content, respondingMember, destination)) {
+            log.warn("Signature verification failed for {} from: {} on: {}", action, respondingMember.getId(),
+                     member.getId());
+            byzantineProvider.recordSignatureFailure(respondingMember.getId(),
+                                                     "Response signature verification failed");
+            return !isTimedOut.get();  // Reject this response, continue with quorum
+        }
+
         gathered.add(content, respondingMember);
         var max = max(gathered);
         if (max != null) {
@@ -1311,6 +1331,29 @@ public class KerlDHT implements ProtoKERLService {
             }
         }
         return !isTimedOut.get();
+    }
+
+    /**
+     * Verify response signature authenticity.
+     * <p>
+     * Phase 2 validation: Signature verification of DHT read responses.
+     * Currently returns true (stub) as response signatures require protobuf changes.
+     * </p>
+     * <p>
+     * See ADR-0015: Response signatures deferred (transport auth + quorum sufficient for Phase 1).
+     * When implemented, this will verify the responding member signed the response content.
+     * </p>
+     *
+     * @param content Response content to verify
+     * @param respondingMember Member that provided the response
+     * @param destination Service endpoint that returned the response
+     * @return true if signature is valid or verification not yet implemented, false if forged
+     */
+    private <T> boolean verifyResponseSignature(T content, Member respondingMember, DhtService destination) {
+        // Phase 2 implementation placeholder
+        // TODO: Implement actual signature verification when protobuf definitions include response signatures
+        // Will verify: HMAC(response_content + nonce, member_key) matches response.signature
+        return true;  // Advisory-only validation - accept all responses for now
     }
 
     private void reconcile(Update update, ReconciliationService link) {
@@ -1596,5 +1639,43 @@ public class KerlDHT implements ProtoKERLService {
             log.trace("get validations for coordinates on: {}", member.getId());
             return complete(k -> k.getValidations(coordinates));
         }
+    }
+
+    /**
+     * Verify write acknowledgment authenticity before adding to quorum.
+     * <p>
+     * Currently performs structural validation only. Full cryptographic
+     * validation deferred per ADR-0015 (transport auth + quorum sufficient).
+     * </p>
+     *
+     * @param content          Response content from member
+     * @param respondingMember Member that sent the response
+     * @param destination      Destination service
+     * @return true if response is valid, false if forged/invalid
+     */
+    private <T> boolean verifyWriteAcknowledgment(T content, Member respondingMember, DhtService destination) {
+        // For KeyStates responses, validate returned state matches expected properties
+        if (content instanceof KeyStates keyStates) {
+            // TODO: Add cryptographic validation when response signatures are implemented
+            // For now, structural validation only:
+            return validateKeyStatesStructure(keyStates);
+        }
+        // For now, return true for other types - establishes call site for future enhancement
+        // See ADR-0015: Response signatures deferred (transport auth + quorum sufficient)
+        return true;
+    }
+
+    /**
+     * Validate KeyStates structural integrity.
+     *
+     * @param keyStates KeyStates response to validate
+     * @return true if structurally valid, false otherwise
+     */
+    private boolean validateKeyStatesStructure(KeyStates keyStates) {
+        if (keyStates == null || !keyStates.isInitialized()) {
+            return false;
+        }
+        // KeyStates should have at least one KeyState entry
+        return keyStates.getKeyStatesCount() > 0;
     }
 }
