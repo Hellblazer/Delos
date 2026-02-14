@@ -74,7 +74,8 @@ public class ThothByzantineStateProvider implements ByzantineStateProvider {
         final AtomicInteger quorumFailures     = new AtomicInteger();
         final AtomicInteger timeouts           = new AtomicInteger();
         // CopyOnWriteArrayList avoids virtual thread pinning that synchronized blocks cause
-        final CopyOnWriteArrayList<String> recentSignals = new CopyOnWriteArrayList<>();
+        // Not final - reassigned during trimming for optimal performance
+        CopyOnWriteArrayList<String> recentSignals = new CopyOnWriteArrayList<>();
         volatile Instant lastFailure = Instant.now();
 
         void recordValidation(String reason) {
@@ -97,9 +98,13 @@ public class ThothByzantineStateProvider implements ByzantineStateProvider {
 
         private void addSignal(String signal) {
             recentSignals.add(signal);
-            // Trim to keep only recent signals using efficient batch removal
+            // Trim to keep only recent signals - single copy is more efficient than subList().clear()
             if (recentSignals.size() > MAX_RECENT_SIGNALS) {
-                recentSignals.subList(0, recentSignals.size() - MAX_RECENT_SIGNALS).clear();
+                // Create new list with last MAX_RECENT_SIGNALS elements
+                // This is faster than subList().clear() which copies twice
+                recentSignals = new CopyOnWriteArrayList<>(
+                    recentSignals.subList(recentSignals.size() - MAX_RECENT_SIGNALS, recentSignals.size())
+                );
             }
         }
 

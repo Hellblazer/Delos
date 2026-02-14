@@ -132,7 +132,9 @@ public class KerlDHT implements ProtoKERLService {
         this.operationsFrequency = operationsFrequency;
         this.dhtMetrics = dhtMetrics != null ? dhtMetrics : KerlDhtMetrics.noOp();
         this.byzantineProvider = new ThothByzantineStateProvider();
-        this.scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
+        this.scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual()
+            .name("thoth-dht-", 0)
+            .factory());
         var kerlAdapter = new KERLAdapter(this, digestAlgorithm);
         this.cache = new CachingKERL(f -> {
             try {
@@ -1027,6 +1029,19 @@ public class KerlDHT implements ProtoKERLService {
                     result.complete(element);
                 } catch (Exception e) {
                     log.error("Unable to complete it on {}", member.getId(), e);
+                }
+
+                // Detect divergent responses (potential Byzantine behavior)
+                var allResponses = gathered.allResponsesWithProviders();
+                for (var entry : allResponses.entrySet()) {
+                    if (!entry.getKey().equals(element)) {
+                        // Minority response differs from majority
+                        for (var provider : entry.getValue()) {
+                            byzantineProvider.recordQuorumFailure(provider.getId());
+                            log.debug("Member {} returned divergent response (minority)", provider.getId());
+                            dhtMetrics.incrementByzantineDetection("divergent_response");
+                        }
+                    }
                 }
 
                 // Phase 4: Post-quorum validation for KeyStates responses (async, advisory only)

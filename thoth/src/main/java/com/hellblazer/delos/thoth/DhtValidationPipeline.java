@@ -7,11 +7,14 @@
  */
 package com.hellblazer.delos.thoth;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.protobuf.Empty;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.stereotomy.KERL;
 import com.hellblazer.delos.stereotomy.event.EstablishmentEvent;
+import com.hellblazer.delos.stereotomy.event.KeyEvent;
 import com.hellblazer.delos.stereotomy.event.proto.KeyState_;
 import com.hellblazer.delos.thoth.metrics.KerlDhtMetrics;
 import org.slf4j.Logger;
@@ -32,6 +35,21 @@ import java.util.concurrent.ScheduledExecutorService;
  * advisory-only: failures are logged and reported but do not reject responses.
  * </p>
  * <p>
+ * Security Trade-Off: Circuit Breaker Fail-Open Policy
+ * </p>
+ * <p>
+ * When the circuit breaker opens (after 10 consecutive KERL failures), validation
+ * is skipped to prevent validation storms during infrastructure failures. This creates
+ * a limited attack window where Byzantine members could inject invalid states during
+ * KERL outages. However:
+ * </p>
+ * <ul>
+ *   <li>Quorum voting still validates majority consensus (Byzantine needs f+1 nodes)</li>
+ *   <li>Circuit closes after 1 minute (limited attack window)</li>
+ *   <li>Byzantine provider still tracks quorum failures (non-validation signals)</li>
+ *   <li>Monitoring dashboards should alert on circuit breaker state</li>
+ * </ul>
+ * <p>
  * Thread Safety: This class is thread-safe. Instances are shared across
  * concurrent virtual threads handling different quorum operations. All
  * dependencies (Ani, KERL, ByzantineProvider, Metrics) must be thread-safe.
@@ -50,6 +68,8 @@ public class DhtValidationPipeline {
     private final        KerlDhtMetrics              metrics;
     private final        ValidationCircuitBreaker    circuitBreaker;
     private final        ScheduledExecutorService    scheduler;
+    // LRU cache for establishment events to reduce KERL lookups
+    private final        Cache<EventCoordinates, KeyEvent> eventCache;
 
     public DhtValidationPipeline(Ani ani, KERL kerl, Duration validationTimeout,
                                  ThothByzantineStateProvider byzantineProvider, KerlDhtMetrics metrics,
@@ -61,6 +81,10 @@ public class DhtValidationPipeline {
         this.metrics = metrics;
         this.circuitBreaker = new ValidationCircuitBreaker(); // 10 failures, 1 minute timeout
         this.scheduler = scheduler;
+        this.eventCache = Caffeine.newBuilder()
+            .maximumSize(100)
+            .expireAfterWrite(Duration.ofMinutes(5))
+            .build();
     }
 
     /**
@@ -102,8 +126,8 @@ public class DhtValidationPipeline {
             var estCoords = EventCoordinates.from(state.getLastEstablishmentEvent());
             var validation = ani.eventValidation(validationTimeout);
 
-            // Try to validate the establishment event
-            var event = kerl.getKeyEvent(estCoords);
+            // Try to validate the establishment event - check cache first
+            var event = eventCache.get(estCoords, k -> kerl.getKeyEvent(estCoords));
             if (event == null) {
                 // Event not found in local KERL - Byzantine attack vector
                 var reason = "Establishment event not found in local KERL: " + estCoords;
