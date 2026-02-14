@@ -14,8 +14,10 @@ import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.stereotomy.KERL;
 import com.hellblazer.delos.stereotomy.event.EstablishmentEvent;
+import com.hellblazer.delos.stereotomy.event.InceptionEvent;
 import com.hellblazer.delos.stereotomy.event.KeyEvent;
 import com.hellblazer.delos.stereotomy.event.proto.KeyState_;
+import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
 import com.hellblazer.delos.thoth.metrics.KerlDhtMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -153,6 +155,25 @@ public class DhtValidationPipeline {
                 circuitBreaker.recordSuccess(); // Validation executed (even if failed), infrastructure is OK
                 metrics.recordValidationLatency("keyState", System.nanoTime() - startTime);
                 return ValidationResult.invalid(state, providers, reason, "keyState");
+            }
+
+            // Phase 3 enhancement: Validate inception events have self-addressing identifiers
+            if (event instanceof com.hellblazer.delos.stereotomy.event.InceptionEvent icp) {
+                var identifier = icp.getIdentifier();
+                if (identifier instanceof com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier sap) {
+                    // Compute hash of inception statement
+                    var computedDigest = sap.getDigest().getAlgorithm().digest(icp.getInceptionStatement());
+                    // Verify identifier matches inception statement hash
+                    if (!sap.getDigest().equals(computedDigest)) {
+                        var reason = "Self-addressing identifier digest mismatch for inception event " + estCoords +
+                                     ": expected " + sap.getDigest() + " but computed " + computedDigest;
+                        log.warn("KeyState validation failed: {} from members: {}", reason,
+                                 providers.stream().map(m -> m.getId().toString()).toList());
+                        circuitBreaker.recordSuccess(); // Validation executed, infrastructure OK
+                        metrics.recordValidationLatency("keyState", System.nanoTime() - startTime);
+                        return ValidationResult.invalid(state, providers, reason, "keyState");
+                    }
+                }
             }
 
             metrics.incrementValidationSuccess("keyState");
