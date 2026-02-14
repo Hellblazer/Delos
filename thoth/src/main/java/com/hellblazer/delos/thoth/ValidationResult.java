@@ -60,26 +60,26 @@ public record ValidationResult<T>(
      * Create an invalid result with suspect members.
      *
      * @param value    The invalid value
-     * @param suspects Members that provided this invalid value
+     * @param suspects Members that provided this invalid value (null safe)
      * @param reason   Reason for validation failure
      * @param <T>      Response type
      * @return ValidationResult indicating failure
      */
     public static <T> ValidationResult<T> invalid(T value, Set<Member> suspects, String reason) {
-        return new ValidationResult<>(value, false, reason, suspects, "");
+        return new ValidationResult<>(value, false, reason, suspects == null ? Set.of() : suspects, "");
     }
 
     /**
      * Create an invalid result with suspect members and operation.
      *
      * @param value     The invalid value
-     * @param suspects  Members that provided this invalid value
+     * @param suspects  Members that provided this invalid value (null safe)
      * @param reason    Reason for validation failure
      * @param operation Operation name
      * @param <T>       Response type
      * @return ValidationResult indicating failure
      */
     public static <T> ValidationResult<T> invalid(T value, Set<Member> suspects, String reason, String operation) {
-        return new ValidationResult<>(value, false, reason, suspects, operation);
+        return new ValidationResult<>(value, false, reason, suspects == null ? Set.of() : suspects, operation);
     }
 }

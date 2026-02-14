@@ -28,8 +28,11 @@ import java.util.Set;
  * advisory-only: failures are logged and reported but do not reject responses.
  * </p>
  * <p>
- * Thread Safety: Designed for use within read() method, single-threaded per
- * quorum operation.
+ * Thread Safety: This class is thread-safe. Instances are shared across
+ * concurrent virtual threads handling different quorum operations. All
+ * dependencies (Ani, KERL, ByzantineProvider, Metrics) must be thread-safe.
+ * QuorumResponseTracker access is protected by sequential callback execution
+ * in SliceIterator.
  * </p>
  *
  * @author hal.hildebrand
@@ -83,26 +86,46 @@ public class DhtValidationPipeline {
 
             // Try to validate the establishment event
             var event = kerl.getKeyEvent(estCoords);
-            if (event instanceof EstablishmentEvent est) {
-                if (!validation.validate(est)) {
-                    var reason = "Establishment event validation failed for " + estCoords;
-                    log.warn("KeyState validation failed: {} from members: {}", reason,
-                             providers.stream().map(m -> m.getId().toString()).toList());
-                    return ValidationResult.invalid(state, providers, reason, "keyState");
-                }
-            } else {
-                // Not an establishment event - skip validation
-                metrics.incrementValidationSkipped("keyState", "not_establishment_event");
+            if (event == null) {
+                // Event not found in local KERL - Byzantine attack vector
+                var reason = "Establishment event not found in local KERL: " + estCoords;
+                log.warn("KeyState validation failed: {} from members: {}", reason,
+                         providers.stream().map(m -> m.getId().toString()).toList());
+                return ValidationResult.invalid(state, providers, reason, "keyState");
+            }
+            if (!(event instanceof EstablishmentEvent est)) {
+                // Wrong event type - Byzantine attack vector
+                var reason = "Expected EstablishmentEvent but got " + event.getClass().getSimpleName() + " for "
+                             + estCoords;
+                log.warn("KeyState validation failed: {} from members: {}", reason,
+                         providers.stream().map(m -> m.getId().toString()).toList());
+                return ValidationResult.invalid(state, providers, reason, "keyState");
+            }
+            // Validate establishment event with Ani
+            if (!validation.validate(est)) {
+                var reason = "Establishment event validation failed for " + estCoords;
+                log.warn("KeyState validation failed: {} from members: {}", reason,
+                         providers.stream().map(m -> m.getId().toString()).toList());
+                return ValidationResult.invalid(state, providers, reason, "keyState");
             }
 
             metrics.incrementValidationSuccess("keyState");
             return ValidationResult.valid(state, "keyState");
 
         } catch (Exception e) {
-            // Validation infrastructure failure - log, report skipped, don't block
-            log.warn("Validation infrastructure error: {}", e.getMessage(), e);
-            metrics.incrementValidationSkipped("keyState", "missing_local_data");
-            return ValidationResult.valid(state, "keyState");
+            // Check if this is an infrastructure failure (data access) or unexpected error
+            var isInfrastructureFailure = isInfrastructureException(e);
+            if (isInfrastructureFailure) {
+                // Data access failure (KERL unavailable) - fail open with warning
+                log.warn("KERL access failure during validation - accepting response: {}", e.getMessage(), e);
+                metrics.incrementValidationSkipped("keyState", "kerl_access_failure");
+                return ValidationResult.valid(state, "keyState");
+            } else {
+                // Unexpected error (programming error, resource exhaustion) - fail closed to be safe
+                var reason = "Infrastructure error: " + e.getClass().getSimpleName() + ": " + e.getMessage();
+                log.error("Unexpected validation error - rejecting response: {}", reason, e);
+                return ValidationResult.invalid(state, providers, reason, "keyState");
+            }
         }
     }
 
@@ -144,10 +167,20 @@ public class DhtValidationPipeline {
             return ValidationResult.valid(keyStates, "keyStates");
 
         } catch (Exception e) {
-            // Validation infrastructure failure - log, report skipped, don't block
-            log.warn("Validation infrastructure error for KeyStates: {}", e.getMessage(), e);
-            metrics.incrementValidationSkipped("keyStates", "validation_error");
-            return ValidationResult.valid(keyStates, "keyStates");
+            // Check if this is an infrastructure failure (data access) or unexpected error
+            var isInfrastructureFailure = isInfrastructureException(e);
+            if (isInfrastructureFailure) {
+                // Data access failure (KERL unavailable) - fail open with warning
+                log.warn("KERL access failure during KeyStates validation - accepting response: {}", e.getMessage(),
+                         e);
+                metrics.incrementValidationSkipped("keyStates", "kerl_access_failure");
+                return ValidationResult.valid(keyStates, "keyStates");
+            } else {
+                // Unexpected error (programming error, resource exhaustion) - fail closed to be safe
+                var reason = "Infrastructure error: " + e.getClass().getSimpleName() + ": " + e.getMessage();
+                log.error("Unexpected KeyStates validation error - rejecting response: {}", reason, e);
+                return ValidationResult.invalid(keyStates, providers, reason, "keyStates");
+            }
         }
     }
 
@@ -163,6 +196,35 @@ public class DhtValidationPipeline {
      */
     public ValidationResult<Empty> validateEmpty(Empty empty, Set<Member> providers) {
         return ValidationResult.valid(empty, "empty");
+    }
+
+    /**
+     * Check if exception indicates infrastructure failure (data access) vs unexpected error.
+     * <p>
+     * Infrastructure failures (SQL/IO errors) should fail open (accept response).
+     * Unexpected errors (NPE, illegal state) should fail closed (reject response).
+     * </p>
+     *
+     * @param e Exception to check
+     * @return true if infrastructure failure, false if unexpected error
+     */
+    private boolean isInfrastructureException(Exception e) {
+        // Check exception and its cause chain for SQL/IO errors
+        var current = (Throwable) e;
+        while (current != null) {
+            var className = current.getClass().getName();
+            var message = current.getMessage() != null ? current.getMessage() : "";
+            // Check for SQL, IO, or database-related exceptions (class name or message)
+            if (className.contains("SQLException") || className.contains("IOException")
+                || className.contains("Database") || className.contains("Connection")
+                || className.contains("JDBCException") || message.contains("SQLException:")
+                || message.contains("IOException:") || message.contains("Database connection")
+                || message.contains("I/O error")) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     /**
