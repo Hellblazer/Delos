@@ -255,7 +255,20 @@ public class KerlDHT implements ProtoKERLService {
 
     /**
      * Validates response freshness using timestamp comparison (Phase 2).
-     * TODO Phase 3: Replace timestamp validation with cryptographic nonce verification (ADR-0015).
+     *
+     * <p><b>LIMITATION</b>: Vulnerable to clock skew attacks. Byzantine nodes with
+     * clocks significantly ahead of receiver time (greater than operationTimeout) can make stale
+     * responses appear fresh. This is mitigated by:
+     * <ul>
+     *   <li>Response signature verification (KerlDHT.java:1499-1505) prevents
+     *       cross-identifier replay attacks</li>
+     *   <li>Quorum consensus requires majority agreement, limiting single-node
+     *       clock manipulation impact</li>
+     * </ul>
+     * </p>
+     *
+     * <p>TODO Phase 3: Replace with cryptographic nonce verification (ADR-0015) for
+     * robust replay protection immune to clock skew.</p>
      *
      * @param content          Response content (currently unused, for Phase 3 nonce validation)
      * @param context          Original request context with timestamp
