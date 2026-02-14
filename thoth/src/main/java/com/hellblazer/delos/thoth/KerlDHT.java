@@ -121,6 +121,19 @@ public class KerlDHT implements ProtoKERLService {
     private final AtomicBoolean                                               started        = new AtomicBoolean();
     private final Duration                                                    operationTimeout;
     private final Set<CompletableFuture<Void>>                                inFlightValidations = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private final Map<String, RequestContext>                                 activeRequests      = new ConcurrentHashMap<>();
+
+    /**
+     * Request context for freshness validation (Phase 2: timestamp-based).
+     * Tracks operation, identifier, and timestamp to validate response freshness.
+     * Phase 3 will add cryptographic nonce for replay protection (ADR-0015).
+     *
+     * @param operation  Operation name (e.g., "getKeyState")
+     * @param identifier Identifier being queried
+     * @param timestamp  Request creation timestamp (milliseconds)
+     */
+    private record RequestContext(String operation, Digest identifier, long timestamp) {
+    }
 
     public KerlDHT(Duration operationsFrequency, Context<? extends Member> context, SigningMember member,
                    BiFunction<KerlDHT, KERL.AppendKERL, KERL.AppendKERL> wrap, JdbcConnectionPool connectionPool,
@@ -218,6 +231,67 @@ public class KerlDHT implements ProtoKERLService {
      */
     public KerlDhtMetrics getDhtMetrics() {
         return dhtMetrics;
+    }
+
+    /**
+     * Creates a request context for freshness validation (Phase 2: timestamp-based).
+     *
+     * @param operation  Operation name for tracking
+     * @param identifier Identifier being queried
+     * @return RequestContext with current timestamp
+     */
+    private RequestContext createRequestContext(String operation, Digest identifier) {
+        return new RequestContext(operation, identifier, System.currentTimeMillis());
+    }
+
+    /**
+     * Generates a unique request ID for tracking active requests.
+     *
+     * @return UUID-based request ID
+     */
+    private String generateRequestId() {
+        return UUID.randomUUID().toString();
+    }
+
+    /**
+     * Validates response freshness using timestamp comparison (Phase 2).
+     * TODO Phase 3: Replace timestamp validation with cryptographic nonce verification (ADR-0015).
+     *
+     * @param content          Response content (currently unused, for Phase 3 nonce validation)
+     * @param context          Original request context with timestamp
+     * @param respondingMember Member who sent the response
+     * @param requestId        Request ID for tracking
+     * @param <T>              Response content type
+     * @return true if response is fresh (age < operationTimeout), false otherwise
+     */
+    private <T> boolean validateResponseFreshness(T content, RequestContext context, Member respondingMember,
+                                                   String requestId) {
+        if (context == null) {
+            log.warn("Response freshness check failed: no request context for requestId={} from member={}", requestId,
+                     respondingMember.getId());
+            return false;
+        }
+
+        var currentTime = System.currentTimeMillis();
+        var responseAge = currentTime - context.timestamp;
+        var timeoutMillis = operationTimeout.toMillis();
+
+        if (responseAge > timeoutMillis) {
+            log.warn("Stale response detected: operation={}, identifier={}, age={}ms, timeout={}ms, member={}",
+                     context.operation, context.identifier, responseAge, timeoutMillis, respondingMember.getId());
+
+            // Record Byzantine signal for staleness (advisory only)
+            if (byzantineCoordinator != null) {
+                byzantineProvider.recordValidationFailure(respondingMember.getId(),
+                                                          "Stale response: age=%dms > timeout=%dms".formatted(
+                                                          responseAge, timeoutMillis));
+            }
+
+            dhtMetrics.incrementValidationFailure(context.operation, "stale_response");
+            return false;
+        }
+
+        return true;
     }
 
     public static void updateLocationHash(Identifier identifier, DigestAlgorithm digestAlgorithm, DSLContext dsl) {
@@ -681,36 +755,48 @@ public class KerlDHT implements ProtoKERLService {
         if (digest == null) {
             return KeyState_.getDefaultInstance();
         }
-        Instant timedOut = Instant.now().plus(operationTimeout);
-        Supplier<Boolean> isTimedOut = () -> Instant.now().isAfter(timedOut);
-        var result = new CompletableFuture<KeyState_>();
-        QuorumResponseTracker<KeyState_> gathered = new QuorumResponseTracker<>();
-        var slice = context.bftSubset(digest);
-        var iter = new SliceIterator<>(context.getId().toString(), member, slice, dhtComms, scheduler);
-        iter.iterate(link -> link.getKeyState(coordinates),
-                     (futureSailor, tally, destination, respondingMember) -> read(result, gathered, respondingMember,
-                                                                        tally, futureSailor, digest,
-                                                                   isTimedOut, destination, operation),
-                     () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
+
+        // Phase 2: Create request context for freshness validation
+        var requestId = generateRequestId();
+        var requestContext = createRequestContext(operation, digest);
+        activeRequests.put(requestId, requestContext);
+
         try {
-            var keyState = result.get();
-            dhtMetrics.recordReadLatency("getKeyStateCoords", System.nanoTime() - startNanos);
-            dhtMetrics.incrementQuorumSuccess("getKeyStateCoords");
-            return keyState;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            dhtMetrics.recordReadLatency("getKeyStateCoords", System.nanoTime() - startNanos);
-            dhtMetrics.incrementQuorumFailure("getKeyStateCoords");
-            return null;
-        } catch (ExecutionException e) {
-            dhtMetrics.recordReadLatency("getKeyStateCoords", System.nanoTime() - startNanos);
-            if (e.getCause() instanceof CompletionException ce) {
-                log.warn("error {} : {} on: {}", operation, ce.getMessage(), member.getId());
+            Instant timedOut = Instant.now().plus(operationTimeout);
+            Supplier<Boolean> isTimedOut = () -> Instant.now().isAfter(timedOut);
+            var result = new CompletableFuture<KeyState_>();
+            QuorumResponseTracker<KeyState_> gathered = new QuorumResponseTracker<>();
+            var slice = context.bftSubset(digest);
+            var iter = new SliceIterator<>(context.getId().toString(), member, slice, dhtComms, scheduler);
+            iter.iterate(link -> link.getKeyState(coordinates),
+                         (futureSailor, tally, destination, respondingMember) -> read(result, gathered,
+                                                                                      respondingMember, tally,
+                                                                                      futureSailor, digest, isTimedOut,
+                                                                                      destination, operation, requestId),
+                         () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
+            try {
+                var keyState = result.get();
+                dhtMetrics.recordReadLatency("getKeyStateCoords", System.nanoTime() - startNanos);
+                dhtMetrics.incrementQuorumSuccess("getKeyStateCoords");
+                return keyState;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                dhtMetrics.recordReadLatency("getKeyStateCoords", System.nanoTime() - startNanos);
                 dhtMetrics.incrementQuorumFailure("getKeyStateCoords");
-                return KeyState_.getDefaultInstance();
+                return null;
+            } catch (ExecutionException e) {
+                dhtMetrics.recordReadLatency("getKeyStateCoords", System.nanoTime() - startNanos);
+                if (e.getCause() instanceof CompletionException ce) {
+                    log.warn("error {} : {} on: {}", operation, ce.getMessage(), member.getId());
+                    dhtMetrics.incrementQuorumFailure("getKeyStateCoords");
+                    return KeyState_.getDefaultInstance();
+                }
+                dhtMetrics.incrementQuorumFailure("getKeyStateCoords");
+                throw new DhtResourceException("Get key state failed", e.getCause());
             }
-            dhtMetrics.incrementQuorumFailure("getKeyStateCoords");
-            throw new DhtResourceException("Get key state failed", e.getCause());
+        } finally {
+            // Clean up request context after operation completes
+            activeRequests.remove(requestId);
         }
     }
 
@@ -1316,6 +1402,113 @@ public class KerlDHT implements ProtoKERLService {
             byzantineProvider.recordSignatureFailure(respondingMember.getId(),
                                                      "Response signature verification failed");
             return !isTimedOut.get();  // Reject this response, continue with quorum
+        }
+
+        // Add response with equivocation detection
+        gathered.add(content, respondingMember, byzantineProvider);
+        var max = max(gathered);
+        if (max != null) {
+            tally.set(max.getCount());
+            var ctxMajority = context.size() == 1 ? 1 : context.majority();
+            final var majority = tally.get() >= ctxMajority;
+            if (majority) {
+                var element = max.getElement();
+                // Complete result immediately to reduce tail latency
+                result.complete(element);
+
+                // Phase 3: Post-quorum validation for KeyState_ responses (async, advisory only)
+                if (element instanceof KeyState_ keyState) {
+                    @SuppressWarnings("unchecked")
+                    var providers = ((QuorumResponseTracker<KeyState_>) gathered).providersOf(keyState);
+                    // Run validation asynchronously - don't block result completion
+                    // Use separate validationExecutor to avoid scheduler deadlock (see ADR-0013)
+                    var validationFuture = CompletableFuture.runAsync(() -> {
+                        try {
+                            var validationResult = validationPipeline.validateKeyState(keyState, providers);
+                            if (!validationResult.valid()) {
+                                validationPipeline.reportFailure(validationResult);
+                                log.warn("Advisory: KeyState validation failed but accepted response: {}", action);
+                            }
+                        } catch (Exception e) {
+                            log.error("Validation failed with exception", e);
+                        }
+                    }, validationExecutor);
+                    inFlightValidations.add(validationFuture);
+                    validationFuture.whenComplete((v, ex) -> inFlightValidations.remove(validationFuture));
+                }
+                log.debug("Majority: {} achieved: {}: {} tally: {} on: {}", max.getCount(), action, identifier,
+                          tally.get(), member.getId());
+                return false;
+            }
+        }
+        return !isTimedOut.get();
+    }
+
+    /**
+     * Read callback with freshness validation (Phase 2).
+     * Overloaded version that validates response freshness before adding to quorum.
+     *
+     * @param result CompletableFuture to complete with result
+     * @param gathered Quorum response tracker
+     * @param respondingMember Member providing response
+     * @param tally Current quorum tally
+     * @param futureSailor Response content
+     * @param identifier Identifier being queried
+     * @param isTimedOut Timeout predicate
+     * @param destination Destination service
+     * @param action Operation name for logging
+     * @param requestId Request ID for context lookup
+     * @param <T> Response type
+     * @return true to continue iteration, false to stop
+     */
+    private <T> boolean read(CompletableFuture<T> result, QuorumResponseTracker<T> gathered, Member respondingMember,
+                             AtomicInteger tally, Optional<T> futureSailor, Digest identifier,
+                             Supplier<Boolean> isTimedOut, DhtService destination, String action, String requestId) {
+        if (futureSailor.isEmpty()) {
+            var destinationId = destination != null && destination.getMember() != null ?
+                                destination.getMember().getId().toString() : "<null>";
+            if (destination == null) {
+                log.warn("Failed {}: {} tally: {} from: <null destination>  on: {} - this should not happen",
+                         action, identifier, tally, member.getId());
+            } else {
+                log.debug("Failed {}: {} tally: {} from: {}  on: {}", action, identifier, tally, destinationId,
+                          member.getId());
+            }
+            // Record Byzantine provider signals for failure tracking
+            if (destination != null && destination.getMember() != null) {
+                if (isTimedOut.get()) {
+                    byzantineProvider.recordTimeout(destination.getMember().getId());
+                } else {
+                    byzantineProvider.recordQuorumFailure(destination.getMember().getId());
+                }
+            }
+            return !isTimedOut.get();
+        }
+        T content = futureSailor.get();
+        var destinationId = destination != null && destination.getMember() != null ?
+                            destination.getMember().getId().toString() : "<null>";
+        if (destination == null) {
+            log.warn("{}: {} tally: {} from: <null destination>  on: {} - this should not happen", action,
+                     identifier, tally.get(), member.getId());
+        } else {
+            log.trace("{}: {} tally: {} from: {}  on: {}", action, identifier, tally.get(), destinationId,
+                      member.getId());
+        }
+
+        // Phase 2: Verify response signature before adding to quorum (advisory only)
+        if (!verifyResponseSignature(content, respondingMember, destination)) {
+            log.warn("Signature verification failed for {} from: {} on: {}", action, respondingMember.getId(),
+                     member.getId());
+            byzantineProvider.recordSignatureFailure(respondingMember.getId(),
+                                                     "Response signature verification failed");
+            return !isTimedOut.get();  // Reject this response, continue with quorum
+        }
+
+        // Phase 2: Validate response freshness (timestamp-based)
+        var requestContext = activeRequests.get(requestId);
+        if (!validateResponseFreshness(content, requestContext, respondingMember, requestId)) {
+            // Validation logged and Byzantine signal recorded by validateResponseFreshness()
+            return !isTimedOut.get();  // Reject stale response, continue with quorum
         }
 
         // Add response with equivocation detection
