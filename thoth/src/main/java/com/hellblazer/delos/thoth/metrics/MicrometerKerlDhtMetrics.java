@@ -68,6 +68,15 @@ public class MicrometerKerlDhtMetrics implements KerlDhtMetrics {
     }
 
     @Override
+    public void recordValidationLatency(String operation, long nanos) {
+        Timer.builder(PREFIX + "validation.latency")
+             .description("Post-quorum validation latency")
+             .tag("operation", operation)
+             .register(registry)
+             .record(nanos, TimeUnit.NANOSECONDS);
+    }
+
+    @Override
     public void incrementQuorumSuccess(String operation) {
         Counter.builder(PREFIX + "quorum.success")
                .description("Successful quorum operations")

@@ -27,6 +27,10 @@ public class NoOpKerlDhtMetrics implements KerlDhtMetrics {
     }
 
     @Override
+    public void recordValidationLatency(String operation, long nanos) {
+    }
+
+    @Override
     public void incrementQuorumSuccess(String operation) {
     }
 

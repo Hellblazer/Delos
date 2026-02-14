@@ -84,11 +84,13 @@ public class DhtValidationPipeline {
             return ValidationResult.valid(state, "keyState");
         }
 
+        var startTime = System.nanoTime();
         try {
             // Phase 3: Basic validation - check if state has establishment event
             if (!state.hasLastEstablishmentEvent()) {
                 // No establishment event to validate
                 metrics.incrementValidationSkipped("keyState", "no_establishment_event");
+                metrics.recordValidationLatency("keyState", System.nanoTime() - startTime);
                 return ValidationResult.valid(state, "keyState");
             }
 
@@ -103,6 +105,7 @@ public class DhtValidationPipeline {
                 var reason = "Establishment event not found in local KERL: " + estCoords;
                 log.warn("KeyState validation failed: {} from members: {}", reason,
                          providers.stream().map(m -> m.getId().toString()).toList());
+                metrics.recordValidationLatency("keyState", System.nanoTime() - startTime);
                 return ValidationResult.invalid(state, providers, reason, "keyState");
             }
             if (!(event instanceof EstablishmentEvent est)) {
@@ -111,6 +114,7 @@ public class DhtValidationPipeline {
                              + estCoords;
                 log.warn("KeyState validation failed: {} from members: {}", reason,
                          providers.stream().map(m -> m.getId().toString()).toList());
+                metrics.recordValidationLatency("keyState", System.nanoTime() - startTime);
                 return ValidationResult.invalid(state, providers, reason, "keyState");
             }
             // Validate establishment event with Ani
@@ -119,11 +123,13 @@ public class DhtValidationPipeline {
                 log.warn("KeyState validation failed: {} from members: {}", reason,
                          providers.stream().map(m -> m.getId().toString()).toList());
                 circuitBreaker.recordSuccess(); // Validation executed (even if failed), infrastructure is OK
+                metrics.recordValidationLatency("keyState", System.nanoTime() - startTime);
                 return ValidationResult.invalid(state, providers, reason, "keyState");
             }
 
             metrics.incrementValidationSuccess("keyState");
             circuitBreaker.recordSuccess(); // Validation succeeded
+            metrics.recordValidationLatency("keyState", System.nanoTime() - startTime);
             return ValidationResult.valid(state, "keyState");
 
         } catch (Exception e) {
@@ -134,12 +140,14 @@ public class DhtValidationPipeline {
                 circuitBreaker.recordFailure(); // Infrastructure failing - increment circuit breaker
                 log.warn("KERL access failure during validation - accepting response: {}", e.getMessage(), e);
                 metrics.incrementValidationSkipped("keyState", "kerl_access_failure");
+                metrics.recordValidationLatency("keyState", System.nanoTime() - startTime);
                 return ValidationResult.valid(state, "keyState");
             } else {
                 // Unexpected error (programming error, resource exhaustion) - fail closed to be safe
                 circuitBreaker.recordSuccess(); // Validation executed, infrastructure is OK (even if logic error)
                 var reason = "Infrastructure error: " + e.getClass().getSimpleName() + ": " + e.getMessage();
                 log.error("Unexpected validation error - rejecting response: {}", reason, e);
+                metrics.recordValidationLatency("keyState", System.nanoTime() - startTime);
                 return ValidationResult.invalid(state, providers, reason, "keyState");
             }
         }
@@ -176,6 +184,7 @@ public class DhtValidationPipeline {
             return ValidationResult.valid(keyStates, "keyStates");
         }
 
+        var startTime = System.nanoTime();
         try {
             // Validate each KeyState_ in the response - parallelize for performance
             var states = keyStates.getKeyStatesList();
@@ -196,12 +205,14 @@ public class DhtValidationPipeline {
                     var reason = "KeyStates contains invalid state: " + stateResult.failureReason();
                     log.warn("KeyStates validation failed: {} from members: {}", reason,
                              providers.stream().map(m -> m.getId().toString()).toList());
+                    metrics.recordValidationLatency("keyStates", System.nanoTime() - startTime);
                     return ValidationResult.invalid(keyStates, providers, reason, "keyStates");
                 }
             }
 
             metrics.incrementValidationSuccess("keyStates");
             circuitBreaker.recordSuccess(); // Validation succeeded
+            metrics.recordValidationLatency("keyStates", System.nanoTime() - startTime);
             return ValidationResult.valid(keyStates, "keyStates");
 
         } catch (Exception e) {
@@ -213,12 +224,14 @@ public class DhtValidationPipeline {
                 log.warn("KERL access failure during KeyStates validation - accepting response: {}", e.getMessage(),
                          e);
                 metrics.incrementValidationSkipped("keyStates", "kerl_access_failure");
+                metrics.recordValidationLatency("keyStates", System.nanoTime() - startTime);
                 return ValidationResult.valid(keyStates, "keyStates");
             } else {
                 // Unexpected error (programming error, resource exhaustion) - fail closed to be safe
                 circuitBreaker.recordSuccess(); // Validation executed, infrastructure is OK (even if logic error)
                 var reason = "Infrastructure error: " + e.getClass().getSimpleName() + ": " + e.getMessage();
                 log.error("Unexpected KeyStates validation error - rejecting response: {}", reason, e);
+                metrics.recordValidationLatency("keyStates", System.nanoTime() - startTime);
                 return ValidationResult.invalid(keyStates, providers, reason, "keyStates");
             }
         }

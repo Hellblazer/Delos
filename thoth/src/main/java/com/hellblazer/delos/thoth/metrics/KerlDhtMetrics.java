@@ -23,6 +23,8 @@ public interface KerlDhtMetrics {
 
     void recordReconciliationLatency(long nanos);
 
+    void recordValidationLatency(String operation, long nanos);
+
     // --- Quorum Outcomes (Counter) ---
 
     void incrementQuorumSuccess(String operation);
