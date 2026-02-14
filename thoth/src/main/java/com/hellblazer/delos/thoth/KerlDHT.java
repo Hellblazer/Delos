@@ -307,6 +307,8 @@ public class KerlDHT implements ProtoKERLService {
             return null;
         }
 
+        log.warn("TRACE: append() ENTRY - identifier: {} on: {}", identifier, member.getId());
+
         // Note: KERI validation happens post-quorum via DhtValidationPipeline (lines 1000-1012)
         // to avoid deadlock from blocking DHT reads during write operations
 
@@ -315,14 +317,19 @@ public class KerlDHT implements ProtoKERLService {
         var result = new CompletableFuture<KeyStates>();
         QuorumResponseTracker<KeyStates> gathered = new QuorumResponseTracker<>();
         var slice = context.bftSubset(identifier);
+        log.warn("TRACE: append() BFT subset - identifier: {} slice size: {} members: {} on: {}",
+                 identifier, slice.size(), slice.stream().map(m -> m.getId()).toList(), member.getId());
         var iterator = new SliceIterator<>(context.getId().toString(), member, slice, dhtComms, scheduler);
         try {
+            log.warn("TRACE: append() BEFORE iterate - identifier: {} on: {}", identifier, member.getId());
             iterator.iterate((link) -> link.append(Collections.singletonList(event)),
                              (futureSailor, tally, link, respondingMember) -> mutate(gathered, futureSailor, respondingMember,
                                                                      identifier, isTimedOut,
                                                                       tally, link, "append kerl"),
                              () -> completeIt(result, gathered), operationsFrequency);
+            log.warn("TRACE: append() AFTER iterate, BEFORE get - identifier: {} on: {}", identifier, member.getId());
             var ks = result.get();
+            log.warn("TRACE: append() AFTER get - identifier: {} result: {} on: {}", identifier, ks, member.getId());
             dhtMetrics.recordWriteLatency("appendEvent", System.nanoTime() - startNanos);
             dhtMetrics.incrementQuorumSuccess("appendEvent");
             return ks.getKeyStatesCount() == 0 ? KeyState_.getDefaultInstance() : ks.getKeyStatesList().getFirst();
@@ -556,7 +563,7 @@ public class KerlDHT implements ProtoKERLService {
             return KeyEvent_.getDefaultInstance();
         }
         var operation = "getKeyEvent(%s)".formatted(EventCoordinates.from(coordinates));
-        log.trace("{} on: {}", operation, member.getId());
+        log.warn("TRACE: getKeyEvent() ENTRY - coords: {} on: {}", EventCoordinates.from(coordinates), member.getId());
         if (coordinates == null) {
             return KeyEvent_.getDefaultInstance();
         }
@@ -570,11 +577,8 @@ public class KerlDHT implements ProtoKERLService {
         QuorumResponseTracker<KeyEvent_> gathered = new QuorumResponseTracker<>();
         var slice = context.bftSubset(digest);
         var iter = new SliceIterator<>(context.getId().toString(), member, slice, dhtComms, scheduler);
-        iter.iterate(link -> link.getKeyEvent(coordinates),
-                     (futureSailor, tally, destination, respondingMember) -> read(result, gathered, respondingMember,
-                                                                        tally, futureSailor, digest,
-                                                                   isTimedOut, destination, operation),
-                     () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
+        result = iter.voteAsync(link -> link.getKeyEvent(coordinates), context.majority(), operationsFrequency,
+                                operationTimeout);
         try {
             return result.get();
         } catch (InterruptedException e) {
@@ -961,14 +965,18 @@ public class KerlDHT implements ProtoKERLService {
     }
 
     private <T> void completeIt(CompletableFuture<T> result, QuorumResponseTracker<T> gathered) {
+        log.warn("TRACE: completeIt() ENTRY - gathered count: {} on: {}", gathered.maxCount(), member.getId());
         var max = gathered.maxEntry();
         var majority = context.size() == 1 ? 1 : context.majority();
+        log.warn("TRACE: completeIt() - max: {} majority: {} on: {}", max != null ? max.getCount() : "null", majority, member.getId());
         if (max != null) {
             if (max.getCount() >= majority) {
                 var element = max.getElement();
+                log.warn("TRACE: completeIt() QUORUM ACHIEVED - count: {} >= majority: {} on: {}", max.getCount(), majority, member.getId());
                 // Complete result immediately to reduce tail latency
                 try {
                     result.complete(element);
+                    log.warn("TRACE: completeIt() result.complete() SUCCESS on: {}", member.getId());
                 } catch (Throwable t) {
                     log.error("Unable to complete it on {}", member.getId(), t);
                 }
@@ -987,10 +995,13 @@ public class KerlDHT implements ProtoKERLService {
                     }, scheduler);
                 }
                 return;
+            } else {
+                log.warn("TRACE: completeIt() QUORUM NOT ACHIEVED - count: {} < majority: {} on: {}", max.getCount(), majority, member.getId());
             }
         } else {
-            log.warn("Unable to achieve majority, max agree: 0 required: {}", majority + " on: {}", member.getId());
+            log.warn("Unable to achieve majority, max agree: 0 required: {} on: {}", majority, member.getId());
         }
+        log.warn("TRACE: completeIt() completing EXCEPTIONALLY - max: {} required: {} on: {}", max == null ? 0 : max.getCount(), majority, member.getId());
         result.completeExceptionally(new CompletionException(
         "Unable to achieve majority, max: " + (max == null ? 0 : max.getCount()) + " required: " + majority + " on: "
         + member.getId()));
@@ -1085,6 +1096,7 @@ public class KerlDHT implements ProtoKERLService {
     private <T> boolean read(CompletableFuture<T> result, QuorumResponseTracker<T> gathered, Member respondingMember,
                              AtomicInteger tally, Optional<T> futureSailor, Digest identifier,
                              Supplier<Boolean> isTimedOut, DhtService destination, String action) {
+        log.warn("TRACE: read() ENTRY - action: {} identifier: {} response: {} on: {}", action, identifier, futureSailor.isPresent() ? "present" : "empty", member.getId());
         if (futureSailor.isEmpty()) {
             log.debug("Failed {}: {} tally: {} from: {}  on: {}", action, identifier, tally,
                       destination.getMember() == null ? "<null>" : destination.getMember().getId(), member.getId());
@@ -1096,7 +1108,9 @@ public class KerlDHT implements ProtoKERLService {
                     byzantineProvider.recordQuorumFailure(destination.getMember().getId());
                 }
             }
-            return !isTimedOut.get();
+            boolean continueIter = !isTimedOut.get();
+            log.warn("TRACE: read() RETURN (empty) - continue: {} timedOut: {} on: {}", continueIter, isTimedOut.get(), member.getId());
+            return continueIter;
         }
         T content = futureSailor.get();
         log.trace("{}: {} tally: {} from: {}  on: {}", action, identifier, tally.get(), destination.getMember().getId(),
@@ -1127,13 +1141,15 @@ public class KerlDHT implements ProtoKERLService {
                 }
                 log.debug("Majority: {} achieved: {}: {} tally: {} on: {}", max.getCount(), action, identifier,
                           tally.get(), member.getId());
+                log.warn("TRACE: read() RETURN (majority achieved) - continue: false tally: {} >= majority: {} on: {}", tally.get(), ctxMajority, member.getId());
                 return false;
             } else {
-                log.info("Majority: {} required: {} not achieved: {}: {} tally: {} on: {}", max.getCount(), ctxMajority,
-                         action, identifier, tally.get(), member.getId());
+                log.warn("TRACE: read() NOT MAJORITY YET - tally: {} < majority: {} on: {}", tally.get(), ctxMajority, member.getId());
             }
         }
-        return !isTimedOut.get();
+        boolean continueIter = !isTimedOut.get();
+        log.warn("TRACE: read() RETURN (not majority) - continue: {} tally: {} timedOut: {} on: {}", continueIter, tally.get(), isTimedOut.get(), member.getId());
+        return continueIter;
     }
 
     private void reconcile(Update update, ReconciliationService link) {
@@ -1353,9 +1369,12 @@ public class KerlDHT implements ProtoKERLService {
 
         @Override
         public KeyEvent_ getKeyEvent(EventCoords coordinates) {
-            log.trace("get key event for coordinates on: {}", member.getId());
+            log.warn("TRACE: SERVER getKeyEvent() REQUEST - coords: {} on: {}", EventCoordinates.from(coordinates), member.getId());
             final Function<ProtoKERLAdapter, KeyEvent_> func = k -> k.getKeyEvent(coordinates);
-            return complete(func);
+            var result = complete(func);
+            log.warn("TRACE: SERVER getKeyEvent() RESPONSE - coords: {} result: {} on: {}",
+                     EventCoordinates.from(coordinates), result != null ? "present" : "null", member.getId());
+            return result;
         }
 
         @Override
