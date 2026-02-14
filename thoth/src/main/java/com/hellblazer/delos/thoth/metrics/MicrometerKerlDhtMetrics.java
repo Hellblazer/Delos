@@ -141,25 +141,35 @@ public class MicrometerKerlDhtMetrics implements KerlDhtMetrics {
 
     @Override
     public void incrementMemberTimeout(String memberId) {
-        registry.counter(PREFIX + "member.timeout", "member", memberId)
+        Counter.builder(PREFIX + "member.timeout")
+               .description("Member timeout failures")
+               .tag("member", memberId)
+               .register(registry)
                .increment();
     }
 
     @Override
     public void incrementMemberCommunicationFailure(String memberId) {
-        registry.counter(PREFIX + "member.failure", "member", memberId)
+        Counter.builder(PREFIX + "member.failure")
+               .description("Member communication failures")
+               .tag("member", memberId)
+               .register(registry)
                .increment();
     }
 
     @Override
     public void recordReconciliationEventsReceived(int count) {
-        registry.counter(PREFIX + "reconciliation.events.received")
+        Counter.builder(PREFIX + "reconciliation.events.received")
+               .description("Reconciliation events received")
+               .register(registry)
                .increment(count);
     }
 
     @Override
     public void recordReconciliationEventsSent(int count) {
-        registry.counter(PREFIX + "reconciliation.events.sent")
+        Counter.builder(PREFIX + "reconciliation.events.sent")
+               .description("Reconciliation events sent")
+               .register(registry)
                .increment(count);
     }
 

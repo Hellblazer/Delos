@@ -305,7 +305,9 @@ public class KerlDHT implements ProtoKERLService {
         // Validate event via Ani if identifier already exists in KERL
         // Note: Pre-write validation requires event to exist in local KERL first
         var eventId = new com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier(identifier);
-        try {
+        var existingKeyState = kerl.getKeyState(eventId);
+        if (existingKeyState != null) {
+            // Event exists in KERL - validate it
             boolean valid = ani.eventValidation(operationTimeout).validate(eventId);
             if (!valid) {
                 dhtMetrics.incrementValidationFailure("appendEvent", "KERI validation failed");
@@ -318,7 +320,7 @@ public class KerlDHT implements ProtoKERLService {
                 );
             }
             dhtMetrics.incrementValidationSuccess("appendEvent");
-        } catch (NullPointerException e) {
+        } else {
             // Event not yet in KERL - validation will happen post-write
             dhtMetrics.incrementValidationSkipped("appendEvent", "identifier not in KERL");
             log.trace("Skipping validation for new identifier: {} on: {}", eventId, member.getId());
