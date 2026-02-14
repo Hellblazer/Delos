@@ -307,32 +307,8 @@ public class KerlDHT implements ProtoKERLService {
             return null;
         }
 
-        // Validate event via Ani if identifier already exists in KERL
-        // Note: Pre-write validation requires event to exist in local KERL first
-        var eventId = new com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier(identifier);
-        var existingKeyState = kerl.getKeyState(eventId);
-        if (existingKeyState != null) {
-            // Event exists in KERL - validate it
-            boolean valid = ani.eventValidation(operationTimeout).validate(eventId);
-            if (!valid) {
-                dhtMetrics.incrementValidationFailure("appendEvent", "KERI validation failed");
-                // Record validation failure for Byzantine detection
-                // This tracks identifiers with invalid KERI events, which may indicate
-                // forgery, equivocation, or other Byzantine behavior
-                byzantineProvider.recordValidationFailure(eventId, "KERI event validation failed");
-                log.warn("KERI validation failed for event: {} on: {}", eventId, member.getId());
-                throw new com.hellblazer.delos.thoth.exception.DhtSignatureValidationException(
-                    "appendEvent",
-                    "KERI event validation failed for identifier: " + eventId,
-                    Set.of()
-                );
-            }
-            dhtMetrics.incrementValidationSuccess("appendEvent");
-        } else {
-            // Event not yet in KERL - validation will happen post-write
-            dhtMetrics.incrementValidationSkipped("appendEvent", "identifier not in KERL");
-            log.trace("Skipping validation for new identifier: {} on: {}", eventId, member.getId());
-        }
+        // Note: KERI validation happens post-quorum via DhtValidationPipeline (lines 1000-1012)
+        // to avoid deadlock from blocking DHT reads during write operations
 
         Instant timedOut = Instant.now().plus(operationTimeout);
         Supplier<Boolean> isTimedOut = () -> Instant.now().isAfter(timedOut);
