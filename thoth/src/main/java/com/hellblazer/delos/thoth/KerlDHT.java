@@ -1241,7 +1241,8 @@ public class KerlDHT implements ProtoKERLService {
             return !isTimedOut.get();  // Reject this response, continue with quorum
         }
 
-        gathered.add(content, respondingMember);
+        // Add response with equivocation detection
+        gathered.add(content, respondingMember, byzantineProvider);
         var max = gathered.maxEntry();
         if (max != null) {
             tally.set(max.getCount());
@@ -1294,7 +1295,8 @@ public class KerlDHT implements ProtoKERLService {
             return !isTimedOut.get();  // Reject this response, continue with quorum
         }
 
-        gathered.add(content, respondingMember);
+        // Add response with equivocation detection
+        gathered.add(content, respondingMember, byzantineProvider);
         var max = max(gathered);
         if (max != null) {
             tally.set(max.getCount());

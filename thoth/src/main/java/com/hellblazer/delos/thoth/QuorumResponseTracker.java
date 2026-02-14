@@ -35,6 +35,7 @@ import java.util.Set;
  */
 public class QuorumResponseTracker<T> {
     private final Map<T, Set<Member>>  responseProviders = new HashMap<>();
+    private final Map<Member, T>       memberResponses   = new HashMap<>();
     private final HashMultiset<T>      responseCounts    = HashMultiset.create();
 
     /**
@@ -47,7 +48,52 @@ public class QuorumResponseTracker<T> {
         responseCounts.add(response);
         if (provider != null) {
             responseProviders.computeIfAbsent(response, _ -> new HashSet<>()).add(provider);
+            memberResponses.put(provider, response);
         }
+    }
+
+    /**
+     * Add a response from a member with Byzantine equivocation detection.
+     * <p>
+     * Detects when a member provides DIFFERENT responses for the SAME query
+     * within a single quorum operation (equivocation). Records Byzantine signal
+     * but still adds the response to allow quorum to complete.
+     * </p>
+     *
+     * @param response          Response value
+     * @param provider          Member that provided this response (null safe)
+     * @param byzantineProvider Provider to record equivocation signals
+     */
+    public void add(T response, Member provider, ThothByzantineStateProvider byzantineProvider) {
+        if (provider != null && byzantineProvider != null) {
+            var previousResponse = memberResponses.get(provider);
+            if (previousResponse != null && !previousResponse.equals(response)) {
+                // EQUIVOCATION DETECTED: Same member, different response
+                byzantineProvider.recordValidationFailure(provider.getId(),
+                                                          "EQUIVOCATION: Member provided conflicting responses");
+            }
+        }
+        add(response, provider);
+    }
+
+    /**
+     * Check if this tracker has received a response from a specific member.
+     *
+     * @param member Member to check
+     * @return true if member has provided at least one response
+     */
+    public boolean hasResponse(Member member) {
+        return memberResponses.containsKey(member);
+    }
+
+    /**
+     * Get the response provided by a specific member.
+     *
+     * @param member Member to query
+     * @return The response from this member, or null if no response
+     */
+    public T getResponse(Member member) {
+        return memberResponses.get(member);
     }
 
     /**
