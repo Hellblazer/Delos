@@ -1001,21 +1001,26 @@ public class KerlDHT implements ProtoKERLService {
         var majority = context.size() == 1 ? 1 : context.majority();
         if (max != null) {
             if (max.getCount() >= majority) {
-                // Phase 4: Post-quorum validation for KeyStates responses (advisory only)
                 var element = max.getElement();
-                if (element instanceof KeyStates keyStates) {
-                    @SuppressWarnings("unchecked")
-                    var providers = ((QuorumResponseTracker<KeyStates>) gathered).providersOf(keyStates);
-                    var validationResult = validationPipeline.validateKeyStates(keyStates, providers);
-                    if (!validationResult.valid()) {
-                        validationPipeline.reportFailure(validationResult);
-                        log.warn("Advisory: KeyStates validation failed but accepting response");
-                    }
-                }
+                // Complete result immediately to reduce tail latency
                 try {
                     result.complete(element);
                 } catch (Throwable t) {
                     log.error("Unable to complete it on {}", member.getId(), t);
+                }
+
+                // Phase 4: Post-quorum validation for KeyStates responses (async, advisory only)
+                if (element instanceof KeyStates keyStates) {
+                    @SuppressWarnings("unchecked")
+                    var providers = ((QuorumResponseTracker<KeyStates>) gathered).providersOf(keyStates);
+                    // Run validation asynchronously - don't block result completion
+                    CompletableFuture.runAsync(() -> {
+                        var validationResult = validationPipeline.validateKeyStates(keyStates, providers);
+                        if (!validationResult.valid()) {
+                            validationPipeline.reportFailure(validationResult);
+                            log.warn("Advisory: KeyStates validation failed but accepted response");
+                        }
+                    }, scheduler);
                 }
                 return;
             }
@@ -1216,18 +1221,23 @@ public class KerlDHT implements ProtoKERLService {
             var ctxMajority = context.size() == 1 ? 1 : context.majority();
             final var majority = tally.get() >= ctxMajority;
             if (majority) {
-                // Phase 3: Post-quorum validation for KeyState_ responses (advisory only)
                 var element = max.getElement();
+                // Complete result immediately to reduce tail latency
+                result.complete(element);
+
+                // Phase 3: Post-quorum validation for KeyState_ responses (async, advisory only)
                 if (element instanceof KeyState_ keyState) {
                     @SuppressWarnings("unchecked")
                     var providers = ((QuorumResponseTracker<KeyState_>) gathered).providersOf(keyState);
-                    var validationResult = validationPipeline.validateKeyState(keyState, providers);
-                    if (!validationResult.valid()) {
-                        validationPipeline.reportFailure(validationResult);
-                        log.warn("Advisory: KeyState validation failed but accepting response: {}", action);
-                    }
+                    // Run validation asynchronously - don't block result completion
+                    CompletableFuture.runAsync(() -> {
+                        var validationResult = validationPipeline.validateKeyState(keyState, providers);
+                        if (!validationResult.valid()) {
+                            validationPipeline.reportFailure(validationResult);
+                            log.warn("Advisory: KeyState validation failed but accepted response: {}", action);
+                        }
+                    }, scheduler);
                 }
-                result.complete(element);
                 log.debug("Majority: {} achieved: {}: {} tally: {} on: {}", max.getCount(), action, identifier,
                           tally.get(), member.getId());
                 return false;
