@@ -225,6 +225,114 @@ public class KerlDHTAniValidationIntegrationTest {
         assertThat(result).isFalse();
     }
 
+    @Test
+    @DisplayName("Event with empty selfAddressing hash fails structural validation")
+    void testEmptySelfAddressingHashFails() {
+        // Given: Event with empty hash list in selfAddressing identifier
+        var emptyHash = Digeste.newBuilder()
+            .setType(1)
+            .build(); // No hash values
+        var event = KeyEvent_.newBuilder()
+            .setInception(InceptionEvent.newBuilder()
+                .setIdentifier(Ident.newBuilder().setSelfAddressing(emptyHash).build())
+                .setCommon(createValidCommon())
+                .build())
+            .build();
+
+        // When: Structural validation is performed
+        var result = KerlDHT.validateEventStructure(event);
+
+        // Then: Event fails validation
+        assertThat(result).isFalse();
+    }
+
+    @Test
+    @DisplayName("Event with empty basic PubKey encoded bytes fails structural validation")
+    void testEmptyBasicEncodedBytesFails() {
+        // Given: Event with empty encoded bytes in basic identifier
+        var emptyKey = com.hellblazer.delos.cryptography.proto.PubKey.newBuilder()
+            .setCode(1)
+            .setEncoded(ByteString.EMPTY)
+            .build();
+        var event = KeyEvent_.newBuilder()
+            .setInception(InceptionEvent.newBuilder()
+                .setIdentifier(Ident.newBuilder().setBasic(emptyKey).build())
+                .setCommon(createValidCommon())
+                .build())
+            .build();
+
+        // When: Structural validation is performed
+        var result = KerlDHT.validateEventStructure(event);
+
+        // Then: Event fails validation
+        assertThat(result).isFalse();
+    }
+
+    @Test
+    @DisplayName("Event with too-short basic PubKey encoded bytes fails structural validation")
+    void testTooShortBasicEncodedBytesFails() {
+        // Given: Event with encoded bytes shorter than minimum (32 bytes)
+        var shortKey = com.hellblazer.delos.cryptography.proto.PubKey.newBuilder()
+            .setCode(1)
+            .setEncoded(ByteString.copyFrom(new byte[16])) // Only 16 bytes, need 32 minimum
+            .build();
+        var event = KeyEvent_.newBuilder()
+            .setInception(InceptionEvent.newBuilder()
+                .setIdentifier(Ident.newBuilder().setBasic(shortKey).build())
+                .setCommon(createValidCommon())
+                .build())
+            .build();
+
+        // When: Structural validation is performed
+        var result = KerlDHT.validateEventStructure(event);
+
+        // Then: Event fails validation
+        assertThat(result).isFalse();
+    }
+
+    @Test
+    @DisplayName("Event with empty selfSigning signatures fails structural validation")
+    void testEmptySelfSigningSignaturesFails() {
+        // Given: Event with empty signatures list in selfSigning identifier
+        var emptySig = Sig.newBuilder()
+            .setCode(1)
+            .build(); // No signatures
+        var event = KeyEvent_.newBuilder()
+            .setInception(InceptionEvent.newBuilder()
+                .setIdentifier(Ident.newBuilder().setSelfSigning(emptySig).build())
+                .setCommon(createValidCommon())
+                .build())
+            .build();
+
+        // When: Structural validation is performed
+        var result = KerlDHT.validateEventStructure(event);
+
+        // Then: Event fails validation
+        assertThat(result).isFalse();
+    }
+
+    @Test
+    @DisplayName("Event with too-short selfSigning signature bytes fails structural validation")
+    void testTooShortSelfSigningSignatureFails() {
+        // Given: Event with signature bytes shorter than minimum (32 bytes)
+        var shortSig = Sig.newBuilder()
+            .setCode(1)
+            .addSignatures(ByteString.copyFrom(new byte[16])) // Only 16 bytes, need 32 minimum
+            .build();
+        var event = KeyEvent_.newBuilder()
+            .setInception(InceptionEvent.newBuilder()
+                .setIdentifier(Ident.newBuilder().setSelfSigning(shortSig).build())
+                .setCommon(createValidCommon())
+                .build())
+            .build();
+
+        // When: Structural validation is performed
+        var result = KerlDHT.validateEventStructure(event);
+
+        // Then: Event fails validation
+        assertThat(result).isFalse();
+    }
+
     // Helper methods
 
     private KeyEvent_ createValidInceptionEvent() {

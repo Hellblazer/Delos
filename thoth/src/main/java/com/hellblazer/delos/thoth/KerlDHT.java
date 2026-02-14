@@ -234,6 +234,15 @@ public class KerlDHT implements ProtoKERLService {
     }
 
     /**
+     * Get current time in milliseconds. Protected for testing.
+     *
+     * @return current time in milliseconds since epoch
+     */
+    protected long currentTimeMillis() {
+        return System.currentTimeMillis();
+    }
+
+    /**
      * Creates a request context for freshness validation (Phase 2: timestamp-based).
      *
      * @param operation  Operation name for tracking
@@ -241,7 +250,7 @@ public class KerlDHT implements ProtoKERLService {
      * @return RequestContext with current timestamp
      */
     private RequestContext createRequestContext(String operation, Digest identifier) {
-        return new RequestContext(operation, identifier, System.currentTimeMillis());
+        return new RequestContext(operation, identifier, currentTimeMillis());
     }
 
     /**
@@ -285,7 +294,7 @@ public class KerlDHT implements ProtoKERLService {
             return false;
         }
 
-        var currentTime = System.currentTimeMillis();
+        var currentTime = currentTimeMillis();
         var responseAge = currentTime - context.timestamp;
         var timeoutMillis = operationTimeout.toMillis();
 
@@ -1961,6 +1970,34 @@ public class KerlDHT implements ProtoKERLService {
             return false;
         }
 
+        // Validate identifier content is non-empty and meets minimum requirements
+        if (identifier.hasBasic()) {
+            var basic = identifier.getBasic();
+            // PubKey.encoded must be non-empty and at least 32 bytes
+            if (basic.getEncoded().isEmpty() || basic.getEncoded().size() < 32) {
+                return false;
+            }
+        }
+        if (identifier.hasSelfAddressing()) {
+            var selfAddr = identifier.getSelfAddressing();
+            // Digeste.hash must be non-empty (repeated uint64)
+            if (selfAddr.getHashCount() == 0) {
+                return false;
+            }
+        }
+        if (identifier.hasSelfSigning()) {
+            var selfSign = identifier.getSelfSigning();
+            // Sig.signatures must be non-empty and each signature at least 32 bytes
+            if (selfSign.getSignaturesCount() == 0) {
+                return false;
+            }
+            for (var sig : selfSign.getSignaturesList()) {
+                if (sig.isEmpty() || sig.size() < 32) {
+                    return false;
+                }
+            }
+        }
+
         // Check authentication signature has non-empty signatures list
         if (common == null || !common.hasAuthentication() || common.getAuthentication().getSignaturesCount() == 0) {
             return false;
@@ -2030,6 +2067,34 @@ public class KerlDHT implements ProtoKERLService {
         if (identifier == null || (!identifier.hasBasic() && !identifier.hasSelfAddressing()
                                    && !identifier.hasSelfSigning())) {
             return false;
+        }
+
+        // Validate identifier content is non-empty and meets minimum requirements
+        if (identifier.hasBasic()) {
+            var basic = identifier.getBasic();
+            // PubKey.encoded must be non-empty and at least 32 bytes
+            if (basic.getEncoded().isEmpty() || basic.getEncoded().size() < 32) {
+                return false;
+            }
+        }
+        if (identifier.hasSelfAddressing()) {
+            var selfAddr = identifier.getSelfAddressing();
+            // Digeste.hash must be non-empty (repeated uint64)
+            if (selfAddr.getHashCount() == 0) {
+                return false;
+            }
+        }
+        if (identifier.hasSelfSigning()) {
+            var selfSign = identifier.getSelfSigning();
+            // Sig.signatures must be non-empty and each signature at least 32 bytes
+            if (selfSign.getSignaturesCount() == 0) {
+                return false;
+            }
+            for (var sig : selfSign.getSignaturesList()) {
+                if (sig.isEmpty() || sig.size() < 32) {
+                    return false;
+                }
+            }
         }
 
         // Check authentication signature has non-empty signatures list
