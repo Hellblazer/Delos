@@ -254,6 +254,7 @@ public class KerlDHT implements ProtoKERLService {
 
     @Override
     public List<KeyState_> append(KERL_ kerl) {
+        var startNanos = System.nanoTime();
         if (kerl.getEventsList().isEmpty()) {
             return Collections.emptyList();
         }
@@ -273,15 +274,23 @@ public class KerlDHT implements ProtoKERLService {
                              (futureSailor, tally, link, _) -> mutate(gathered, futureSailor, identifier, isTimedOut,
                                                                       tally, link, "append kerl"),
                              () -> completeIt(result, gathered), operationsFrequency);
-            return result.get().getKeyStatesList();
+            var keyStates = result.get().getKeyStatesList();
+            dhtMetrics.recordWriteLatency("appendKERL", System.nanoTime() - startNanos);
+            dhtMetrics.incrementQuorumSuccess("appendKERL");
+            return keyStates;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            dhtMetrics.recordWriteLatency("appendKERL", System.nanoTime() - startNanos);
+            dhtMetrics.incrementQuorumFailure("appendKERL");
             return null;
         } catch (ExecutionException e) {
+            dhtMetrics.recordWriteLatency("appendKERL", System.nanoTime() - startNanos);
             if (e.getCause() instanceof CompletionException ce) {
                 log.warn("error appending KERL: {} on: {}", ce.getMessage(), member.getId());
+                dhtMetrics.incrementQuorumFailure("appendKERL");
                 return Collections.emptyList();
             }
+            dhtMetrics.incrementQuorumFailure("appendKERL");
             throw new IllegalStateException(e.getCause());
         }
     }
@@ -374,6 +383,7 @@ public class KerlDHT implements ProtoKERLService {
 
     @Override
     public Empty appendValidations(Validations validations) {
+        var startNanos = System.nanoTime();
         if (validations.getValidationsCount() == 0) {
             return null;
         }
@@ -392,15 +402,23 @@ public class KerlDHT implements ProtoKERLService {
                              (futureSailor, tally, link, _) -> mutate(gathered, futureSailor, identifier, isTimedOut,
                                                                       tally, link, "append kerl"),
                              () -> completeIt(result, gathered), operationsFrequency);
-            return result.get();
+            var empty = result.get();
+            dhtMetrics.recordWriteLatency("appendValidations", System.nanoTime() - startNanos);
+            dhtMetrics.incrementQuorumSuccess("appendValidations");
+            return empty;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            dhtMetrics.recordWriteLatency("appendValidations", System.nanoTime() - startNanos);
+            dhtMetrics.incrementQuorumFailure("appendValidations");
             return null;
         } catch (ExecutionException e) {
+            dhtMetrics.recordWriteLatency("appendValidations", System.nanoTime() - startNanos);
             if (e.getCause() instanceof CompletionException ce) {
                 log.warn("error appending validations: {} on: {}", ce.getMessage(), member.getId());
+                dhtMetrics.incrementQuorumFailure("appendValidations");
                 return Empty.getDefaultInstance();
             }
+            dhtMetrics.incrementQuorumFailure("appendValidations");
             throw new IllegalStateException(e.getCause());
         }
     }
@@ -426,6 +444,7 @@ public class KerlDHT implements ProtoKERLService {
 
     @Override
     public Attachment getAttachment(EventCoords coordinates) {
+        var startNanos = System.nanoTime();
         if (coordinates == null) {
             return Attachment.getDefaultInstance();
         }
@@ -445,21 +464,30 @@ public class KerlDHT implements ProtoKERLService {
                                                                    isTimedOut, destination, operation),
                      () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
         try {
-            return result.get();
+            var attachment = result.get();
+            dhtMetrics.recordReadLatency("getAttachment", System.nanoTime() - startNanos);
+            dhtMetrics.incrementQuorumSuccess("getAttachment");
+            return attachment;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            dhtMetrics.recordReadLatency("getAttachment", System.nanoTime() - startNanos);
+            dhtMetrics.incrementQuorumFailure("getAttachment");
             return null;
         } catch (ExecutionException e) {
+            dhtMetrics.recordReadLatency("getAttachment", System.nanoTime() - startNanos);
             if (e.getCause() instanceof CompletionException ce) {
                 log.warn("error {} : {} on: {}", operation, ce.getMessage(), member.getId());
+                dhtMetrics.incrementQuorumFailure("getAttachment");
                 return null;
             }
+            dhtMetrics.incrementQuorumFailure("getAttachment");
             throw new IllegalStateException(e.getCause());
         }
     }
 
     @Override
     public KERL_ getKERL(Ident identifier) {
+        var startNanos = System.nanoTime();
         if (identifier == null) {
             return KERL_.getDefaultInstance();
         }
@@ -479,15 +507,23 @@ public class KerlDHT implements ProtoKERLService {
                                                                    isTimedOut, destination, operation),
                      () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
         try {
-            return result.get();
+            var kerl = result.get();
+            dhtMetrics.recordReadLatency("getKerl", System.nanoTime() - startNanos);
+            dhtMetrics.incrementQuorumSuccess("getKerl");
+            return kerl;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            dhtMetrics.recordReadLatency("getKerl", System.nanoTime() - startNanos);
+            dhtMetrics.incrementQuorumFailure("getKerl");
             return null;
         } catch (ExecutionException e) {
+            dhtMetrics.recordReadLatency("getKerl", System.nanoTime() - startNanos);
             if (e.getCause() instanceof CompletionException ce) {
                 log.warn("error {} : {} on: {}", operation, ce.getMessage(), member.getId());
+                dhtMetrics.incrementQuorumFailure("getKerl");
                 return KERL_.getDefaultInstance();
             }
+            dhtMetrics.incrementQuorumFailure("getKerl");
             throw new IllegalStateException(e.getCause());
         }
     }
@@ -606,6 +642,7 @@ public class KerlDHT implements ProtoKERLService {
 
     @Override
     public KeyState_ getKeyState(Ident identifier) {
+        var startNanos = System.nanoTime();
         if (identifier == null) {
             return KeyState_.getDefaultInstance();
         }
@@ -626,15 +663,23 @@ public class KerlDHT implements ProtoKERLService {
                                                                    isTimedOut, destination, operation),
                      () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
         try {
-            return result.get();
+            var keyState = result.get();
+            dhtMetrics.recordReadLatency("getKeyState", System.nanoTime() - startNanos);
+            dhtMetrics.incrementQuorumSuccess("getKeyState");
+            return keyState;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            dhtMetrics.recordReadLatency("getKeyState", System.nanoTime() - startNanos);
+            dhtMetrics.incrementQuorumFailure("getKeyState");
             return null;
         } catch (ExecutionException e) {
+            dhtMetrics.recordReadLatency("getKeyState", System.nanoTime() - startNanos);
             if (e.getCause() instanceof CompletionException ce) {
                 log.warn("error {} : {} on: {}", operation, ce.getMessage(), member.getId());
+                dhtMetrics.incrementQuorumFailure("getKeyState");
                 return KeyState_.getDefaultInstance();
             }
+            dhtMetrics.incrementQuorumFailure("getKeyState");
             throw new IllegalStateException(e.getCause());
         }
     }
@@ -749,6 +794,7 @@ public class KerlDHT implements ProtoKERLService {
 
     @Override
     public Validations getValidations(EventCoords coordinates) {
+        var startNanos = System.nanoTime();
         var operation = "getValidations(%s)".formatted(EventCoordinates.from(coordinates));
         log.info("{} on: {}", operation, member.getId());
         if (coordinates == null) {
@@ -769,15 +815,23 @@ public class KerlDHT implements ProtoKERLService {
                                                                    isTimedOut, destination, operation),
                      () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
         try {
-            return result.get();
+            var validations = result.get();
+            dhtMetrics.recordReadLatency("getValidations", System.nanoTime() - startNanos);
+            dhtMetrics.incrementQuorumSuccess("getValidations");
+            return validations;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            dhtMetrics.recordReadLatency("getValidations", System.nanoTime() - startNanos);
+            dhtMetrics.incrementQuorumFailure("getValidations");
             return null;
         } catch (ExecutionException e) {
+            dhtMetrics.recordReadLatency("getValidations", System.nanoTime() - startNanos);
             if (e.getCause() instanceof CompletionException ce) {
                 log.warn("error {} : {} on: {}", operation, ce.getMessage(), member.getId());
+                dhtMetrics.incrementQuorumFailure("getValidations");
                 return null;
             }
+            dhtMetrics.incrementQuorumFailure("getValidations");
             throw new IllegalStateException(e.getCause());
         }
     }
