@@ -296,10 +296,34 @@ public class KerlDHT implements ProtoKERLService {
     }
 
     public KeyState_ append(KeyEvent_ event) {
+        var startNanos = System.nanoTime();
         Digest identifier = digestOf(event, digestAlgorithm());
         if (identifier == null) {
             return null;
         }
+
+        // Validate event via Ani if identifier already exists in KERL
+        // Note: Pre-write validation requires event to exist in local KERL first
+        var eventId = new com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier(identifier);
+        try {
+            boolean valid = ani.eventValidation(operationTimeout).validate(eventId);
+            if (!valid) {
+                dhtMetrics.incrementValidationFailure("appendEvent", "KERI validation failed");
+                byzantineProvider.recordValidationFailure(identifier, "KERI event validation failed");
+                log.warn("KERI validation failed for event: {} on: {}", eventId, member.getId());
+                throw new com.hellblazer.delos.thoth.exception.DhtSignatureValidationException(
+                    "appendEvent",
+                    "KERI event validation failed for identifier: " + eventId,
+                    Set.of()
+                );
+            }
+            dhtMetrics.incrementValidationSuccess("appendEvent");
+        } catch (NullPointerException e) {
+            // Event not yet in KERL - validation will happen post-write
+            dhtMetrics.incrementValidationSkipped("appendEvent", "identifier not in KERL");
+            log.trace("Skipping validation for new identifier: {} on: {}", eventId, member.getId());
+        }
+
         Instant timedOut = Instant.now().plus(operationTimeout);
         Supplier<Boolean> isTimedOut = () -> Instant.now().isAfter(timedOut);
         var result = new CompletableFuture<KeyStates>();
@@ -312,15 +336,22 @@ public class KerlDHT implements ProtoKERLService {
                                                                       tally, link, "append kerl"),
                              () -> completeIt(result, gathered), operationsFrequency);
             var ks = result.get();
+            dhtMetrics.recordWriteLatency("appendEvent", System.nanoTime() - startNanos);
+            dhtMetrics.incrementQuorumSuccess("appendEvent");
             return ks.getKeyStatesCount() == 0 ? KeyState_.getDefaultInstance() : ks.getKeyStatesList().getFirst();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            dhtMetrics.recordWriteLatency("appendEvent", System.nanoTime() - startNanos);
+            dhtMetrics.incrementQuorumFailure("appendEvent");
             return null;
         } catch (ExecutionException e) {
+            dhtMetrics.recordWriteLatency("appendEvent", System.nanoTime() - startNanos);
             if (e.getCause() instanceof CompletionException ce) {
                 log.warn("error appending Key Event: {} on: {}", ce.getMessage(), member.getId());
+                dhtMetrics.incrementQuorumFailure("appendEvent");
                 return KeyState_.getDefaultInstance();
             }
+            dhtMetrics.incrementQuorumFailure("appendEvent");
             throw new IllegalStateException(e.getCause());
         }
     }
