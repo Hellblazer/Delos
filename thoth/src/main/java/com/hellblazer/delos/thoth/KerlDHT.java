@@ -1010,9 +1010,9 @@ public class KerlDHT implements ProtoKERLService {
     private <T> T complete(Function<ProtoKERLAdapter, T> func) {
         try {
             return func.apply(new ProtoKERLAdapter(kerl));
-        } catch (Throwable t) {
-            log.error("Error completing on: {}", member.getId(), t);
-            return null;
+        } catch (Exception e) {
+            log.error("Error completing on: {}", member.getId(), e);
+            throw new DhtResourceException("Completion operation failed", e);
         }
     }
 
@@ -1025,8 +1025,8 @@ public class KerlDHT implements ProtoKERLService {
                 // Complete result immediately to reduce tail latency
                 try {
                     result.complete(element);
-                } catch (Throwable t) {
-                    log.error("Unable to complete it on {}", member.getId(), t);
+                } catch (Exception e) {
+                    log.error("Unable to complete it on {}", member.getId(), e);
                 }
 
                 // Phase 4: Post-quorum validation for KeyStates responses (async, advisory only)
