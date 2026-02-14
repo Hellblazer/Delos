@@ -89,7 +89,7 @@ public class PerformanceSLATest extends AbstractDhtTest {
         // Warmup
         for (int i = 0; i < WARMUP_ITERATIONS; i++) {
             try {
-                dht.getKeyState(testId);
+                dht.getKeyState(testId.toIdent());
             } catch (Exception e) {
                 // Expected for non-existent identifier
             }
@@ -100,7 +100,7 @@ public class PerformanceSLATest extends AbstractDhtTest {
         for (int i = 0; i < TEST_ITERATIONS; i++) {
             var start = System.nanoTime();
             try {
-                dht.getKeyState(testId);
+                dht.getKeyState(testId.toIdent());
             } catch (Exception e) {
                 // Expected
             }
@@ -212,7 +212,7 @@ public class PerformanceSLATest extends AbstractDhtTest {
 
         while (Duration.ofNanos(System.nanoTime() - startTime).compareTo(duration) < 0) {
             try {
-                dht.getKeyState(testId);
+                dht.getKeyState(testId.toIdent());
             } catch (Exception e) {
                 // Expected
             }
@@ -284,7 +284,7 @@ public class PerformanceSLATest extends AbstractDhtTest {
                 try {
                     for (int j = 0; j < operationsPerThread; j++) {
                         try {
-                            dht.getKeyState(testId);
+                            dht.getKeyState(testId.toIdent());
                         } catch (Exception e) {
                             // Expected for non-existent identifier
                         }
