@@ -97,10 +97,9 @@ public class ThothByzantineStateProvider implements ByzantineStateProvider {
 
         private void addSignal(String signal) {
             recentSignals.add(signal);
-            // Trim to keep only recent signals. CopyOnWriteArrayList remove is O(n)
-            // but list is bounded to MAX_RECENT_SIGNALS + small overshoot, so acceptable.
-            while (recentSignals.size() > MAX_RECENT_SIGNALS) {
-                recentSignals.remove(0);
+            // Trim to keep only recent signals using efficient batch removal
+            if (recentSignals.size() > MAX_RECENT_SIGNALS) {
+                recentSignals.subList(0, recentSignals.size() - MAX_RECENT_SIGNALS).clear();
             }
         }
 

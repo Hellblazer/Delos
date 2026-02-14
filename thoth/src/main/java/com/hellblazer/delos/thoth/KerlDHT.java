@@ -311,7 +311,8 @@ public class KerlDHT implements ProtoKERLService {
             boolean valid = ani.eventValidation(operationTimeout).validate(eventId);
             if (!valid) {
                 dhtMetrics.incrementValidationFailure("appendEvent", "KERI validation failed");
-                byzantineProvider.recordValidationFailure(identifier, "KERI event validation failed");
+                // Note: Byzantine provider not called here - this is client-side pre-distribution
+                // validation. Member-level Byzantine tracking happens in mutate() for DHT responses.
                 log.warn("KERI validation failed for event: {} on: {}", eventId, member.getId());
                 throw new com.hellblazer.delos.thoth.exception.DhtSignatureValidationException(
                     "appendEvent",
@@ -911,7 +912,14 @@ public class KerlDHT implements ProtoKERLService {
         dhtComms.deregister(context.getId());
         reconcileComms.deregister(context.getId());
 
-        // 2. Graceful scheduler shutdown, then force if needed
+        // 2. Grace period for in-flight operations to complete
+        try {
+            Thread.sleep(1000); // 1 second grace period
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        // 3. Graceful scheduler shutdown, then force if needed
         scheduler.shutdown();
         try {
             if (!scheduler.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)) {
@@ -923,10 +931,10 @@ public class KerlDHT implements ProtoKERLService {
             Thread.currentThread().interrupt();
         }
 
-        // 3. Dispose connection pool
+        // 4. Dispose connection pool
         connectionPool.dispose();
 
-        // 4. Reset Byzantine provider
+        // 5. Reset Byzantine provider
         byzantineProvider.reset();
 
         log.info("KerlDHT stopped on: {}", member.getId());

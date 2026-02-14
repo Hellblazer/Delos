@@ -340,4 +340,32 @@ class KerlDhtMetricsTest {
         assertThat(timeoutDetection).isNotNull();
         assertThat(timeoutDetection.count()).isEqualTo(1.0);
     }
+
+    @Test
+    void micrometerReusesCounterObjectsAcrossCalls() {
+        var registry = new SimpleMeterRegistry();
+        var metrics = new MicrometerKerlDhtMetrics(registry);
+
+        // First increment - creates counter
+        metrics.incrementMemberTimeout("member-test");
+        var counter1 = registry.find("thoth.dht.member.timeout").tag("member", "member-test").counter();
+
+        // Second increment - should reuse same counter object
+        metrics.incrementMemberTimeout("member-test");
+        var counter2 = registry.find("thoth.dht.member.timeout").tag("member", "member-test").counter();
+
+        // Verify same object instance (not just same value)
+        assertThat(counter1).isSameAs(counter2);
+        assertThat(counter1.count()).isEqualTo(2.0);
+
+        // Also test reconciliation counters
+        metrics.recordReconciliationEventsReceived(5);
+        var recon1 = registry.find("thoth.dht.reconciliation.events.received").counter();
+
+        metrics.recordReconciliationEventsReceived(3);
+        var recon2 = registry.find("thoth.dht.reconciliation.events.received").counter();
+
+        assertThat(recon1).isSameAs(recon2);
+        assertThat(recon1.count()).isEqualTo(8.0);
+    }
 }
