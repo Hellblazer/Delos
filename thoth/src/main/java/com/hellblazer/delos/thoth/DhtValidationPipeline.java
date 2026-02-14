@@ -17,6 +17,8 @@ import com.hellblazer.delos.thoth.metrics.KerlDhtMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.hellblazer.delos.thoth.support.ValidationCircuitBreaker;
+
 import java.time.Duration;
 import java.util.Set;
 
@@ -38,12 +40,13 @@ import java.util.Set;
  * @author hal.hildebrand
  */
 public class DhtValidationPipeline {
-    private static final Logger                    log = LoggerFactory.getLogger(DhtValidationPipeline.class);
-    private final        Ani                       ani;
-    private final        KERL                      kerl;
-    private final        Duration                  validationTimeout;
+    private static final Logger                      log = LoggerFactory.getLogger(DhtValidationPipeline.class);
+    private final        Ani                         ani;
+    private final        KERL                        kerl;
+    private final        Duration                    validationTimeout;
     private final        ThothByzantineStateProvider byzantineProvider;
-    private final        KerlDhtMetrics            metrics;
+    private final        KerlDhtMetrics              metrics;
+    private final        ValidationCircuitBreaker    circuitBreaker;
 
     public DhtValidationPipeline(Ani ani, KERL kerl, Duration validationTimeout,
                                  ThothByzantineStateProvider byzantineProvider, KerlDhtMetrics metrics) {
@@ -52,6 +55,7 @@ public class DhtValidationPipeline {
         this.validationTimeout = validationTimeout;
         this.byzantineProvider = byzantineProvider;
         this.metrics = metrics;
+        this.circuitBreaker = new ValidationCircuitBreaker(); // 10 failures, 1 minute timeout
     }
 
     /**
@@ -69,6 +73,13 @@ public class DhtValidationPipeline {
     public ValidationResult<KeyState_> validateKeyState(KeyState_ state, Set<Member> providers) {
         // Null or default state is valid (empty response)
         if (state == null || state.equals(KeyState_.getDefaultInstance())) {
+            return ValidationResult.valid(state, "keyState");
+        }
+
+        // Circuit breaker: Skip validation if circuit is open (infrastructure failing)
+        if (circuitBreaker.isOpen()) {
+            log.debug("Validation circuit breaker OPEN - skipping KeyState validation");
+            metrics.incrementValidationSkipped("keyState", "circuit_breaker_open");
             return ValidationResult.valid(state, "keyState");
         }
 
@@ -106,10 +117,12 @@ public class DhtValidationPipeline {
                 var reason = "Establishment event validation failed for " + estCoords;
                 log.warn("KeyState validation failed: {} from members: {}", reason,
                          providers.stream().map(m -> m.getId().toString()).toList());
+                circuitBreaker.recordSuccess(); // Validation executed (even if failed), infrastructure is OK
                 return ValidationResult.invalid(state, providers, reason, "keyState");
             }
 
             metrics.incrementValidationSuccess("keyState");
+            circuitBreaker.recordSuccess(); // Validation succeeded
             return ValidationResult.valid(state, "keyState");
 
         } catch (Exception e) {
@@ -117,11 +130,13 @@ public class DhtValidationPipeline {
             var isInfrastructureFailure = isInfrastructureException(e);
             if (isInfrastructureFailure) {
                 // Data access failure (KERL unavailable) - fail open with warning
+                circuitBreaker.recordFailure(); // Infrastructure failing - increment circuit breaker
                 log.warn("KERL access failure during validation - accepting response: {}", e.getMessage(), e);
                 metrics.incrementValidationSkipped("keyState", "kerl_access_failure");
                 return ValidationResult.valid(state, "keyState");
             } else {
                 // Unexpected error (programming error, resource exhaustion) - fail closed to be safe
+                circuitBreaker.recordSuccess(); // Validation executed, infrastructure is OK (even if logic error)
                 var reason = "Infrastructure error: " + e.getClass().getSimpleName() + ": " + e.getMessage();
                 log.error("Unexpected validation error - rejecting response: {}", reason, e);
                 return ValidationResult.invalid(state, providers, reason, "keyState");
@@ -149,6 +164,13 @@ public class DhtValidationPipeline {
             return ValidationResult.valid(keyStates, "keyStates");
         }
 
+        // Circuit breaker: Skip validation if circuit is open (infrastructure failing)
+        if (circuitBreaker.isOpen()) {
+            log.debug("Validation circuit breaker OPEN - skipping KeyStates validation");
+            metrics.incrementValidationSkipped("keyStates", "circuit_breaker_open");
+            return ValidationResult.valid(keyStates, "keyStates");
+        }
+
         try {
             // Validate each KeyState_ in the response
             var states = keyStates.getKeyStatesList();
@@ -164,6 +186,7 @@ public class DhtValidationPipeline {
             }
 
             metrics.incrementValidationSuccess("keyStates");
+            circuitBreaker.recordSuccess(); // Validation succeeded
             return ValidationResult.valid(keyStates, "keyStates");
 
         } catch (Exception e) {
@@ -171,12 +194,14 @@ public class DhtValidationPipeline {
             var isInfrastructureFailure = isInfrastructureException(e);
             if (isInfrastructureFailure) {
                 // Data access failure (KERL unavailable) - fail open with warning
+                circuitBreaker.recordFailure(); // Infrastructure failing - increment circuit breaker
                 log.warn("KERL access failure during KeyStates validation - accepting response: {}", e.getMessage(),
                          e);
                 metrics.incrementValidationSkipped("keyStates", "kerl_access_failure");
                 return ValidationResult.valid(keyStates, "keyStates");
             } else {
                 // Unexpected error (programming error, resource exhaustion) - fail closed to be safe
+                circuitBreaker.recordSuccess(); // Validation executed, infrastructure is OK (even if logic error)
                 var reason = "Infrastructure error: " + e.getClass().getSimpleName() + ": " + e.getMessage();
                 log.error("Unexpected KeyStates validation error - rejecting response: {}", reason, e);
                 return ValidationResult.invalid(keyStates, providers, reason, "keyStates");
