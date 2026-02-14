@@ -35,6 +35,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -66,12 +67,14 @@ public class DhtValidationPipelineTest {
     private DhtValidationPipeline           pipeline;
     private Set<Member>                     providers;
     private Duration                        validationTimeout;
+    private ScheduledExecutorService        scheduler;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
         validationTimeout = Duration.ofSeconds(5);
-        pipeline = new DhtValidationPipeline(ani, kerl, validationTimeout, byzantineProvider, metrics);
+        scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual().factory());
+        pipeline = new DhtValidationPipeline(ani, kerl, validationTimeout, byzantineProvider, metrics, scheduler);
         providers = Set.of(createMember("byzantine-1"));
     }
 

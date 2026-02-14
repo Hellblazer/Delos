@@ -22,6 +22,7 @@ import com.hellblazer.delos.thoth.support.ValidationCircuitBreaker;
 import java.time.Duration;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledExecutorService;
 
 /**
  * Post-quorum validation pipeline for DHT responses.
@@ -48,15 +49,18 @@ public class DhtValidationPipeline {
     private final        ThothByzantineStateProvider byzantineProvider;
     private final        KerlDhtMetrics              metrics;
     private final        ValidationCircuitBreaker    circuitBreaker;
+    private final        ScheduledExecutorService    scheduler;
 
     public DhtValidationPipeline(Ani ani, KERL kerl, Duration validationTimeout,
-                                 ThothByzantineStateProvider byzantineProvider, KerlDhtMetrics metrics) {
+                                 ThothByzantineStateProvider byzantineProvider, KerlDhtMetrics metrics,
+                                 ScheduledExecutorService scheduler) {
         this.ani = ani;
         this.kerl = kerl;
         this.validationTimeout = validationTimeout;
         this.byzantineProvider = byzantineProvider;
         this.metrics = metrics;
         this.circuitBreaker = new ValidationCircuitBreaker(); // 10 failures, 1 minute timeout
+        this.scheduler = scheduler;
     }
 
     /**
@@ -191,7 +195,7 @@ public class DhtValidationPipeline {
 
             // Create parallel validation tasks for all states
             var validationFutures = states.stream()
-                .map(state -> CompletableFuture.supplyAsync(() -> validateKeyState(state, providers)))
+                .map(state -> CompletableFuture.supplyAsync(() -> validateKeyState(state, providers), scheduler))
                 .toList();
 
             // Wait for all validations to complete
