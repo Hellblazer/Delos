@@ -989,8 +989,19 @@ public class KerlDHT implements ProtoKERLService {
         var majority = context.size() == 1 ? 1 : context.majority();
         if (max != null) {
             if (max.getCount() >= majority) {
+                // Phase 4: Post-quorum validation for KeyStates responses (advisory only)
+                var element = max.getElement();
+                if (element instanceof KeyStates keyStates) {
+                    @SuppressWarnings("unchecked")
+                    var providers = ((QuorumResponseTracker<KeyStates>) gathered).providersOf(keyStates);
+                    var validationResult = validationPipeline.validateKeyStates(keyStates, providers);
+                    if (!validationResult.valid()) {
+                        validationPipeline.reportFailure(validationResult);
+                        log.warn("Advisory: KeyStates validation failed but accepting response");
+                    }
+                }
                 try {
-                    result.complete(max.getElement());
+                    result.complete(element);
                 } catch (Throwable t) {
                     log.error("Unable to complete it on {}", member.getId(), t);
                 }

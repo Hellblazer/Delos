@@ -107,6 +107,51 @@ public class DhtValidationPipeline {
     }
 
     /**
+     * Validate a KeyStates response from write operations (append).
+     * <p>
+     * Phase 4 implementation: Validates each KeyState_ in the response.
+     * Checks that returned states are structurally valid and can be verified.
+     * Validation failures are advisory-only: reported but do not reject response.
+     * </p>
+     *
+     * @param keyStates KeyStates response containing list of KeyState_
+     * @param providers Members that provided this response
+     * @return ValidationResult indicating success or failure
+     */
+    public ValidationResult<com.hellblazer.delos.stereotomy.services.grpc.proto.KeyStates> validateKeyStates(
+        com.hellblazer.delos.stereotomy.services.grpc.proto.KeyStates keyStates, Set<Member> providers) {
+        // Null or default response is valid (empty response)
+        if (keyStates == null
+            || keyStates.equals(com.hellblazer.delos.stereotomy.services.grpc.proto.KeyStates.getDefaultInstance())) {
+            return ValidationResult.valid(keyStates, "keyStates");
+        }
+
+        try {
+            // Validate each KeyState_ in the response
+            var states = keyStates.getKeyStatesList();
+            for (var state : states) {
+                var stateResult = validateKeyState(state, providers);
+                if (!stateResult.valid()) {
+                    // One invalid state makes the whole response invalid
+                    var reason = "KeyStates contains invalid state: " + stateResult.failureReason();
+                    log.warn("KeyStates validation failed: {} from members: {}", reason,
+                             providers.stream().map(m -> m.getId().toString()).toList());
+                    return ValidationResult.invalid(keyStates, providers, reason, "keyStates");
+                }
+            }
+
+            metrics.incrementValidationSuccess("keyStates");
+            return ValidationResult.valid(keyStates, "keyStates");
+
+        } catch (Exception e) {
+            // Validation infrastructure failure - log, report skipped, don't block
+            log.warn("Validation infrastructure error for KeyStates: {}", e.getMessage(), e);
+            metrics.incrementValidationSkipped("keyStates", "validation_error");
+            return ValidationResult.valid(keyStates, "keyStates");
+        }
+    }
+
+    /**
      * Validate an Empty response (used in mutate operations).
      * <p>
      * Empty responses don't have content to validate - always valid.
