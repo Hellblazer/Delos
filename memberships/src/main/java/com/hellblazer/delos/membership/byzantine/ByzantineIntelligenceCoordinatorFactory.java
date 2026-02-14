@@ -56,6 +56,13 @@ import java.util.Objects;
  *   <li>Critical Threshold: 0.8</li>
  *   <li>Response Cooldown: 15s</li>
  * </ul>
+ * <p>
+ * <b>Parameter Validation</b>:
+ * </p>
+ * <ul>
+ *   <li>Null checks: Factory validates all parameters are non-null</li>
+ *   <li>Config constraints: Validated by {@link IntelligenceConfig.Builder}</li>
+ * </ul>
  *
  * @author hal.hildebrand
  * @see ByzantineIntelligenceCoordinator
@@ -67,7 +74,9 @@ public final class ByzantineIntelligenceCoordinatorFactory {
      * Private constructor - factory class.
      */
     private ByzantineIntelligenceCoordinatorFactory() {
-        throw new UnsupportedOperationException("Factory class");
+        throw new UnsupportedOperationException(
+            "ByzantineIntelligenceCoordinatorFactory is a utility class and cannot be instantiated"
+        );
     }
 
     /**
