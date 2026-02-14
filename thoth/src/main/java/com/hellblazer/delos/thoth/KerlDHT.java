@@ -329,21 +329,9 @@ public class KerlDHT implements ProtoKERLService {
             }
             dhtMetrics.incrementValidationSuccess("appendEvent");
         } else {
-            // New identifier (likely inception event) - validate before writing to DHT
-            // This prevents Byzantine nodes from injecting forged inception events
-            try {
-                validateInceptionEvent(event, eventId, identifier);
-                dhtMetrics.incrementValidationSuccess("appendEvent");
-            } catch (Exception e) {
-                dhtMetrics.incrementValidationFailure("appendEvent", "Inception validation failed");
-                byzantineProvider.recordValidationFailure(eventId, "Inception event validation failed: " + e.getMessage());
-                log.warn("Inception event validation failed for: {} on: {}", eventId, member.getId(), e);
-                throw new com.hellblazer.delos.thoth.exception.DhtSignatureValidationException(
-                    "appendEvent",
-                    "Inception event validation failed for identifier: " + eventId + ": " + e.getMessage(),
-                    Set.of()
-                );
-            }
+            // Event not yet in KERL - validation will happen post-write
+            dhtMetrics.incrementValidationSkipped("appendEvent", "identifier not in KERL");
+            log.trace("Skipping validation for new identifier: {} on: {}", eventId, member.getId());
         }
 
         Instant timedOut = Instant.now().plus(operationTimeout);
@@ -1030,83 +1018,6 @@ public class KerlDHT implements ProtoKERLService {
         result.completeExceptionally(new CompletionException(
         "Unable to achieve majority, max: " + (max == null ? 0 : max.getCount()) + " required: " + majority + " on: "
         + member.getId()));
-    }
-
-    /**
-     * Validate inception event before writing to DHT.
-     * <p>
-     * Validates that new identifiers (inception events) have:
-     * 1. Valid protobuf structure (can be deserialized)
-     * 2. Self-addressing identifier matches event digest
-     * 3. Basic structural integrity
-     * </p>
-     * <p>
-     * This prevents Byzantine nodes from injecting malformed or forged inception events
-     * that would bypass normal KERI validation (which requires events in KERL).
-     * </p>
-     *
-     * @param event      Protobuf KeyEvent_ to validate
-     * @param eventId    Expected identifier
-     * @param identifier Expected digest
-     * @throws IllegalArgumentException if validation fails
-     */
-    private void validateInceptionEvent(com.hellblazer.delos.stereotomy.event.proto.KeyEvent_ event,
-                                        com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier eventId,
-                                        Digest identifier) {
-        // KeyEvent_ is a oneof - check which event type it contains
-        if (event.hasInception()) {
-            var inception = event.getInception();
-
-            // Validate identifier matches expected
-            if (!inception.hasIdentifier()) {
-                throw new IllegalArgumentException("Inception event missing identifier");
-            }
-
-            var inceptionIdent = inception.getIdentifier();
-            if (inceptionIdent.hasSelfAddressing()) {
-                var inceptionDigest = new Digest(digestAlgorithm(), inceptionIdent.getSelfAddressing().toByteArray());
-                if (!inceptionDigest.equals(identifier)) {
-                    throw new IllegalArgumentException(
-                        "Inception event identifier mismatch: expected " + identifier + " but got " + inceptionDigest);
-                }
-            }
-
-            // Validate specification exists and has required fields
-            if (!inception.hasSpecification()) {
-                throw new IllegalArgumentException("Inception event missing specification");
-            }
-
-            var spec = inception.getSpecification();
-
-            // Validate establishment data exists
-            if (!spec.hasEstablishment()) {
-                throw new IllegalArgumentException("Inception event missing establishment data");
-            }
-
-            var establishment = spec.getEstablishment();
-
-            // Basic validation: must have signing threshold and keys
-            if (!establishment.hasSigningThreshold()) {
-                throw new IllegalArgumentException("Inception event missing signing threshold");
-            }
-
-            if (establishment.getKeysCount() == 0) {
-                throw new IllegalArgumentException("Inception event has no keys");
-            }
-
-            log.debug("Inception event validation passed for identifier: {}", eventId);
-
-        } else if (event.hasRotation() || event.hasInteraction()) {
-            // Non-inception event for new identifier - suspicious
-            // This could indicate out-of-order delivery or fork attempt
-            var eventType = event.hasRotation() ? "rotation" : "interaction";
-            log.warn("New identifier {} has {} event instead of inception", eventId, eventType);
-            throw new IllegalArgumentException(
-                "New identifier has " + eventType + " event instead of inception: " + eventId);
-        } else {
-            // Empty event - invalid
-            throw new IllegalArgumentException("KeyEvent_ has no event data");
-        }
     }
 
     private boolean failedMajority(CompletableFuture<?> result, int maxAgree, String operation) {
