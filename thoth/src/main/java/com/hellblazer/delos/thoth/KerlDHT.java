@@ -101,6 +101,7 @@ public class KerlDHT implements ProtoKERLService {
 
     private final Ani                                                         ani;
     private final ThothByzantineStateProvider                                 byzantineProvider;
+    private final DhtValidationPipeline                                       validationPipeline;
     private final CachingKERL                                                 cache;
     private final JdbcConnectionPool                                          connectionPool;
     private final DelegatedContext<Member>                                    context;
@@ -165,6 +166,8 @@ public class KerlDHT implements ProtoKERLService {
             }
         });
         this.ani = new Ani(member.getId(), asKERL());
+        this.validationPipeline = new DhtValidationPipeline(ani, asKERL(), operationTimeout, byzantineProvider,
+                                                             dhtMetrics);
     }
 
     /**
@@ -1113,7 +1116,18 @@ public class KerlDHT implements ProtoKERLService {
             var ctxMajority = context.size() == 1 ? 1 : context.majority();
             final var majority = tally.get() >= ctxMajority;
             if (majority) {
-                result.complete(max.getElement());
+                // Phase 3: Post-quorum validation for KeyState_ responses (advisory only)
+                var element = max.getElement();
+                if (element instanceof KeyState_ keyState) {
+                    @SuppressWarnings("unchecked")
+                    var providers = ((QuorumResponseTracker<KeyState_>) gathered).providersOf(keyState);
+                    var validationResult = validationPipeline.validateKeyState(keyState, providers);
+                    if (!validationResult.valid()) {
+                        validationPipeline.reportFailure(validationResult);
+                        log.warn("Advisory: KeyState validation failed but accepting response: {}", action);
+                    }
+                }
+                result.complete(element);
                 log.debug("Majority: {} achieved: {}: {} tally: {} on: {}", max.getCount(), action, identifier,
                           tally.get(), member.getId());
                 return false;
