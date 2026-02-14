@@ -63,20 +63,39 @@ public class KerlDHTResponseFreshnessTest extends AbstractDhtTest {
 
     /**
      * Test that stale responses (age > timeout) are rejected and validation failure is recorded.
-     * This test simulates a delayed response by using a very short operation timeout.
+     *
+     * NOTE: This test is currently incomplete due to the need for full Clock injection.
+     *
+     * CURRENT STATUS (Delos-r8k4):
+     * - ✅ Added protected currentTimeMillis() method to KerlDHT for testability
+     * - ✅ Updated createRequestContext() to use currentTimeMillis()
+     * - ✅ Updated validateResponseFreshness() to use currentTimeMillis()
+     *
+     * REMAINING WORK:
+     * - ⚠️ Test subclass approach partially viable but requires complex AbstractDhtTest setup
+     * - ⚠️ Full deterministic testing requires Clock injection to KerlDHT constructor
+     * - ⚠️ Need to control BOTH request creation time AND response validation time
+     *
+     * RECOMMENDATION:
+     * Consider adding Clock as a constructor parameter to KerlDHT:
+     *   private final Clock clock;
+     *   public KerlDHT(..., Clock clock) { this.clock = clock; }
+     *   protected long currentTimeMillis() { return clock.millis(); }
+     *
+     * This would enable:
+     * - Full deterministic testing with Clock.fixed()
+     * - Time travel testing for stale response scenarios
+     * - No Thread.sleep() timing dependencies
+     *
+     * For now, the protected method allows subclass testing but full determinism requires
+     * the Clock injection approach.
      */
     @Test
     public void testStaleResponseRejected() throws Exception {
-        // This test is difficult to implement without mocking or internal access
-        // since we can't easily force a response to be stale in real-time testing.
-        // We'll implement it as a unit test with mocked timing instead.
-
-        // For integration testing, we would need to:
-        // 1. Mock the clock or timestamp mechanism
-        // 2. Or inject artificial delays into the response path
-        // 3. Or use very short timeouts (unreliable due to timing races)
-
-        // Deferring to unit test in validateResponseFreshness method tests
+        // Test infrastructure is in place (protected currentTimeMillis() method)
+        // but full implementation requires Clock injection to KerlDHT constructor
+        //
+        // See bead Delos-r8k4 for details and recommended approach
     }
 
     /**
