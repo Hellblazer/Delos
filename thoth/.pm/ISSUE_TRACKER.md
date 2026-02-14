@@ -576,6 +576,105 @@ public class DhtService {
 
 ---
 
+## Risk Assessment
+
+This section tracks architectural and operational risks identified during Byzantine fault tolerance remediation.
+
+### HIGH: Metrics Overhead in Hot Path
+
+**Impact**: Recording 19 metrics on every quorum response could degrade throughput by 2-5% in high-load scenarios
+**Likelihood**: High (metrics are in critical path)
+**Mitigation**:
+- Benchmark before/after metrics implementation
+- Use sampling if overhead exceeds 1% threshold
+- Consider selective metric recording for non-critical paths
+**Validation**:
+- Performance test with metrics enabled vs disabled
+- Verify throughput degradation <1% at p95
+- Implement circuit breaker if overhead exceeds threshold
+**Status**: Open
+**Tracked**: Delos-gpx9 (Metrics implementation), Delos-c7g8 (Risk tracking)
+
+---
+
+### HIGH: Byzantine Provider False Positives
+
+**Impact**: Transient network issues (partition, packet loss) could be misclassified as Byzantine behavior, leading to unnecessary node exclusion
+**Likelihood**: Medium (network conditions vary in production)
+**Mitigation**:
+- Time-based decay of failure scores (implemented in `ThothByzantineStateProvider.java:240`)
+- Distinguish timeout failures (weight 1) from validation failures (weight 3)
+- Require sustained pattern (multiple failures) before Byzantine classification
+- Configurable detection thresholds per environment
+**Validation**:
+- Chaos engineering test with network partition injection
+- Verify transient partition doesn't trigger Byzantine classification
+- Verify sustained Byzantine pattern is detected within SLA (100ms)
+**Status**: Open
+**Tracked**: Delos-c7g8 (Risk tracking)
+
+**Code Reference**:
+```java
+// ThothByzantineStateProvider.java:240
+// Time-based decay prevents false positives from transient issues
+private void decayFailureScores(Duration timeSinceLastUpdate) {
+    memberFailures.replaceAll((member, score) ->
+        score * Math.exp(-timeSinceLastUpdate.toMillis() / DECAY_HALF_LIFE_MS));
+}
+```
+
+---
+
+### MEDIUM: Coordinator Integration Failure
+
+**Impact**: `ByzantineIntelligenceCoordinator` may reject provider signals if schema mismatch or version incompatibility occurs during integration
+**Likelihood**: Medium (coordinator integration is Phase 2 dependency)
+**Mitigation**:
+- Integration test planned in Phase 1 (Delos-doec dependency)
+- Version compatibility check during provider registration
+- Provider signals use versioned schema with backward compatibility
+- Graceful degradation if coordinator unavailable
+**Validation**:
+- Test with coordinator version matrix (v1.0, v1.1, v2.0)
+- Verify provider registration rejects incompatible versions
+- Verify Byzantine detection continues if coordinator offline
+**Status**: Open (blocked on Delos-doec)
+**Tracked**: Delos-doec (Coordinator integration), Delos-c7g8 (Risk tracking)
+
+---
+
+### MEDIUM: Circular Dependency Risk
+
+**Impact**: Initialization deadlock between `ThothByzantineStateProvider` (depends on `KerlDHT`) and `KerlDHT` (depends on provider for recording)
+**Likelihood**: Low (careful initialization order mitigates)
+**Mitigation**:
+- Careful constructor ordering: provider instantiated before KERL
+- Lazy initialization of provider in KERL if needed
+- Dependency injection framework handles initialization graph
+- Unit test verifies initialization order
+**Validation**:
+- Unit test with multiple initialization sequences
+- Integration test with cold start scenarios
+- Verify no deadlock under concurrent initialization
+**Status**: Open
+**Tracked**: Delos-c7g8 (Risk tracking)
+
+**Code Pattern**:
+```java
+// Safe initialization order
+public class ThothService {
+    public ThothService(Context context, KerlDhtMetrics metrics) {
+        // 1. Create provider first (no KERL dependency)
+        this.byzantineProvider = new ThothByzantineStateProvider(context);
+
+        // 2. Create KERL DHT (can safely use provider)
+        this.kerlDht = new KerlDHT(context, metrics, byzantineProvider);
+    }
+}
+```
+
+---
+
 ## Significant Issues (Fix in Phase 2)
 
 ### THOTH-ENH-001: Multisig Support Incomplete
@@ -615,8 +714,9 @@ See `.pm/significant-issues/THOTH-ENH-001.md` for full details.
 | Category | Total | Pending | In Progress | Fixed |
 |----------|-------|---------|-------------|-------|
 | Critical | 4 | 4 | 0 | 0 |
+| Risks | 4 | 4 | 0 | 0 |
 | Significant | 4 | 4 | 0 | 0 |
-| **Total** | **8** | **8** | **0** | **0** |
+| **Total** | **12** | **12** | **0** | **0** |
 
 ---
 
