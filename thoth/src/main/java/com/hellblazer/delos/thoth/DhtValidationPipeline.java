@@ -21,6 +21,7 @@ import com.hellblazer.delos.thoth.support.ValidationCircuitBreaker;
 
 import java.time.Duration;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Post-quorum validation pipeline for DHT responses.
@@ -147,9 +148,13 @@ public class DhtValidationPipeline {
     /**
      * Validate a KeyStates response from write operations (append).
      * <p>
-     * Phase 4 implementation: Validates each KeyState_ in the response.
+     * Phase 4 implementation: Validates each KeyState_ in the response in parallel.
      * Checks that returned states are structurally valid and can be verified.
      * Validation failures are advisory-only: reported but do not reject response.
+     * </p>
+     * <p>
+     * Performance: States are validated concurrently using CompletableFuture to
+     * reduce total validation time for large batches.
      * </p>
      *
      * @param keyStates KeyStates response containing list of KeyState_
@@ -172,10 +177,20 @@ public class DhtValidationPipeline {
         }
 
         try {
-            // Validate each KeyState_ in the response
+            // Validate each KeyState_ in the response - parallelize for performance
             var states = keyStates.getKeyStatesList();
-            for (var state : states) {
-                var stateResult = validateKeyState(state, providers);
+
+            // Create parallel validation tasks for all states
+            var validationFutures = states.stream()
+                .map(state -> CompletableFuture.supplyAsync(() -> validateKeyState(state, providers)))
+                .toList();
+
+            // Wait for all validations to complete
+            CompletableFuture.allOf(validationFutures.toArray(new CompletableFuture[0])).join();
+
+            // Check if any validation failed
+            for (var future : validationFutures) {
+                var stateResult = future.join();
                 if (!stateResult.valid()) {
                     // One invalid state makes the whole response invalid
                     var reason = "KeyStates contains invalid state: " + stateResult.failureReason();
