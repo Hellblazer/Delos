@@ -7,10 +7,7 @@
  */
 package com.hellblazer.delos.thoth;
 
-import com.google.common.collect.HashMultiset;
-import com.google.common.collect.Multiset;
 import com.google.common.collect.Multiset.Entry;
-import com.google.common.collect.Ordering;
 import com.google.protobuf.Empty;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.RouterImpl.CommonCommunications;
@@ -233,12 +230,13 @@ public class KerlDHT implements ProtoKERLService {
         Instant timedOut = Instant.now().plus(operationTimeout);
         Supplier<Boolean> isTimedOut = () -> Instant.now().isAfter(timedOut);
         var result = new CompletableFuture<KeyStates>();
-        HashMultiset<KeyStates> gathered = HashMultiset.create();
+        QuorumResponseTracker<KeyStates> gathered = new QuorumResponseTracker<>();
         var slice = context.bftSubset(identifier);
         var iterator = new SliceIterator<>(context.getId().toString(), member, slice, dhtComms, scheduler);
         try {
             iterator.iterate((link) -> link.append(Collections.emptyList(), Collections.singletonList(event)),
-                             (futureSailor, tally, link, _) -> mutate(gathered, futureSailor, identifier, isTimedOut,
+                             (futureSailor, tally, link, respondingMember) -> mutate(gathered, futureSailor, respondingMember,
+                                                                     identifier, isTimedOut,
                                                                       tally, link, "append events"),
                              () -> completeIt(result, gathered), operationsFrequency);
             List<KeyState_> s = result.get().getKeyStatesList();
@@ -269,12 +267,13 @@ public class KerlDHT implements ProtoKERLService {
         Instant timedOut = Instant.now().plus(operationTimeout);
         Supplier<Boolean> isTimedOut = () -> Instant.now().isAfter(timedOut);
         var result = new CompletableFuture<KeyStates>();
-        HashMultiset<KeyStates> gathered = HashMultiset.create();
+        QuorumResponseTracker<KeyStates> gathered = new QuorumResponseTracker<>();
         var slice = context.bftSubset(identifier);
         var iterator = new SliceIterator<>(context.getId().toString(), member, slice, dhtComms, scheduler);
         try {
             iterator.iterate((link) -> link.append(kerl),
-                             (futureSailor, tally, link, _) -> mutate(gathered, futureSailor, identifier, isTimedOut,
+                             (futureSailor, tally, link, respondingMember) -> mutate(gathered, futureSailor, respondingMember,
+                                                                     identifier, isTimedOut,
                                                                       tally, link, "append kerl"),
                              () -> completeIt(result, gathered), operationsFrequency);
             var keyStates = result.get().getKeyStatesList();
@@ -335,12 +334,13 @@ public class KerlDHT implements ProtoKERLService {
         Instant timedOut = Instant.now().plus(operationTimeout);
         Supplier<Boolean> isTimedOut = () -> Instant.now().isAfter(timedOut);
         var result = new CompletableFuture<KeyStates>();
-        HashMultiset<KeyStates> gathered = HashMultiset.create();
+        QuorumResponseTracker<KeyStates> gathered = new QuorumResponseTracker<>();
         var slice = context.bftSubset(identifier);
         var iterator = new SliceIterator<>(context.getId().toString(), member, slice, dhtComms, scheduler);
         try {
             iterator.iterate((link) -> link.append(Collections.singletonList(event)),
-                             (futureSailor, tally, link, _) -> mutate(gathered, futureSailor, identifier, isTimedOut,
+                             (futureSailor, tally, link, respondingMember) -> mutate(gathered, futureSailor, respondingMember,
+                                                                     identifier, isTimedOut,
                                                                       tally, link, "append kerl"),
                              () -> completeIt(result, gathered), operationsFrequency);
             var ks = result.get();
@@ -399,12 +399,13 @@ public class KerlDHT implements ProtoKERLService {
         Instant timedOut = Instant.now().plus(operationTimeout);
         Supplier<Boolean> isTimedOut = () -> Instant.now().isAfter(timedOut);
         var result = new CompletableFuture<Empty>();
-        HashMultiset<Empty> gathered = HashMultiset.create();
+        QuorumResponseTracker<Empty> gathered = new QuorumResponseTracker<>();
         var slice = context.bftSubset(identifier);
         var iterator = new SliceIterator<>(context.getId().toString(), member, slice, dhtComms, scheduler);
         try {
             iterator.iterate((link) -> link.appendAttachments(events),
-                             (futureSailor, tally, link, _) -> mutate(gathered, futureSailor, identifier, isTimedOut,
+                             (futureSailor, tally, link, respondingMember) -> mutate(gathered, futureSailor, respondingMember,
+                                                                     identifier, isTimedOut,
                                                                       tally, link, "append kerl"),
                              () -> completeIt(result, gathered), operationsFrequency);
             return result.get();
@@ -433,12 +434,13 @@ public class KerlDHT implements ProtoKERLService {
         Instant timedOut = Instant.now().plus(operationTimeout);
         Supplier<Boolean> isTimedOut = () -> Instant.now().isAfter(timedOut);
         var result = new CompletableFuture<Empty>();
-        HashMultiset<Empty> gathered = HashMultiset.create();
+        QuorumResponseTracker<Empty> gathered = new QuorumResponseTracker<>();
         var slice = context.bftSubset(identifier);
         var iterator = new SliceIterator<>(context.getId().toString(), member, slice, dhtComms, scheduler);
         try {
             iterator.iterate((link) -> link.appendValidations(validations),
-                             (futureSailor, tally, link, _) -> mutate(gathered, futureSailor, identifier, isTimedOut,
+                             (futureSailor, tally, link, respondingMember) -> mutate(gathered, futureSailor, respondingMember,
+                                                                     identifier, isTimedOut,
                                                                       tally, link, "append kerl"),
                              () -> completeIt(result, gathered), operationsFrequency);
             var empty = result.get();
@@ -494,12 +496,13 @@ public class KerlDHT implements ProtoKERLService {
         Instant timedOut = Instant.now().plus(operationTimeout);
         Supplier<Boolean> isTimedOut = () -> Instant.now().isAfter(timedOut);
         var result = new CompletableFuture<Attachment>();
-        HashMultiset<Attachment> gathered = HashMultiset.create();
+        QuorumResponseTracker<Attachment> gathered = new QuorumResponseTracker<>();
         var operation = "getAttachment(%s)".formatted(EventCoordinates.from(coordinates));
         var slice = context.bftSubset(identifier);
         var iter = new SliceIterator<>(context.getId().toString(), member, slice, dhtComms, scheduler);
         iter.iterate(link -> link.getAttachment(coordinates),
-                     (futureSailor, tally, destination, _) -> read(result, gathered, tally, futureSailor, identifier,
+                     (futureSailor, tally, destination, respondingMember) -> read(result, gathered, respondingMember,
+                                                                        tally, futureSailor, identifier,
                                                                    isTimedOut, destination, operation),
                      () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
         try {
@@ -537,12 +540,13 @@ public class KerlDHT implements ProtoKERLService {
         Instant timedOut = Instant.now().plus(operationTimeout);
         Supplier<Boolean> isTimedOut = () -> Instant.now().isAfter(timedOut);
         var result = new CompletableFuture<KERL_>();
-        HashMultiset<KERL_> gathered = HashMultiset.create();
+        QuorumResponseTracker<KERL_> gathered = new QuorumResponseTracker<>();
         var operation = "getKerl(%s)".formatted(Identifier.from(identifier));
         var slice = context.bftSubset(digest);
         var iter = new SliceIterator<>(context.getId().toString(), member, slice, dhtComms, scheduler);
         iter.iterate(link -> link.getKERL(identifier),
-                     (futureSailor, tally, destination, _) -> read(result, gathered, tally, futureSailor, digest,
+                     (futureSailor, tally, destination, respondingMember) -> read(result, gathered, respondingMember,
+                                                                        tally, futureSailor, digest,
                                                                    isTimedOut, destination, operation),
                      () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
         try {
@@ -584,11 +588,12 @@ public class KerlDHT implements ProtoKERLService {
         Instant timedOut = Instant.now().plus(operationTimeout);
         Supplier<Boolean> isTimedOut = () -> Instant.now().isAfter(timedOut);
         var result = new CompletableFuture<KeyEvent_>();
-        HashMultiset<KeyEvent_> gathered = HashMultiset.create();
+        QuorumResponseTracker<KeyEvent_> gathered = new QuorumResponseTracker<>();
         var slice = context.bftSubset(digest);
         var iter = new SliceIterator<>(context.getId().toString(), member, slice, dhtComms, scheduler);
         iter.iterate(link -> link.getKeyEvent(coordinates),
-                     (futureSailor, tally, destination, _) -> read(result, gathered, tally, futureSailor, digest,
+                     (futureSailor, tally, destination, respondingMember) -> read(result, gathered, respondingMember,
+                                                                        tally, futureSailor, digest,
                                                                    isTimedOut, destination, operation),
                      () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
         try {
@@ -619,11 +624,12 @@ public class KerlDHT implements ProtoKERLService {
         Instant timedOut = Instant.now().plus(operationTimeout);
         Supplier<Boolean> isTimedOut = () -> Instant.now().isAfter(timedOut);
         var result = new CompletableFuture<KeyState_>();
-        HashMultiset<KeyState_> gathered = HashMultiset.create();
+        QuorumResponseTracker<KeyState_> gathered = new QuorumResponseTracker<>();
         var slice = context.bftSubset(digest);
         var iter = new SliceIterator<>(context.getId().toString(), member, slice, dhtComms, scheduler);
         iter.iterate(link -> link.getKeyState(coordinates),
-                     (futureSailor, tally, destination, _) -> read(result, gathered, tally, futureSailor, digest,
+                     (futureSailor, tally, destination, respondingMember) -> read(result, gathered, respondingMember,
+                                                                        tally, futureSailor, digest,
                                                                    isTimedOut, destination, operation),
                      () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
         try {
@@ -658,11 +664,12 @@ public class KerlDHT implements ProtoKERLService {
         Instant timedOut = Instant.now().plus(operationTimeout);
         Supplier<Boolean> isTimedOut = () -> Instant.now().isAfter(timedOut);
         var result = new CompletableFuture<KeyState_>();
-        HashMultiset<KeyState_> gathered = HashMultiset.create();
+        QuorumResponseTracker<KeyState_> gathered = new QuorumResponseTracker<>();
         var slice = context.bftSubset(digest);
         var iter = new SliceIterator<>(context.getId().toString(), member, slice, dhtComms, scheduler);
         iter.iterate(link -> link.getKeyState(identAndSeq),
-                     (futureSailor, tally, destination, _) -> read(result, gathered, tally, futureSailor, digest,
+                     (futureSailor, tally, destination, respondingMember) -> read(result, gathered, respondingMember,
+                                                                        tally, futureSailor, digest,
                                                                    isTimedOut, destination, operation),
                      () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
         try {
@@ -694,11 +701,12 @@ public class KerlDHT implements ProtoKERLService {
         Instant timedOut = Instant.now().plus(operationTimeout);
         Supplier<Boolean> isTimedOut = () -> Instant.now().isAfter(timedOut);
         var result = new CompletableFuture<KeyState_>();
-        HashMultiset<KeyState_> gathered = HashMultiset.create();
+        QuorumResponseTracker<KeyState_> gathered = new QuorumResponseTracker<>();
         var slice = context.bftSubset(digest);
         var iter = new SliceIterator<>(context.getId().toString(), member, slice, dhtComms, scheduler);
         iter.iterate(link -> link.getKeyState(identifier),
-                     (futureSailor, tally, destination, _) -> read(result, gathered, tally, futureSailor, digest,
+                     (futureSailor, tally, destination, respondingMember) -> read(result, gathered, respondingMember,
+                                                                        tally, futureSailor, digest,
                                                                    isTimedOut, destination, operation),
                      () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
         try {
@@ -740,11 +748,12 @@ public class KerlDHT implements ProtoKERLService {
         Instant timedOut = Instant.now().plus(operationTimeout);
         Supplier<Boolean> isTimedOut = () -> Instant.now().isAfter(timedOut);
         var result = new CompletableFuture<KeyState_>();
-        HashMultiset<KeyState_> gathered = HashMultiset.create();
+        QuorumResponseTracker<KeyState_> gathered = new QuorumResponseTracker<>();
         var slice = context.bftSubset(digest);
         var iter = new SliceIterator<>(context.getId().toString(), member, slice, dhtComms, scheduler);
         iter.iterate(link -> link.getKeyState(identAndSeq),
-                     (futureSailor, tally, destination, _) -> read(result, gathered, tally, futureSailor, digest,
+                     (futureSailor, tally, destination, respondingMember) -> read(result, gathered, respondingMember,
+                                                                        tally, futureSailor, digest,
                                                                    isTimedOut, destination, operation),
                      () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
         try {
@@ -775,11 +784,12 @@ public class KerlDHT implements ProtoKERLService {
         Instant timedOut = Instant.now().plus(operationTimeout);
         Supplier<Boolean> isTimedOut = () -> Instant.now().isAfter(timedOut);
         var result = new CompletableFuture<KeyStateWithAttachments_>();
-        HashMultiset<KeyStateWithAttachments_> gathered = HashMultiset.create();
+        QuorumResponseTracker<KeyStateWithAttachments_> gathered = new QuorumResponseTracker<>();
         var slice = context.bftSubset(digest);
         var iter = new SliceIterator<>(context.getId().toString(), member, slice, dhtComms, scheduler);
         iter.iterate(link -> link.getKeyStateWithAttachments(coordinates),
-                     (futureSailor, tally, destination, _) -> read(result, gathered, tally, futureSailor, digest,
+                     (futureSailor, tally, destination, respondingMember) -> read(result, gathered, respondingMember,
+                                                                        tally, futureSailor, digest,
                                                                    isTimedOut, destination, operation),
                      () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
         try {
@@ -810,11 +820,12 @@ public class KerlDHT implements ProtoKERLService {
         Instant timedOut = Instant.now().plus(operationTimeout);
         Supplier<Boolean> isTimedOut = () -> Instant.now().isAfter(timedOut);
         var result = new CompletableFuture<KeyStateWithEndorsementsAndValidations_>();
-        HashMultiset<KeyStateWithEndorsementsAndValidations_> gathered = HashMultiset.create();
+        QuorumResponseTracker<KeyStateWithEndorsementsAndValidations_> gathered = new QuorumResponseTracker<>();
         var slice = context.bftSubset(digest);
         var iter = new SliceIterator<>(context.getId().toString(), member, slice, dhtComms, scheduler);
         iter.iterate(link -> link.getKeyStateWithEndorsementsAndValidations(coordinates),
-                     (futureSailor, tally, destination, _) -> read(result, gathered, tally, futureSailor, digest,
+                     (futureSailor, tally, destination, respondingMember) -> read(result, gathered, respondingMember,
+                                                                        tally, futureSailor, digest,
                                                                    isTimedOut, destination, operation),
                      () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
         try {
@@ -846,11 +857,12 @@ public class KerlDHT implements ProtoKERLService {
         Instant timedOut = Instant.now().plus(operationTimeout);
         Supplier<Boolean> isTimedOut = () -> Instant.now().isAfter(timedOut);
         var result = new CompletableFuture<Validations>();
-        HashMultiset<Validations> gathered = HashMultiset.create();
+        QuorumResponseTracker<Validations> gathered = new QuorumResponseTracker<>();
         var slice = context.bftSubset(identifier);
         var iter = new SliceIterator<>(context.getId().toString(), member, slice, dhtComms, scheduler);
         iter.iterate(link -> link.getValidations(coordinates),
-                     (futureSailor, tally, destination, _) -> read(result, gathered, tally, futureSailor, identifier,
+                     (futureSailor, tally, destination, respondingMember) -> read(result, gathered, respondingMember,
+                                                                        tally, futureSailor, identifier,
                                                                    isTimedOut, destination, operation),
                      () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
         try {
@@ -969,11 +981,8 @@ public class KerlDHT implements ProtoKERLService {
         }
     }
 
-    private <T> void completeIt(CompletableFuture<T> result, HashMultiset<T> gathered) {
-        var max = gathered.entrySet()
-                          .stream()
-                          .max(Ordering.natural().onResultOf(Multiset.Entry::getCount))
-                          .orElse(null);
+    private <T> void completeIt(CompletableFuture<T> result, QuorumResponseTracker<T> gathered) {
+        var max = gathered.maxEntry();
         var majority = context.size() == 1 ? 1 : context.majority();
         if (max != null) {
             if (max.getCount() >= majority) {
@@ -1043,18 +1052,17 @@ public class KerlDHT implements ProtoKERLService {
         return new CombinedIntervals(intervals);
     }
 
-    private <T> Entry<T> max(HashMultiset<T> gathered) {
-        return gathered.entrySet().stream().max(Ordering.natural().onResultOf(Multiset.Entry::getCount)).orElse(null);
+    private <T> Entry<T> max(QuorumResponseTracker<T> gathered) {
+        return gathered.maxEntry();
     }
 
-    private int maxCount(HashMultiset<?> gathered) {
-        final var max = gathered.entrySet().stream().max(Ordering.natural().onResultOf(Multiset.Entry::getCount));
-        return max.map(Entry::getCount).orElse(0);
+    private int maxCount(QuorumResponseTracker<?> gathered) {
+        return gathered.maxCount();
     }
 
-    private <T> boolean mutate(HashMultiset<T> gathered, Optional<T> futureSailor, Digest identifier,
-                               Supplier<Boolean> isTimedOut, AtomicInteger tally, DhtService destination,
-                               String action) {
+    private <T> boolean mutate(QuorumResponseTracker<T> gathered, Optional<T> futureSailor, Member respondingMember,
+                               Digest identifier, Supplier<Boolean> isTimedOut, AtomicInteger tally,
+                               DhtService destination, String action) {
         if (futureSailor.isEmpty()) {
             log.debug("Failed {}: {} tally: {} from: {}  on: {}", action, identifier, tally.get(),
                       destination.getMember() == null ? "<null>" : destination.getMember().getId(), member.getId());
@@ -1069,19 +1077,19 @@ public class KerlDHT implements ProtoKERLService {
             return !isTimedOut.get();
         }
         T content = futureSailor.get();
-        gathered.add(content);
-        gathered.entrySet()
-                .stream()
-                .max(Ordering.natural().onResultOf(Entry::getCount))
-                .ifPresent(max -> tally.set(max.getCount()));
+        gathered.add(content, respondingMember);
+        var max = gathered.maxEntry();
+        if (max != null) {
+            tally.set(max.getCount());
+        }
         log.warn("{}: {} tally: {} from: {} on: {}", action, identifier, tally.get(), destination.getMember().getId(),
                  member.getId());
         return !isTimedOut.get();
     }
 
-    private <T> boolean read(CompletableFuture<T> result, HashMultiset<T> gathered, AtomicInteger tally,
-                             Optional<T> futureSailor, Digest identifier, Supplier<Boolean> isTimedOut,
-                             DhtService destination, String action) {
+    private <T> boolean read(CompletableFuture<T> result, QuorumResponseTracker<T> gathered, Member respondingMember,
+                             AtomicInteger tally, Optional<T> futureSailor, Digest identifier,
+                             Supplier<Boolean> isTimedOut, DhtService destination, String action) {
         if (futureSailor.isEmpty()) {
             log.debug("Failed {}: {} tally: {} from: {}  on: {}", action, identifier, tally,
                       destination.getMember() == null ? "<null>" : destination.getMember().getId(), member.getId());
@@ -1098,7 +1106,7 @@ public class KerlDHT implements ProtoKERLService {
         T content = futureSailor.get();
         log.trace("{}: {} tally: {} from: {}  on: {}", action, identifier, tally.get(), destination.getMember().getId(),
                   member.getId());
-        gathered.add(content);
+        gathered.add(content, respondingMember);
         var max = max(gathered);
         if (max != null) {
             tally.set(max.getCount());
