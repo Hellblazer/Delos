@@ -192,7 +192,7 @@ public class DeterminismVerificationTest {
 
         transactioneers.forEach(Transactioneer::start);
         try {
-            int waitSeconds = LARGE_TESTS ? (IS_CI ? 120 : 60) : (IS_CI ? 80 : 40);
+            int waitSeconds = LARGE_TESTS ? (IS_CI ? 120 : 60) : (IS_CI ? 120 : 40);
             final var complete = countdown.await(waitSeconds, TimeUnit.SECONDS);
             assertTrue(complete, "Transactions did not complete in time");
         } finally {

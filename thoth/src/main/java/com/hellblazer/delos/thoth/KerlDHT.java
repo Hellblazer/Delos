@@ -1310,24 +1310,26 @@ public class KerlDHT implements ProtoKERLService {
         if (!started.get()) {
             return;
         }
-        var successors = context.successors(member.getId(), m -> true, member);
-        Collections.shuffle(successors);
-        successors.forEach(i -> {
-            try (var link = reconcileComms.connect(i.m())) {
-                if (link != null) {
-                    reconcile(reconcile(link, i.ring()), link);
+        try {
+            var successors = context.successors(member.getId(), m -> true, member);
+            Collections.shuffle(successors);
+            successors.forEach(i -> {
+                try (var link = reconcileComms.connect(i.m())) {
+                    if (link != null) {
+                        reconcile(reconcile(link, i.ring()), link);
+                    }
+                    try {
+                        Thread.sleep(duration.toMillis());
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                } catch (IOException e) {
+                    log.debug("Error reconciling with: {} on: {}", i.m(), member.getId(), e);
                 }
-                try {
-                    Thread.sleep(duration.toMillis());
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            } catch (IOException e) {
-                log.debug("Error reconciling with: {} on: {}", i.m(), member.getId(), e);
-            } finally {
-                schedule(duration);
-            }
-        });
+            });
+        } finally {
+            schedule(duration);
+        }
     }
 
     private void schedule(Duration duration) {
