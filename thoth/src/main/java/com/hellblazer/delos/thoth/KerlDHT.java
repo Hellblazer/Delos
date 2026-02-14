@@ -100,6 +100,7 @@ public class KerlDHT implements ProtoKERLService {
 
     private final Ani                                                         ani;
     private final ThothByzantineStateProvider                                 byzantineProvider;
+    private final ByzantineIntelligenceCoordinator                            byzantineCoordinator;
     private final DhtValidationPipeline                                       validationPipeline;
     private final CachingKERL                                                 cache;
     private final JdbcConnectionPool                                          connectionPool;
@@ -123,7 +124,8 @@ public class KerlDHT implements ProtoKERLService {
     public KerlDHT(Duration operationsFrequency, Context<? extends Member> context, SigningMember member,
                    BiFunction<KerlDHT, KERL.AppendKERL, KERL.AppendKERL> wrap, JdbcConnectionPool connectionPool,
                    DigestAlgorithm digestAlgorithm, Router communications, Duration operationTimeout,
-                   double falsePositiveRate, StereotomyMetrics metrics, KerlDhtMetrics dhtMetrics) {
+                   double falsePositiveRate, StereotomyMetrics metrics, KerlDhtMetrics dhtMetrics,
+                   ByzantineIntelligenceCoordinator byzantineCoordinator) {
         assert member != null;
         this.context = new DelegatedContext<>((Context<Member>) new StaticContext<>(context));
         this.member = member;
@@ -132,6 +134,7 @@ public class KerlDHT implements ProtoKERLService {
         this.operationsFrequency = operationsFrequency;
         this.dhtMetrics = dhtMetrics != null ? dhtMetrics : KerlDhtMetrics.noOp();
         this.byzantineProvider = new ThothByzantineStateProvider();
+        this.byzantineCoordinator = byzantineCoordinator;
         this.scheduler = Executors.newScheduledThreadPool(1, Thread.ofVirtual()
             .name("thoth-dht-", 0)
             .factory());
@@ -173,6 +176,17 @@ public class KerlDHT implements ProtoKERLService {
     }
 
     /**
+     * Backward-compatible constructor without KerlDhtMetrics (uses no-op metrics) and ByzantineCoordinator.
+     */
+    public KerlDHT(Duration operationsFrequency, Context<? extends Member> context, SigningMember member,
+                   BiFunction<KerlDHT, KERL.AppendKERL, KERL.AppendKERL> wrap, JdbcConnectionPool connectionPool,
+                   DigestAlgorithm digestAlgorithm, Router communications, Duration operationTimeout,
+                   double falsePositiveRate, StereotomyMetrics metrics, KerlDhtMetrics dhtMetrics) {
+        this(operationsFrequency, context, member, wrap, connectionPool, digestAlgorithm, communications,
+             operationTimeout, falsePositiveRate, metrics, dhtMetrics, null);
+    }
+
+    /**
      * Backward-compatible constructor without KerlDhtMetrics (uses no-op metrics).
      */
     public KerlDHT(Duration operationsFrequency, Context<? extends Member> context, SigningMember member,
@@ -180,14 +194,14 @@ public class KerlDHT implements ProtoKERLService {
                    DigestAlgorithm digestAlgorithm, Router communications, Duration operationTimeout,
                    double falsePositiveRate, StereotomyMetrics metrics) {
         this(operationsFrequency, context, member, wrap, connectionPool, digestAlgorithm, communications,
-             operationTimeout, falsePositiveRate, metrics, null);
+             operationTimeout, falsePositiveRate, metrics, null, null);
     }
 
     public KerlDHT(Duration operationsFrequency, Context<? extends Member> context, SigningMember member,
                    JdbcConnectionPool connectionPool, DigestAlgorithm digestAlgorithm, Router communications,
                    Duration operationTimeout, double falsePositiveRate, StereotomyMetrics metrics) {
         this(operationsFrequency, context, member, (t, k) -> k, connectionPool, digestAlgorithm, communications,
-             operationTimeout, falsePositiveRate, metrics, null);
+             operationTimeout, falsePositiveRate, metrics, null, null);
     }
 
     /**
@@ -962,6 +976,13 @@ public class KerlDHT implements ProtoKERLService {
         }
         dhtComms.register(context.getId(), service, validator);
         reconcileComms.register(context.getId(), reconciliation, validator);
+
+        // Register Byzantine provider with coordinator (Phase 5)
+        if (byzantineCoordinator != null) {
+            byzantineCoordinator.registerProvider(byzantineProvider);
+            log.info("Registered Thoth Byzantine provider with coordinator on: {}", member.getId());
+        }
+
         schedule(duration);
     }
 
@@ -971,11 +992,21 @@ public class KerlDHT implements ProtoKERLService {
         }
         log.info("Stopping KerlDHT on: {}", member.getId());
 
-        // 1. Deregister communications (prevents new inbound)
+        // 1. Deregister Byzantine provider from coordinator (Phase 5)
+        // Note: Providers use CopyOnWriteArrayList, so removal is safe during coordinator polling
+        // The coordinator will stop polling this provider after its current cycle completes
+        if (byzantineCoordinator != null) {
+            // Coordinator doesn't expose deregister - provider lifecycle tied to DHT lifecycle
+            // Reset to clear any accumulated state before shutdown
+            byzantineProvider.reset();
+            log.info("Reset Thoth Byzantine provider state on: {}", member.getId());
+        }
+
+        // 2. Deregister communications (prevents new inbound)
         dhtComms.deregister(context.getId());
         reconcileComms.deregister(context.getId());
 
-        // 2. Wait for in-flight validations
+        // 3. Wait for in-flight validations
         if (!inFlightValidations.isEmpty()) {
             log.debug("Waiting for {} in-flight validations", inFlightValidations.size());
             try {
@@ -1000,11 +1031,8 @@ public class KerlDHT implements ProtoKERLService {
             Thread.currentThread().interrupt();
         }
 
-        // 4. Dispose connection pool
+        // 5. Dispose connection pool
         connectionPool.dispose();
-
-        // 5. Reset Byzantine provider
-        byzantineProvider.reset();
 
         log.info("KerlDHT stopped on: {}", member.getId());
     }
@@ -1381,6 +1409,10 @@ public class KerlDHT implements ProtoKERLService {
             if (!valid(from, ring)) {
                 return;
             }
+
+            // TODO Phase 5: Add reconciliation validation once correct event coordinate extraction is implemented
+            // Reconciliation events are KeyEventWithAttachments which require extracting coordinates from
+            // the nested event type (InceptionEvent/RotationEvent/InteractionEvent via EventCommon)
             KerlDHT.this.kerlSpace.update(update.getEventsList(), kerl);
         }
     }
