@@ -314,8 +314,10 @@ public class KerlDHT implements ProtoKERLService {
             boolean valid = ani.eventValidation(operationTimeout).validate(eventId);
             if (!valid) {
                 dhtMetrics.incrementValidationFailure("appendEvent", "KERI validation failed");
-                // Note: Byzantine provider not called here - this is client-side pre-distribution
-                // validation. Member-level Byzantine tracking happens in mutate() for DHT responses.
+                // Record validation failure for Byzantine detection
+                // This tracks identifiers with invalid KERI events, which may indicate
+                // forgery, equivocation, or other Byzantine behavior
+                byzantineProvider.recordValidationFailure(eventId, "KERI event validation failed");
                 log.warn("KERI validation failed for event: {} on: {}", eventId, member.getId());
                 throw new com.hellblazer.delos.thoth.exception.DhtSignatureValidationException(
                     "appendEvent",
