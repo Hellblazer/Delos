@@ -125,7 +125,7 @@ public class ByzantineDetectionIntegrationTest extends AbstractDhtTest {
         var maxAttempts = 50; // 50 attempts × 200ms = 10 seconds max (more than enough for 50ms poll interval)
         while (profile.isEmpty() && attempts < maxAttempts) {
             Thread.sleep(200); // Poll interval is 50ms, wait 4x to allow multiple polls
-            profile = coordinator.getMemberProfile(new SelfAddressingIdentifier(byzantineMember.getId()));
+            profile = coordinator.getMemberProfile(testId); // Use same identifier as recording
             attempts++;
             if (attempts % 10 == 0) {
                 System.out.printf("Byzantine detection attempt %d/50, profile present: %s%n", attempts,

@@ -1210,8 +1210,13 @@ public class KerlDHT implements ProtoKERLService {
         if (futureSailor.isEmpty()) {
             var destinationId = destination != null && destination.getMember() != null ?
                                 destination.getMember().getId().toString() : "<null>";
-            log.debug("Failed {}: {} tally: {} from: {}  on: {}", action, identifier, tally, destinationId,
-                      member.getId());
+            if (destination == null) {
+                log.warn("Failed {}: {} tally: {} from: <null destination>  on: {} - this should not happen",
+                         action, identifier, tally, member.getId());
+            } else {
+                log.debug("Failed {}: {} tally: {} from: {}  on: {}", action, identifier, tally, destinationId,
+                          member.getId());
+            }
             // Record Byzantine provider signals for failure tracking
             if (destination != null && destination.getMember() != null) {
                 if (isTimedOut.get()) {
@@ -1225,7 +1230,13 @@ public class KerlDHT implements ProtoKERLService {
         T content = futureSailor.get();
         var destinationId = destination != null && destination.getMember() != null ?
                             destination.getMember().getId().toString() : "<null>";
-        log.trace("{}: {} tally: {} from: {}  on: {}", action, identifier, tally.get(), destinationId, member.getId());
+        if (destination == null) {
+            log.warn("{}: {} tally: {} from: <null destination>  on: {} - this should not happen", action,
+                     identifier, tally.get(), member.getId());
+        } else {
+            log.trace("{}: {} tally: {} from: {}  on: {}", action, identifier, tally.get(), destinationId,
+                      member.getId());
+        }
         gathered.add(content, respondingMember);
         var max = max(gathered);
         if (max != null) {
