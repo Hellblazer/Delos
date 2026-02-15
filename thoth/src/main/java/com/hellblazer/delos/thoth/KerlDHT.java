@@ -1349,10 +1349,17 @@ public class KerlDHT implements ProtoKERLService {
                                Digest identifier, Supplier<Boolean> isTimedOut, AtomicInteger tally,
                                DhtService destination, String action) {
         if (futureSailor.isEmpty()) {
-            log.debug("Failed {}: {} tally: {} from: {}  on: {}", action, identifier, tally.get(),
-                      destination.getMember() == null ? "<null>" : destination.getMember().getId(), member.getId());
+            var destinationId = destination != null && destination.getMember() != null ?
+                                destination.getMember().getId().toString() : "<null>";
+            if (destination == null) {
+                log.warn("Failed {}: {} tally: {} from: <null destination>  on: {} - connection failure",
+                         action, identifier, tally.get(), member.getId());
+            } else {
+                log.debug("Failed {}: {} tally: {} from: {}  on: {}", action, identifier, tally.get(), destinationId,
+                          member.getId());
+            }
             // Record Byzantine provider signals for failure tracking
-            if (destination.getMember() != null) {
+            if (destination != null && destination.getMember() != null) {
                 if (isTimedOut.get()) {
                     byzantineProvider.recordTimeout(destination.getMember().getId());
                 } else {
@@ -1378,8 +1385,15 @@ public class KerlDHT implements ProtoKERLService {
         if (max != null) {
             tally.set(max.getCount());
         }
-        log.trace("{}: {} tally: {} from: {} on: {}", action, identifier, tally.get(), destination.getMember().getId(),
-                  member.getId());
+        var destinationId = destination != null && destination.getMember() != null ?
+                            destination.getMember().getId().toString() : "<null>";
+        if (destination == null) {
+            log.warn("{}: {} tally: {} from: <null destination>  on: {} - connection failure", action,
+                     identifier, tally.get(), member.getId());
+        } else {
+            log.trace("{}: {} tally: {} from: {} on: {}", action, identifier, tally.get(), destinationId,
+                      member.getId());
+        }
         return !isTimedOut.get();
     }
 
