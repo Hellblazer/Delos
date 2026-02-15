@@ -124,6 +124,7 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
     private final Service                                                     service        = new Service();
     private final AtomicBoolean                                               started        = new AtomicBoolean();
     private final Duration                                                    operationTimeout;
+    private final Duration                                                    shutdownTimeout;
     private final Set<CompletableFuture<Void>>                                inFlightValidations = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private final Map<String, RequestContext>                                 activeRequests      = new ConcurrentHashMap<>();
     private volatile ScheduledFuture<?>                                       poolMonitoringTask;
@@ -140,15 +141,31 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
     private record RequestContext(String operation, Digest identifier, long timestamp) {
     }
 
+    /**
+     * Backward-compatible constructor without shutdownTimeout (uses default 10s).
+     */
     public KerlDHT(Duration operationsFrequency, Context<? extends Member> context, SigningMember member,
                    BiFunction<KerlDHT, KERL.AppendKERL, KERL.AppendKERL> wrap, JdbcConnectionPool connectionPool,
                    DigestAlgorithm digestAlgorithm, Router communications, Duration operationTimeout,
                    double falsePositiveRate, StereotomyMetrics metrics, KerlDhtMetrics dhtMetrics,
                    ByzantineIntelligenceCoordinator byzantineCoordinator) {
+        this(operationsFrequency, context, member, wrap, connectionPool, digestAlgorithm, communications,
+             operationTimeout, falsePositiveRate, metrics, dhtMetrics, byzantineCoordinator, Duration.ofSeconds(10));
+    }
+
+    /**
+     * Main constructor with configurable shutdown timeout.
+     */
+    public KerlDHT(Duration operationsFrequency, Context<? extends Member> context, SigningMember member,
+                   BiFunction<KerlDHT, KERL.AppendKERL, KERL.AppendKERL> wrap, JdbcConnectionPool connectionPool,
+                   DigestAlgorithm digestAlgorithm, Router communications, Duration operationTimeout,
+                   double falsePositiveRate, StereotomyMetrics metrics, KerlDhtMetrics dhtMetrics,
+                   ByzantineIntelligenceCoordinator byzantineCoordinator, Duration shutdownTimeout) {
         assert member != null;
         this.context = new DelegatedContext<>((Context<Member>) new StaticContext<>(context));
         this.member = member;
         this.operationTimeout = operationTimeout;
+        this.shutdownTimeout = shutdownTimeout != null ? shutdownTimeout : Duration.ofSeconds(10);
         this.fpr = falsePositiveRate;
         this.operationsFrequency = operationsFrequency;
         this.dhtMetrics = dhtMetrics != null ? dhtMetrics : KerlDhtMetrics.noOp();
@@ -203,7 +220,7 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
                    DigestAlgorithm digestAlgorithm, Router communications, Duration operationTimeout,
                    double falsePositiveRate, StereotomyMetrics metrics, KerlDhtMetrics dhtMetrics) {
         this(operationsFrequency, context, member, wrap, connectionPool, digestAlgorithm, communications,
-             operationTimeout, falsePositiveRate, metrics, dhtMetrics, null);
+             operationTimeout, falsePositiveRate, metrics, dhtMetrics, null, Duration.ofSeconds(10));
     }
 
     /**
@@ -214,14 +231,14 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
                    DigestAlgorithm digestAlgorithm, Router communications, Duration operationTimeout,
                    double falsePositiveRate, StereotomyMetrics metrics) {
         this(operationsFrequency, context, member, wrap, connectionPool, digestAlgorithm, communications,
-             operationTimeout, falsePositiveRate, metrics, null, null);
+             operationTimeout, falsePositiveRate, metrics, null, null, Duration.ofSeconds(10));
     }
 
     public KerlDHT(Duration operationsFrequency, Context<? extends Member> context, SigningMember member,
                    JdbcConnectionPool connectionPool, DigestAlgorithm digestAlgorithm, Router communications,
                    Duration operationTimeout, double falsePositiveRate, StereotomyMetrics metrics) {
         this(operationsFrequency, context, member, (t, k) -> k, connectionPool, digestAlgorithm, communications,
-             operationTimeout, falsePositiveRate, metrics, null, null);
+             operationTimeout, falsePositiveRate, metrics, null, null, Duration.ofSeconds(10));
     }
 
     /**
@@ -1287,12 +1304,13 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         dhtComms.deregister(context.getId());
         reconcileComms.deregister(context.getId());
 
-        // 3. Wait for in-flight validations
+        // 3. Wait for in-flight validations (use half of shutdown timeout to allow time for executors)
         if (!inFlightValidations.isEmpty()) {
             log.debug("Waiting for {} in-flight validations", inFlightValidations.size());
             try {
+                var validationTimeout = shutdownTimeout.dividedBy(2);
                 CompletableFuture.allOf(inFlightValidations.toArray(new CompletableFuture[0]))
-                    .orTimeout(5, TimeUnit.SECONDS)
+                    .orTimeout(validationTimeout.toSeconds(), TimeUnit.SECONDS)
                     .exceptionally(ex -> null)
                     .join();
             } catch (Exception e) {
@@ -1303,9 +1321,13 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         // 3. Graceful scheduler shutdown, then force if needed
         scheduler.shutdown();
         try {
-            if (!scheduler.awaitTermination(10, TimeUnit.SECONDS)) {
+            if (!scheduler.awaitTermination(shutdownTimeout.toSeconds(), TimeUnit.SECONDS)) {
                 log.warn("Scheduler did not terminate gracefully, forcing on: {}", member.getId());
-                scheduler.shutdownNow();
+                var droppedTasks = scheduler.shutdownNow();
+                if (!droppedTasks.isEmpty()) {
+                    log.warn("Dropped {} scheduler tasks during forced shutdown on: {}", droppedTasks.size(),
+                             member.getId());
+                }
             }
         } catch (InterruptedException e) {
             scheduler.shutdownNow();
@@ -1315,7 +1337,7 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         // 4. Shutdown validation executor (separate from scheduler to avoid deadlock)
         validationExecutor.shutdown();
         try {
-            if (!validationExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+            if (!validationExecutor.awaitTermination(shutdownTimeout.toSeconds(), TimeUnit.SECONDS)) {
                 log.warn("Validation executor did not terminate gracefully, forcing on: {}", member.getId());
                 var droppedTasks = validationExecutor.shutdownNow();
                 if (!droppedTasks.isEmpty()) {
