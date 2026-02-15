@@ -169,6 +169,55 @@ public class KerlDHTErrorHandlingTest extends AbstractDhtTest {
     }
 
     // =================================================================
+    // Lifecycle-Agnostic Parameter Validation Tests
+    // Verify IllegalArgumentException thrown REGARDLESS of DHT state
+    // =================================================================
+
+    @Test
+    public void testAppendNullKeyEventThrowsWhenStarted() {
+        routers.values().forEach(r -> r.start());
+        dhts.values().forEach(d -> d.start(java.time.Duration.ofMillis(10)));
+
+        var dht = dhts.values().iterator().next();
+        assertThatThrownBy(() -> dht.append((KeyEvent_) null))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("requires non-null");
+    }
+
+    @Test
+    public void testAppendNullKerlThrowsWhenStarted() {
+        routers.values().forEach(r -> r.start());
+        dhts.values().forEach(d -> d.start(java.time.Duration.ofMillis(10)));
+
+        var dht = dhts.values().iterator().next();
+        assertThatThrownBy(() -> dht.append((KERL_) null))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("requires non-null");
+    }
+
+    @Test
+    public void testGetKeyStateNullIdentifierThrowsWhenStarted() {
+        routers.values().forEach(r -> r.start());
+        dhts.values().forEach(d -> d.start(java.time.Duration.ofMillis(10)));
+
+        var dht = dhts.values().iterator().next();
+        assertThatThrownBy(() -> dht.getKeyState((Ident) null))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("requires non-null");
+    }
+
+    @Test
+    public void testGetKeyEventNullCoordinatesThrowsWhenStarted() {
+        routers.values().forEach(r -> r.start());
+        dhts.values().forEach(d -> d.start(java.time.Duration.ofMillis(10)));
+
+        var dht = dhts.values().iterator().next();
+        assertThatThrownBy(() -> dht.getKeyEvent(null))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("requires non-null");
+    }
+
+    // =================================================================
     // Quorum Failure Tests (DhtQuorumException)
     // =================================================================
 

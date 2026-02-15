@@ -120,4 +120,64 @@ public class KerlDHTConnectionFailureSignalTest extends AbstractDhtTest {
                                           .anyMatch(s -> s.contains("CONNECTION_FAILURE"));
         assertThat(hasConnectionFailure).as("Signals should include CONNECTION_FAILURE").isTrue();
     }
+
+    /**
+     * Integration test: Verify that actual null destination (from router shutdown)
+     * triggers recordConnectionFailure with correct parameters.
+     * <p>
+     * This tests the INTEGRATION POINT where KerlDHT's null guard calls
+     * byzantineProvider.recordConnectionFailure() when destination is null.
+     * </p>
+     */
+    @Test
+    public void testNullDestinationIntegrationTriggersConnectionFailureSignal() throws Exception {
+        // Arrange: Start cluster
+        routers.values().forEach(r -> r.start());
+        dhts.values().forEach(dht -> dht.start(Duration.ofMillis(10)));
+
+        // Get test member and create a KERL to query
+        var testMember = identities.keySet().iterator().next();
+        var controlled = identities.get(testMember);
+        var dht = dhts.get(testMember);
+        var byzantineProvider = dht.getByzantineProvider();
+
+        // Append KERL so there's data to query
+        var identifier = controlled.getIdentifier();
+        var establishmentCoords = controlled.getLastEstablishmentEvent();
+        var establishmentEvent = kerl.getKeyEvent(establishmentCoords);
+        dht.append(java.util.Collections.singletonList(establishmentEvent.toKeyEvent_()));
+
+        // Get initial anomaly score
+        var memberId = new SelfAddressingIdentifier(testMember.getId());
+        var initialState = byzantineProvider.getMemberState(memberId);
+        var initialScore = initialState.map(s -> s.anomalyScore()).orElse(0.0);
+
+        // Act: Stop all routers to trigger null destination on next operation
+        // Note: DHT is still started, so lifecycle guard won't block the operation
+        routers.values().forEach(r -> r.close(Duration.ofMillis(0)));
+
+        // Attempt getKERL operation - will fail with null destination from router.connect()
+        try {
+            dht.getKERL(identifier.toIdent());
+            // Operation may succeed with cached data or fail with exception
+            // We don't care about the result - we care about the Byzantine signal
+        } catch (Exception e) {
+            // Expected - connection failure, quorum failure, or resource exception
+            // The important thing is that recordConnectionFailure was called
+        }
+
+        // Assert: Verify connection failure was recorded (anomaly score increased)
+        var finalState = byzantineProvider.getMemberState(memberId);
+        var finalScore = finalState.map(s -> s.anomalyScore()).orElse(0.0);
+
+        assertThat(finalScore).as("Anomaly score should increase after null destination connection failure")
+                              .isGreaterThan(initialScore);
+
+        // Verify signal includes CONNECTION_FAILURE context
+        var signals = finalState.map(s -> s.activeSignals()).orElse(java.util.Collections.emptyList());
+        var hasConnectionFailureSignal = signals.stream()
+                                                .anyMatch(s -> s.contains("CONNECTION_FAILURE"));
+        assertThat(hasConnectionFailureSignal).as("Signals should include CONNECTION_FAILURE from null destination")
+                                              .isTrue();
+    }
 }
