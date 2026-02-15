@@ -363,7 +363,7 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
                              (futureSailor, tally, link, respondingMember) -> mutate(gathered, futureSailor, respondingMember,
                                                                      identifier, isTimedOut,
                                                                       tally, link, "append events"),
-                             () -> completeIt(result, gathered), operationsFrequency);
+                             () -> completeIt(result, gathered, "appendEvent"), operationsFrequency);
             List<KeyState_> s = result.get().getKeyStatesList();
             return s.isEmpty() ? KeyState_.getDefaultInstance() : s.getFirst();
         } catch (InterruptedException e) {
@@ -422,7 +422,7 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
                              (futureSailor, tally, link, respondingMember) -> mutate(gathered, futureSailor, respondingMember,
                                                                      identifier, isTimedOut,
                                                                       tally, link, "append kerl"),
-                             () -> completeIt(result, gathered), operationsFrequency);
+                             () -> completeIt(result, gathered, "appendKERL"), operationsFrequency);
             var keyStates = result.get().getKeyStatesList();
             dhtMetrics.recordWriteLatency("appendKERL", System.nanoTime() - startNanos);
             dhtMetrics.incrementQuorumSuccess("appendKERL");
@@ -484,7 +484,7 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
                              (futureSailor, tally, link, respondingMember) -> mutate(gathered, futureSailor, respondingMember,
                                                                      identifier, isTimedOut,
                                                                       tally, link, "append kerl"),
-                             () -> completeIt(result, gathered), operationsFrequency);
+                             () -> completeIt(result, gathered, "appendEvent"), operationsFrequency);
             var ks = result.get();
             dhtMetrics.recordWriteLatency("appendEvent", System.nanoTime() - startNanos);
             dhtMetrics.incrementQuorumSuccess("appendEvent");
@@ -574,7 +574,7 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
                              (futureSailor, tally, link, respondingMember) -> mutate(gathered, futureSailor, respondingMember,
                                                                      identifier, isTimedOut,
                                                                       tally, link, "append kerl"),
-                             () -> completeIt(result, gathered), operationsFrequency);
+                             () -> completeIt(result, gathered, "appendAttachments"), operationsFrequency);
             return result.get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -618,7 +618,7 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
                              (futureSailor, tally, link, respondingMember) -> mutate(gathered, futureSailor, respondingMember,
                                                                      identifier, isTimedOut,
                                                                       tally, link, "append kerl"),
-                             () -> completeIt(result, gathered), operationsFrequency);
+                             () -> completeIt(result, gathered, "appendValidations"), operationsFrequency);
             var empty = result.get();
             dhtMetrics.recordWriteLatency("appendValidations", System.nanoTime() - startNanos);
             dhtMetrics.incrementQuorumSuccess("appendValidations");
@@ -1324,12 +1324,15 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         }
     }
 
-    private <T> void completeIt(CompletableFuture<T> result, QuorumResponseTracker<T> gathered) {
+    private <T> void completeIt(CompletableFuture<T> result, QuorumResponseTracker<T> gathered, String operation) {
         var max = gathered.maxEntry();
         var majority = context.size() == 1 ? 1 : context.majority();
         if (max != null) {
             if (max.getCount() >= majority) {
                 var element = max.getElement();
+                // Record quorum metrics
+                dhtMetrics.recordQuorumRespondentCount(operation, gathered.size());
+
                 // Complete result immediately to reduce tail latency
                 try {
                     result.complete(element);
@@ -1725,6 +1728,7 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
             if (update.getEventsCount() > 0) {
                 reconcileLog.trace("Received: {} events in interval reconciliation from: {} on: {}",
                                    update.getEventsCount(), link.getMember().getId(), member.getId());
+                dhtMetrics.recordReconciliationEventsReceived(update.getEventsCount());
                 kerlSpace.update(update.getEventsList(), kerl);
             }
         } catch (NoSuchElementException e) {
@@ -1740,17 +1744,22 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         CombinedIntervals keyIntervals = keyIntervals();
         reconcileLog.trace("Interval reconciliation on ring: {} with: {} intervals: {} on: {} ", ring,
                            link.getMember().getId(), keyIntervals, member.getId());
-        return link.reconcile(Intervals.newBuilder()
-                                       .setRing(ring)
-                                       .addAllIntervals(keyIntervals.toIntervals())
-                                       .setHave(kerlSpace.populate(Entropy.nextBitsStreamLong(), keyIntervals, fpr))
-                                       .build());
+        var update = link.reconcile(Intervals.newBuilder()
+                                             .setRing(ring)
+                                             .addAllIntervals(keyIntervals.toIntervals())
+                                             .setHave(kerlSpace.populate(Entropy.nextBitsStreamLong(), keyIntervals, fpr))
+                                             .build());
+        if (update != null && update.getEventsCount() > 0) {
+            dhtMetrics.recordReconciliationEventsSent(update.getEventsCount());
+        }
+        return update;
     }
 
     private void reconcile(Duration duration) {
         if (!started.get()) {
             return;
         }
+        var startNanos = System.nanoTime();
         try {
             var successors = context.successors(member.getId(), m -> true, member);
             Collections.shuffle(successors);
@@ -1769,6 +1778,7 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
                 }
             });
         } finally {
+            dhtMetrics.recordReconciliationLatency(System.nanoTime() - startNanos);
             schedule(duration);
         }
     }
