@@ -2156,8 +2156,9 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         if (keyStates == null || !keyStates.isInitialized()) {
             return false;
         }
-        // KeyStates should have at least one KeyState entry
-        return keyStates.getKeyStatesCount() > 0;
+        // Empty KeyStates is a valid acknowledgment (e.g., new event appends, enrollment)
+        // Only null or uninitialized responses are invalid
+        return true;
     }
 
     /**
