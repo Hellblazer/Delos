@@ -126,6 +126,7 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
     private final Duration                                                    operationTimeout;
     private final Set<CompletableFuture<Void>>                                inFlightValidations = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private final Map<String, RequestContext>                                 activeRequests      = new ConcurrentHashMap<>();
+    private volatile ScheduledFuture<?>                                       poolMonitoringTask;
 
     /**
      * Request context for freshness validation (Phase 2: timestamp-based).
@@ -1257,6 +1258,9 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
             log.info("Registered Thoth Byzantine provider with coordinator on: {}", member.getId());
         }
 
+        // Start connection pool monitoring
+        startPoolMonitoring();
+
         schedule(duration);
     }
 
@@ -1266,7 +1270,10 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         }
         log.info("Stopping KerlDHT on: {}", member.getId());
 
-        // 1. Deregister Byzantine provider from coordinator (Phase 5)
+        // 1. Stop connection pool monitoring
+        stopPoolMonitoring();
+
+        // 2. Deregister Byzantine provider from coordinator (Phase 5)
         // Note: Providers use CopyOnWriteArrayList, so removal is safe during coordinator polling
         // The coordinator will stop polling this provider after its current cycle completes
         if (byzantineCoordinator != null) {
@@ -1276,7 +1283,7 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
             log.info("Reset Thoth Byzantine provider state on: {}", member.getId());
         }
 
-        // 2. Deregister communications (prevents new inbound)
+        // 3. Deregister communications (prevents new inbound)
         dhtComms.deregister(context.getId());
         reconcileComms.deregister(context.getId());
 
@@ -1874,6 +1881,63 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
                 return lks;
             }
         };
+    }
+
+    /**
+     * Check if connection pool is exhausted (≥90% utilization).
+     * Returns false if DHT is stopped or pool is disposed.
+     *
+     * @return true if pool utilization ≥ 90%
+     */
+    public boolean isPoolExhausted() {
+        if (!started.get()) {
+            return false; // DHT stopped, pool monitoring not active
+        }
+        try {
+            var active = connectionPool.getActiveConnections();
+            var max = connectionPool.getMaxConnections();
+            return active >= (max * 0.9);
+        } catch (Exception e) {
+            // Pool may be disposed during shutdown
+            log.trace("Unable to check pool exhaustion on: {}", member.getId(), e);
+            return false;
+        }
+    }
+
+    /**
+     * Start periodic connection pool monitoring.
+     * Scheduled task samples pool state and records metrics at operationsFrequency interval.
+     */
+    private void startPoolMonitoring() {
+        poolMonitoringTask = scheduler.scheduleAtFixedRate(() -> {
+            try {
+                var active = connectionPool.getActiveConnections();
+                var max = connectionPool.getMaxConnections();
+                var idle = max - active;
+
+                dhtMetrics.recordConnectionPoolActive(active);
+                dhtMetrics.recordConnectionPoolIdle(idle);
+
+                log.trace("Pool state on {}: active={}, idle={}, max={}", member.getId(), active, idle, max);
+            } catch (Exception e) {
+                // Pool may be disposed during shutdown, log at trace to avoid noise
+                log.trace("Error sampling connection pool on: {}", member.getId(), e);
+            }
+        }, 0, operationsFrequency.toMillis(), TimeUnit.MILLISECONDS);
+
+        log.debug("Started connection pool monitoring on: {}", member.getId());
+    }
+
+    /**
+     * Stop periodic connection pool monitoring.
+     * Cancels the scheduled monitoring task.
+     */
+    private void stopPoolMonitoring() {
+        if (poolMonitoringTask != null) {
+            poolMonitoringTask.cancel(false); // Don't interrupt if running
+            poolMonitoringTask = null;
+            log.debug("Stopped connection pool monitoring on: {}", member.getId());
+        }
     }
 
     public static class CompletionException extends Exception {
