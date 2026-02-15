@@ -90,11 +90,15 @@ import static com.hellblazer.delos.thoth.schema.Tables.IDENTIFIER_LOCATION_HASH;
 import static com.hellblazer.delos.utils.Utils.b64;
 
 /**
- * KerlDHT provides the replicated state store for KERLs
+ * KerlDHT provides the replicated state store for KERLs.
+ * <p>
+ * Implements AutoCloseable for proper resource lifecycle management. Use try-with-resources to ensure
+ * graceful shutdown of scheduler, validation executor, and connection pool.
+ * </p>
  *
  * @author hal.hildebrand
  */
-public class KerlDHT implements ProtoKERLService {
+public class KerlDHT implements ProtoKERLService, AutoCloseable {
     private final static Logger log          = LoggerFactory.getLogger(KerlDHT.class);
     private final static Logger reconcileLog = LoggerFactory.getLogger(KerlSpace.class);
 
@@ -1297,6 +1301,18 @@ public class KerlDHT implements ProtoKERLService {
         connectionPool.dispose();
 
         log.info("KerlDHT stopped on: {}", member.getId());
+    }
+
+    /**
+     * Implements AutoCloseable to support try-with-resources pattern.
+     * Delegates to {@link #stop()} to ensure proper resource cleanup.
+     * <p>
+     * Safe to call multiple times - subsequent calls are no-ops due to started AtomicBoolean guard in stop().
+     * </p>
+     */
+    @Override
+    public void close() {
+        stop();
     }
 
     private <T> T complete(Function<ProtoKERLAdapter, T> func) {

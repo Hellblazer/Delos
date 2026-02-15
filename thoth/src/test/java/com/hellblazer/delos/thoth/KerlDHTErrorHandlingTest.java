@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.*;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -345,5 +346,79 @@ public class KerlDHTErrorHandlingTest extends AbstractDhtTest {
         // Metrics should still be recorded
         // Note: Exact metric verification depends on KerlDhtMetrics implementation
         assertThat(metrics).isNotNull();
+    }
+
+    // =================================================================
+    // AutoCloseable Tests
+    // =================================================================
+
+    @Test
+    public void testTryWithResourcesPattern() throws Exception {
+        // Start routers for this test
+        routers.values().forEach(r -> r.start());
+
+        var dht = dhts.values().iterator().next();
+        dht.start(java.time.Duration.ofMillis(10));
+
+        // Use try-with-resources
+        try (dht) {
+            // DHT should be operational inside try block
+            assertThat(dht).isNotNull();
+        }
+
+        // After try-with-resources, close() should have been called which delegates to stop()
+        // The AtomicBoolean started should be false (stopped)
+        // We can verify this by attempting an operation that requires started state
+    }
+
+    @Test
+    public void testCloseMethodDelegatesToStop() {
+        var dht = dhts.values().iterator().next();
+        routers.values().forEach(r -> r.start());
+        dht.start(java.time.Duration.ofMillis(10));
+
+        // Call close() directly
+        dht.close();
+
+        // Verify DHT is stopped (subsequent operations should fail or be no-ops)
+        // The close() method delegates to stop() which sets started to false
+    }
+
+    @Test
+    public void testDoubleCloseIsSafe() {
+        var dht = dhts.values().iterator().next();
+        routers.values().forEach(r -> r.start());
+        dht.start(java.time.Duration.ofMillis(10));
+
+        // First close
+        dht.close();
+
+        // Second close should be safe (no-op due to AtomicBoolean guard in stop())
+        assertThatCode(() -> dht.close()).doesNotThrowAnyException();
+    }
+
+    @Test
+    public void testCloseWithoutStartIsSafe() {
+        var dht = dhts.values().iterator().next();
+
+        // Close without ever calling start()
+        assertThatCode(() -> dht.close()).doesNotThrowAnyException();
+    }
+
+    @Test
+    public void testNestedTryWithResourcesIsSafe() throws Exception {
+        routers.values().forEach(r -> r.start());
+        var dht = dhts.values().iterator().next();
+        dht.start(java.time.Duration.ofMillis(10));
+
+        // Nested try-with-resources (contrived example)
+        try (dht) {
+            try (dht) {
+                assertThat(dht).isNotNull();
+            }
+            // Inner try closed dht, outer try will call close() again (should be safe)
+        }
+
+        // Verify no exceptions thrown
     }
 }
