@@ -43,6 +43,7 @@ import static com.hellblazer.delos.stereotomy.event.protobuf.ProtobufEventFactor
  */
 public class Maat extends DelegatedKERL {
     private static final Logger log                      = LoggerFactory.getLogger(Maat.class);
+    private static final Logger validationLog            = LoggerFactory.getLogger(Maat.class.getName() + ".validation");
     private static final int    MIN_DIGEST_BYTES         = 32;  // BLAKE3_256 minimum
     private static final String VALIDATION_FAILURE_PREFIX = "MAAT_BLS_VALIDATION_FAILURE";
 
@@ -92,7 +93,7 @@ public class Maat extends DelegatedKERL {
             if (e instanceof EstablishmentEvent est) {
                 var valid = validateWithSignals(est);
                 if (!valid) {
-                    log.warn("Establishment event validation failed, filtering out: {}", est.getCoordinates());
+                    validationLog.warn("Establishment event validation failed, filtering out: {}", est.getCoordinates());
                 }
                 return valid;
             }
@@ -182,7 +183,7 @@ public class Maat extends DelegatedKERL {
         log.trace("Evaluating validation of: {} validations: {} mapped: {}", event.getCoordinates(), validations.size(),
                   mapped.size());
         if (mapped.size() == 0) {
-            log.warn("No validations of: {} ", event.getCoordinates());
+            validationLog.warn("No validations of: {} ", event.getCoordinates());
             return false;
         }
 
