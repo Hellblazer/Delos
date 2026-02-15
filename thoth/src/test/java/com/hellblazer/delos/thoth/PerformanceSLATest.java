@@ -64,6 +64,9 @@ public class PerformanceSLATest extends AbstractDhtTest {
         var serverMembers = new ConcurrentSkipListMap<Digest, Member>();
         identities.keySet().forEach(member -> instantiateWithMetrics(member, context, serverMembers));
 
+        // Start routers (gRPC InProcess servers) - required before DHTs can communicate
+        routers.values().forEach(r -> r.start());
+
         // Start all DHTs
         dhts.values().forEach(dht -> dht.start(Duration.ofMillis(100)));
     }
