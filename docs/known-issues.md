@@ -251,6 +251,37 @@ When Portal routing is implemented (Delos-mka0):
 
 ---
 
+## Build Warnings
+
+### Protobuf sun.misc.Unsafe Deprecation
+
+**Status**: ⚠️ Upstream issue (Google protobuf-java)
+
+**Warning Message**:
+```
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::arrayBaseOffset has been called by com.google.protobuf.UnsafeUtil$MemoryAccessor
+WARNING: sun.misc.Unsafe::arrayBaseOffset will be removed in a future release
+```
+
+**Impact**: Cosmetic only - no functional impact
+- Warning appears during test execution
+- Google's protobuf-java 4.28.2 uses deprecated sun.misc.Unsafe API
+- Will need protobuf-java upgrade when JDK removes sun.misc.Unsafe
+
+**Workaround**: None needed - warning can be safely ignored
+
+**Fix**:
+- Waiting for Google to update protobuf-java to use VarHandle or MethodHandles
+- Monitor https://github.com/protocolbuffers/protobuf/issues for resolution
+- Attempted upgrade to 4.33.5 (2026-02-15) but caused test timeouts - staying with 4.28.2 until compatibility verified
+
+**Related**:
+- JEP 471: Deprecate sun.misc.Unsafe for Removal
+- Dependency: com.google.protobuf:protobuf-java:4.28.2
+
+---
+
 ## Reporting Issues
 
 Found a new issue? Please report via:
