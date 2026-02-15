@@ -97,4 +97,10 @@ public class NoOpKerlDhtMetrics implements KerlDhtMetrics {
     @Override
     public void recordConnectionPoolIdle(int idle) {
     }
+
+    @Override
+    public Snapshot getSnapshot() {
+        // Return healthy snapshot with all zeros
+        return new Snapshot(0, 0, 0, 0, 0, 0, 0.0, 0.0, false);
+    }
 }

@@ -214,4 +214,68 @@ public class MicrometerKerlDhtMetrics implements KerlDhtMetrics {
     public void recordConnectionPoolIdle(int idle) {
         connectionPoolIdle.set(idle);
     }
+
+    @Override
+    public Snapshot getSnapshot() {
+        // Aggregate quorum counters across all operations
+        var quorumSuccess = registry.find(PREFIX + "quorum.success")
+                                    .counters()
+                                    .stream()
+                                    .mapToLong(c -> (long) c.count())
+                                    .sum();
+
+        var quorumFailure = registry.find(PREFIX + "quorum.failure")
+                                    .counters()
+                                    .stream()
+                                    .mapToLong(c -> (long) c.count())
+                                    .sum();
+
+        // Aggregate validation counters across all operations
+        var validationSuccess = registry.find(PREFIX + "validation.success")
+                                        .counters()
+                                        .stream()
+                                        .mapToLong(c -> (long) c.count())
+                                        .sum();
+
+        var validationFailure = registry.find(PREFIX + "validation.failure")
+                                        .counters()
+                                        .stream()
+                                        .mapToLong(c -> (long) c.count())
+                                        .sum();
+
+        // Get connection pool gauges
+        var poolActive = connectionPoolActive.get();
+        var poolIdle = connectionPoolIdle.get();
+
+        // Get read latency p95 (aggregate across all operations)
+        var readLatencyP95 = registry.find(PREFIX + "read.latency")
+                                     .timers()
+                                     .stream()
+                                     .mapToDouble(t -> t.percentile(0.95, TimeUnit.MICROSECONDS))
+                                     .max()
+                                     .orElse(0.0);
+
+        // Get write latency p95 (aggregate across all operations)
+        var writeLatencyP95 = registry.find(PREFIX + "write.latency")
+                                      .timers()
+                                      .stream()
+                                      .mapToDouble(t -> t.percentile(0.95, TimeUnit.MICROSECONDS))
+                                      .max()
+                                      .orElse(0.0);
+
+        // Circuit breaker not implemented in Micrometer metrics - assume closed
+        var circuitBreakerOpen = false;
+
+        return new Snapshot(
+            quorumSuccess,
+            quorumFailure,
+            validationSuccess,
+            validationFailure,
+            poolActive,
+            poolIdle,
+            readLatencyP95,
+            writeLatencyP95,
+            circuitBreakerOpen
+        );
+    }
 }

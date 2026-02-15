@@ -238,6 +238,30 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
     }
 
     /**
+     * Check if DHT is healthy based on current metrics.
+     * <p>
+     * Health criteria:
+     * - Validation success rate ≥ 95%
+     * - Connection pool utilization < 90%
+     * - Circuit breaker closed
+     * </p>
+     *
+     * @return true if DHT is operating within SLA thresholds
+     */
+    public boolean isHealthy() {
+        return dhtMetrics.getSnapshot().isHealthy();
+    }
+
+    /**
+     * Get current health snapshot for monitoring dashboards.
+     *
+     * @return Current health snapshot
+     */
+    public KerlDhtMetrics.Snapshot getHealthSnapshot() {
+        return dhtMetrics.getSnapshot();
+    }
+
+    /**
      * Get current time in milliseconds. Protected for testing.
      *
      * @return current time in milliseconds since epoch
