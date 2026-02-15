@@ -252,6 +252,10 @@ public class KerlDHTErrorHandlingTest extends AbstractDhtTest {
 
     @Test
     public void testAppendValidationsWithZeroCountReturnsNull() {
+        // Start DHT to test empty validations behavior (not lifecycle guard)
+        routers.values().forEach(r -> r.start());
+        dhts.values().forEach(d -> d.start(java.time.Duration.ofMillis(10)));
+
         var dht = dhts.values().iterator().next();
         var emptyValidations = Validations.newBuilder()
             .setCoordinates(EventCoords.newBuilder()
