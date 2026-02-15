@@ -168,8 +168,10 @@ public class GossipPropagationTest {
                 // Print intermediate state for debugging
                 var minSize = views.stream().mapToInt(v -> v.getContext().size()).min().orElse(0);
                 var maxSize = views.stream().mapToInt(v -> v.getContext().size()).max().orElse(0);
-                System.out.printf("  Gossip progress: minSize=%d maxSize=%d target=%d%n",
-                                  minSize, maxSize, CARDINALITY);
+                var minActive = views.stream().mapToInt(v -> v.getContext().activeCount()).min().orElse(0);
+                var maxActive = views.stream().mapToInt(v -> v.getContext().activeCount()).max().orElse(0);
+                System.out.printf("  Gossip progress: minSize=%d maxSize=%d minActive=%d maxActive=%d target=%d%n",
+                                  minSize, maxSize, minActive, maxActive, CARDINALITY);
             }
             return allFull;
         });
@@ -187,10 +189,20 @@ public class GossipPropagationTest {
                                .mapToInt(v -> v.getContext().size())
                                .boxed()
                                .toList();
+        var seedActives = views.subList(0, SEED_COUNT).stream()
+                               .mapToInt(v -> v.getContext().activeCount())
+                               .boxed()
+                               .toList();
+        var joinerActives = views.subList(SEED_COUNT, CARDINALITY).stream()
+                                 .mapToInt(v -> v.getContext().activeCount())
+                                 .boxed()
+                                 .toList();
 
         System.out.println("\nAnalysis:");
         System.out.println("  Seed sizes: " + seedSizes);
+        System.out.println("  Seed actives: " + seedActives);
         System.out.println("  Joiner sizes: " + joinerSizes);
+        System.out.println("  Joiner actives: " + joinerActives);
         System.out.println("  Expected: " + CARDINALITY);
 
         // Check view consistency
@@ -202,7 +214,9 @@ public class GossipPropagationTest {
 
         // The test passes if all nodes have all members
         assertTrue(converged,
-            "Gossip did not converge. Joiner sizes: " + joinerSizes + ", expected: " + CARDINALITY);
+            "Gossip did not converge. Seed sizes: " + seedSizes + " actives: " + seedActives +
+            ", Joiner sizes: " + joinerSizes + " actives: " + joinerActives +
+            ", expected: " + CARDINALITY);
         assertEquals(1, allViews.size(), "All nodes should have the same view");
     }
 

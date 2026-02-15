@@ -272,7 +272,7 @@ public class View {
         }
         member.addAccusation(node.accuse(member, ring));
         pendingRebuttals.computeIfAbsent(member.getId(),
-                                         d -> roundTimers.schedule(() -> gc(member), params.rebuttalTimeout()));
+                                         d -> roundTimers.schedule(() -> gc(member), context.timeToLive()));
         var cv = currentView();
         var ctx = context.getId();
         log.info("ACCUSATION: accuser: {} accusing: {} ring: {} currentView: {} context: {} error: {} on: {}",
@@ -858,7 +858,7 @@ public class View {
                     }
                     accused.addAccusation(accusation);
                     pendingRebuttals.computeIfAbsent(accused.getId(), d -> roundTimers.schedule(() -> gc(accused),
-                                                                                                params.rebuttalTimeout()));
+                                                                                                context.timeToLive()));
                     log.info("{} accused by: {} on ring: {} (replacing: {}) on: {}", accused.getId(), accuser.getId(),
                              accusation.getRingNumber(), currentAccuser.getId(), node.getId());
                     if (metrics != null) {
@@ -891,7 +891,7 @@ public class View {
                     log.info("{} accused by: {} on ring: {} (timer started) on: {}", accused.getId(), accuser.getId(),
                              accusation.getRingNumber(), node.getId());
                     pendingRebuttals.computeIfAbsent(accused.getId(), d -> roundTimers.schedule(() -> gc(accused),
-                                                                                                params.rebuttalTimeout()));
+                                                                                                context.timeToLive()));
                 }
                 if (metrics != null) {
                     metrics.recordAccusation();

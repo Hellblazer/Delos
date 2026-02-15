@@ -48,6 +48,7 @@ import com.hellblazer.delos.thoth.grpc.reconciliation.ReconciliationService;
 import com.hellblazer.delos.thoth.exception.DhtQuorumException;
 import com.hellblazer.delos.thoth.exception.DhtResourceException;
 import com.hellblazer.delos.thoth.metrics.KerlDhtMetrics;
+import com.hellblazer.delos.ring.QuorumException;
 import com.hellblazer.delos.thoth.proto.Intervals;
 import com.hellblazer.delos.thoth.proto.Update;
 import com.hellblazer.delos.thoth.proto.Updating;
@@ -847,6 +848,11 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
             dhtMetrics.recordReadLatency("getKeyEvent", System.nanoTime() - startNanos);
             if (e.getCause() instanceof CompletionException ce) {
                 log.info("error {} : {} on: {}", operation, ce.getMessage(), member.getId());
+                dhtMetrics.incrementQuorumFailure("getKeyEvent");
+                return KeyEvent_.getDefaultInstance();
+            }
+            if (e.getCause() instanceof QuorumException qe) {
+                log.debug("Quorum not reached for {}: {} on: {}", operation, qe.getMessage(), member.getId());
                 dhtMetrics.incrementQuorumFailure("getKeyEvent");
                 return KeyEvent_.getDefaultInstance();
             }
