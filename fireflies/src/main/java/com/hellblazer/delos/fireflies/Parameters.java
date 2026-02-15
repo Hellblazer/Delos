@@ -1,8 +1,9 @@
 /*
- * Copyright (c) 2022, salesforce.com, inc.
+ * Copyright (c) 2026, Hal Hildebrand.
  * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
+ * GNU Affero General Public License
+ * For full license text, see the LICENSE file in the repo root or http://www.gnu.org/licenses/
+ * This file is part of the Delos Distributed Systems Framework.
  */
 package com.hellblazer.delos.fireflies;
 
@@ -11,7 +12,7 @@ import java.time.Duration;
 /**
  * @author hal.hildebrand
  */
-public record Parameters(int joinRetries, int minimumBiffCardinality, int rebuttalTimeout, int viewChangeRounds,
+public record Parameters(int joinRetries, int minimumBiffCardinality, int viewChangeRounds,
                          int finalizeViewRounds, double fpr, int maximumTxfr, Duration retryDelay, int maxPending,
                          Duration seedingTimeout, int validationRetries, int crowns, Duration populateDuration,
                          int maxReseedDepth) {
@@ -50,10 +51,6 @@ public record Parameters(int joinRetries, int minimumBiffCardinality, int rebutt
          */
         private int      minimumBiffCardinality = 1025;
         /**
-         * Number of TTL rounds an accused has to rebut the accusation
-         */
-        private int      rebuttalTimeout        = 2;
-        /**
          * Maximum reseed depth before giving up on join attempts
          */
         private int      maxReseedDepth         = 30;
@@ -80,7 +77,7 @@ public record Parameters(int joinRetries, int minimumBiffCardinality, int rebutt
         private Duration populateDuration       = Duration.ofMillis(20);
 
         public Parameters build() {
-            return new Parameters(joinRetries, minimumBiffCardinality, rebuttalTimeout, viewChangeRounds,
+            return new Parameters(joinRetries, minimumBiffCardinality, viewChangeRounds,
                                   finalizeViewRounds, fpr, maximumTxfr, retryDelay, maxPending, seedingTimout,
                                   validationRetries, crowns, populateDuration, maxReseedDepth);
         }
@@ -154,15 +151,6 @@ public record Parameters(int joinRetries, int minimumBiffCardinality, int rebutt
 
         public Builder setPopulateDuration(Duration populateDuration) {
             this.populateDuration = populateDuration;
-            return this;
-        }
-
-        public int getRebuttalTimeout() {
-            return rebuttalTimeout;
-        }
-
-        public Builder setRebuttalTimeout(int rebuttalTimeout) {
-            this.rebuttalTimeout = rebuttalTimeout;
             return this;
         }
 
