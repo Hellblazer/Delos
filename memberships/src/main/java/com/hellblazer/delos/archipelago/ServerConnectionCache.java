@@ -97,6 +97,10 @@ public class ServerConnectionCache {
                 }
                 return conn;
             });
+            if (connection == null) {
+                log.debug("Connection creation failed for: {} on: {}", to.getId(), member);
+                return null;
+            }
             if (connection.incrementBorrow()) {
                 log.debug("Increment borrow to: {} channel to: {} on: {}", connection.borrowed,
                           connection.member.getId(), member);
