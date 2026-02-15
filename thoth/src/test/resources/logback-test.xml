@@ -48,6 +48,11 @@
         <appender-ref ref="STDOUT"/>
     </logger>
 
+    <!-- Suppress Maat validation warnings in tests (expected BFT failures) -->
+    <logger name="com.hellblazer.delos.thoth.Maat.validation" level="error" additivity="false">
+        <appender-ref ref="STDOUT"/>
+    </logger>
+
     <root level="INFO">
         <appender-ref ref="STDOUT"/>
     </root>

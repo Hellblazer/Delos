@@ -82,7 +82,10 @@ public class Ani {
     }
 
     private boolean kerlValidate(Duration timeout, KeyStateWithAttachments ksa, KeyEvent event) {
-        // TODO Multisig
+        // Multi-signature validation is handled by KeyEventProcessor during event processing into the KERL
+        // (see KeyEventProcessor.process() lines 113-117 which verify event signatures against signing threshold).
+        // This method focuses solely on witness endorsement validation, which is a separate concern
+        // from the event's own multisig validation.
         var state = ksa.state();
         var endorsements = ksa.attachments().endorsements();
 

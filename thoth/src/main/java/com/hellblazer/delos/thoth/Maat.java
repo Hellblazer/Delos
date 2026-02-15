@@ -35,18 +35,58 @@ import java.util.stream.Collectors;
 import static com.hellblazer.delos.stereotomy.event.protobuf.ProtobufEventFactory.digestOf;
 
 /**
+ * Maat provides BFT signature validation for KERI establishment events.
+ * Validates BLS signatures from BFT subset members and blocks invalid events.
+ * Records Byzantine signals for validation failures to enable detection and member expulsion.
+ *
  * @author hal.hildebrand
  */
 public class Maat extends DelegatedKERL {
-    private static final Logger log = LoggerFactory.getLogger(Maat.class);
+    private static final Logger log                      = LoggerFactory.getLogger(Maat.class);
+    private static final Logger validationLog            = LoggerFactory.getLogger(Maat.class.getName() + ".validation");
+    private static final int    MIN_DIGEST_BYTES         = 32;  // BLAKE3_256 minimum
+    private static final String VALIDATION_FAILURE_PREFIX = "MAAT_BLS_VALIDATION_FAILURE";
+    private static final String ANI_FAILURE_PREFIX        = "ANI_KERI_VALIDATION_FAILURE";
 
-    private final Context<Member> context;
-    private final KERL            validators;
+    private final ThothByzantineStateProvider byzantineProvider;
+    private final Context<Member>             context;
+    private final KERL                        validators;
+    private final Ani                         ani;  // Optional Ani validator for ordered pipeline
+    private final java.time.Duration          validationTimeout;
 
-    public Maat(DynamicContext<Member> context, AppendKERL delegate, KERL validators) {
+    /**
+     * Construct Maat with ordered validation pipeline (Ani → Maat).
+     *
+     * @param context           Dynamic context for BFT subset selection
+     * @param delegate          Underlying KERL for append operations
+     * @param validators        KERL containing validator establishment events
+     * @param byzantineProvider Provider for recording Byzantine signals (null = no-op)
+     * @param ani               Ani validator for KERI cryptographic validation (null = skip Ani stage)
+     * @param validationTimeout Timeout for Ani validation operations
+     */
+    public Maat(DynamicContext<Member> context, AppendKERL delegate, KERL validators,
+                ThothByzantineStateProvider byzantineProvider, Ani ani, java.time.Duration validationTimeout) {
         super(delegate);
         this.context = context;
         this.validators = validators;
+        this.byzantineProvider = byzantineProvider;
+        this.ani = ani;
+        this.validationTimeout = validationTimeout != null ? validationTimeout : java.time.Duration.ofSeconds(10);
+    }
+
+    /**
+     * Backward-compatible constructor without Ani validation (Maat-only).
+     */
+    public Maat(DynamicContext<Member> context, AppendKERL delegate, KERL validators,
+                ThothByzantineStateProvider byzantineProvider) {
+        this(context, delegate, validators, byzantineProvider, null, null);
+    }
+
+    /**
+     * Backward-compatible constructor without Byzantine signal recording.
+     */
+    public Maat(DynamicContext<Member> context, AppendKERL delegate, KERL validators) {
+        this(context, delegate, validators, null, null, null);
     }
 
     @Override
@@ -63,11 +103,14 @@ public class Maat extends DelegatedKERL {
 
     @Override
     public List<KeyState> append(List<KeyEvent> events, List<AttachmentEvent> attachments) {
+        // Validate all establishment events and record Byzantine signals on failure
         final List<KeyEvent> filtered = events.stream().filter(e -> {
-            if (e instanceof EstablishmentEvent est && est.getCoordinates()
-                                                          .getSequenceNumber()
-                                                          .equals(ULong.valueOf(0))) {
-                return validate(est);
+            if (e instanceof EstablishmentEvent est) {
+                var valid = validateWithSignals(est);
+                if (!valid) {
+                    validationLog.warn("Establishment event validation failed, filtering out: {}", est.getCoordinates());
+                }
+                return valid;
             }
             return true;
         }).toList();
@@ -75,13 +118,71 @@ public class Maat extends DelegatedKERL {
                                                            : super.append(filtered, attachments);
     }
 
-    public boolean validate(EstablishmentEvent event) {
+    /**
+     * Validate establishment event through ordered pipeline (Ani → Maat) and record Byzantine signals on failure.
+     * Invalid events will be filtered out of append operations.
+     *
+     * Pipeline stages:
+     * 1. Ani validation (KERI cryptographic validation) - if ani != null
+     * 2. Maat validation (BFT signature validation)
+     *
+     * Short-circuit behavior:
+     * - Ani failure → record signal, return false (skip Maat)
+     * - Maat failure → record signal, return false
+     *
+     * @param event Establishment event to validate
+     * @return true if validation passes, false otherwise (invalid events are filtered)
+     */
+    private boolean validateWithSignals(EstablishmentEvent event) {
+        // Stage 1: Ani validation (KERI cryptographic)
+        if (ani != null) {
+            var aniValidation = ani.eventValidation(validationTimeout);
+            if (!aniValidation.validate(event)) {
+                // Ani validation failed - record signal and short-circuit
+                if (byzantineProvider != null) {
+                    var reason = String.format("%s: Event %s failed KERI cryptographic validation",
+                                               ANI_FAILURE_PREFIX, event.getCoordinates());
+                    byzantineProvider.recordValidationFailure(event.getIdentifier(), reason);
+                    validationLog.warn("Ani validation failed (short-circuit): {}", event.getCoordinates());
+                }
+                return false;  // Short-circuit: don't call Maat
+            }
+            log.trace("Ani validation passed for: {}", event.getCoordinates());
+        }
+
+        // Stage 2: Maat validation (BFT signatures)
+        var result = validate(event);
+        if (!result && byzantineProvider != null) {
+            // Record Byzantine signal for Maat validation failure
+            var reason = String.format("%s: Event %s failed BLS signature validation", VALIDATION_FAILURE_PREFIX,
+                                       event.getCoordinates());
+            byzantineProvider.recordValidationFailure(event.getIdentifier(), reason);
+            validationLog.warn("Maat validation failed: {}", event.getCoordinates());
+        }
+        return result;
+    }
+
+    /**
+     * Validate establishment event BLS signatures.
+     * Package-private for testing.
+     */
+    boolean validate(EstablishmentEvent event) {
         Digest digest;
         if (event.getIdentifier() instanceof SelfAddressingIdentifier said) {
             digest = said.getDigest();
         } else {
+            log.warn("Event identifier not self-addressing: {}", event.getCoordinates());
             return false;
         }
+
+        // Validate digest bytes (defense-in-depth)
+        var digestBytes = digest.getBytes();
+        if (digestBytes == null || digestBytes.length < MIN_DIGEST_BYTES) {
+            log.warn("Invalid digest bytes for event: {} (length: {})", event.getCoordinates(),
+                     digestBytes == null ? 0 : digestBytes.length);
+            return false;
+        }
+
         final Context<Member> ctx = context;
         var successors = ctx.bftSubset(digestOf(event.getIdentifier().toIdent(), digest.getAlgorithm()))
                             .stream()
@@ -116,7 +217,7 @@ public class Maat extends DelegatedKERL {
         log.trace("Evaluating validation of: {} validations: {} mapped: {}", event.getCoordinates(), validations.size(),
                   mapped.size());
         if (mapped.size() == 0) {
-            log.warn("No validations of: {} ", event.getCoordinates());
+            validationLog.warn("No validations of: {} ", event.getCoordinates());
             return false;
         }
 

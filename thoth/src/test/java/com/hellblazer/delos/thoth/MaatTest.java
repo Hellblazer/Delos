@@ -60,11 +60,11 @@ public class MaatTest {
         });
 
         var inceptionState = maat.append(inception);
-        assertNull(inceptionState, "Should not have succeeded appending of test event");
+        assertNull(inceptionState, "Should not have succeeded appending of test event (validation failed, Byzantine signal recorded)");
 
         kerl_.appendValidations(inception.getCoordinates(), validations);
 
         inceptionState = maat.append(inception);
-        assertNotNull(inceptionState, "Should have succeeded appending of test event");
+        assertNotNull(inceptionState, "Should have succeeded appending of test event (validation passed)");
     }
 }

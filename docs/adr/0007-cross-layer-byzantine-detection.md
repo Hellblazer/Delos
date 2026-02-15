@@ -133,6 +133,144 @@ Each layer contributes to a member's composite score based on configured weights
 
 Composite score = Σ(layer_score × layer_weight) / Σ(layer_weight)
 
+## Thoth DHT Integration
+
+### ThothByzantineStateProvider Implementation
+
+The Thoth DHT layer implements `ByzantineStateProvider` via `ThothByzantineStateProvider`, which tracks five categories of Byzantine signals:
+
+| Signal Type | Weight | Detection Scenario | Recording Point |
+|-------------|--------|-------------------|-----------------|
+| Validation Failures | 3 | Invalid KERI signatures, out-of-sequence events, equivocation | Post-quorum validation pipeline |
+| Signature Failures | 3 | Response signature verification failures during DHT reads | Response handler after quorum |
+| Quorum Failures | 2 | Member fails to participate in DHT quorum operations | Quorum response tracking |
+| Timeouts | 1 | Operations consistently timeout for a member | Operation timeout handler |
+| Connection Failures | 1 | Connection failures before member identification | Connection establishment |
+
+**Per-member anomaly score calculation:**
+```
+weighted_score = (validation_failures × 3) + (signature_failures × 3)
+               + (quorum_failures × 2) + (timeouts × 1) + (connection_failures × 1)
+anomaly_score = min(1.0, weighted_score / 10)
+```
+
+### Integration with KerlDHT Lifecycle
+
+**Registration (startup):**
+```java
+// KerlDHT.start() - line 1257
+if (byzantineCoordinator != null) {
+    byzantineCoordinator.registerProvider(byzantineProvider);
+}
+```
+
+**Deregistration (shutdown):**
+```java
+// KerlDHT.stop() - line 1279-1283
+if (byzantineCoordinator != null) {
+    // Coordinator uses CopyOnWriteArrayList for providers
+    // No explicit deregister - provider lifecycle tied to DHT
+    byzantineProvider.reset();  // Clear accumulated state
+}
+```
+
+### Signal Recording Integration Points
+
+**1. Validation Pipeline (DhtValidationPipeline)**
+
+Post-quorum validation failures are recorded during the ordered validation pipeline:
+
+```
+Quorum Response → Ani (KERI validation) → Maat (Signature verification) → DHT write
+                       ↓ failures                ↓ failures
+                 byzantineProvider.recordValidationFailure()
+                                          byzantineProvider.recordSignatureFailure()
+```
+
+**2. Quorum Failure Detection**
+
+Members failing to participate in quorum operations are tracked:
+```java
+// KerlDHT quorum handler - line 1380
+if (failedMajority) {
+    providers.forEach(p -> byzantineProvider.recordQuorumFailure(p.getId()));
+}
+```
+
+**3. Timeout Detection**
+
+Operations timing out trigger timeout recording:
+```java
+// KerlDHT operation timeout - line 1490
+byzantineProvider.recordTimeout(destination.getMember().getId());
+```
+
+**4. Connection Failures**
+
+Connection failures before remote member identification:
+```java
+// KerlDHT connection handler - line 1497
+byzantineProvider.recordConnectionFailure(member.getId(), context);
+```
+
+### Failure Expiry and State Management
+
+- **Expiry Duration**: 15 minutes (configurable via constructor)
+- **State Tracking**: ConcurrentHashMap per member, thread-safe for concurrent DHT operations
+- **Signal History**: Last 5 signals per member retained for debugging
+- **Cleanup**: Expired entries removed during `getMemberAnomalyStates()` polling
+
+### Validation Pipeline Architecture
+
+The Thoth validation pipeline implements ordered validation with Byzantine signal recording:
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                     DHT Read/Write Operation                      │
+└───────────────────────────────┬──────────────────────────────────┘
+                                │
+                                ▼
+                        ┌───────────────┐
+                        │ Quorum Phase  │
+                        │ (3 of 5 ring) │
+                        └───────┬───────┘
+                                │
+                                ▼
+                    ┌───────────────────────┐
+                    │ Validation Pipeline   │
+                    │ (if quorum achieved)  │
+                    └───────────┬───────────┘
+                                │
+        ┌───────────────────────┼───────────────────────┐
+        │                       │                       │
+        ▼                       ▼                       ▼
+   ┌────────┐            ┌──────────┐          ┌──────────────┐
+   │  Ani   │            │   Maat   │          │  DHT Write   │
+   │ (KERI) │────────────│ (BLS Sig)│──────────│ (if valid)   │
+   └────┬───┘  success   └─────┬────┘ success  └──────────────┘
+        │                      │
+        │ failure              │ failure
+        ▼                      ▼
+   recordValidation       recordSignature
+      Failure()               Failure()
+        │                      │
+        └──────────┬───────────┘
+                   │
+                   ▼
+         ThothByzantineStateProvider
+                   │
+                   ▼
+      ByzantineIntelligenceCoordinator
+           (poll-based aggregation)
+```
+
+### Testing and Validation
+
+Thoth Byzantine integration is validated through:
+- **Unit tests**: `ThothByzantineStateProviderTest.java` (15 tests)
+- **Integration tests**: `ByzantineDetectionIntegrationTest.java` (5 E2E scenarios)
+- **Functional tests**: `ByzantineFaultToleranceTest.java` (11 fault injection tests)
+
 ### Anti-Feedback Mechanisms
 
 To prevent detection-response amplification:
@@ -175,4 +313,7 @@ To prevent detection-response amplification:
 
 - [IntelligenceConfig.java](../../memberships/src/main/java/com/hellblazer/delos/membership/byzantine/IntelligenceConfig.java)
 - [ByzantineIntelligenceCoordinator.java](../../memberships/src/main/java/com/hellblazer/delos/membership/byzantine/ByzantineIntelligenceCoordinator.java)
+- [ThothByzantineStateProvider.java](../../thoth/src/main/java/com/hellblazer/delos/thoth/ThothByzantineStateProvider.java)
+- [DhtValidationPipeline.java](../../thoth/src/main/java/com/hellblazer/delos/thoth/DhtValidationPipeline.java)
+- [ADR-0013: Thoth Byzantine Fault Tolerance](0013-thoth-byzantine-fault-tolerance.md)
 - [Weight Tuning Methodology](../operations/weight-tuning-methodology.md)

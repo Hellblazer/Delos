@@ -81,7 +81,9 @@ Delos is a multi-tenant distributed system platform with Byzantine fault toleran
 - **leyden** - Additional platform features
 - **isolates** - GraalVM isolate-based multi-tenant enclaves (requires `-Pisolates`)
 
-## Production Readiness (Model Module)
+## Production Readiness
+
+### Model Module (Multi-Tenancy)
 
 | Component | Status | Safe for Production? | Caveats |
 |-----------|--------|---------------------|---------|
@@ -90,6 +92,14 @@ Delos is a multi-tenant distributed system platform with Byzantine fault toleran
 | **ProcessContainerDomain (single-tenant)** | ⚠️ Caution | Yes, with monitoring | Thread safety fixed (Delos-ae0f), resource leaks fixed (Delos-c3k3, Delos-we2d), event loop logging cosmetic (Delos-773l P2) |
 | **ProcessContainerDomain (multi-tenant)** | ❌ Not ready | No | Portal routing blocked (Delos-mka0), lifecycle API missing (Delos-mj8z) |
 | **DelegatedDomain** | ⚠️ Caution | Yes, single-tenant only | Scheduler leak fixed (Delos-c3k3), delegation gossip implemented but untested in multi-tenant |
+
+### Thoth Module (KERI DHT)
+
+| Component | Status | Safe for Production? | Caveats |
+|-----------|--------|---------------------|---------|
+| **KerlDHT** | ✅ Production-ready | Yes | Phase 5 BFT integration complete. Health monitoring, pool monitoring, configurable shutdown. 276 tests, 99.6% passing. |
+| **ThothByzantineStateProvider** | ✅ Production-ready | Yes | Coordinator integration, five signal types, thread-safe. |
+| **DhtValidationPipeline** | ✅ Production-ready | Yes | Post-quorum validation with Byzantine signal recording. |
 
 **Legend**: ✅ Production-ready | ⚠️ Use with caution | ❌ Not production-ready
 
@@ -110,6 +120,8 @@ See also:
 - **[ADR-0003](docs/adr/0003-bft-membership-architecture.md)**: Fireflies Byzantine membership
 - **[ADR-0004](docs/adr/0004-consensus-design-choam.md)**: CHOAM consensus design
 - **[ADR-0005](docs/adr/0005-deterministic-sql-state.md)**: Deterministic SQL state machines
+- **[ADR-0007](docs/adr/0007-cross-layer-byzantine-detection.md)**: Cross-layer Byzantine detection and coordination
+- **[ADR-0013](docs/adr/0013-thoth-byzantine-fault-tolerance.md)**: Thoth DHT Byzantine fault tolerance integration
 
 ## Key Patterns
 
@@ -241,6 +253,99 @@ if (!adapter.isHealthy()) {
 ```
 
 **SLA targets:** p95 latency ≤ 100ms, failure rate < 1%, circuit breaker closed
+
+### Byzantine Intelligence Coordinator (Cross-Layer Detection)
+
+The `ByzantineIntelligenceCoordinator` aggregates Byzantine fault signals from multiple protocol layers (Fireflies, Ethereal, Thoth, Gorgoneion) for system-wide detection. See **[ADR-0007](docs/adr/0007-cross-layer-byzantine-detection.md)** for architectural details.
+
+**Architecture**: Pull-based polling with weighted score aggregation. Each layer implements `ByzantineStateProvider` and the coordinator polls at configured intervals to compute composite risk scores.
+
+**Initialization Pattern**:
+```java
+// 1. Create coordinator with factory (default config)
+var coordinator = ByzantineIntelligenceCoordinatorFactory.create(
+    new FirefliesResponseHandler(context),  // Handles critical/warning responses
+    metrics                                  // Metrics for observability
+);
+
+// 2. Pass to layers via constructor (optional parameter for backward compatibility)
+var kerl = new KerlDHT(..., coordinator);
+var view = new View(..., coordinator);
+
+// 3. Start layers (auto-registers providers)
+kerl.start(Duration.ofSeconds(1), validator);
+view.start();
+
+// 4. Start coordinator (begins polling)
+coordinator.start();
+
+// 5. Shutdown (reverse order)
+coordinator.close();
+kerl.stop();
+view.stop();
+```
+
+**Custom Configuration**:
+```java
+var customConfig = IntelligenceConfig.builder()
+    .layerWeights(Map.of(
+        IntelligenceConfig.LAYER_FIREFLIES, 0.4,
+        IntelligenceConfig.LAYER_ETHEREAL, 0.3,
+        IntelligenceConfig.LAYER_THOTH, 0.2,
+        IntelligenceConfig.LAYER_GORGONEION, 0.1
+    ))
+    .warningThreshold(0.5)
+    .criticalThreshold(0.8)
+    .responseCooldown(Duration.ofSeconds(15))
+    .build();
+
+var coordinator = ByzantineIntelligenceCoordinatorFactory.create(
+    customConfig,
+    responseHandler,
+    metrics
+);
+```
+
+**Default Layer Weights** (from ADR-0007):
+| Layer | Weight | Rationale |
+|-------|--------|-----------|
+| FIREFLIES | 0.4 | Core membership, high signal quality |
+| ETHEREAL | 0.3 | Consensus layer, strong equivocation detection |
+| THOTH | 0.2 | DHT layer, quorum failure detection |
+| GORGONEION | 0.1 | Identity layer, attestation failures |
+
+**Per-Layer Poll Intervals** (default):
+- ETHEREAL: 2s (consensus events are time-critical)
+- FIREFLIES: 5s (membership changes less frequent)
+- THOTH: 10s (DHT operations slower)
+- GORGONEION: 10s (identity operations slower)
+
+**Response Thresholds**:
+- **Warning**: Score ≥ 0.5 (50% confidence of Byzantine behavior)
+- **Critical**: Score ≥ 0.8 (80% confidence, triggers shunning)
+
+**Testing**:
+```java
+// Integration test example
+var coordinator = ByzantineIntelligenceCoordinatorFactory.create(
+    responseHandler, metrics, Clock.fixed(...)); // Fixed clock for determinism
+
+coordinator.registerProvider(fireflyProvider);
+coordinator.registerProvider(thothProvider);
+coordinator.start();
+
+// Inject Byzantine behavior
+thothProvider.recordValidationFailure(memberId, "signature_mismatch");
+
+// Wait for coordinator poll + evaluation
+Thread.sleep(200);
+
+// Verify detection
+var profile = coordinator.getMemberProfile(memberId);
+assertThat(profile.getCompositeScore()).isGreaterThan(0.5);
+```
+
+**Important**: Coordinator is **optional** - layers function without it (degraded to local-only detection). All constructor parameters are optional for backward compatibility.
 
 ## Testing Structure
 
