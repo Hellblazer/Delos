@@ -368,4 +368,39 @@ class KerlDhtMetricsTest {
         assertThat(recon1).isSameAs(recon2);
         assertThat(recon1.count()).isEqualTo(8.0);
     }
+
+    @Test
+    void micrometerRecordsQuorumRespondentDistribution() {
+        var registry = new SimpleMeterRegistry();
+        var metrics = new MicrometerKerlDhtMetrics(registry);
+
+        metrics.recordQuorumRespondentCount("getKeyState", 3);
+        metrics.recordQuorumRespondentCount("getKeyState", 5);
+        metrics.recordQuorumRespondentCount("getKeyState", 4);
+
+        var summary = registry.find("thoth.dht.quorum.respondents")
+                              .tag("operation", "getKeyState")
+                              .summary();
+        assertThat(summary).isNotNull();
+        assertThat(summary.count()).isEqualTo(3);
+        assertThat(summary.totalAmount()).isEqualTo(12.0);  // 3 + 5 + 4
+        assertThat(summary.mean()).isEqualTo(4.0);
+    }
+
+    @Test
+    void micrometerRecordsByzantineScoreDistribution() {
+        var registry = new SimpleMeterRegistry();
+        var metrics = new MicrometerKerlDhtMetrics(registry);
+
+        metrics.recordByzantineScore(0.1);
+        metrics.recordByzantineScore(0.3);
+        metrics.recordByzantineScore(0.8);
+
+        var summary = registry.find("thoth.dht.byzantine.score").summary();
+        assertThat(summary).isNotNull();
+        assertThat(summary.count()).isEqualTo(3);
+        assertThat(summary.totalAmount()).isCloseTo(1.2, org.assertj.core.data.Offset.offset(0.01));  // 0.1 + 0.3 + 0.8
+        assertThat(summary.mean()).isCloseTo(0.4, org.assertj.core.data.Offset.offset(0.01));
+        assertThat(summary.max()).isEqualTo(0.8);
+    }
 }

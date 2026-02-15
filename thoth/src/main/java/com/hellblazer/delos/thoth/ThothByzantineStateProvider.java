@@ -357,7 +357,7 @@ public class ThothByzantineStateProvider implements ByzantineStateProvider {
             failures.calculateScore(),
             timestamp,
             failures.getSignals(),
-            String.format("Member %s failures: %s", memberId, failures.getSummary())
+            "Member %s failures: %s".formatted(memberId, failures.getSummary())
         );
     }
 }

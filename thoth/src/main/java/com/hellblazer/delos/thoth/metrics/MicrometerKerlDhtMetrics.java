@@ -8,6 +8,7 @@
 package com.hellblazer.delos.thoth.metrics;
 
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 
@@ -96,7 +97,11 @@ public class MicrometerKerlDhtMetrics implements KerlDhtMetrics {
 
     @Override
     public void recordQuorumRespondentCount(String operation, int count) {
-        registry.summary(PREFIX + "quorum.respondents", "operation", operation).record(count);
+        io.micrometer.core.instrument.DistributionSummary.builder(PREFIX + "quorum.respondents")
+                                                         .description("Quorum respondent counts")
+                                                         .tag("operation", operation)
+                                                         .register(registry)
+                                                         .record(count);
     }
 
     @Override
@@ -139,8 +144,10 @@ public class MicrometerKerlDhtMetrics implements KerlDhtMetrics {
 
     @Override
     public void recordByzantineScore(double score) {
-        registry.summary(PREFIX + "byzantine.score")
-               .record(score);
+        io.micrometer.core.instrument.DistributionSummary.builder(PREFIX + "byzantine.score")
+                                                         .description("Byzantine anomaly scores")
+                                                         .register(registry)
+                                                         .record(score);
     }
 
     @Override

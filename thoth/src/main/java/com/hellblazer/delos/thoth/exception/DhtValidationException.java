@@ -14,6 +14,10 @@ import java.util.Set;
 /**
  * Thrown when cryptographic or state validation fails for a quorum response. Carries the set of suspected Byzantine
  * members that provided the invalid response.
+ * <p>
+ * Note: Declared non-sealed instead of final to support testing frameworks (Mockito) that require subclassing.
+ * Production code should not extend this class.
+ * </p>
  *
  * @author hal.hildebrand
  */

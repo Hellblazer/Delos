@@ -122,9 +122,18 @@ class DhtExceptionHierarchyTest {
     @Test
     void suspectedMembersAreImmutableCopy() {
         var mutableSet = new java.util.HashSet<com.hellblazer.delos.membership.Member>();
+        var mockMember = org.mockito.Mockito.mock(com.hellblazer.delos.membership.Member.class);
+
         var ex = new DhtSignatureValidationException("op", "detail", mutableSet);
 
-        // Modifying the original set should not affect the exception
+        // Verify defensive copy: modifying original set should not affect exception
         assertThat(ex.suspectedMembers()).isEmpty();
+        mutableSet.add(mockMember);
+        assertThat(ex.suspectedMembers()).isEmpty();  // Still empty despite mutation
+
+        // Verify returned set is immutable
+        assertThat(ex.suspectedMembers()).isInstanceOf(java.util.Set.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> ex.suspectedMembers().add(mockMember))
+                                       .isInstanceOf(UnsupportedOperationException.class);
     }
 }
