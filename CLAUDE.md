@@ -81,7 +81,9 @@ Delos is a multi-tenant distributed system platform with Byzantine fault toleran
 - **leyden** - Additional platform features
 - **isolates** - GraalVM isolate-based multi-tenant enclaves (requires `-Pisolates`)
 
-## Production Readiness (Model Module)
+## Production Readiness
+
+### Model Module (Multi-Tenancy)
 
 | Component | Status | Safe for Production? | Caveats |
 |-----------|--------|---------------------|---------|
@@ -90,6 +92,14 @@ Delos is a multi-tenant distributed system platform with Byzantine fault toleran
 | **ProcessContainerDomain (single-tenant)** | ⚠️ Caution | Yes, with monitoring | Thread safety fixed (Delos-ae0f), resource leaks fixed (Delos-c3k3, Delos-we2d), event loop logging cosmetic (Delos-773l P2) |
 | **ProcessContainerDomain (multi-tenant)** | ❌ Not ready | No | Portal routing blocked (Delos-mka0), lifecycle API missing (Delos-mj8z) |
 | **DelegatedDomain** | ⚠️ Caution | Yes, single-tenant only | Scheduler leak fixed (Delos-c3k3), delegation gossip implemented but untested in multi-tenant |
+
+### Thoth Module (KERI DHT)
+
+| Component | Status | Safe for Production? | Caveats |
+|-----------|--------|---------------------|---------|
+| **KerlDHT** | ✅ Production-ready | Yes | Phase 5 BFT integration complete. Health monitoring, pool monitoring, configurable shutdown. 276 tests, 99.6% passing. |
+| **ThothByzantineStateProvider** | ✅ Production-ready | Yes | Coordinator integration, five signal types, thread-safe. |
+| **DhtValidationPipeline** | ✅ Production-ready | Yes | Post-quorum validation with Byzantine signal recording. |
 
 **Legend**: ✅ Production-ready | ⚠️ Use with caution | ❌ Not production-ready
 
@@ -110,6 +120,8 @@ See also:
 - **[ADR-0003](docs/adr/0003-bft-membership-architecture.md)**: Fireflies Byzantine membership
 - **[ADR-0004](docs/adr/0004-consensus-design-choam.md)**: CHOAM consensus design
 - **[ADR-0005](docs/adr/0005-deterministic-sql-state.md)**: Deterministic SQL state machines
+- **[ADR-0007](docs/adr/0007-cross-layer-byzantine-detection.md)**: Cross-layer Byzantine detection and coordination
+- **[ADR-0013](docs/adr/0013-thoth-byzantine-fault-tolerance.md)**: Thoth DHT Byzantine fault tolerance integration
 
 ## Key Patterns
 
