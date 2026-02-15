@@ -336,6 +336,10 @@ public class KerlDHT implements ProtoKERLService {
     }
 
     public KeyState_ append(AttachmentEvent event) {
+        if (!started.get()) {
+            log.debug("Operation rejected - DHT stopped: {} on: {}", "append(AttachmentEvent)", member.getId());
+            return null;
+        }
         if (event == null) {
             throw new IllegalArgumentException("append(AttachmentEvent) requires non-null event");
         }
@@ -374,6 +378,10 @@ public class KerlDHT implements ProtoKERLService {
 
     @Override
     public List<KeyState_> append(KERL_ kerl) {
+        if (!started.get()) {
+            log.debug("Operation rejected - DHT stopped: {} on: {}", "append(KERL_)", member.getId());
+            return Collections.emptyList();
+        }
         var startNanos = System.nanoTime();
         if (kerl == null) {
             throw new IllegalArgumentException("append(KERL_) requires non-null kerl");
@@ -435,6 +443,10 @@ public class KerlDHT implements ProtoKERLService {
     }
 
     public KeyState_ append(KeyEvent_ event) {
+        if (!started.get()) {
+            log.debug("Operation rejected - DHT stopped: {} on: {}", "append(KeyEvent_)", member.getId());
+            return null;
+        }
         var startNanos = System.nanoTime();
         if (event == null) {
             throw new IllegalArgumentException("append(KeyEvent_) requires non-null event");
@@ -494,6 +506,10 @@ public class KerlDHT implements ProtoKERLService {
 
     @Override
     public List<KeyState_> append(List<KeyEvent_> events) {
+        if (!started.get()) {
+            log.debug("Operation rejected - DHT stopped: {} on: {}", "append(List<KeyEvent_>)", member.getId());
+            return Collections.emptyList();
+        }
         if (events == null) {
             throw new IllegalArgumentException("append(List<KeyEvent_>) requires non-null events list");
         }
@@ -507,6 +523,10 @@ public class KerlDHT implements ProtoKERLService {
 
     @Override
     public List<KeyState_> append(List<KeyEvent_> events, List<AttachmentEvent> attachments) {
+        if (!started.get()) {
+            log.debug("Operation rejected - DHT stopped: {} on: {}", "append(List<KeyEvent_>, List<AttachmentEvent>)", member.getId());
+            return Collections.emptyList();
+        }
         if (events == null) {
             throw new IllegalArgumentException("append(List<KeyEvent_>, List<AttachmentEvent>) requires non-null events list");
         }
@@ -524,6 +544,10 @@ public class KerlDHT implements ProtoKERLService {
 
     @Override
     public Empty appendAttachments(List<AttachmentEvent> events) {
+        if (!started.get()) {
+            log.debug("Operation rejected - DHT stopped: {} on: {}", "appendAttachments", member.getId());
+            return Empty.getDefaultInstance();
+        }
         if (events == null) {
             throw new IllegalArgumentException("appendAttachments(List<AttachmentEvent>) requires non-null events list");
         }
@@ -564,6 +588,10 @@ public class KerlDHT implements ProtoKERLService {
 
     @Override
     public Empty appendValidations(Validations validations) {
+        if (!started.get()) {
+            log.debug("Operation rejected - DHT stopped: {} on: {}", "appendValidations", member.getId());
+            return Empty.getDefaultInstance();
+        }
         var startNanos = System.nanoTime();
         if (validations == null) {
             throw new IllegalArgumentException("appendValidations requires non-null validations");
@@ -618,6 +646,10 @@ public class KerlDHT implements ProtoKERLService {
      * Clear the caches of the receiver
      */
     public void clearCache() {
+        if (!started.get()) {
+            log.debug("Operation rejected - DHT stopped: {} on: {}", "clearCache", member.getId());
+            return;
+        }
         cache.clear();
     }
 
@@ -631,6 +663,10 @@ public class KerlDHT implements ProtoKERLService {
 
     @Override
     public Attachment getAttachment(EventCoords coordinates) {
+        if (!started.get()) {
+            log.debug("Operation rejected - DHT stopped: {} on: {}", "getAttachment", member.getId());
+            return null;
+        }
         var startNanos = System.nanoTime();
         if (coordinates == null) {
             throw new IllegalArgumentException("getAttachment requires non-null coordinates");
@@ -677,6 +713,10 @@ public class KerlDHT implements ProtoKERLService {
 
     @Override
     public KERL_ getKERL(Ident identifier) {
+        if (!started.get()) {
+            log.debug("Operation rejected - DHT stopped: {} on: {}", "getKERL", member.getId());
+            return null;
+        }
         var startNanos = System.nanoTime();
         if (identifier == null) {
             throw new IllegalArgumentException("getKERL requires non-null identifier");
@@ -723,6 +763,10 @@ public class KerlDHT implements ProtoKERLService {
 
     @Override
     public KeyEvent_ getKeyEvent(EventCoords coordinates) {
+        if (!started.get()) {
+            log.debug("Operation rejected - DHT stopped: {} on: {}", "getKeyEvent", member.getId());
+            return null;
+        }
         if (coordinates == null) {
             throw new IllegalArgumentException("getKeyEvent requires non-null coordinates");
         }
@@ -767,6 +811,10 @@ public class KerlDHT implements ProtoKERLService {
 
     @Override
     public KeyState_ getKeyState(EventCoords coordinates) {
+        if (!started.get()) {
+            log.debug("Operation rejected - DHT stopped: {} on: {}", "getKeyState(EventCoords)", member.getId());
+            return null;
+        }
         if (coordinates == null) {
             throw new IllegalArgumentException("getKeyState requires non-null coordinates");
         }
@@ -824,6 +872,10 @@ public class KerlDHT implements ProtoKERLService {
 
     @Override
     public KeyState_ getKeyState(Ident identifier, ULong sequenceNumber) {
+        if (!started.get()) {
+            log.debug("Operation rejected - DHT stopped: {} on: {}", "getKeyState(Ident, ULong)", member.getId());
+            return null;
+        }
         var startNanos = System.nanoTime();
         if (identifier == null) {
             throw new IllegalArgumentException("getKeyState requires non-null identifier");
@@ -873,6 +925,10 @@ public class KerlDHT implements ProtoKERLService {
 
     @Override
     public KeyState_ getKeyState(Ident identifier) {
+        if (!started.get()) {
+            log.debug("Operation rejected - DHT stopped: {} on: {}", "getKeyState(Ident)", member.getId());
+            return null;
+        }
         var startNanos = System.nanoTime();
         if (identifier == null) {
             throw new IllegalArgumentException("getKeyState requires non-null identifier");
@@ -918,6 +974,10 @@ public class KerlDHT implements ProtoKERLService {
 
     @Override
     public KeyState_ getKeyStateSeqNum(IdentAndSeq request) {
+        if (!started.get()) {
+            log.debug("Operation rejected - DHT stopped: {} on: {}", "getKeyStateSeqNum", member.getId());
+            return null;
+        }
         if (request == null) {
             throw new IllegalArgumentException("getKeyStateSeqNum requires non-null request");
         }
@@ -969,6 +1029,10 @@ public class KerlDHT implements ProtoKERLService {
 
     @Override
     public KeyStateWithAttachments_ getKeyStateWithAttachments(EventCoords coordinates) {
+        if (!started.get()) {
+            log.debug("Operation rejected - DHT stopped: {} on: {}", "getKeyStateWithAttachments", member.getId());
+            return null;
+        }
         if (coordinates == null) {
             throw new IllegalArgumentException("getKeyStateWithAttachments requires non-null coordinates");
         }
@@ -1014,6 +1078,10 @@ public class KerlDHT implements ProtoKERLService {
 
     @Override
     public KeyStateWithEndorsementsAndValidations_ getKeyStateWithEndorsementsAndValidations(EventCoords coordinates) {
+        if (!started.get()) {
+            log.debug("Operation rejected - DHT stopped: {} on: {}", "getKeyStateWithEndorsementsAndValidations", member.getId());
+            return null;
+        }
         if (coordinates == null) {
             throw new IllegalArgumentException("getKeyStateWithEndorsementsAndValidations requires non-null coordinates");
         }
@@ -1059,6 +1127,10 @@ public class KerlDHT implements ProtoKERLService {
 
     @Override
     public Validations getValidations(EventCoords coordinates) {
+        if (!started.get()) {
+            log.debug("Operation rejected - DHT stopped: {} on: {}", "getValidations", member.getId());
+            return null;
+        }
         var startNanos = System.nanoTime();
         if (coordinates == null) {
             throw new IllegalArgumentException("getValidations requires non-null coordinates");
@@ -1132,6 +1204,10 @@ public class KerlDHT implements ProtoKERLService {
     }
 
     public void nextView(ViewChange viewChange) {
+        if (!started.get()) {
+            log.debug("Operation rejected - DHT stopped: {} on: {}", "nextView", member.getId());
+            return;
+        }
         log.info("Next view: {} context: {} on: {}", viewChange.diadem(), viewChange.context().getId(), member.getId());
         context.setContext(viewChange.context());
     }
@@ -1365,6 +1441,11 @@ public class KerlDHT implements ProtoKERLService {
                 } else {
                     byzantineProvider.recordQuorumFailure(destination.getMember().getId());
                 }
+            } else {
+                // Connection failed before we could identify remote member
+                // Record as environmental anomaly for local member's operations
+                byzantineProvider.recordConnectionFailure(member.getId(),
+                    "Connection failure during %s for %s".formatted(action, identifier));
             }
             return !isTimedOut.get();
         }
@@ -1417,6 +1498,11 @@ public class KerlDHT implements ProtoKERLService {
                 } else {
                     byzantineProvider.recordQuorumFailure(destination.getMember().getId());
                 }
+            } else {
+                // Connection failed before we could identify remote member
+                // Record as environmental anomaly for local member's operations
+                byzantineProvider.recordConnectionFailure(member.getId(),
+                    "Connection failure during %s for %s".formatted(action, identifier));
             }
             return !isTimedOut.get();
         }
@@ -1517,6 +1603,11 @@ public class KerlDHT implements ProtoKERLService {
                 } else {
                     byzantineProvider.recordQuorumFailure(destination.getMember().getId());
                 }
+            } else {
+                // Connection failed before we could identify remote member
+                // Record as environmental anomaly for local member's operations
+                byzantineProvider.recordConnectionFailure(member.getId(),
+                    "Connection failure during %s for %s".formatted(action, identifier));
             }
             return !isTimedOut.get();
         }

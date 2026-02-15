@@ -27,11 +27,13 @@ import java.util.concurrent.atomic.AtomicInteger;
  * ByzantineStateProvider implementation for the Thoth DHT layer.
  * <p>
  * Exposes KERI key event validation failures as Byzantine anomaly signals.
- * Tracks three categories of failures:
+ * Tracks four categories of failures:
  * <ul>
  *   <li>Validation failures: Invalid signatures, out-of-sequence events, equivocation</li>
+ *   <li>Signature failures: Response signature verification failures</li>
  *   <li>Quorum failures: Members failing to participate in DHT quorums</li>
  *   <li>Operation timeouts: Members consistently timing out on operations</li>
+ *   <li>Connection failures: Connection failures before remote member identification (environmental anomalies)</li>
  * </ul>
  * </p>
  * <p>
@@ -42,8 +44,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  * <p>
  * <b>Integration Points</b>:
  * Call {@link #recordValidationFailure(Identifier, String)} when validation fails.
+ * Call {@link #recordSignatureFailure(Identifier, String)} when signature verification fails.
  * Call {@link #recordQuorumFailure(Identifier)} when a member fails quorum participation.
  * Call {@link #recordTimeout(Identifier)} when operations timeout for a member.
+ * Call {@link #recordConnectionFailure(Identifier, String)} when connection fails before member identification.
  * </p>
  *
  * @author hal.hildebrand
@@ -59,6 +63,7 @@ public class ThothByzantineStateProvider implements ByzantineStateProvider {
     private static final int SIGNATURE_FAILURE_WEIGHT = 3;   // High weight - response forgery
     private static final int QUORUM_FAILURE_WEIGHT = 2;      // Medium weight - consensus participation
     private static final int TIMEOUT_WEIGHT = 1;             // Lower weight - may be network issues
+    private static final int CONNECTION_FAILURE_WEIGHT = 1;  // Lower weight - may be environmental
     private static final int MAX_FAILURE_SCORE = 10;         // Score at which anomaly = 1.0
 
     // Failure tracking
@@ -71,10 +76,11 @@ public class ThothByzantineStateProvider implements ByzantineStateProvider {
     private static class MemberFailures {
         private static final int MAX_RECENT_SIGNALS = 5;
 
-        final AtomicInteger validationFailures = new AtomicInteger();
-        final AtomicInteger signatureFailures  = new AtomicInteger();
-        final AtomicInteger quorumFailures     = new AtomicInteger();
-        final AtomicInteger timeouts           = new AtomicInteger();
+        final AtomicInteger validationFailures   = new AtomicInteger();
+        final AtomicInteger signatureFailures    = new AtomicInteger();
+        final AtomicInteger quorumFailures       = new AtomicInteger();
+        final AtomicInteger timeouts             = new AtomicInteger();
+        final AtomicInteger connectionFailures   = new AtomicInteger();
         // CopyOnWriteArrayList avoids virtual thread pinning that synchronized blocks cause
         // Not final - reassigned during trimming for optimal performance
         CopyOnWriteArrayList<String> recentSignals = new CopyOnWriteArrayList<>();
@@ -104,6 +110,12 @@ public class ThothByzantineStateProvider implements ByzantineStateProvider {
             lastFailure = Instant.now();
         }
 
+        void recordConnectionFailure(String context) {
+            connectionFailures.incrementAndGet();
+            addSignal("CONNECTION_FAILURE:" + context);
+            lastFailure = Instant.now();
+        }
+
         private void addSignal(String signal) {
             recentSignals.add(signal);
             // Trim to keep only recent signals - single copy is more efficient than subList().clear()
@@ -120,7 +132,8 @@ public class ThothByzantineStateProvider implements ByzantineStateProvider {
             var weightedScore = (validationFailures.get() * VALIDATION_FAILURE_WEIGHT)
                                 + (signatureFailures.get() * SIGNATURE_FAILURE_WEIGHT)
                                 + (quorumFailures.get() * QUORUM_FAILURE_WEIGHT)
-                                + (timeouts.get() * TIMEOUT_WEIGHT);
+                                + (timeouts.get() * TIMEOUT_WEIGHT)
+                                + (connectionFailures.get() * CONNECTION_FAILURE_WEIGHT);
             return Math.min(1.0, (double) weightedScore / MAX_FAILURE_SCORE);
         }
 
@@ -130,12 +143,14 @@ public class ThothByzantineStateProvider implements ByzantineStateProvider {
         }
 
         boolean hasFailures() {
-            return validationFailures.get() > 0 || signatureFailures.get() > 0 || quorumFailures.get() > 0 || timeouts.get() > 0;
+            return validationFailures.get() > 0 || signatureFailures.get() > 0 || quorumFailures.get() > 0
+                || timeouts.get() > 0 || connectionFailures.get() > 0;
         }
 
         String getSummary() {
-            return "validation=%d, signature=%d, quorum=%d, timeout=%d".formatted(
-                validationFailures.get(), signatureFailures.get(), quorumFailures.get(), timeouts.get());
+            return "validation=%d, signature=%d, quorum=%d, timeout=%d, connection=%d".formatted(
+                validationFailures.get(), signatureFailures.get(), quorumFailures.get(), timeouts.get(),
+                connectionFailures.get());
         }
     }
 
@@ -309,6 +324,29 @@ public class ThothByzantineStateProvider implements ByzantineStateProvider {
      */
     public void recordSignatureFailure(Digest memberId, String reason) {
         recordSignatureFailure(new SelfAddressingIdentifier(memberId), reason);
+    }
+
+    /**
+     * Record a connection failure for a member.
+     * <p>
+     * Called when connection to a member fails before the remote member can be identified.
+     * These failures are attributed to the local member's operational context as environmental anomalies.
+     * </p>
+     *
+     * @param memberId Identifier of the local member experiencing the connection failure
+     * @param context  Description of the operation context (e.g., "Connection failure during getKERL for identifier XYZ")
+     */
+    public void recordConnectionFailure(Identifier memberId, String context) {
+        var failures = memberFailures.computeIfAbsent(memberId, k -> new MemberFailures());
+        failures.recordConnectionFailure(context);
+        log.debug("Recorded connection failure for {}: {}", memberId, context);
+    }
+
+    /**
+     * Convenience method to record connection failure using Digest.
+     */
+    public void recordConnectionFailure(Digest memberId, String context) {
+        recordConnectionFailure(new SelfAddressingIdentifier(memberId), context);
     }
 
     // ========== Private Methods ==========
