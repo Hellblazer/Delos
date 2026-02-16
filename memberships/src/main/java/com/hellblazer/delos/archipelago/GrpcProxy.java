@@ -181,6 +181,10 @@ abstract public class GrpcProxy implements ServerCallHandler<byte[], byte[]> {
     @Override
     public ServerCall.Listener<byte[]> startCall(ServerCall<byte[], byte[]> serverCall, Metadata headers) {
         final var channel = getChannel();
+        if (channel == null) {
+            serverCall.close(Status.UNAVAILABLE.withDescription("Failed to establish connection"), new Metadata());
+            return new ServerCall.Listener<byte[]>() {};
+        }
         try {
             var clientCall = channel.newCall(serverCall.getMethodDescriptor(), CallOptions.DEFAULT);
             var proxy = new CallProxy<>(serverCall, clientCall);
