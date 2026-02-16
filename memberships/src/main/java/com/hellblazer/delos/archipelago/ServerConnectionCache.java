@@ -17,6 +17,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
@@ -44,22 +45,25 @@ public class ServerConnectionCache {
 
     private final static Logger log = LoggerFactory.getLogger(ServerConnectionCache.class);
 
-    private final Map<Member, ReleasableManagedChannel>   cache = new HashMap<>();
-    private final Clock                                   clock;
-    private final ServerConnectionFactory                 factory;
-    private final ReentrantLock                           lock  = new ReentrantLock(true);
-    private final ServerConnectionCacheMetrics            metrics;
-    private final Duration                                minIdle;
-    private final PriorityQueue<ReleasableManagedChannel> queue = new PriorityQueue<>();
-    private final int                                     target;
-    private final Digest                                  member;
-    private final CallCredentials                         credentials;
-    private final AtomicBoolean                           open  = new AtomicBoolean(true);
-    private final ConnectionCircuitBreaker                circuitBreaker;
+    private final Map<Member, ReleasableManagedChannel>            cache      = new HashMap<>();
+    private final Clock                                            clock;
+    private final ServerConnectionFactory                          factory;
+    private final ReentrantLock                                    lock       = new ReentrantLock(true);
+    private final ServerConnectionCacheMetrics                     metrics;
+    private final Duration                                         minIdle;
+    private final PriorityQueue<ReleasableManagedChannel>          queue      = new PriorityQueue<>();
+    private final int                                              target;
+    private final Digest                                           member;
+    private final CallCredentials                                  credentials;
+    private final AtomicBoolean                                    open       = new AtomicBoolean(true);
+    private final ConnectionCircuitBreaker                         circuitBreaker;
+    private final ConcurrentHashMap<Member, CompletableFuture<ManagedChannel>> connecting = new ConcurrentHashMap<>();
+    private final ExecutorService                                  connectionExecutor;
+    private final Duration                                         connectionTimeout;
 
     public ServerConnectionCache(Digest member, CallCredentials credentials, ServerConnectionFactory factory,
                                  int target, Duration minIdle, Clock clock, ServerConnectionCacheMetrics metrics,
-                                 ConnectionCircuitBreaker circuitBreaker) {
+                                 ConnectionCircuitBreaker circuitBreaker, Duration connectionTimeout) {
         assert member != null;
         this.factory = factory;
         this.target = Math.max(target, 1);
@@ -69,6 +73,8 @@ public class ServerConnectionCache {
         this.member = member;
         this.credentials = credentials;
         this.circuitBreaker = circuitBreaker;
+        this.connectionTimeout = connectionTimeout;
+        this.connectionExecutor = Executors.newVirtualThreadPerTaskExecutor();
     }
 
     public static Builder newBuilder() {
@@ -80,7 +86,11 @@ public class ServerConnectionCache {
             throw new IllegalStateException("not open on: " + member);
         }
 
-        // Circuit breaker fast-fail check (OUTSIDE lock for performance)
+        // ================================================================
+        // PHASE 1: Circuit breaker fast-fail (NO LOCK)
+        // ================================================================
+        // Circuit breaker is lock-free (ConcurrentHashMap + AtomicReference CAS).
+        // This rejects known-bad members before touching any shared state.
         if (circuitBreaker.shouldReject(to)) {
             log.debug("Circuit breaker OPEN for: {} on: {}", to.getId(), member);
             if (metrics != null) {
@@ -89,49 +99,149 @@ public class ServerConnectionCache {
             return null;
         }
 
-        return lock(() -> {
+        // ================================================================
+        // PHASE 2: Cache check + future creation (BRIEF LOCK)
+        // ================================================================
+        // Lock scope: HashMap.get() + ConcurrentHashMap.computeIfAbsent()
+        // Duration: ~1 microsecond (no I/O, no blocking)
+        CompletableFuture<ManagedChannel> future;
+        lock.lock();
+        try {
+            // Fast path: cache hit
+            var cached = cache.get(to);
+            if (cached != null) {
+                if (cached.incrementBorrow()) {
+                    log.debug("Increment borrow to: {} channel to: {} on: {}", cached.borrowed,
+                              cached.member.getId(), member);
+                    if (metrics != null) {
+                        metrics.recordBorrow();
+                    }
+                    queue.remove(cached);
+                }
+                log.trace("Borrowed cached channel to: {}, borrowed: {} on: {}", cached.member.getId(),
+                          cached.borrowed, member);
+                return new ManagedServerChannel(context, cached, credentials);
+            }
+
+            // Cache miss: target size warning
             if (cache.size() >= target) {
                 log.debug("Cache target open connections exceeded: {}, opening to: {} on: {}", target, to.getId(),
                           member);
             }
-            ReleasableManagedChannel connection = cache.computeIfAbsent(to, m -> {
-                log.debug("Creating new channel to: {} on: {}", to.getId(), m.getId());
-                ManagedChannel channel;
-                try {
-                    channel = factory.connectTo(to);
-                } catch (Throwable t) {
-                    log.error("Cannot connect to: {} on: {}", to.getId(), member, t);
-                    circuitBreaker.recordFailure(to);
+
+            // Get or create a future for this member's connection attempt.
+            // The lambda is non-blocking: it only schedules work on the virtual
+            // thread executor. The actual factory.connectTo() runs asynchronously
+            // AFTER the lock is released.
+            future = connecting.computeIfAbsent(to,
+                                                target_ -> CompletableFuture.supplyAsync(() -> {
+                                                    log.debug("Establishing connection to: {} on: {}", to.getId(),
+                                                              member);
+                                                    try {
+                                                        return factory.connectTo(to);
+                                                    } catch (Throwable t) {
+                                                        log.error("Cannot connect to: {} on: {}", to.getId(), member,
+                                                                  t);
+                                                        return null;
+                                                    }
+                                                }, connectionExecutor));
+        } finally {
+            lock.unlock();
+        }
+
+        // ================================================================
+        // PHASE 3: Await connection (NO LOCK)
+        // ================================================================
+        // The calling thread (typically a virtual thread) parks here while the
+        // connection is being established. Virtual threads park efficiently
+        // without pinning OS threads. Meanwhile, other threads can freely
+        // borrow/release/close the cache.
+        //
+        // Multiple threads waiting on the same member share the SAME future,
+        // so only ONE factory.connectTo() call is made per member.
+        ManagedChannel channel;
+        try {
+            channel = future.orTimeout(connectionTimeout.toMillis(), TimeUnit.MILLISECONDS)
+                            .exceptionally(t -> {
+                                if (t instanceof java.util.concurrent.TimeoutException) {
+                                    log.error("Connection timeout ({}) for: {} on: {}", connectionTimeout, to.getId(),
+                                              member);
+                                } else {
+                                    log.error("Connection failed for: {} on: {}", to.getId(), member, t);
+                                }
+                                return null;
+                            })
+                            .join();
+        } catch (java.util.concurrent.CompletionException e) {
+            log.error("Unexpected error awaiting connection to: {} on: {}", to.getId(), member, e);
+            channel = null;
+        }
+
+        // ================================================================
+        // PHASE 3a: Failure handling (NO LOCK for connecting cleanup)
+        // ================================================================
+        if (channel == null) {
+            // CAS remove: only remove if our future is still the current entry.
+            // A newer future may have been created by a concurrent thread.
+            connecting.remove(to, future);
+            circuitBreaker.recordFailure(to);
+            if (metrics != null) {
+                metrics.recordFailedConnection();
+                metrics.incrementFailedOpenConnection();
+            }
+            return null;
+        }
+
+        // ================================================================
+        // PHASE 4: Register in cache (BRIEF LOCK)
+        // ================================================================
+        // Lock scope: HashMap.get() + HashMap.put() + ConcurrentHashMap.remove()
+        // Duration: ~300 nanoseconds (no I/O)
+        //
+        // Double-check prevents duplicate registrations when multiple threads
+        // share the same future and wake up in sequence.
+        lock.lock();
+        try {
+            // Double-check: while we waited, another waiter may have already
+            // registered this connection.
+            var existing = cache.get(to);
+            if (existing != null) {
+                // Another thread won the race to register.
+                // Since both threads shared the same future, they got the same
+                // ManagedChannel object. No duplicate to shut down.
+                // (If channels differ due to a rare race with eviction+reconnect,
+                // shut down the newer one to avoid leaks.)
+                if (existing.channel != channel) {
+                    channel.shutdown();
+                }
+                if (existing.incrementBorrow()) {
                     if (metrics != null) {
-                        metrics.recordFailedConnection();
-                        metrics.incrementFailedOpenConnection();
+                        metrics.recordBorrow();
                     }
-                    return null;
+                    queue.remove(existing);
                 }
-                ReleasableManagedChannel conn = new ReleasableManagedChannel(to, channel, member);
-                circuitBreaker.recordSuccess(to);
-                if (metrics != null) {
-                    metrics.incrementCreateConnection();
-                    metrics.incrementOpenConnections();
-                }
-                return conn;
-            });
-            if (connection == null) {
-                log.debug("Connection creation failed for: {} on: {}", to.getId(), member);
-                return null;
+                connecting.remove(to);
+                return new ManagedServerChannel(context, existing, credentials);
             }
-            if (connection.incrementBorrow()) {
-                log.debug("Increment borrow to: {} channel to: {} on: {}", connection.borrowed,
-                          connection.member.getId(), member);
-                if (metrics != null) {
-                    metrics.recordBorrow();
-                }
-                queue.remove(connection);
+
+            // We are the first thread to register this connection.
+            var conn = new ReleasableManagedChannel(to, channel, member);
+            cache.put(to, conn);
+            conn.incrementBorrow();
+            connecting.remove(to); // Cleanup pending entry
+
+            if (metrics != null) {
+                metrics.incrementCreateConnection();
+                metrics.incrementOpenConnections();
+                metrics.recordBorrow();
             }
-            log.trace("Borrowed channel to: {}, borrowed: {} on: {}", connection.member.getId(), connection.borrowed,
-                      member);
-            return new ManagedServerChannel(context, connection, credentials);
-        });
+            circuitBreaker.recordSuccess(to);
+
+            log.debug("New connection cached for: {} on: {}", to.getId(), member);
+            return new ManagedServerChannel(context, conn, credentials);
+        } finally {
+            lock.unlock();
+        }
     }
 
     public <T> T borrow(Digest context, Member to, CreateClientCommunications<T> createFunction) {
@@ -145,13 +255,24 @@ public class ServerConnectionCache {
         if (!open.compareAndSet(true, false)) {
             return;
         }
+
+        // Cancel all in-progress connections.
+        // Future.cancel(true) may interrupt the virtual thread running connectTo().
+        connecting.forEach((member_, future) -> future.cancel(true));
+        connecting.clear();
+
+        // Shut down the virtual thread executor.
+        // No new connection tasks will be submitted after this.
+        connectionExecutor.shutdown();
+
         lock(() -> {
             log.info("Closing connection cache on: {}", member);
             for (ReleasableManagedChannel conn : new ArrayList<>(cache.values())) {
                 try {
                     conn.channel.shutdown();
                     if (metrics != null) {
-                        metrics.recordChannelOpenDuration(Duration.between(conn.created, Instant.now(clock)).toNanos());
+                        metrics.recordChannelOpenDuration(
+                        Duration.between(conn.created, Instant.now(clock)).toNanos());
                         metrics.decrementOpenConnections();
                     }
                 } catch (Throwable e) {
@@ -251,19 +372,20 @@ public class ServerConnectionCache {
     }
 
     public static class Builder implements Cloneable {
-        private Clock                        clock                 = Clock.systemUTC();
-        private ServerConnectionFactory      factory               = null;
+        private Clock                        clock                = Clock.systemUTC();
+        private ServerConnectionFactory      factory              = null;
         private ServerConnectionCacheMetrics metrics;
-        private Duration                     minIdle               = Duration.ofMillis(100);
-        private int                          target                = 10;
+        private Duration                     minIdle              = Duration.ofMillis(100);
+        private int                          target               = 10;
         private Digest                       member;
         private CallCredentials              credentials;
-        private CircuitBreakerConfig         circuitBreakerConfig  = CircuitBreakerConfig.defaults();
+        private CircuitBreakerConfig         circuitBreakerConfig = CircuitBreakerConfig.defaults();
+        private Duration                     connectionTimeout    = Duration.ofSeconds(30);
 
         public ServerConnectionCache build() {
             var circuitBreaker = new ConnectionCircuitBreaker(circuitBreakerConfig, clock);
             return new ServerConnectionCache(member, credentials, factory, target, minIdle, clock, metrics,
-                                            circuitBreaker);
+                                              circuitBreaker, connectionTimeout);
         }
 
         @Override
@@ -344,6 +466,15 @@ public class ServerConnectionCache {
 
         public Builder setCircuitBreakerConfig(CircuitBreakerConfig circuitBreakerConfig) {
             this.circuitBreakerConfig = circuitBreakerConfig;
+            return this;
+        }
+
+        public Duration getConnectionTimeout() {
+            return connectionTimeout;
+        }
+
+        public Builder setConnectionTimeout(Duration connectionTimeout) {
+            this.connectionTimeout = connectionTimeout;
             return this;
         }
     }

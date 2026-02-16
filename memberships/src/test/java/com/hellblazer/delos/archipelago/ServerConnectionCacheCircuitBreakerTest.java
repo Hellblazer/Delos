@@ -486,9 +486,11 @@ public class ServerConnectionCacheCircuitBreakerTest {
             thread.join();
         }
 
-        // Circuit should open after threshold (3)
-        // Some threads may fast-fail if they check after circuit opens
-        assertThat(callCount.get()).isGreaterThanOrEqualTo(3).isLessThanOrEqualTo(10);
+        // With async connection establishment, concurrent threads share a single
+        // CompletableFuture for the same member. Only 1 factory call occurs for
+        // all 10 threads (connection deduplication). After failure and cleanup,
+        // a second attempt may occur due to CAS timing, but typically only 1-2 calls.
+        assertThat(callCount.get()).isGreaterThanOrEqualTo(1).isLessThanOrEqualTo(3);
 
         // Subsequent attempt should fast-fail
         cache.borrow(contextDigest, member);
