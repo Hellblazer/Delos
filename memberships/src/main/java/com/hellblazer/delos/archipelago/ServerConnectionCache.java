@@ -55,9 +55,11 @@ public class ServerConnectionCache {
     private final Digest                                  member;
     private final CallCredentials                         credentials;
     private final AtomicBoolean                           open  = new AtomicBoolean(true);
+    private final ConnectionCircuitBreaker                circuitBreaker;
 
     public ServerConnectionCache(Digest member, CallCredentials credentials, ServerConnectionFactory factory,
-                                 int target, Duration minIdle, Clock clock, ServerConnectionCacheMetrics metrics) {
+                                 int target, Duration minIdle, Clock clock, ServerConnectionCacheMetrics metrics,
+                                 ConnectionCircuitBreaker circuitBreaker) {
         assert member != null;
         this.factory = factory;
         this.target = Math.max(target, 1);
@@ -66,6 +68,7 @@ public class ServerConnectionCache {
         this.metrics = metrics;
         this.member = member;
         this.credentials = credentials;
+        this.circuitBreaker = circuitBreaker;
     }
 
     public static Builder newBuilder() {
@@ -76,6 +79,16 @@ public class ServerConnectionCache {
         if (!open.get()) {
             throw new IllegalStateException("not open on: " + member);
         }
+
+        // Circuit breaker fast-fail check (OUTSIDE lock for performance)
+        if (circuitBreaker.shouldReject(to)) {
+            log.debug("Circuit breaker OPEN for: {} on: {}", to.getId(), member);
+            if (metrics != null) {
+                metrics.recordFailedConnection();
+            }
+            return null;
+        }
+
         return lock(() -> {
             if (cache.size() >= target) {
                 log.debug("Cache target open connections exceeded: {}, opening to: {} on: {}", target, to.getId(),
@@ -88,9 +101,15 @@ public class ServerConnectionCache {
                     channel = factory.connectTo(to);
                 } catch (Throwable t) {
                     log.error("Cannot connect to: {} on: {}", to.getId(), member, t);
+                    circuitBreaker.recordFailure(to);
+                    if (metrics != null) {
+                        metrics.recordFailedConnection();
+                        metrics.incrementFailedOpenConnection();
+                    }
                     return null;
                 }
                 ReleasableManagedChannel conn = new ReleasableManagedChannel(to, channel, member);
+                circuitBreaker.recordSuccess(to);
                 if (metrics != null) {
                     metrics.incrementCreateConnection();
                     metrics.incrementOpenConnections();
@@ -232,16 +251,19 @@ public class ServerConnectionCache {
     }
 
     public static class Builder implements Cloneable {
-        private Clock                        clock   = Clock.systemUTC();
-        private ServerConnectionFactory      factory = null;
+        private Clock                        clock                 = Clock.systemUTC();
+        private ServerConnectionFactory      factory               = null;
         private ServerConnectionCacheMetrics metrics;
-        private Duration                     minIdle = Duration.ofMillis(100);
-        private int                          target  = 10;
+        private Duration                     minIdle               = Duration.ofMillis(100);
+        private int                          target                = 10;
         private Digest                       member;
         private CallCredentials              credentials;
+        private CircuitBreakerConfig         circuitBreakerConfig  = CircuitBreakerConfig.defaults();
 
         public ServerConnectionCache build() {
-            return new ServerConnectionCache(member, credentials, factory, target, minIdle, clock, metrics);
+            var circuitBreaker = new ConnectionCircuitBreaker(circuitBreakerConfig, clock);
+            return new ServerConnectionCache(member, credentials, factory, target, minIdle, clock, metrics,
+                                            circuitBreaker);
         }
 
         @Override
@@ -315,6 +337,15 @@ public class ServerConnectionCache {
             this.target = target;
             return this;
         }
+
+        public CircuitBreakerConfig getCircuitBreakerConfig() {
+            return circuitBreakerConfig;
+        }
+
+        public Builder setCircuitBreakerConfig(CircuitBreakerConfig circuitBreakerConfig) {
+            this.circuitBreakerConfig = circuitBreakerConfig;
+            return this;
+        }
     }
 
     class ReleasableManagedChannel implements Comparable<ReleasableManagedChannel>, Releasable {
@@ -379,12 +410,16 @@ public class ServerConnectionCache {
 
         @Override
         public ManagedChannel shutdown() {
-            throw new IllegalStateException("Should not be called");
+            log.warn("shutdown() called on pooled channel - delegating to release()");
+            release();
+            return channel;
         }
 
         @Override
         public ManagedChannel shutdownNow() {
-            throw new IllegalStateException("Should not be called");
+            log.warn("shutdownNow() called on pooled channel - delegating to release()");
+            release();
+            return channel;
         }
 
         private boolean decrementBorrow() {

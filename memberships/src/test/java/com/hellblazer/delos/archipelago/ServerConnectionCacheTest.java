@@ -357,6 +357,35 @@ public class ServerConnectionCacheTest {
     // ========== Connection Factory Failure Tests ==========
 
     @Test
+    public void testFailedConnectionMetricsRecorded() {
+        var member = testMembers.get(0);
+        when(mockFactory.connectTo(member)).thenThrow(new RuntimeException("Connection failed"));
+
+        cache = buildCache(5, Duration.ZERO);
+
+        var channel = cache.borrow(contextDigest, member);
+
+        assertThat(channel).isNull();
+        verify(mockMetrics).recordFailedConnection();
+        verify(mockMetrics).incrementFailedOpenConnection();
+    }
+
+    @Test
+    public void testMultipleFailuresRecordedSeparately() {
+        var member1 = testMembers.get(0);
+        var member2 = testMembers.get(1);
+        when(mockFactory.connectTo(any(Member.class))).thenThrow(new RuntimeException("Network error"));
+
+        cache = buildCache(5, Duration.ZERO);
+
+        cache.borrow(contextDigest, member1);
+        cache.borrow(contextDigest, member2);
+
+        verify(mockMetrics, times(2)).recordFailedConnection();
+        verify(mockMetrics, times(2)).incrementFailedOpenConnection();
+    }
+
+    @Test
     public void testFactoryThrows_RuntimeException() {
         var member = testMembers.get(0);
         when(mockFactory.connectTo(member)).thenThrow(new RuntimeException("Factory explosion"));
@@ -370,6 +399,10 @@ public class ServerConnectionCacheTest {
 
         // Connection should NOT be cached
         verify(mockMetrics, never()).incrementCreateConnection();
+
+        // But failure metrics SHOULD be recorded
+        verify(mockMetrics).recordFailedConnection();
+        verify(mockMetrics).incrementFailedOpenConnection();
     }
 
     @Test
@@ -386,6 +419,10 @@ public class ServerConnectionCacheTest {
 
         // Connection should NOT be cached
         verify(mockMetrics, never()).incrementCreateConnection();
+
+        // But failure metrics SHOULD be recorded
+        verify(mockMetrics).recordFailedConnection();
+        verify(mockMetrics).incrementFailedOpenConnection();
     }
 
     @Test
@@ -402,6 +439,10 @@ public class ServerConnectionCacheTest {
         // First borrow fails
         var channel1 = cache.borrow(contextDigest, member);
         assertThat(channel1).isNull();
+
+        // Verify first failure recorded
+        verify(mockMetrics).recordFailedConnection();
+        verify(mockMetrics).incrementFailedOpenConnection();
 
         // Second borrow succeeds (retry after failure)
         var channel2 = cache.borrow(contextDigest, member);
@@ -562,6 +603,72 @@ public class ServerConnectionCacheTest {
 
         // Metrics already recorded from close, no additional release
         verify(mockMetrics, times(1)).decrementOpenConnections();
+    }
+
+    // ========== ManagedChannel Contract Tests ==========
+
+    @Test
+    public void testShutdownDelegatesToRelease() {
+        cache = buildCache(5, Duration.ZERO);
+
+        var channel = cache.borrow(contextDigest, testMembers.get(0));
+
+        // Should not throw, should delegate to release()
+        var result = channel.shutdown();
+
+        // Verify return value is a ManagedChannel (per ManagedChannel contract)
+        assertThat(result).isNotNull();
+        assertThat(result).isInstanceOf(ManagedChannel.class);
+
+        // Verify release() was called via metrics
+        verify(mockMetrics, times(1)).recordRelease();
+    }
+
+    @Test
+    public void testShutdownNowDelegatesToRelease() {
+        cache = buildCache(5, Duration.ZERO);
+
+        var channel = cache.borrow(contextDigest, testMembers.get(0));
+
+        // Should not throw, should delegate to release()
+        var result = channel.shutdownNow();
+
+        // Verify return value is a ManagedChannel (per ManagedChannel contract)
+        assertThat(result).isNotNull();
+        assertThat(result).isInstanceOf(ManagedChannel.class);
+
+        // Verify release() was called via metrics
+        verify(mockMetrics, times(1)).recordRelease();
+    }
+
+    @Test
+    public void testShutdownIsIdempotent() {
+        cache = buildCache(5, Duration.ZERO);
+
+        var channel = cache.borrow(contextDigest, testMembers.get(0));
+
+        // Call shutdown multiple times
+        channel.shutdown();
+        channel.shutdown();
+        channel.shutdown();
+
+        // Only first shutdown should trigger release (subsequent are no-ops)
+        verify(mockMetrics, times(1)).recordRelease();
+    }
+
+    @Test
+    public void testShutdownNowIsIdempotent() {
+        cache = buildCache(5, Duration.ZERO);
+
+        var channel = cache.borrow(contextDigest, testMembers.get(0));
+
+        // Call shutdownNow multiple times
+        channel.shutdownNow();
+        channel.shutdownNow();
+        channel.shutdownNow();
+
+        // Only first shutdownNow should trigger release (subsequent are no-ops)
+        verify(mockMetrics, times(1)).recordRelease();
     }
 
     // ========== Metrics Validation Tests ==========
