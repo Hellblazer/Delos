@@ -41,6 +41,7 @@ import java.security.PrivateKey;
 import java.security.Provider;
 import java.security.Security;
 import java.security.cert.X509Certificate;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -69,7 +70,11 @@ public class MtlsServer implements RouterSupplier {
         this.epProvider = epProvider;
         this.contextSupplier = contextSupplier;
         this.supplier = supplier;
-        cachedMembership = CacheBuilder.newBuilder().build(new CacheLoader<X509Certificate, Digest>() {
+        cachedMembership = CacheBuilder.newBuilder()
+                                       .expireAfterAccess(Duration.ofMinutes(10))
+                                       .maximumSize(1000)
+                                       .recordStats()
+                                       .build(new CacheLoader<X509Certificate, Digest>() {
             @Override
             public Digest load(X509Certificate key) throws Exception {
                 return supplier.getMemberId(key);
