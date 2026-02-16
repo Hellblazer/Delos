@@ -261,9 +261,17 @@ public class ServerConnectionCache {
         connecting.forEach((member_, future) -> future.cancel(true));
         connecting.clear();
 
-        // Shut down the virtual thread executor.
-        // No new connection tasks will be submitted after this.
-        connectionExecutor.shutdown();
+        // Shut down the virtual thread executor with timeout to prevent indefinite hang.
+        // shutdownNow() interrupts running tasks; awaitTermination() waits up to 5s.
+        connectionExecutor.shutdownNow();
+        try {
+            if (!connectionExecutor.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                log.warn("Connection executor did not terminate within 5 seconds on: {}", member);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("Interrupted while waiting for connection executor shutdown on: {}", member);
+        }
 
         lock(() -> {
             log.info("Closing connection cache on: {}", member);
