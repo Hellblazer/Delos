@@ -64,7 +64,8 @@ public class RoutableService<Service> {
                     log.debug("Rejected execution context: {} on: {}", context, c);
                 } catch (Throwable t) {
                     log.error("Uncaught exception in service evaluation for context: {}", context, t);
-                    responseObserver.onError(t);
+                    responseObserver.onError(
+                        new StatusRuntimeException(Status.INTERNAL.withDescription("Internal error")));
                 }
             }
         }
@@ -94,7 +95,8 @@ public class RoutableService<Service> {
                     c.accept(binding.service, FernetServerInterceptor.AccessTokenContextKey.get());
                 } catch (Throwable t) {
                     log.error("Uncaught exception in service evaluation for context: {}", context, t);
-                    responseObserver.onError(t);
+                    responseObserver.onError(
+                        new StatusRuntimeException(Status.INTERNAL.withDescription("Internal error")));
                 }
             }
         }
