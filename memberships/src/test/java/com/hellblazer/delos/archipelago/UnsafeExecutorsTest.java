@@ -9,8 +9,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.*;
 
 public class UnsafeExecutorsTest {
     private static String carrierThreadName() {
@@ -50,6 +49,54 @@ public class UnsafeExecutorsTest {
         assertEquals(1, executor.size(), "vthread is not schedulable");
         executor.poll().run();
         assertFalse(lock.tryLock(), "the virtual thread does not hold the lock");
+    }
+
+    @Test
+    void testIsTerminatedReturnsFalseBeforeShutdown() {
+        var executor = Executors.newSingleThreadExecutor();
+        var virtualExecutor = UnsafeExecutors.virtualThreadExecutor(executor);
+
+        assertFalse(virtualExecutor.isTerminated(), "isTerminated should return false before shutdown");
+
+        executor.shutdown();
+        virtualExecutor.shutdown();
+    }
+
+    @Test
+    void testIsTerminatedReturnsTrueAfterShutdown() throws InterruptedException {
+        var executor = Executors.newSingleThreadExecutor();
+        var virtualExecutor = UnsafeExecutors.virtualThreadExecutor(executor);
+
+        virtualExecutor.shutdown();
+        executor.awaitTermination(1, TimeUnit.SECONDS);
+
+        assertTrue(virtualExecutor.isTerminated(), "isTerminated should return true after executor terminates");
+    }
+
+    @Test
+    void testAwaitTerminationDelegatesToExecutor() throws InterruptedException {
+        var executor = Executors.newSingleThreadExecutor();
+        var virtualExecutor = UnsafeExecutors.virtualThreadExecutor(executor);
+
+        virtualExecutor.shutdown();
+
+        boolean terminated = virtualExecutor.awaitTermination(1, TimeUnit.SECONDS);
+
+        assertTrue(terminated, "awaitTermination should delegate to underlying executor and return true after termination");
+        assertTrue(executor.isTerminated(), "underlying executor should be terminated");
+    }
+
+    @Test
+    void testAwaitTerminationTimesOut() throws InterruptedException {
+        var executor = Executors.newSingleThreadExecutor();
+        var virtualExecutor = UnsafeExecutors.virtualThreadExecutor(executor);
+
+        // Don't shutdown - should timeout
+        boolean terminated = virtualExecutor.awaitTermination(100, TimeUnit.MILLISECONDS);
+
+        assertFalse(terminated, "awaitTermination should return false when timeout expires without termination");
+
+        executor.shutdown();
     }
 
     private ExecutorService wrap(Executor ex) {

@@ -170,7 +170,7 @@ public class UnsafeExecutors {
 
         @Override
         public boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException {
-            return true;
+            return executor.awaitTermination(timeout, unit);
         }
 
         @Override
@@ -190,7 +190,7 @@ public class UnsafeExecutors {
 
         @Override
         public boolean isTerminated() {
-            return !executor.isTerminated();
+            return executor.isTerminated();
         }
 
         @Override
