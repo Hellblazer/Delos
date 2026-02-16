@@ -11,7 +11,7 @@ import com.google.protobuf.ByteString;
 import com.hellblazer.delos.archipelago.LocalServer;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
-import com.hellblazer.delos.archipelago.UnsafeExecutors;
+import java.util.concurrent.Executors;
 import com.hellblazer.delos.choam.proto.Transaction;
 import com.hellblazer.delos.context.StaticContext;
 import com.hellblazer.delos.cryptography.Digest;
@@ -150,7 +150,7 @@ class CheckpointFrequencyIntegrationTest {
 
     private Map<Digest, AtomicInteger> setupCluster(int checkpointFrequency) throws Exception {
         scheduler = Executors.newScheduledThreadPool(10, Thread.ofVirtual().factory());
-        executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
+        executor = Executors.newVirtualThreadPerTaskExecutor();
 
         var entropy = SecureRandom.getInstance("SHA1PRNG");
         entropy.setSeed(new byte[] { 1, 2, 3, 4 });

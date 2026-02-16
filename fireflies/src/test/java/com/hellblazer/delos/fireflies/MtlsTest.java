@@ -43,6 +43,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.Executors;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -108,7 +109,7 @@ public class MtlsTest {
 
     @Test
     public void smoke() throws Exception {
-        executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
+        executor = Executors.newVirtualThreadPerTaskExecutor();
         var parameters = Parameters.newBuilder().setMaximumTxfr(20).build();
         final Duration duration = Duration.ofMillis(50);
         var registry = new SimpleMeterRegistry();

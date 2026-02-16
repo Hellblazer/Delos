@@ -185,14 +185,6 @@
       "type": "com.hellblazer.delos.archipelago.RouterImpl$CommonCommunications"
     },
     {
-      "type": "com.hellblazer.delos.archipelago.UnsafeExecutors$VTB",
-      "fields": [
-        {
-          "name": "executor"
-        }
-      ]
-    },
-    {
       "type": "com.hellblazer.delos.choam.comm.Concierge"
     },
     {
@@ -1150,7 +1142,6 @@
       "glob": "jdk/xml/internal/jdkcatalog/JDKCatalog.xml"
     }
   ],
-  
   "bundles": [],
   "jni": [
     {

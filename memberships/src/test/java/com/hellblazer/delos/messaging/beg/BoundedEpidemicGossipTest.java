@@ -35,6 +35,7 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.Executors;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -81,7 +82,7 @@ class BoundedEpidemicGossipUnitTest {
 
         registry = new SimpleMeterRegistry();
         metrics = new MicrometerBegMetrics(registry);
-        executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
+        executor = Executors.newVirtualThreadPerTaskExecutor();
         routers = new ArrayList<>();
         broadcasters = new ArrayList<>();
     }

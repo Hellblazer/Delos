@@ -48,6 +48,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.Executors;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -276,7 +277,7 @@ public class MtlsThreeTierBootstrapTest {
     private void initialize() {
         log.info("Initializing {} MTLS nodes", TOTAL_NODES);
 
-        executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
+        executor = Executors.newVirtualThreadPerTaskExecutor();
         registry = new SimpleMeterRegistry();
 
         members = identities.values().stream()

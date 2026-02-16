@@ -57,6 +57,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.Executors;
 import java.util.function.Function;
 
 /**
@@ -148,7 +149,7 @@ public class DelosNode {
         log.info("Initializing {} node: {}", config.nodeType(), config.nodeId());
 
         // Create executor for async operations
-        executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
+        executor = Executors.newVirtualThreadPerTaskExecutor();
 
         // Create entropy source - use unique seed per node for production
         var entropy = SecureRandom.getInstance("SHA1PRNG");

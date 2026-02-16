@@ -307,8 +307,8 @@ public class ChurnTest {
     }
 
     private void initialize() {
-        executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
-        executor2 = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
+        executor = Executors.newVirtualThreadPerTaskExecutor();
+        executor2 = Executors.newVirtualThreadPerTaskExecutor();
         var parameters = Parameters.newBuilder()
                                    .setMaximumTxfr(CARDINALITY)  // Match cluster size for fast gossip propagation
                                    .setSeedingTimout(Duration.ofSeconds(IS_CI ? 120 : 90))  // Increased to allow view change completion

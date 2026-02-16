@@ -11,7 +11,7 @@ import com.hellblazer.delos.archipelago.LocalServer;
 import com.hellblazer.delos.archipelago.MicrometerServerConnectionCacheMetrics;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
-import com.hellblazer.delos.archipelago.UnsafeExecutors;
+import java.util.concurrent.Executors;
 import com.hellblazer.delos.choam.TransactionExecutor;
 import com.hellblazer.delos.choam.proto.Transaction;
 import com.hellblazer.delos.choam.support.HashedCertifiedBlock;
@@ -98,7 +98,7 @@ public class DeadlockDetectionTest {
     @BeforeEach
     public void before() throws Exception {
         scheduler = Executors.newScheduledThreadPool(10, Thread.ofVirtual().factory());
-        executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
+        executor = Executors.newVirtualThreadPerTaskExecutor();
         threadMXBean = ManagementFactory.getThreadMXBean();
 
         var origin = DigestAlgorithm.DEFAULT.getOrigin();

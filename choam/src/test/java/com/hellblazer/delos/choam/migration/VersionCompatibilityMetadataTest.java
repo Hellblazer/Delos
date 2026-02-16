@@ -10,7 +10,7 @@ package com.hellblazer.delos.choam.migration;
 import com.hellblazer.delos.archipelago.LocalServer;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
-import com.hellblazer.delos.archipelago.UnsafeExecutors;
+import java.util.concurrent.Executors;
 import com.google.protobuf.ByteString;
 import com.hellblazer.delos.choam.CHOAM;
 import com.hellblazer.delos.choam.Parameters;
@@ -95,7 +95,7 @@ public class VersionCompatibilityMetadataTest {
     @BeforeEach
     public void setup() throws Exception {
         scheduler = Executors.newScheduledThreadPool(CLUSTER_SIZE * 2, Thread.ofVirtual().factory());
-        executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
+        executor = Executors.newVirtualThreadPerTaskExecutor();
 
         baseDir = new File("target/choam-version-compat-test");
         Utils.clean(baseDir);

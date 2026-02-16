@@ -3,7 +3,7 @@ package com.hellblazer.delos.choam;
 import com.hellblazer.delos.archipelago.LocalServer;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
-import com.hellblazer.delos.archipelago.UnsafeExecutors;
+import java.util.concurrent.Executors;
 import com.hellblazer.delos.context.Context;
 import com.hellblazer.delos.context.DynamicContext;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
@@ -58,7 +58,7 @@ public class DynamicTest {
                            .map(ControlledIdentifierMember::new)
                            .map(e -> (Member) e)
                            .toList();
-        executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
+        executor = Executors.newVirtualThreadPerTaskExecutor();
         final var prefix = UUID.randomUUID().toString();
         routers = members.stream()
                          .collect(Collectors.toMap(m -> m, m -> new LocalServer(prefix, m).router(

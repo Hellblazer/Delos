@@ -9,7 +9,7 @@ package com.hellblazer.delos.examples.kvstore;
 import com.hellblazer.delos.archipelago.LocalServer;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
-import com.hellblazer.delos.archipelago.UnsafeExecutors;
+import java.util.concurrent.Executors;
 import com.hellblazer.delos.choam.CHOAM;
 import com.hellblazer.delos.choam.Parameters;
 import com.hellblazer.delos.choam.Parameters.ProducerParameters;
@@ -95,7 +95,7 @@ public class SimpleKVStoreTest {
     @BeforeEach
     public void before() throws Exception {
         scheduler = Executors.newScheduledThreadPool(10, Thread.ofVirtual().factory());
-        executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
+        executor = Executors.newVirtualThreadPerTaskExecutor();
         registry = new SimpleMeterRegistry();
 
         checkpointDirBase = new File("target/kv-chkpoints-" + Entropy.nextBitsStreamLong());

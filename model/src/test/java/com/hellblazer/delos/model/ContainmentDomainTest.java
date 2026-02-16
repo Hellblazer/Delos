@@ -34,6 +34,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -64,7 +65,7 @@ public class ContainmentDomainTest {
 
     @BeforeEach
     public void before() throws Exception {
-        executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
+        executor = Executors.newVirtualThreadPerTaskExecutor();
         final var commsDirectory = Path.of("target/comms");
         commsDirectory.toFile().mkdirs();
 

@@ -7,7 +7,7 @@
  */
 package com.hellblazer.delos.model;
 
-import com.hellblazer.delos.archipelago.UnsafeExecutors;
+import java.util.concurrent.Executors;
 import com.hellblazer.delos.utils.Entropy;
 import com.hellblazer.delos.utils.Utils;
 import org.junit.jupiter.api.AfterEach;
@@ -56,7 +56,7 @@ public class MultiTenancyScalabilityTest {
 
     @BeforeEach
     public void before() throws Exception {
-        executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
+        executor = Executors.newVirtualThreadPerTaskExecutor();
         checkpointDirBase = Path.of("target", "scale-chkpoints-" + Entropy.nextBitsStreamLong());
         Utils.clean(checkpointDirBase.toFile());
 
