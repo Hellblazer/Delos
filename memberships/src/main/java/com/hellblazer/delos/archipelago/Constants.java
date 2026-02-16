@@ -32,7 +32,7 @@ public final class Constants {
     public static final String               COM_HELLBLAZER_DELOS_ARCHIPELAGO_TO_ID_SERVER      = "to.id.server";
     public static final Context.Key<Digest>  SERVER_TARGET_KEY                                   = Context.key(
     COM_HELLBLAZER_DELOS_ARCHIPELAGO_TO_ID_SERVER);
-    public static       Metadata.Key<String> AuthorizationMetadataKey                            = Metadata.Key.of(
+    public static final Metadata.Key<String> AuthorizationMetadataKey                            = Metadata.Key.of(
     "Authorization", Metadata.ASCII_STRING_MARSHALLER);
 
     private Constants() {
