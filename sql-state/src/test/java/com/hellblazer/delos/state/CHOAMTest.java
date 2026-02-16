@@ -11,7 +11,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.hellblazer.delos.archipelago.LocalServer;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
-import com.hellblazer.delos.archipelago.UnsafeExecutors;
+import java.util.concurrent.Executors;
 import com.hellblazer.delos.choam.CHOAM;
 import com.hellblazer.delos.choam.TransactionExecutor;
 import com.hellblazer.delos.choam.Parameters;
@@ -123,7 +123,7 @@ public class CHOAMTest {
     @BeforeEach
     public void before() throws Exception {
         scheduler = Executors.newScheduledThreadPool(10, Thread.ofVirtual().factory());
-        executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
+        executor = Executors.newVirtualThreadPerTaskExecutor();
         registry = new SimpleMeterRegistry();
         checkpointDirBase = new File("target/ct-chkpoints-" + Entropy.nextBitsStreamLong());
         Utils.clean(checkpointDirBase);

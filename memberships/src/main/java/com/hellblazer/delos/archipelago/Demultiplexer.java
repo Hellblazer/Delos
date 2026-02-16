@@ -41,11 +41,25 @@ public class Demultiplexer {
     private static final Logger              log              = LoggerFactory.getLogger(Demultiplexer.class);
     private static final Context.Key<String> ROUTE_TARGET_KEY = Context.key(UUID.randomUUID().toString());
 
-    private final Server        server;
-    private final AtomicBoolean started = new AtomicBoolean();
+    private final CachedChannelPool channelPool; // Optional, nullable for backward compatibility
+    private final Server            server;
+    private final AtomicBoolean     started = new AtomicBoolean();
 
+    /**
+     * Create a Demultiplexer with channel caching.
+     *
+     * @param serverBuilder The gRPC server builder
+     * @param routing       Metadata key containing the route target
+     * @param dmux          Factory function to create channels for route targets
+     * @param cacheConfig   Channel cache configuration (use ChannelCacheConfig.disabled() to disable caching)
+     */
     public Demultiplexer(ServerBuilder<?> serverBuilder, Metadata.Key<String> routing,
-                         Function<String, ManagedChannel> dmux) {
+                         Function<String, ManagedChannel> dmux, ChannelCacheConfig cacheConfig) {
+        // Enable caching if maxCachedChannels > 0
+        this.channelPool = cacheConfig.maxCachedChannels() > 0
+            ? new CachedChannelPool(dmux, cacheConfig)
+            : null;
+
         var serverInterceptor = new ServerInterceptor() {
             @Override
             public <ReqT, RespT> ServerCall.Listener<ReqT> interceptCall(ServerCall<ReqT, RespT> call,
@@ -64,9 +78,25 @@ public class Demultiplexer {
         server = serverBuilder.intercept(serverInterceptor).fallbackHandlerRegistry(new GrpcProxy() {
             @Override
             protected ManagedChannel getChannel() {
-                return dmux.apply(ROUTE_TARGET_KEY.get());
+                var route = ROUTE_TARGET_KEY.get();
+                if (channelPool != null) {
+                    return channelPool.borrowChannel(route);
+                }
+                return dmux.apply(route); // Fallback: per-request (existing behavior)
             }
         }.newRegistry()).build();
+    }
+
+    /**
+     * Create a Demultiplexer without channel caching (backward compatibility).
+     *
+     * @param serverBuilder The gRPC server builder
+     * @param routing       Metadata key containing the route target
+     * @param dmux          Factory function to create channels for route targets
+     */
+    public Demultiplexer(ServerBuilder<?> serverBuilder, Metadata.Key<String> routing,
+                         Function<String, ManagedChannel> dmux) {
+        this(serverBuilder, routing, dmux, ChannelCacheConfig.disabled());
     }
 
     public void close(Duration await) {
@@ -82,6 +112,11 @@ public class Demultiplexer {
             }
         } catch (RejectedExecutionException e) {
             // eat
+        }
+
+        // Close channel pool if present
+        if (channelPool != null) {
+            channelPool.close();
         }
     }
 

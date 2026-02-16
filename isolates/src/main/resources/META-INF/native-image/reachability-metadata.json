@@ -466,14 +466,6 @@
       ]
     },
     {
-      "type": "com.hellblazer.delos.archipelago.UnsafeExecutors$VTB",
-      "fields": [
-        {
-          "name": "executor"
-        }
-      ]
-    },
-    {
       "type": "com.hellblazer.delos.choam.fsm.Combine$Mercantile$3",
       "methods": [
         {
@@ -4097,7 +4089,6 @@
       "glob": "jdk/xml/internal/jdkcatalog/JDKCatalog.xml"
     }
   ],
-  
   "bundles": [
     {
       "name": "com.sun.org.apache.xerces.internal.impl.xpath.regex.message",

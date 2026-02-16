@@ -497,14 +497,6 @@
       ]
     },
     {
-      "type": "com.hellblazer.delos.archipelago.UnsafeExecutors$VTB",
-      "fields": [
-        {
-          "name": "executor"
-        }
-      ]
-    },
-    {
       "type": "com.hellblazer.delos.choam.Session"
     },
     {
@@ -3470,7 +3462,6 @@
       "glob": "com/sun/tools/javac/resources/javac_en_GB.properties"
     }
   ],
-  
   "bundles": [
     {
       "name": "com.sun.org.apache.xerces.internal.impl.xpath.regex.message",

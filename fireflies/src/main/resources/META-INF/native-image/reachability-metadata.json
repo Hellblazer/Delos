@@ -271,14 +271,6 @@
       ]
     },
     {
-      "type": "com.hellblazer.delos.archipelago.UnsafeExecutors$VTB",
-      "fields": [
-        {
-          "name": "executor"
-        }
-      ]
-    },
-    {
       "type": "com.hellblazer.delos.stereotomy.caching.CachingKEL$1"
     },
     {
@@ -2270,7 +2262,6 @@
       "glob": "jdk/xml/internal/jdkcatalog/JDKCatalog.xml"
     }
   ],
-  
   "bundles": [],
   "jni": [
     {

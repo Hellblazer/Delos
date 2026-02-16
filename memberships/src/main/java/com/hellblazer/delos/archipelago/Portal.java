@@ -47,7 +47,8 @@ public class Portal<To extends Member> {
 
     public Portal(Digest agent, ServerBuilder<?> inbound, Function<String, ManagedChannel> outbound,
                   UnixDomainSocketAddress bridge, Duration keepAlive, Function<String, UnixDomainSocketAddress> router) {
-        this.inbound = new Demultiplexer(inbound, Constants.METADATA_CONTEXT_KEY, d -> handler(router.apply(d)));
+        this.inbound = new Demultiplexer(inbound, Constants.METADATA_CONTEXT_KEY, d -> handler(router.apply(d)),
+                                         ChannelCacheConfig.defaults());
         this.outbound = new Demultiplexer(NettyServerBuilder.forAddress(bridge)
                                                             .executor(executor)
                                                             .protocolNegotiator(new DomainSocketNegotiator())
@@ -55,7 +56,8 @@ public class Portal<To extends Member> {
                                                             .workerEventLoopGroup(eventLoopGroup)
                                                             .bossEventLoopGroup(eventLoopGroup)
                                                             .intercept(new DomainSocketServerInterceptor()),
-                                          Constants.METADATA_TARGET_KEY, outbound);
+                                          Constants.METADATA_TARGET_KEY, outbound,
+                                          ChannelCacheConfig.defaults());
         this.keepAlive = keepAlive;
         this.agent = QualifiedBase64.qb64(agent);
     }
@@ -64,6 +66,7 @@ public class Portal<To extends Member> {
         inbound.close(await);
         outbound.close(await);
         executor.shutdown();
+        eventLoopGroup.shutdownGracefully();
     }
 
     public void start() throws IOException {

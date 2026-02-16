@@ -32,6 +32,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -261,8 +262,8 @@ public class SwarmTest {
     }
 
     private void initialize() {
-        executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
-        executor2 = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
+        executor = Executors.newVirtualThreadPerTaskExecutor();
+        executor2 = Executors.newVirtualThreadPerTaskExecutor();
         var parameters = Parameters.newBuilder()
                                    .setMaximumTxfr(CARDINALITY)  // Match cluster size for fast gossip propagation
                                    .setSeedingTimout(Duration.ofSeconds(IS_CI ? 120 : 90))  // Match ChurnTest

@@ -234,7 +234,7 @@ public class FireFliesTest {
 
     @BeforeEach
     public void before() throws Exception {
-        executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
+        executor = Executors.newVirtualThreadPerTaskExecutor();
         var ffParams = com.hellblazer.delos.fireflies.Parameters.newBuilder();
         var entropy = SecureRandom.getInstance("SHA1PRNG");
         entropy.setSeed(new byte[] { 6, 6, 6 });

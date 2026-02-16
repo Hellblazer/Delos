@@ -41,9 +41,11 @@ import java.security.PrivateKey;
 import java.security.Provider;
 import java.security.Security;
 import java.security.cert.X509Certificate;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -69,7 +71,11 @@ public class MtlsServer implements RouterSupplier {
         this.epProvider = epProvider;
         this.contextSupplier = contextSupplier;
         this.supplier = supplier;
-        cachedMembership = CacheBuilder.newBuilder().build(new CacheLoader<X509Certificate, Digest>() {
+        cachedMembership = CacheBuilder.newBuilder()
+                                       .expireAfterAccess(Duration.ofMinutes(10))
+                                       .maximumSize(1000)
+                                       .recordStats()
+                                       .build(new CacheLoader<X509Certificate, Digest>() {
             @Override
             public Digest load(X509Certificate key) throws Exception {
                 return supplier.getMemberId(key);
@@ -140,15 +146,11 @@ public class MtlsServer implements RouterSupplier {
     public RouterImpl router(ServerConnectionCache.Builder cacheBuilder, Supplier<Limit> serverLimit,
                              MetricRegistry limitsRegistry, List<ServerInterceptor> interceptors,
                              Predicate<FernetServerInterceptor.HashedToken> validator, ExecutorService executor) {
-        //        if (executor == null) {
-        //            executor = Executors.newVirtualThreadPerTaskExecutor();
-        //        }
         var limitsBuilder = new GrpcServerLimiterBuilder().limit(serverLimit.get());
         if (limitsRegistry != null) {
             limitsBuilder.metricRegistry(limitsRegistry);
         }
         NettyServerBuilder serverBuilder = NettyServerBuilder.forAddress(epProvider.getBindAddress())
-                                                             //                                                             .executor(executor)
                                                              .withOption(ChannelOption.SO_REUSEADDR, true)
                                                              .sslContext(supplier.forServer(ClientAuth.REQUIRE,
                                                                                             epProvider.getAlias(),

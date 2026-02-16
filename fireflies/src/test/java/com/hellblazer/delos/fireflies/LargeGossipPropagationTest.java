@@ -31,6 +31,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -327,7 +328,7 @@ public class LargeGossipPropagationTest {
     }
 
     private void initialize() {
-        executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
+        executor = Executors.newVirtualThreadPerTaskExecutor();
         var parameters = Parameters.newBuilder()
                                    .setMaximumTxfr(30)  // Increased from 10 to speed up gossip propagation at scale
                                    .setSeedingTimout(Duration.ofSeconds(120))  // Increased to allow view change completion at scale

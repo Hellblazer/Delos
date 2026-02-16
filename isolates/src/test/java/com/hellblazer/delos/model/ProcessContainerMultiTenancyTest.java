@@ -11,7 +11,7 @@ import com.hellblazer.delos.archipelago.EndpointProvider;
 import com.hellblazer.delos.archipelago.LocalServer;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
-import com.hellblazer.delos.archipelago.UnsafeExecutors;
+import java.util.concurrent.Executors;
 import com.hellblazer.delos.choam.Parameters;
 import com.hellblazer.delos.choam.proto.FoundationSeal;
 import com.hellblazer.delos.context.DynamicContextImpl;
@@ -88,7 +88,7 @@ public class ProcessContainerMultiTenancyTest {
 
     @BeforeEach
     public void before() throws Exception {
-        executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
+        executor = Executors.newVirtualThreadPerTaskExecutor();
         commsDirectory = Path.of("target/comms-" + UUID.randomUUID());
         commsDirectory.toFile().mkdirs();
         checkpointDirBase = Path.of("target", "ct-chkpoints-" + Entropy.nextBitsStreamLong());

@@ -10,7 +10,7 @@ package com.hellblazer.delos.fireflies;
 import com.hellblazer.delos.archipelago.LocalServer;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
-import com.hellblazer.delos.archipelago.UnsafeExecutors;
+import java.util.concurrent.Executors;
 import com.hellblazer.delos.context.DynamicContext;
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
@@ -366,7 +366,7 @@ class FirefliesByzantineGossipTest {
     }
 
     private void initializeCluster() {
-        executor = UnsafeExecutors.newVirtualThreadPerTaskExecutor();
+        executor = Executors.newVirtualThreadPerTaskExecutor();
 
         var parameters = Parameters.newBuilder()
                                    .setMaximumTxfr(CARDINALITY)

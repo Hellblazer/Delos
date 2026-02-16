@@ -1198,9 +1198,890 @@ void testConsensusWithEquivocation() {
 
 ---
 
+## Test Harness Patterns
+
+### Overview
+
+Delos test infrastructure provides comprehensive patterns for all test categories. This section documents the common patterns, infrastructure classes, and best practices demonstrated in the Archipelago subsystem remediation (Phases 1-4).
+
+### Test Naming Conventions
+
+**Test Class Naming**:
+- `*Test.java` - Unit tests (isolated components, mocked dependencies)
+- `*IntegrationTest.java` - Integration tests (real I/O, single node)
+- `*ClusterTest.java` - Multi-node distributed tests
+- `*ByzantineTest.java` - Byzantine fault tolerance tests
+- `*StressTest.java` - High load tests (requires `-Dlarge_tests=true`)
+- `*ErrorPathTest.java` - Comprehensive error path and edge case tests
+- `*AsyncTest.java` - Async I/O and concurrency tests
+
+**Test Method Naming**:
+```java
+// GOOD - Describes what is tested
+@Test
+void shouldRejectInvalidSignature() { ... }
+
+@Test
+void shouldMaintainSafetyWithNodeFailure() { ... }
+
+@Test
+void shouldDetectEquivocation() { ... }
+
+// BAD - Generic names
+@Test
+void testMethod1() { ... }
+
+@Test
+void test() { ... }
+```
+
+**Test Category Organization**:
+```java
+public class ArchipelagoErrorPathTest {
+
+    // ========================================
+    // Category 1: Server Shutdown During Active Calls
+    // ========================================
+
+    @Test
+    void testServerShutdownDuringActiveCall() { ... }
+
+    @Test
+    void testServerShutdownDuringMultipleActiveCalls() { ... }
+
+    // ========================================
+    // Category 2: Concurrent close() + borrow() Races
+    // ========================================
+
+    @Test
+    void testConcurrentCloseAndBorrow() { ... }
+}
+```
+
+### Test Infrastructure Patterns
+
+#### 1. Dynamic Port Allocation
+
+**Problem**: Fixed ports conflict in parallel testing.
+
+**Solution**: Use port 0 (OS assigns available port):
+
+```java
+// GOOD - Dynamic port
+var server = InProcessServerBuilder.generateName();
+var channel = InProcessChannelBuilder.forName(server).build();
+
+// In-process channels don't use network ports, but for real gRPC servers:
+var server = ServerBuilder.forPort(0).build().start(); // OS assigns port
+var actualPort = server.getPort(); // Query assigned port
+
+// BAD - Fixed port
+var server = ServerBuilder.forPort(9090).build().start(); // May conflict
+```
+
+**Example from ArchipelagoErrorPathTest**:
+```java
+var serverName = InProcessServerBuilder.generateName(); // Unique per test
+var server = InProcessServerBuilder.forName(serverName)
+                                   .directExecutor()
+                                   .addService(testService)
+                                   .build()
+                                   .start();
+```
+
+#### 2. Deterministic Testing with Clock.fixed()
+
+**Pattern**: Use fixed clock for reproducible time-dependent tests.
+
+**Example from ServerConnectionCacheTest**:
+```java
+@BeforeEach
+public void setUp() {
+    // Deterministic clock for reproducible tests
+    fixedClock = Clock.fixed(Instant.parse("2026-02-15T10:00:00Z"), ZoneId.of("UTC"));
+}
+
+@Test
+void testMetrics_channelOpenDuration() {
+    var mutableClock = new MutableClock(Instant.parse("2026-02-15T10:00:00Z"), ZoneId.of("UTC"));
+    cache = ServerConnectionCache.newBuilder()
+                                  .setClock(mutableClock)
+                                  .build();
+
+    var channel = cache.borrow(contextDigest, testMembers.get(0));
+
+    // Advance clock by 5 seconds
+    mutableClock.advance(Duration.ofSeconds(5));
+
+    cache.close();
+
+    // Verify duration recorded (5 seconds)
+    verify(mockMetrics).recordChannelOpenDuration(Duration.ofSeconds(5).toNanos());
+}
+
+// Helper: Mutable clock for time progression tests
+private static class MutableClock extends Clock {
+    private Instant instant;
+    private final ZoneId zone;
+
+    public void advance(Duration duration) {
+        instant = instant.plus(duration);
+    }
+
+    @Override
+    public Instant instant() {
+        return instant;
+    }
+}
+```
+
+#### 3. Resource Lifecycle Management
+
+**Pattern**: Use try-with-resources or @AfterEach cleanup.
+
+**Example from ArchipelagoErrorPathTest**:
+```java
+private List<Server> serversToCleanup;
+private List<ManagedChannel> channelsToCleanup;
+
+@BeforeEach
+public void setUp() {
+    serversToCleanup = new ArrayList<>();
+    channelsToCleanup = new ArrayList<>();
+}
+
+@AfterEach
+public void tearDown() {
+    // Cleanup servers
+    for (Server server : serversToCleanup) {
+        try {
+            server.shutdown();
+            server.awaitTermination(2, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            // Ignore cleanup errors
+        }
+    }
+    serversToCleanup.clear();
+
+    // Cleanup channels
+    for (ManagedChannel channel : channelsToCleanup) {
+        try {
+            channel.shutdown();
+            channel.awaitTermination(2, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            // Ignore cleanup errors
+        }
+    }
+    channelsToCleanup.clear();
+}
+
+@Test
+void testServerShutdownDuringActiveCall() {
+    var server = InProcessServerBuilder.forName(serverName).build().start();
+    serversToCleanup.add(server); // Register for cleanup
+
+    var channel = InProcessChannelBuilder.forName(serverName).build();
+    channelsToCleanup.add(channel); // Register for cleanup
+
+    // Test logic...
+}
+```
+
+#### 4. Concurrent Testing Patterns
+
+**Pattern A: CountDownLatch for synchronization**:
+
+```java
+@Test
+void testConcurrentBorrow_sameMember() throws Exception {
+    var member = testMembers.get(0);
+    int threadCount = 10;
+    var latch = new CountDownLatch(threadCount);
+    var channels = Collections.synchronizedList(new ArrayList<ManagedServerChannel>());
+
+    // Multiple threads borrow same member simultaneously
+    for (int i = 0; i < threadCount; i++) {
+        executor.submit(() -> {
+            try {
+                var channel = cache.borrow(contextDigest, member);
+                channels.add(channel);
+            } finally {
+                latch.countDown();
+            }
+        });
+    }
+
+    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+
+    // Assertions...
+    assertThat(channels).hasSize(threadCount).doesNotContainNull();
+}
+```
+
+**Pattern B: CyclicBarrier for synchronized start**:
+
+```java
+@Test
+void testConcurrentBorrowSameMember_singleConnectionAttempt() throws Exception {
+    int threadCount = 50;
+    var barrier = new CyclicBarrier(threadCount);
+    var results = new ConcurrentLinkedQueue<ManagedServerChannel>();
+
+    var executor = Executors.newVirtualThreadPerTaskExecutor();
+    var futures = new ArrayList<Future<?>>();
+
+    for (int i = 0; i < threadCount; i++) {
+        futures.add(executor.submit(() -> {
+            try {
+                barrier.await(); // Synchronize start
+                var channel = cache.borrow(contextDigest, targetMember);
+                results.add(channel);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }));
+    }
+
+    // Wait for all threads
+    for (var future : futures) {
+        future.get(10, TimeUnit.SECONDS);
+    }
+    executor.shutdown();
+
+    assertThat(results).hasSize(threadCount);
+}
+```
+
+**Pattern C: AtomicInteger for concurrent counting**:
+
+```java
+@Test
+void testConcurrentMultipleClose() throws Exception {
+    int closeThreads = 5;
+    var latch = new CountDownLatch(closeThreads);
+    var closeCount = new AtomicInteger(0);
+
+    // Multiple threads try to close simultaneously
+    for (int i = 0; i < closeThreads; i++) {
+        executor.submit(() -> {
+            try {
+                cache.close();
+                closeCount.incrementAndGet();
+            } finally {
+                latch.countDown();
+            }
+        });
+    }
+
+    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+
+    // All threads attempted close
+    assertThat(closeCount.get()).isEqualTo(closeThreads);
+}
+```
+
+#### 5. Async Testing Patterns
+
+**Pattern**: Test async operations with CompletableFuture and timeouts.
+
+**Example from ServerConnectionCacheAsyncTest**:
+```java
+@Test
+void testLockNotHeldDuringConnect() throws Exception {
+    var slowFactory = new SlowFactory(Duration.ofMillis(200));
+
+    var threadAStarted = new CountDownLatch(1);
+    var threadBCompleted = new AtomicInteger(0);
+
+    // Thread A: borrow uncached member (triggers slow connection)
+    var threadA = Thread.ofVirtual().start(() -> {
+        threadAStarted.countDown();
+        var channel = cache.borrow(contextDigest, memberA);
+        assertThat(channel).isNotNull();
+    });
+
+    // Wait for Thread A to start
+    threadAStarted.await();
+    Thread.sleep(50); // Ensure Thread A is waiting
+
+    // Thread B: borrow cached member (should complete immediately)
+    long startB = System.nanoTime();
+    var channelB2 = cache.borrow(contextDigest, memberB);
+    long durationB = System.nanoTime() - startB;
+
+    assertThat(channelB2).isNotNull();
+    threadBCompleted.set((int) TimeUnit.NANOSECONDS.toMillis(durationB));
+
+    // Thread B completed in < 10ms (not blocked by Thread A's 200ms I/O)
+    assertThat(threadBCompleted.get()).isLessThan(10);
+
+    threadA.join();
+}
+```
+
+**Helper: Slow Factory for I/O Testing**:
+```java
+static class SlowFactory implements ServerConnectionFactory {
+    private final Duration delay;
+    private final AtomicInteger callCount = new AtomicInteger();
+    private final AtomicInteger peakConcurrency = new AtomicInteger();
+    private final AtomicInteger currentConcurrency = new AtomicInteger();
+
+    @Override
+    public ManagedChannel connectTo(Member to) {
+        int concurrent = currentConcurrency.incrementAndGet();
+        peakConcurrency.accumulateAndGet(concurrent, Math::max);
+        try {
+            Thread.sleep(delay.toMillis());
+            callCount.incrementAndGet();
+            return InProcessChannelBuilder.forName("test-" + to.getId()).build();
+        } finally {
+            currentConcurrency.decrementAndGet();
+        }
+    }
+
+    int getPeakConcurrency() { return peakConcurrency.get(); }
+}
+```
+
+### Category-Specific Patterns
+
+#### Unit Test Patterns
+
+**Characteristics**:
+- Single class under test
+- Mocked dependencies
+- No network/consensus
+- Duration: < 1 second
+
+**Example from ServerConnectionCacheTest**:
+```java
+@Test
+public void testEvictionRespects_minIdle() {
+    var mutableClock = new MutableClock(Instant.parse("2026-02-15T10:00:00Z"), ZoneId.of("UTC"));
+    cache = ServerConnectionCache.newBuilder()
+                                  .setTarget(5)
+                                  .setMinIdle(Duration.ofSeconds(10))
+                                  .setClock(mutableClock)
+                                  .setMetrics(mockMetrics)
+                                  .build();
+
+    // Borrow and release 10 connections
+    for (int i = 0; i < 10; i++) {
+        var ch = cache.borrow(contextDigest, testMembers.get(i));
+        ch.release();
+    }
+
+    // Should NOT evict because minIdle hasn't passed
+    verify(mockMetrics, never()).recordCloseConnection();
+
+    // Advance clock by 11 seconds
+    mutableClock.advance(Duration.ofSeconds(11));
+
+    // Trigger eviction check
+    var newChannel = cache.borrow(contextDigest, testMembers.get(10));
+    newChannel.release();
+
+    // Now eviction should occur
+    verify(mockMetrics, atLeastOnce()).recordCloseConnection();
+}
+```
+
+#### Integration Test Patterns
+
+**Characteristics**:
+- Multiple components
+- Real I/O (database, gRPC)
+- No Byzantine members
+- Duration: 1-10 seconds
+
+**Pattern**: Test component integration without cluster complexity.
+
+#### Error Path Test Patterns
+
+**Characteristics**:
+- Comprehensive edge cases
+- Missing context/headers
+- Validator rejection
+- Shutdown races
+- Malformed input
+
+**Example from ArchipelagoErrorPathTest**:
+```java
+// Category: Missing gRPC Context Headers
+@Test
+public void testMissingContextHeader() {
+    var routableService = new RoutableService<TestServiceImpl>();
+    var testService = new TestServiceImpl();
+    var responseObserver = mock(StreamObserver.class);
+
+    routableService.bind(contextDigest, testService, null);
+
+    // Evaluate WITHOUT setting SERVER_CONTEXT_KEY (missing header)
+    Consumer<TestServiceImpl> consumer = s -> s.doSomething();
+    routableService.evaluate(responseObserver, consumer);
+
+    // Verify NOT_FOUND (not NPE)
+    verify(responseObserver).onError(argThat(t -> {
+        if (!(t instanceof StatusRuntimeException)) {
+            return false;
+        }
+        var sre = (StatusRuntimeException) t;
+        return sre.getStatus().getCode() == Status.Code.NOT_FOUND;
+    }));
+
+    // Verify service was NOT invoked
+    assertThat(testService.invoked.get()).isFalse();
+}
+
+// Category: Validator Rejection
+@Test
+public void testValidatorRejectsToken() {
+    var routableService = new RoutableService<TestServiceImpl>();
+    var testService = new TestServiceImpl();
+    var responseObserver = mock(StreamObserver.class);
+
+    // Validator that always rejects
+    routableService.bind(contextDigest, testService, token -> false);
+
+    // Create a real HashedToken
+    var tokenHash = DigestAlgorithm.DEFAULT.digest("test-token".getBytes());
+    var token = Token.generate(Key.generateKey(), "test-payload");
+    var hashedToken = new HashedToken(tokenHash, token);
+
+    Context.current()
+           .withValue(SERVER_CONTEXT_KEY, contextDigest)
+           .withValue(AccessTokenContextKey, hashedToken)
+           .run(() -> {
+               routableService.evaluate(responseObserver, s -> s.doSomething());
+           });
+
+    verify(responseObserver).onError(argThat(t -> {
+        return ((StatusRuntimeException) t).getStatus().getCode() == Status.Code.UNAUTHENTICATED;
+    }));
+
+    assertThat(testService.invoked.get()).isFalse();
+}
+```
+
+#### Byzantine Test Patterns
+
+**Characteristics**:
+- 3f+1 nodes minimum
+- Fault injection
+- Detection validation
+- Duration: 20-120 seconds
+
+**Pattern from GorgoneionBftTestHelpers**:
+```java
+@Test
+void shouldDetectByzantineNodeFailure() throws Exception {
+    // Setup deterministic context
+    var entropy = deterministicEntropy();
+
+    try (var ctx = setupMultiMemberContext(7, entropy)) {
+        var params = testParameters(fixedClock()).build();
+
+        try (var cluster = createGorgoneionCluster(ctx, params)) {
+            // Verify initial cluster health
+            assertThat(cluster.size()).isEqualTo(7);
+            assertThat(cluster.majority()).isEqualTo(5);
+            assertThat(cluster.faultTolerance()).isEqualTo(2);
+
+            // Inject Byzantine failure
+            var fault = simulateByzantineNodeFailure(cluster, 5);
+
+            try {
+                // System should continue with remaining nodes
+                var nonce = applyWithRetry(client, cluster, Duration.ofSeconds(30), 3);
+                assertThat(nonce).isNotNull();
+
+                // Verify safety properties maintained
+                verifyBftSafetyProperty(cluster, safety -> {
+                    assertThat(safety.noConflictingNonces()).isTrue();
+                });
+            } finally {
+                fault.restore();
+            }
+        }
+    }
+}
+
+// Helper: Deterministic entropy
+public static SecureRandom deterministicEntropy() {
+    var entropy = SecureRandom.getInstance("SHA1PRNG");
+    entropy.setSeed(new byte[] { 6, 6, 6 });
+    return entropy;
+}
+
+// Helper: Fixed clock
+public static Clock fixedClock() {
+    return Clock.fixed(Instant.parse("2026-01-09T12:00:00Z"), ZoneId.of("UTC"));
+}
+```
+
+#### Byzantine Attack Simulations
+
+**Pattern from ArchipelagoErrorPathTest**:
+```java
+// Category: Byzantine Attack Simulations
+
+// Test 1: Header Spoofing
+@Test
+public void testByzantineHeaderSpoofing_contextId() {
+    var routableService = new RoutableService<TestServiceImpl>();
+    var testService = new TestServiceImpl();
+    var responseObserver = mock(StreamObserver.class);
+
+    // Legitimate context
+    routableService.bind(contextDigest, testService, null);
+
+    // Attacker tries to spoof a different context
+    var spoofedContext = DigestAlgorithm.DEFAULT.digest("spoofed-context".getBytes());
+
+    Context.current().withValue(SERVER_CONTEXT_KEY, spoofedContext).run(() -> {
+        routableService.evaluate(responseObserver, s -> s.doSomething());
+    });
+
+    // Verify NOT_FOUND (spoofed context not bound)
+    verify(responseObserver).onError(argThat(t ->
+        ((StatusRuntimeException) t).getStatus().getCode() == Status.Code.NOT_FOUND
+    ));
+
+    assertThat(testService.invoked.get()).isFalse();
+}
+
+// Test 2: Connection Flooding
+@Test
+public void testByzantineConnectionFlooding() throws Exception {
+    var cache = ServerConnectionCache.newBuilder()
+                                     .setTarget(5) // Small target
+                                     .setConnectionTimeout(Duration.ofSeconds(2))
+                                     .build();
+
+    int floodCount = 50; // Attempt to open 50 connections rapidly
+    var latch = new CountDownLatch(floodCount);
+    var successfulBorrows = new AtomicInteger(0);
+    var failedBorrows = new AtomicInteger(0);
+
+    for (int i = 0; i < floodCount; i++) {
+        int memberIndex = i % testMembers.size();
+        executor.submit(() -> {
+            try {
+                var channel = cache.borrow(contextDigest, testMembers.get(memberIndex));
+                if (channel != null) {
+                    successfulBorrows.incrementAndGet();
+                    channel.release();
+                } else {
+                    failedBorrows.incrementAndGet();
+                }
+            } finally {
+                latch.countDown();
+            }
+        });
+    }
+
+    assertThat(latch.await(15, TimeUnit.SECONDS)).isTrue();
+
+    // Verify cache handled flood without crashing
+    assertThat(successfulBorrows.get() + failedBorrows.get()).isEqualTo(floodCount);
+}
+
+// Test 3: Replay Attack
+@Test
+public void testByzantineReplayAttack() {
+    var seenTokens = new ConcurrentHashMap<Digest, Boolean>();
+    routableService.bind(contextDigest, testService, token -> {
+        // Check if token already seen (simple replay detection)
+        return seenTokens.putIfAbsent(token.hash(), true) == null;
+    });
+
+    var hashedToken = new HashedToken(tokenHash, token);
+
+    // First request (legitimate)
+    Context.current()
+           .withValue(SERVER_CONTEXT_KEY, contextDigest)
+           .withValue(AccessTokenContextKey, hashedToken)
+           .run(() -> routableService.evaluate(responseObserver, s -> s.doSomething()));
+
+    verify(responseObserver, never()).onError(any());
+    assertThat(testService.invoked.get()).isTrue();
+
+    // Second request with SAME token (replay attack)
+    testService.invoked.set(false);
+    var replayObserver = mock(StreamObserver.class);
+
+    Context.current()
+           .withValue(SERVER_CONTEXT_KEY, contextDigest)
+           .withValue(AccessTokenContextKey, hashedToken)
+           .run(() -> routableService.evaluate(replayObserver, s -> s.doSomething()));
+
+    // Verify replay was rejected
+    verify(replayObserver).onError(argThat(t ->
+        ((StatusRuntimeException) t).getStatus().getCode() == Status.Code.UNAUTHENTICATED
+    ));
+
+    assertThat(testService.invoked.get()).isFalse();
+}
+```
+
+### Test Helper Classes
+
+#### SlowFactory (Async I/O Testing)
+
+```java
+/**
+ * Factory with configurable delay to simulate slow connections.
+ * Tracks call count and peak concurrency.
+ */
+static class SlowFactory implements ServerConnectionFactory {
+    private final Duration delay;
+    private final AtomicInteger callCount = new AtomicInteger();
+    private final AtomicInteger peakConcurrency = new AtomicInteger();
+    private final AtomicInteger currentConcurrency = new AtomicInteger();
+
+    SlowFactory(Duration delay) {
+        this.delay = delay;
+    }
+
+    @Override
+    public ManagedChannel connectTo(Member to) {
+        int concurrent = currentConcurrency.incrementAndGet();
+        peakConcurrency.accumulateAndGet(concurrent, Math::max);
+        try {
+            Thread.sleep(delay.toMillis());
+            callCount.incrementAndGet();
+            return InProcessChannelBuilder.forName("test-" + to.getId()).build();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        } finally {
+            currentConcurrency.decrementAndGet();
+        }
+    }
+
+    int getCallCount() { return callCount.get(); }
+    int getPeakConcurrency() { return peakConcurrency.get(); }
+}
+```
+
+#### MutableClock (Time Progression Testing)
+
+```java
+/**
+ * Mutable clock for testing time-dependent behavior.
+ */
+private static class MutableClock extends Clock {
+    private Instant instant;
+    private final ZoneId zone;
+
+    public MutableClock(Instant instant, ZoneId zone) {
+        this.instant = instant;
+        this.zone = zone;
+    }
+
+    public void advance(Duration duration) {
+        instant = instant.plus(duration);
+    }
+
+    @Override
+    public ZoneId getZone() {
+        return zone;
+    }
+
+    @Override
+    public Clock withZone(ZoneId zone) {
+        return new MutableClock(instant, zone);
+    }
+
+    @Override
+    public Instant instant() {
+        return instant;
+    }
+}
+```
+
+#### TestServiceImpl (Simple Service for Testing)
+
+```java
+/**
+ * Simple test service implementation.
+ */
+static class TestServiceImpl {
+    final AtomicBoolean invoked = new AtomicBoolean(false);
+
+    void doSomething() {
+        invoked.set(true);
+    }
+}
+```
+
+### Common Test Pitfalls
+
+#### Pitfall 1: Race Conditions in Shutdown Tests
+
+**Problem**: Test completes before cleanup, resource leaks.
+
+**Solution**: Use CountDownLatch or Future.get() to wait:
+
+```java
+// WRONG
+@Test
+void testServerShutdown() {
+    executor.submit(() -> cache.close());
+    // Test completes immediately, cleanup may not finish
+}
+
+// RIGHT
+@Test
+void testServerShutdown() throws Exception {
+    var latch = new CountDownLatch(1);
+    executor.submit(() -> {
+        try {
+            cache.close();
+        } finally {
+            latch.countDown();
+        }
+    });
+    assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+}
+```
+
+#### Pitfall 2: Forgetting to Register Resources for Cleanup
+
+**Problem**: Resources leak if test fails before cleanup.
+
+**Solution**: Register in @BeforeEach, cleanup in @AfterEach:
+
+```java
+// WRONG
+@Test
+void testSomething() {
+    var server = InProcessServerBuilder.forName("test").build().start();
+    // If assertion fails, server leaks
+    assertThat(result).isTrue();
+    server.shutdown(); // Never reached if assertion fails
+}
+
+// RIGHT
+private List<Server> serversToCleanup;
+
+@BeforeEach
+void setUp() {
+    serversToCleanup = new ArrayList<>();
+}
+
+@AfterEach
+void tearDown() {
+    for (Server server : serversToCleanup) {
+        try {
+            server.shutdown();
+            server.awaitTermination(2, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            // Ignore cleanup errors
+        }
+    }
+}
+
+@Test
+void testSomething() {
+    var server = InProcessServerBuilder.forName("test").build().start();
+    serversToCleanup.add(server); // Always cleaned up
+    assertThat(result).isTrue();
+}
+```
+
+#### Pitfall 3: Not Using AtomicInteger for Concurrent Counting
+
+**Problem**: int++ is not thread-safe.
+
+**Solution**: Use AtomicInteger:
+
+```java
+// WRONG
+private int callCount = 0;
+
+@Test
+void testConcurrent() {
+    for (int i = 0; i < 100; i++) {
+        executor.submit(() -> callCount++); // Race condition!
+    }
+}
+
+// RIGHT
+private AtomicInteger callCount = new AtomicInteger();
+
+@Test
+void testConcurrent() {
+    for (int i = 0; i < 100; i++) {
+        executor.submit(() -> callCount.incrementAndGet()); // Thread-safe
+    }
+}
+```
+
+### Real-World Examples
+
+#### Example 1: Comprehensive Error Path Test (ArchipelagoErrorPathTest)
+
+**File**: `memberships/src/test/java/com/hellblazer/delos/archipelago/ArchipelagoErrorPathTest.java`
+
+**Coverage**: 21 tests, 1158 lines
+
+**Categories**:
+1. Server shutdown during active calls
+2. Concurrent close() + borrow() races
+3. Missing gRPC context headers
+4. RoutableService validator rejection
+5. GrpcProxy edge cases (streaming, cancellation)
+6. Byzantine attack simulations
+
+**Key Patterns**:
+- Dynamic port allocation
+- CountDownLatch for synchronization
+- AtomicInteger for concurrent counting
+- Comprehensive cleanup in @AfterEach
+
+#### Example 2: Deterministic Unit Test (ServerConnectionCacheTest)
+
+**File**: `memberships/src/test/java/com/hellblazer/delos/archipelago/ServerConnectionCacheTest.java`
+
+**Coverage**: Eviction, concurrency, lifecycle, metrics
+
+**Key Patterns**:
+- MutableClock for time progression
+- Mock verification with Mockito
+- Helper methods for cache creation
+
+#### Example 3: Async I/O Test (ServerConnectionCacheAsyncTest)
+
+**File**: `memberships/src/test/java/com/hellblazer/delos/archipelago/ServerConnectionCacheAsyncTest.java`
+
+**Coverage**: 10 tests validating async connection establishment
+
+**Key Patterns**:
+- SlowFactory for I/O simulation
+- Virtual threads for async testing
+- CyclicBarrier for synchronized start
+- Peak concurrency tracking
+
+#### Example 4: Byzantine Fault Injection (GorgoneionBftTestHelpers)
+
+**File**: `gorgoneion/src/test/java/com/hellblazer/delos/gorgoneion/GorgoneionBftTestHelpers.java`
+
+**Coverage**: BFT test infrastructure
+
+**Key Patterns**:
+- Deterministic entropy (SeededSecureRandom)
+- Fixed clock for reproducibility
+- Fault injection with restoration
+- Safety property verification
+
+---
+
 ## Changelog
 
 | Version | Date | Changes |
 |---------|------|---------|
+| **2.1** | 2026-02-16 | Added comprehensive test harness patterns from Archipelago remediation (error paths, async I/O, Byzantine attacks, naming conventions) |
 | **2.0** | 2026-01-27 | Comprehensive testing guide with BFT, deterministic patterns, concrete examples, enforcement checklist |
 | **1.0** | 2026-01-01 | Initial testing documentation (basic commands and categories) |

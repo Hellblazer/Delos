@@ -453,6 +453,206 @@ cluster.execute(transaction);  // Consensus continues despite Byzantine member
   -DargLine="-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005"
 ```
 
+## CI Configuration
+
+Delos uses a sophisticated batched CI strategy to provide fast feedback while ensuring comprehensive test coverage. Tests are organized into parallel jobs that balance execution time, resource requirements, and failure isolation.
+
+### CI Batching Strategy
+
+**Why Batching?**
+- **Fast feedback**: Standard CI completes in ~10-15 minutes with parallel execution
+- **Resource efficiency**: Different modules have different memory requirements (2-8 GB)
+- **Failure isolation**: One module's test failures don't block other modules
+- **Comprehensive coverage**: Nightly builds run full test suite including stress tests
+
+**Two-Tier Approach**:
+1. **Standard CI** (every push): Fast regression tests, excludes stress/performance tests
+2. **Comprehensive CI** (nightly at 2 AM UTC): Full test suite with `-Dlarge_tests=true`
+
+### Standard CI Pipeline (maven.yml)
+
+Runs on every push (except beads-sync branches) with 5 parallel jobs after compilation:
+
+**Job: compile** (~3-5 min)
+- Installs `h2-deterministic` shaded dependency
+- Compiles all modules with `clean install -DskipTests`
+- Caches Maven artifacts (`~/.m2/repository` and `target/`) for subsequent jobs
+- Cache key: `delos-maven-${{ github.sha }}` (commit-specific, fast restoration)
+
+**Job: test-units** (~2-3 min)
+- **Modules**: cryptography, java-noise, protocols, memberships, grpc, tron, schemas, vm-socket, leyden
+- **Focus**: Infrastructure and platform components (no distributed consensus)
+- **Rationale**: These modules have fast, deterministic unit tests with minimal I/O
+
+**Job: test-choam** (~5-7 min)
+- **Modules**: choam (selected tests), sql-state
+- **Focus**: CHOAM core regression tests only
+- **Excluded**: Stress tests (ZeroDowntimeUpgradeTest) and concurrency tests
+- **Tests run**: DynamicTest, SessionTest, PendingQueueBoundsTest, TransactionSignatureTest, VersionCompatibilityTest, CHOAMCheckpointTest, SynchronizationCircuitBreakerTest, CheckpointValidationRaceTest, CHOAMBlockValidationTest, GenesisAssemblyTest, ByzantineFaultInjectionTest, DeterminismVerificationTest, ViewStateContractTest, NestedLockDetectionTest
+- **Rationale**: CHOAM is the consensus layer; critical path for correctness but can be slow
+
+**Job: test-consensus** (~4-6 min)
+- **Modules**: fireflies, ethereal
+- **Focus**: Byzantine membership and consensus protocols
+- **Excluded**: Stress tests (ChurnTest, LargeGossipPropagationTest)
+- **Rationale**: Consensus tests involve multi-node clusters and can be timing-sensitive
+
+**Job: test-identity** (~5-8 min)
+- **Modules**: stereotomy, thoth, gorgoneion, gorgoneion-client, stereotomy-services, delphinius, witness-service, model, examples
+- **Focus**: KERI identity stack and application layer
+- **Excluded**: Performance tests (Phase1CProductionSimulationTest, FullPathPerformanceTest, WitnessConsensusPerformanceTest, RateAnomalyDetectorTest, BLSPerformanceBenchmarkTest, ByzantineDetectionPerformanceTest) and stress tests (FireFliesTest)
+- **Rationale**: Largest test surface area; includes integration tests with real cryptography
+
+**Job: build-status** (always runs)
+- Aggregates results from all test jobs
+- Fails if any test job failed
+- Provides clear status summary
+
+### Comprehensive CI Pipeline (comprehensive-tests.yml)
+
+Runs nightly at 2 AM UTC or on manual trigger (`workflow_dispatch`):
+
+**Job: test-stress** (~15-20 min)
+- **Module**: choam
+- **Tests**: ZeroDowntimeUpgradeTest
+- **Flags**: `-Dlarge_tests=true`
+- **Purpose**: Validates zero-downtime upgrades with full-scale clusters
+
+**Job: test-comprehensive-choam** (~20-30 min)
+- **Module**: choam
+- **Tests**: All tests (no exclusions)
+- **Purpose**: Complete CHOAM test suite including slow integration tests
+
+**Job: test-witness-performance** (~10-15 min)
+- **Module**: witness-service
+- **Tests**: Phase1CProductionSimulationTest, FullPathPerformanceTest, WitnessConsensusPerformanceTest, RateAnomalyDetectorTest, BLSPerformanceBenchmarkTest, ByzantineDetectionPerformanceTest
+- **Purpose**: Performance benchmarks and SLA validation
+
+**Job: test-canaries** (~10-15 min)
+- **Modules**: fireflies, model
+- **Tests**: ChurnTest, LargeGossipPropagationTest, FireFliesTest
+- **Purpose**: Stress tests for membership churn and large-scale gossip
+
+### Simulation Pipelines
+
+Long-running distributed system simulations (separate workflows):
+- **simulation-short.yml**: 1h simulation with 10 nodes (validates simulation framework)
+- **simulation-24h.yml**: 24h production-scale simulation
+- **simulation-168h.yml**: 7-day Byzantine resilience simulation
+
+### Test Modes and Resource Requirements
+
+**Standard Mode** (`./mvnw test`):
+- Reduced cluster sizes (e.g., 10 nodes instead of 100)
+- Shorter timeouts (e.g., 30s instead of 5min)
+- Memory: 2-4 GB heap sufficient
+- Duration: ~10-15 min for full suite
+- **When to use**: Pre-commit validation, fast feedback during development
+
+**Large Mode** (`./mvnw clean install -Dlarge_tests=true`):
+- Production-scale cluster sizes (e.g., 100 nodes)
+- Realistic timeouts (e.g., 5min for consensus)
+- Memory: 8+ GB heap required (use `-DargLine="-Xmx12G -Xms6G"`)
+- Duration: ~45-60 min for full suite
+- **When to use**: Final validation before merge, reproducing production issues
+
+### Failure Handling
+
+**Interpreting CI Failures**:
+1. Check which job failed (units, choam, consensus, or identity)
+2. Click into failed job to see specific test failures
+3. Module isolation means other jobs may still pass
+
+**Reproducing Failures Locally**:
+```bash
+# Reproduce test-units failure
+./mvnw test -pl cryptography,java-noise,protocols,memberships,grpc,tron,schemas,vm-socket,leyden
+
+# Reproduce test-choam failure (specific tests)
+./mvnw test -pl choam -Dtest='DynamicTest,SessionTest,...'
+./mvnw test -pl sql-state
+
+# Reproduce test-consensus failure
+./mvnw test -pl fireflies -Dtest='!ChurnTest,!LargeGossipPropagationTest'
+./mvnw test -pl ethereal
+
+# Reproduce test-identity failure
+./mvnw test -pl stereotomy,thoth,gorgoneion,gorgoneion-client,stereotomy-services,delphinius
+./mvnw test -pl witness-service -Dtest='!Phase1CProductionSimulationTest,!FullPathPerformanceTest,...'
+./mvnw test -pl model -Dtest='!FireFliesTest'
+./mvnw test -pl examples/simple-kv-store,examples/local-demo,examples/multi-tenant-demo,examples/fsm-workflow
+```
+
+**Debugging Flaky Tests**:
+- CI uses `CI=true` environment variable (tests can check this for CI-specific behavior)
+- Deterministic tests use seeded randomness and fixed clocks (see [TESTING_GUIDE.md](docs/TESTING_GUIDE.md))
+- Retry locally with same seed: `./mvnw test -Dtest=FlakyTest -Dseed=<seed-from-failure>`
+
+**Module Isolation Benefits**:
+- Parallel execution reduces wall-clock time by ~4x
+- Failures in one module don't block progress on others
+- Can merge PRs that fix issues in one module while another has unrelated failures (with justification)
+
+### Developer Workflow
+
+**Pre-Push Checklist**:
+```bash
+# 1. Run tests for modules you modified
+./mvnw test -pl <module>
+
+# 2. If you changed multiple modules, run affected tests
+./mvnw test -pl module1,module2,module3
+
+# 3. For consensus/Byzantine changes, run standard mode locally
+./mvnw test
+
+# 4. Push and wait for CI (fast feedback in ~10-15 min)
+git push origin <branch>
+```
+
+**When to Run Large Tests Locally**:
+- Before merging consensus or Byzantine changes
+- When reproducing CI failures that only occur with large clusters
+- Performance regression investigation
+- Final validation before release
+
+**CI Expectations (Merge Criteria)**:
+- All 4 test jobs (units, choam, consensus, identity) must pass
+- Build-status job shows green checkmark
+- Comprehensive tests run nightly; failures are investigated but don't block PRs
+- Simulation tests are for long-term validation; failures require analysis but don't block
+
+### Configuration Details
+
+**Timeout Strategies**:
+- Job-level timeout: 2 hours (prevents hung tests from blocking CI)
+- Test-level timeouts: Vary by test type (unit: 30s, integration: 5min, cluster: 15min)
+- CI environment detected via `CI=true` (tests can use shorter timeouts in CI)
+
+**Resource Limits** (GitHub Actions):
+- CPU: 2 cores per job
+- Memory: 7 GB available per job
+- Disk: 14 GB SSD
+- Standard tests fit within 4 GB heap (room for OS and Maven overhead)
+
+**Retry Policies**:
+- No automatic retries (tests must be deterministic)
+- Flaky tests are fixed, not masked with retries
+- Manual re-run available for transient infrastructure failures
+
+**Cache Strategy**:
+- Primary key: `delos-maven-${{ github.sha }}` (commit-specific, exact match)
+- Fallback keys: `delos-maven-${{ github.ref }}-` (branch-level), `delos-maven-` (global)
+- Cache includes compiled classes (`target/`) for faster test startup
+- Comprehensive tests use separate cache key to avoid conflicts
+
+### Cross-References
+
+- **Testing patterns and best practices**: [docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md)
+- **Byzantine fault testing framework**: [docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md#byzantine-testing-infrastructure)
+- **Module dependencies and build order**: See "Build Commands" and "Module Dependencies" sections above
+- **Memory requirements for large tests**: See "Memory Requirements" section above
+
 ## Common Development Tasks
 
 ### After Protocol Buffer Changes

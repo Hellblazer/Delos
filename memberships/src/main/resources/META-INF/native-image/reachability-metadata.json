@@ -170,14 +170,6 @@
       ]
     },
     {
-      "type": "com.hellblazer.delos.archipelago.UnsafeExecutors$VTB",
-      "fields": [
-        {
-          "name": "executor"
-        }
-      ]
-    },
-    {
       "type": "com.hellblazer.delos.test.proto.ByteMessage",
       "methods": [
         {
@@ -1172,7 +1164,6 @@
       "glob": "jdk/xml/internal/jdkcatalog/JDKCatalog.xml"
     }
   ],
-  
   "bundles": [],
   "jni": [
     {
