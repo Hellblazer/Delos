@@ -64,6 +64,7 @@ public class Portal<To extends Member> {
         inbound.close(await);
         outbound.close(await);
         executor.shutdown();
+        eventLoopGroup.shutdownGracefully();
     }
 
     public void start() throws IOException {

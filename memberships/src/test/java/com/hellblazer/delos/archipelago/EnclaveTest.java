@@ -146,6 +146,8 @@ public class EnclaveTest {
         portal.close(Duration.ofSeconds(0));
         router1.close(Duration.ofSeconds(0));
         router2.close(Duration.ofSeconds(0));
+        enclave1.close();
+        enclave2.close();
     }
 
     private ManagedChannel handler(UnixDomainSocketAddress address) {

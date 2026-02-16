@@ -71,6 +71,13 @@ public class Enclave implements RouterSupplier {
         return endpoint;
     }
 
+    /**
+     * Shuts down the event loop group. Must be called to prevent thread leaks.
+     */
+    public void close() {
+        eventLoopGroup.shutdownGracefully();
+    }
+
     @Override
     public RouterImpl router(ServerConnectionCache.Builder cacheBuilder, Supplier<Limit> serverLimit,
                              MetricRegistry limitsRegistry, List<ServerInterceptor> interceptors,
