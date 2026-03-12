@@ -13,6 +13,8 @@ import "crypto.proto";
 
 package thoth;
 
+// Phase A: Read operations return SignedDhtResponse (serialized inner type + optional Sig).
+// Write operations remain unchanged (Sig field not yet applied to mutation acks).
 service KerlDht {
   rpc append (stereotomy.services.KeyEventsContext) returns (stereotomy.services.KeyStates) {}
   rpc appendKERL (stereotomy.services.KERLContext) returns (stereotomy.services.KeyStates) {}
@@ -20,15 +22,15 @@ service KerlDht {
   rpc appendAttachments (stereotomy.services.AttachmentsContext) returns (google.protobuf.Empty) {}
   rpc appendValidations (stereotomy.Validations) returns (google.protobuf.Empty) {}
 
-  rpc getAttachment (stereotomy.EventCoords) returns (stereotomy.Attachment) {}
-  rpc getKeyEventCoords (stereotomy.EventCoords) returns (stereotomy.KeyEvent_) {}
-  rpc getKeyState (stereotomy.Ident) returns (stereotomy.KeyState_) {}
-  rpc getKeyStateSeqNum (stereotomy.IdentAndSeq) returns (stereotomy.KeyState_) {}
-  rpc getKeyStateCoords (stereotomy.EventCoords) returns (stereotomy.KeyState_) {}
-  rpc getKeyStateWithAttachments (stereotomy.EventCoords) returns (stereotomy.KeyStateWithAttachments_) {}
-  rpc getKeyStateWithEndorsementsAndValidations (stereotomy.EventCoords) returns (stereotomy.KeyStateWithEndorsementsAndValidations_) {}
-  rpc getKERL (stereotomy.Ident) returns (stereotomy.KERL_) {}
-  rpc getValidations (stereotomy.EventCoords) returns (stereotomy.Validations) {}
+  rpc getAttachment (stereotomy.EventCoords) returns (SignedDhtResponse) {}
+  rpc getKeyEventCoords (stereotomy.EventCoords) returns (SignedDhtResponse) {}
+  rpc getKeyState (stereotomy.Ident) returns (SignedDhtResponse) {}
+  rpc getKeyStateSeqNum (stereotomy.IdentAndSeq) returns (SignedDhtResponse) {}
+  rpc getKeyStateCoords (stereotomy.EventCoords) returns (SignedDhtResponse) {}
+  rpc getKeyStateWithAttachments (stereotomy.EventCoords) returns (SignedDhtResponse) {}
+  rpc getKeyStateWithEndorsementsAndValidations (stereotomy.EventCoords) returns (SignedDhtResponse) {}
+  rpc getKERL (stereotomy.Ident) returns (SignedDhtResponse) {}
+  rpc getValidations (stereotomy.EventCoords) returns (SignedDhtResponse) {}
 }
 
 service Delegated {
@@ -76,4 +78,13 @@ message ViewState {
   crypto.Biff roots = 3;
   int32 threshold = 4;
   stereotomy.Validations validations = 5;
+}
+
+// A DHT response signed by the responding member.
+// Phase A rollout: sig field is optional for backward compatibility with
+// older server versions that do not yet populate response signatures.
+// Clients MUST accept responses where sig is absent (hasSig() == false).
+message SignedDhtResponse {
+  bytes content = 1;       // Serialized protobuf of the actual response
+  crypto.Sig sig = 2;      // Signature over content, signed by responding member
 }
