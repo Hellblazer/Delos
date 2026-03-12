@@ -187,7 +187,7 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
             }
         });
         dhtComms = communications.create(member, context.getId(), service, service.getClass().getCanonicalName(),
-                                         r -> new DhtServer(r, metrics), DhtClient.getCreate(metrics),
+                                         r -> new DhtServer(r, metrics, member), DhtClient.getCreate(metrics),
                                          DhtClient.getLocalLoopback(service, member));
         reconcileComms = communications.create(member, context.getId(), reconciliation,
                                                reconciliation.getClass().getCanonicalName(),
@@ -1758,26 +1758,29 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
     }
 
     /**
-     * Verify response signature authenticity.
-     * <p>
-     * Phase 2 validation: Signature verification of DHT read responses.
-     * Currently returns true (stub) as response signatures require protobuf changes.
-     * </p>
-     * <p>
-     * See ADR-0015: Response signatures deferred (transport auth + quorum sufficient for Phase 1).
-     * When implemented, this will verify the responding member signed the response content.
-     * </p>
+     * Verify read-response signature authenticity (Phase A implementation).
      *
-     * @param content Response content to verify
+     * <p>Delegates to {@link DhtClient#wasLastVerificationValid()} which stores the
+     * result of the cryptographic verification performed inside the gRPC client at
+     * the network boundary.  For the local loopback service there is no network hop
+     * and no signature, so we accept unconditionally.</p>
+     *
+     * <p>Phase A semantics: absent signatures are accepted (backward compat with
+     * mixed-version clusters).  Present-but-invalid signatures return {@code false}
+     * so the caller records a Byzantine signal and rejects the response from quorum.</p>
+     *
+     * @param content          Response content to verify (already deserialized)
      * @param respondingMember Member that provided the response
-     * @param destination Service endpoint that returned the response
-     * @return true if signature is valid or verification not yet implemented, false if forged
+     * @param destination      Service endpoint that returned the response
+     * @return {@code true} if the signature was absent or verified;
+     *         {@code false} if a signature was present but failed verification
      */
     private <T> boolean verifyResponseSignature(T content, Member respondingMember, DhtService destination) {
-        // Phase 2 implementation placeholder
-        // TODO: Implement actual signature verification when protobuf definitions include response signatures
-        // Will verify: HMAC(response_content + nonce, member_key) matches response.signature
-        return true;  // Advisory-only validation - accept all responses for now
+        if (destination instanceof DhtClient dhtClient) {
+            return dhtClient.wasLastVerificationValid();
+        }
+        // Local loopback — no network, no signature needed
+        return true;
     }
 
     private void reconcile(Update update, ReconciliationService link) {
@@ -2130,26 +2133,21 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
     }
 
     /**
-     * Verify write acknowledgment authenticity before adding to quorum.
-     * <p>
-     * Currently performs structural validation only. Full cryptographic
-     * validation deferred per ADR-0015 (transport auth + quorum sufficient).
-     * </p>
+     * Verify write-acknowledgment authenticity before adding to quorum.
+     *
+     * <p>Write responses (e.g. {@link KeyStates}) are not yet wrapped in
+     * {@link com.hellblazer.delos.thoth.proto.SignedDhtResponse} — that is
+     * planned for Phase B.  For now we perform structural validation only.</p>
      *
      * @param content          Response content from member
      * @param respondingMember Member that sent the response
      * @param destination      Destination service
-     * @return true if response is valid, false if forged/invalid
+     * @return {@code true} if structurally valid, {@code false} if malformed
      */
     private <T> boolean verifyWriteAcknowledgment(T content, Member respondingMember, DhtService destination) {
-        // For KeyStates responses, validate returned state matches expected properties
         if (content instanceof KeyStates keyStates) {
-            // TODO: Add cryptographic validation when response signatures are implemented
-            // For now, structural validation only:
             return validateKeyStatesStructure(keyStates);
         }
-        // For now, return true for other types - establishes call site for future enhancement
-        // See ADR-0015: Response signatures deferred (transport auth + quorum sufficient)
         return true;
     }
 
