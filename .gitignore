@@ -39,3 +39,7 @@ chkpoint.txt
 /conduit-ci/jenkins/jobs/
 /bc-src.zip
 /ff.log
+
+# Dolt database files (added by bd init)
+.dolt/
+*.db

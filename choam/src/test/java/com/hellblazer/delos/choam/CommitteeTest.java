@@ -123,11 +123,14 @@ public class CommitteeTest {
     }
 
     /**
-     * Test backward compatibility: when feature flag is disabled, return NO_VERIFIER (old behavior).
+     * Test backward compatibility: when feature flag is explicitly disabled, return NO_VERIFIER (old behavior).
+     * Note: VERIFIER_VALIDATION now defaults to true (secure by default). This test explicitly
+     * disables the flag to verify backward compatibility is preserved via the flag mechanism.
      */
     @Test
     public void testBackwardCompatibilityWithFeatureFlagDisabled() {
-        // Ensure feature flag is disabled (default)
+        // Explicitly disable the flag (default is now true, but we're testing the disabled path)
+        FeatureFlags.VERIFIER_VALIDATION.setEnabled(false);
         assertFalse(FeatureFlags.VERIFIER_VALIDATION.isEnabled());
 
         // Create reconfigure with validator lacking consensus key
@@ -271,6 +274,7 @@ public class CommitteeTest {
 
     /**
      * Test that feature flag can be toggled at runtime.
+     * Note: VERIFIER_VALIDATION defaults to true (secure by default, Delos-izm.1.2).
      */
     @Test
     public void testFeatureFlagRuntimeToggle() {
@@ -282,27 +286,28 @@ public class CommitteeTest {
             createViewMember(member4.getId(), generateFakeConsensusKey())
         );
 
-        // Feature flag disabled: should return NO_VERIFIER (backward compatible)
-        assertFalse(FeatureFlags.VERIFIER_VALIDATION.isEnabled());
-        Map<Member, Verifier> validators1 = Committee.validatorsOf(reconfigure, context, member1.getId(), log);
-        assertNotNull(validators1);
-
-        // Enable feature flag at runtime
-        FeatureFlags.VERIFIER_VALIDATION.setEnabled(true);
+        // Feature flag enabled by default: should throw exception (secure by default)
         assertTrue(FeatureFlags.VERIFIER_VALIDATION.isEnabled());
-
-        // Now should throw exception
         assertThrows(IllegalStateException.class, () -> {
             Committee.validatorsOf(reconfigure, context, member1.getId(), log);
         });
 
-        // Disable again
+        // Disable feature flag at runtime (for backward compatibility/testing)
         FeatureFlags.VERIFIER_VALIDATION.setEnabled(false);
         assertFalse(FeatureFlags.VERIFIER_VALIDATION.isEnabled());
 
-        // Back to NO_VERIFIER behavior
-        Map<Member, Verifier> validators2 = Committee.validatorsOf(reconfigure, context, member1.getId(), log);
-        assertNotNull(validators2);
+        // Now should return NO_VERIFIER (backward compatibility)
+        Map<Member, Verifier> validators1 = Committee.validatorsOf(reconfigure, context, member1.getId(), log);
+        assertNotNull(validators1);
+
+        // Re-enable
+        FeatureFlags.VERIFIER_VALIDATION.setEnabled(true);
+        assertTrue(FeatureFlags.VERIFIER_VALIDATION.isEnabled());
+
+        // Back to throwing
+        assertThrows(IllegalStateException.class, () -> {
+            Committee.validatorsOf(reconfigure, context, member1.getId(), log);
+        });
     }
 
     /**
