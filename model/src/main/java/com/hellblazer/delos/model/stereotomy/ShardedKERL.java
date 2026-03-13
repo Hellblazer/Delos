@@ -22,6 +22,7 @@ import com.hellblazer.delos.stereotomy.event.proto.KeyState_;
 import com.hellblazer.delos.stereotomy.event.protobuf.KeyStateImpl;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
+import org.jooq.impl.DSL;
 
 import java.sql.Connection;
 import java.sql.JDBCType;
@@ -116,7 +117,7 @@ public class ShardedKERL extends UniKERL {
 
     @Override
     public Void appendValidations(EventCoordinates coordinates, Map<EventCoordinates, JohnHancock> validations) {
-        // TODO Auto-generated method stub
+        dsl.transaction(ctx -> UniKERL.appendValidations(DSL.using(ctx), coordinates, validations));
         return null;
     }
 
