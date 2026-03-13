@@ -111,6 +111,50 @@ public enum FeatureFlags {
                     "State machine transition validation with pre/postconditions",
                     false);
 
+    /**
+     * Validation mode for {@link FeatureFlags#STATE_VALIDATION}.
+     * <p>
+     * Controls how violations detected by {@code ValidatingCombineTransitions}
+     * are handled:
+     * <ul>
+     *   <li>{@link #LOG_ONLY} (default) — log the violation and continue</li>
+     *   <li>{@link #ENFORCE} — log the violation and throw {@link IllegalStateException}</li>
+     *   <li>{@link #METRICS_ONLY} — record metrics only, no logging</li>
+     * </ul>
+     * </p>
+     * <p>
+     * Controlled via system property: {@code -Dfeature.state.validation.mode=ENFORCE}
+     * </p>
+     */
+    public enum ValidationMode {
+        /** Log violations via {@code log.warn}, continue execution (default). */
+        LOG_ONLY,
+        /** Log violations via {@code log.warn} and throw {@link IllegalStateException}. */
+        ENFORCE,
+        /** Record metrics only; suppress log output. */
+        METRICS_ONLY;
+
+        private static final String SYSTEM_PROPERTY = "feature.state.validation.mode";
+
+        /**
+         * Read the current validation mode from the system property.
+         * Defaults to {@link #LOG_ONLY} if the property is absent or unrecognised.
+         *
+         * @return current {@link ValidationMode}
+         */
+        public static ValidationMode current() {
+            var value = System.getProperty(SYSTEM_PROPERTY);
+            if (value == null || value.isBlank()) {
+                return LOG_ONLY;
+            }
+            try {
+                return ValidationMode.valueOf(value.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return LOG_ONLY;
+            }
+        }
+    }
+
     private final String  systemProperty;
     private final String  description;
     private final boolean defaultEnabled;
