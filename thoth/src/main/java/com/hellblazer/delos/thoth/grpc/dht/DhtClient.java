@@ -8,23 +8,39 @@
 package com.hellblazer.delos.thoth.grpc.dht;
 
 import com.google.protobuf.Empty;
+import com.google.protobuf.InvalidProtocolBufferException;
+import com.google.protobuf.Parser;
 import com.hellblazer.delos.archipelago.ManagedServerChannel;
 import com.hellblazer.delos.archipelago.ServerConnectionCache.CreateClientCommunications;
+import com.hellblazer.delos.cryptography.JohnHancock;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.stereotomy.event.proto.*;
 import com.hellblazer.delos.stereotomy.services.grpc.StereotomyMetrics;
 import com.hellblazer.delos.stereotomy.services.grpc.proto.*;
 import com.hellblazer.delos.stereotomy.services.proto.ProtoKERLService;
 import com.hellblazer.delos.thoth.proto.KerlDhtGrpc;
+import com.hellblazer.delos.thoth.proto.SignedDhtResponse;
 import org.joou.ULong;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.List;
 
 /**
+ * gRPC client stub for DHT operations.
+ *
+ * <p>Phase A: Verifies server-supplied signatures on read responses.
+ * Accepts responses with or without a signature (backward compat).
+ * When a signature is present but fails verification, logs a warning and
+ * still returns the response (advisory-only — Byzantine tracking is handled
+ * by the caller via {@code verifyResponseSignature} in {@code KerlDHT}).</p>
+ *
  * @author hal.hildebrand
  */
 public class DhtClient implements DhtService {
+
+    private static final Logger log = LoggerFactory.getLogger(DhtClient.class);
 
     private final ManagedServerChannel            channel;
     private final KerlDhtGrpc.KerlDhtBlockingStub client;
@@ -37,9 +53,7 @@ public class DhtClient implements DhtService {
     }
 
     public static CreateClientCommunications<DhtService> getCreate(StereotomyMetrics metrics) {
-        return (c) -> {
-            return new DhtClient(c, metrics);
-        };
+        return (c) -> new DhtClient(c, metrics);
     }
 
     public static DhtService getLocalLoopback(ProtoKERLService service, Member member) {
@@ -127,6 +141,10 @@ public class DhtClient implements DhtService {
         };
     }
 
+    // -------------------------------------------------------------------------
+    // Write operations
+    // -------------------------------------------------------------------------
+
     @Override
     public KeyStates append(KERL_ kerl) {
         var startTime = System.nanoTime();
@@ -211,6 +229,10 @@ public class DhtClient implements DhtService {
         channel.release();
     }
 
+    // -------------------------------------------------------------------------
+    // Read operations — unwrap SignedDhtResponse, verify signature
+    // -------------------------------------------------------------------------
+
     @Override
     public Attachment getAttachment(EventCoords coordinates) {
         var startTime = System.nanoTime();
@@ -219,16 +241,18 @@ public class DhtClient implements DhtService {
             metrics.recordOutboundBandwidth(serializedSize);
             metrics.recordOutboundGetAttachmentRequest(serializedSize);
         }
-        Attachment complete = client.getAttachment(coordinates);
+        var signed = client.getAttachment(coordinates);
         if (metrics != null) {
             metrics.recordGetAttachmentClientDuration(System.nanoTime() - startTime);
         }
+        verifySignature(signed);
+        var result = unwrap(signed, Attachment.parser(), Attachment.getDefaultInstance());
         if (metrics != null) {
-            final var serializedSize = complete.getSerializedSize();
+            final var serializedSize = result.getSerializedSize();
             metrics.recordInboundBandwidth(serializedSize);
             metrics.recordInboundGetAttachmentResponse(serializedSize);
         }
-        return complete;
+        return result;
     }
 
     @Override
@@ -239,16 +263,17 @@ public class DhtClient implements DhtService {
             metrics.recordOutboundBandwidth(bsize);
             metrics.recordOutboundGetKERLRequest(bsize);
         }
-        KERL_ complete = client.getKERL(identifier);
+        var signed = client.getKERL(identifier);
         if (metrics != null) {
             metrics.recordGetKERLClientDuration(System.nanoTime() - startTime);
         }
-        final var serializedSize = complete.getSerializedSize();
+        verifySignature(signed);
+        var result = unwrap(signed, KERL_.parser(), KERL_.getDefaultInstance());
         if (metrics != null) {
-            metrics.recordInboundBandwidth(serializedSize);
-            metrics.recordInboundGetKERLResponse(serializedSize);
+            metrics.recordInboundBandwidth(result.getSerializedSize());
+            metrics.recordInboundGetKERLResponse(result.getSerializedSize());
         }
-        return complete;
+        return result;
     }
 
     @Override
@@ -259,10 +284,12 @@ public class DhtClient implements DhtService {
             metrics.recordOutboundBandwidth(bsize);
             metrics.recordOutboundGetKeyEventCoordsRequest(bsize);
         }
-        var result = client.getKeyEventCoords(coordinates);
+        var signed = client.getKeyEventCoords(coordinates);
         if (metrics != null) {
             metrics.recordGetKeyEventCoordsClientDuration(System.nanoTime() - startTime);
         }
+        verifySignature(signed);
+        var result = unwrap(signed, KeyEvent_.parser(), KeyEvent_.getDefaultInstance());
         if (metrics != null) {
             final var serializedSize = result.getSerializedSize();
             metrics.recordInboundBandwidth(serializedSize);
@@ -279,10 +306,12 @@ public class DhtClient implements DhtService {
             metrics.recordOutboundBandwidth(bs);
             metrics.recordOutboundGetKeyStateCoordsRequest(bs);
         }
-        var result = client.getKeyStateCoords(coordinates);
+        var signed = client.getKeyStateCoords(coordinates);
         if (metrics != null) {
             metrics.recordGetKeyStateCoordsClientDuration(System.nanoTime() - startTime);
         }
+        verifySignature(signed);
+        var result = unwrap(signed, KeyState_.parser(), KeyState_.getDefaultInstance());
         if (metrics != null) {
             final var serializedSize = result.getSerializedSize();
             metrics.recordInboundBandwidth(serializedSize);
@@ -299,10 +328,12 @@ public class DhtClient implements DhtService {
             metrics.recordOutboundBandwidth(bs);
             metrics.recordOutboundGetKeyStateRequest(bs);
         }
-        var result = client.getKeyState(identifier);
+        var signed = client.getKeyState(identifier);
         if (metrics != null) {
             metrics.recordGetKeyStateClientDuration(System.nanoTime() - startTime);
         }
+        verifySignature(signed);
+        var result = unwrap(signed, KeyState_.parser(), KeyState_.getDefaultInstance());
         if (metrics != null) {
             final var serializedSize = result.getSerializedSize();
             metrics.recordInboundBandwidth(serializedSize);
@@ -319,10 +350,12 @@ public class DhtClient implements DhtService {
             metrics.recordOutboundBandwidth(bs);
             metrics.recordOutboundGetKeyStateRequest(bs);
         }
-        var result = client.getKeyStateSeqNum(identAndSeq);
+        var signed = client.getKeyStateSeqNum(identAndSeq);
         if (metrics != null) {
             metrics.recordGetKeyStateClientDuration(System.nanoTime() - startTime);
         }
+        verifySignature(signed);
+        var result = unwrap(signed, KeyState_.parser(), KeyState_.getDefaultInstance());
         if (metrics != null) {
             final var serializedSize = result.getSerializedSize();
             metrics.recordInboundBandwidth(serializedSize);
@@ -339,16 +372,18 @@ public class DhtClient implements DhtService {
             metrics.recordOutboundBandwidth(serializedSize);
             metrics.recordOutboundGetAttachmentRequest(serializedSize);
         }
-        KeyStateWithAttachments_ complete = client.getKeyStateWithAttachments(coordinates);
+        var signed = client.getKeyStateWithAttachments(coordinates);
         if (metrics != null) {
             metrics.recordGetAttachmentClientDuration(System.nanoTime() - startTime);
         }
+        verifySignature(signed);
+        var result = unwrap(signed, KeyStateWithAttachments_.parser(), KeyStateWithAttachments_.getDefaultInstance());
         if (metrics != null) {
-            final var serializedSize = complete.getSerializedSize();
+            final var serializedSize = result.getSerializedSize();
             metrics.recordInboundBandwidth(serializedSize);
             metrics.recordInboundGetAttachmentResponse(serializedSize);
         }
-        return complete;
+        return result;
     }
 
     @Override
@@ -359,17 +394,19 @@ public class DhtClient implements DhtService {
             metrics.recordOutboundBandwidth(serializedSize);
             metrics.recordOutboundGetAttachmentRequest(serializedSize);
         }
-        KeyStateWithEndorsementsAndValidations_ complete = client.getKeyStateWithEndorsementsAndValidations(
-        coordinates);
+        var signed = client.getKeyStateWithEndorsementsAndValidations(coordinates);
         if (metrics != null) {
             metrics.recordGetAttachmentClientDuration(System.nanoTime() - startTime);
         }
+        verifySignature(signed);
+        var result = unwrap(signed, KeyStateWithEndorsementsAndValidations_.parser(),
+                            KeyStateWithEndorsementsAndValidations_.getDefaultInstance());
         if (metrics != null) {
-            final var serializedSize = complete.getSerializedSize();
+            final var serializedSize = result.getSerializedSize();
             metrics.recordInboundBandwidth(serializedSize);
             metrics.recordInboundGetAttachmentResponse(serializedSize);
         }
-        return complete;
+        return result;
     }
 
     @Override
@@ -385,15 +422,95 @@ public class DhtClient implements DhtService {
             metrics.recordOutboundBandwidth(serializedSize);
             metrics.recordOutboundGetAttachmentRequest(serializedSize);
         }
-        Validations complete = client.getValidations(coordinates);
+        var signed = client.getValidations(coordinates);
         if (metrics != null) {
             metrics.recordGetAttachmentClientDuration(System.nanoTime() - startTime);
         }
+        verifySignature(signed);
+        var result = unwrap(signed, Validations.parser(), Validations.getDefaultInstance());
         if (metrics != null) {
-            final var serializedSize = complete.getSerializedSize();
+            final var serializedSize = result.getSerializedSize();
             metrics.recordInboundBandwidth(serializedSize);
             metrics.recordInboundGetAttachmentResponse(serializedSize);
         }
-        return complete;
+        return result;
+    }
+
+    // -------------------------------------------------------------------------
+    // Signature verification helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Phase A: Verify the signature in a {@link SignedDhtResponse} against the
+     * server member's public key, and record the result in a thread-local so
+     * that the calling KerlDHT layer can later inspect it via
+     * {@link #wasLastVerificationValid()}.
+     *
+     * <p>If the signature is absent, this is accepted silently (backward compat
+     * with old-version servers that do not yet populate signatures).</p>
+     *
+     * <p>If the signature is present but fails verification, a warning is logged.
+     * The response is NOT rejected at this layer — KerlDHT makes the final
+     * decision after consulting {@link #wasLastVerificationValid()}.</p>
+     *
+     * @param response the signed response from the server
+     * @return {@code true} if the signature was absent (unsigned, accepted)
+     *         or verified successfully; {@code false} if present but invalid
+     */
+    boolean verifySignature(SignedDhtResponse response) {
+        if (!response.hasSig()) {
+            // Phase A: unsigned responses are accepted (old-version server)
+            lastVerificationValid.set(true);
+            return true;
+        }
+        var serverMember = channel.getMember();
+        if (serverMember == null) {
+            log.warn("Cannot verify DHT response signature: server member is null");
+            lastVerificationValid.set(false);
+            return false;
+        }
+        var sig = new JohnHancock(response.getSig());
+        var valid = serverMember.verify(sig, response.getContent());
+        lastVerificationValid.set(valid);
+        if (!valid) {
+            log.warn("DHT response signature verification FAILED from member: {} — possible Byzantine forgery",
+                     serverMember.getId());
+        }
+        return valid;
+    }
+
+    /**
+     * Returns whether the most recent read-response signature verification for
+     * this thread was successful (or absent — Phase A accept-but-don't-require).
+     *
+     * <p>This is used by {@code KerlDHT.verifyResponseSignature()} to access the
+     * result already computed inside {@code DhtClient} at the gRPC boundary.</p>
+     *
+     * @return {@code true} if the last verification succeeded or was absent
+     */
+    public boolean wasLastVerificationValid() {
+        return Boolean.TRUE.equals(lastVerificationValid.get());
+    }
+
+    // Thread-local stores the result of the most recent signature verification
+    // so KerlDHT can consult it without re-doing the crypto work.
+    private final ThreadLocal<Boolean> lastVerificationValid = ThreadLocal.withInitial(() -> true);
+
+    /**
+     * Deserialize the inner protobuf content from a {@link SignedDhtResponse}.
+     * Returns the default instance if content is empty or on parse error.
+     */
+    private <T extends com.google.protobuf.MessageLite> T unwrap(SignedDhtResponse signed, Parser<T> parser,
+                                                                   T defaultValue) {
+        if (signed == null || signed.getContent().isEmpty()) {
+            return defaultValue;
+        }
+        try {
+            return parser.parseFrom(signed.getContent());
+        } catch (InvalidProtocolBufferException e) {
+            log.warn("Failed to deserialize DHT response content from {}: {}",
+                     channel.getMember() != null ? channel.getMember().getId() : "<unknown>", e.getMessage());
+            return defaultValue;
+        }
     }
 }

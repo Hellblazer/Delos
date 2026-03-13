@@ -41,9 +41,10 @@ public class FeatureFlagManagerTest {
 
     @Test
     public void testDefaultState() {
-        // All Phase 1 security features default to disabled for gradual rollout
-        assertFalse(FeatureFlags.VERIFIER_VALIDATION.isEnabled(),
-                   "Verifier validation should default to disabled");
+        // VERIFIER_VALIDATION now defaults to enabled (secure by default, Delos-izm.1.2)
+        assertTrue(FeatureFlags.VERIFIER_VALIDATION.isEnabled(),
+                   "Verifier validation should default to enabled (secure by default)");
+        // Other Phase 1 security features still default to disabled for gradual rollout
         assertFalse(FeatureFlags.NONCE_PERSISTENCE.isEnabled(),
                    "Nonce persistence should default to disabled");
         assertFalse(FeatureFlags.QUEUE_EVICTION.isEnabled(),
@@ -52,18 +53,18 @@ public class FeatureFlagManagerTest {
 
     @Test
     public void testRuntimeToggle() {
-        // Verify default state
-        assertFalse(FeatureFlags.VERIFIER_VALIDATION.isEnabled());
-
-        // Enable at runtime (no restart)
-        FeatureFlags.VERIFIER_VALIDATION.setEnabled(true);
-        assertTrue(FeatureFlags.VERIFIER_VALIDATION.isEnabled(),
-                  "Should be enabled after runtime toggle");
+        // VERIFIER_VALIDATION defaults to enabled (secure by default, Delos-izm.1.2)
+        assertTrue(FeatureFlags.VERIFIER_VALIDATION.isEnabled());
 
         // Disable at runtime
         FeatureFlags.VERIFIER_VALIDATION.setEnabled(false);
         assertFalse(FeatureFlags.VERIFIER_VALIDATION.isEnabled(),
                    "Should be disabled after runtime toggle");
+
+        // Re-enable at runtime (no restart)
+        FeatureFlags.VERIFIER_VALIDATION.setEnabled(true);
+        assertTrue(FeatureFlags.VERIFIER_VALIDATION.isEnabled(),
+                  "Should be enabled after runtime toggle");
 
         // Verify other flags unaffected
         assertFalse(FeatureFlags.NONCE_PERSISTENCE.isEnabled());

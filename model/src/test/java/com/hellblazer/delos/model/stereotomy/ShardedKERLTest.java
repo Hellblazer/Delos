@@ -9,6 +9,8 @@ package com.hellblazer.delos.model.stereotomy;
 
 import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
+import com.hellblazer.delos.cryptography.JohnHancock;
+import com.hellblazer.delos.cryptography.SignatureAlgorithm;
 import com.hellblazer.delos.cryptography.SigningThreshold;
 import com.hellblazer.delos.cryptography.SigningThreshold.Unweighted;
 import com.hellblazer.delos.model.Domain;
@@ -26,6 +28,8 @@ import com.hellblazer.delos.stereotomy.identifier.spec.KeyConfigurationDigester;
 import com.hellblazer.delos.stereotomy.identifier.spec.RotationSpecification;
 import com.hellblazer.delos.stereotomy.mem.MemKeyStore;
 import com.hellblazer.delos.utils.Hex;
+import org.jooq.SQLDialect;
+import org.jooq.impl.DSL;
 import org.joou.ULong;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,7 +37,9 @@ import org.junit.jupiter.api.Test;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
+import static com.hellblazer.delos.stereotomy.schema.tables.Validation.VALIDATION;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -126,6 +132,72 @@ public class ShardedKERLTest {
         identifier.seal(InteractionSpecification.newBuilder());
         identifier.rotate(RotationSpecification.newBuilder().addAllSeals(seals));
         identifier.seal(InteractionSpecification.newBuilder().addAllSeals(seals));
+    }
+
+    @Test
+    public void appendValidationsPersists() throws Exception {
+        Duration timeout = Duration.ofSeconds(1000);
+        Emulator emmy = new Emulator();
+        emmy.start(Domain.boostrapMigration());
+
+        ShardedKERL kerl = new ShardedKERL(emmy.newConnector(), emmy.getMutator(), timeout, DigestAlgorithm.DEFAULT);
+
+        var ks = new MemKeyStore();
+        Stereotomy controller = new StereotomyImpl(ks, kerl, secureRandom);
+        ControlledIdentifier<? extends Identifier> identifier = controller.newIdentifier();
+
+        // Get inception event coordinates
+        EstablishmentEvent inceptionEvent = (EstablishmentEvent) kerl.getKeyEvent(
+        identifier.getLastEstablishmentEvent());
+        EventCoordinates coordinates = EventCoordinates.of(inceptionEvent);
+
+        // Build a minimal validation: a single null-signature keyed by the same coordinates
+        JohnHancock sig = JohnHancock.nullSignature(SignatureAlgorithm.DEFAULT);
+        Map<EventCoordinates, JohnHancock> validations = Map.of(coordinates, sig);
+
+        // Before: no validations
+        try (var conn = emmy.newConnector()) {
+            var dsl = DSL.using(conn, SQLDialect.H2);
+            int before = dsl.selectCount().from(VALIDATION).fetchOne(0, int.class);
+            assertEquals(0, before, "No validations should exist before appendValidations");
+        }
+
+        // Act: call appendValidations — must not throw and must not be a null stub
+        kerl.appendValidations(coordinates, validations);
+
+        // After: validation record persisted
+        try (var conn = emmy.newConnector()) {
+            var dsl = DSL.using(conn, SQLDialect.H2);
+            int after = dsl.selectCount().from(VALIDATION).fetchOne(0, int.class);
+            assertEquals(1, after, "appendValidations must persist validation records");
+        }
+    }
+
+    @Test
+    public void appendValidationsEmptyIsNoOp() throws Exception {
+        Duration timeout = Duration.ofSeconds(1000);
+        Emulator emmy = new Emulator();
+        emmy.start(Domain.boostrapMigration());
+
+        ShardedKERL kerl = new ShardedKERL(emmy.newConnector(), emmy.getMutator(), timeout, DigestAlgorithm.DEFAULT);
+
+        var ks = new MemKeyStore();
+        Stereotomy controller = new StereotomyImpl(ks, kerl, secureRandom);
+        ControlledIdentifier<? extends Identifier> identifier = controller.newIdentifier();
+
+        EstablishmentEvent inceptionEvent = (EstablishmentEvent) kerl.getKeyEvent(
+        identifier.getLastEstablishmentEvent());
+        EventCoordinates coordinates = EventCoordinates.of(inceptionEvent);
+
+        // Empty map: should complete without error (UniKERL.appendValidations returns early)
+        assertDoesNotThrow(() -> kerl.appendValidations(coordinates, Map.of()),
+                           "appendValidations with empty map must not throw");
+
+        try (var conn = emmy.newConnector()) {
+            var dsl = DSL.using(conn, SQLDialect.H2);
+            int count = dsl.selectCount().from(VALIDATION).fetchOne(0, int.class);
+            assertEquals(0, count, "Empty validations map must not insert any records");
+        }
     }
 
     @Test

@@ -29,19 +29,25 @@ package com.hellblazer.delos.choam;
  */
 public enum FeatureFlags {
     /**
-     * Verifier Bypass Fix (Item 1, Delos-i642)
+     * Verifier Bypass Fix (Item 1, Delos-i642, Delos-izm.1.2)
      *
-     * When enabled: Fails fast if validator not found in context instead
+     * When enabled (default): Fails fast if validator not found in context instead
      * of returning NO_VERIFIER. Prevents Byzantine nodes from forging blocks.
+     * Both bypass paths in Committee are closed:
+     * - validatorsOf: rejects validators missing consensus keys
+     * - identityValidatorsOf: rejects members missing from context
      *
-     * Grace period: 30s for slow-to-publish validators
+     * Grace period: 30s for slow-to-publish validators (documented, not blocking)
      * Monitoring: Alert if rejection rate > 1%
      *
-     * Location: Committee.validatorsOf() - Committee.java:59
+     * To disable for development/testing (NOT for production):
+     *   -Dfeature.verifier.validation=false
+     *
+     * Location: Committee.validatorsOf(), Committee.identityValidatorsOf()
      */
     VERIFIER_VALIDATION("feature.verifier.validation",
                        "Strict validator verification with grace period",
-                       false),  // Default: disabled for gradual rollout
+                       true),  // Default: enabled (secure by default, Delos-izm.1.2)
 
     /**
      * Nonce Persistence for Replay Protection (Item 2, Delos-0gps)
@@ -104,6 +110,50 @@ public enum FeatureFlags {
     STATE_VALIDATION("feature.state.validation",
                     "State machine transition validation with pre/postconditions",
                     false);
+
+    /**
+     * Validation mode for {@link FeatureFlags#STATE_VALIDATION}.
+     * <p>
+     * Controls how violations detected by {@code ValidatingCombineTransitions}
+     * are handled:
+     * <ul>
+     *   <li>{@link #LOG_ONLY} (default) — log the violation and continue</li>
+     *   <li>{@link #ENFORCE} — log the violation and throw {@link IllegalStateException}</li>
+     *   <li>{@link #METRICS_ONLY} — record metrics only, no logging</li>
+     * </ul>
+     * </p>
+     * <p>
+     * Controlled via system property: {@code -Dfeature.state.validation.mode=ENFORCE}
+     * </p>
+     */
+    public enum ValidationMode {
+        /** Log violations via {@code log.warn}, continue execution (default). */
+        LOG_ONLY,
+        /** Log violations via {@code log.warn} and throw {@link IllegalStateException}. */
+        ENFORCE,
+        /** Record metrics only; suppress log output. */
+        METRICS_ONLY;
+
+        private static final String SYSTEM_PROPERTY = "feature.state.validation.mode";
+
+        /**
+         * Read the current validation mode from the system property.
+         * Defaults to {@link #LOG_ONLY} if the property is absent or unrecognised.
+         *
+         * @return current {@link ValidationMode}
+         */
+        public static ValidationMode current() {
+            var value = System.getProperty(SYSTEM_PROPERTY);
+            if (value == null || value.isBlank()) {
+                return LOG_ONLY;
+            }
+            try {
+                return ValidationMode.valueOf(value.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return LOG_ONLY;
+            }
+        }
+    }
 
     private final String  systemProperty;
     private final String  description;

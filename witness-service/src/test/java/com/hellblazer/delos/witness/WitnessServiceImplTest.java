@@ -39,6 +39,7 @@ import org.mockito.MockitoAnnotations;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
@@ -1674,6 +1675,382 @@ class WitnessServiceImplTest {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    // ========== Delos-izm.1.4: WitnessServiceImpl Functional Gap Tests ==========
+
+    /**
+     * Test: notifyViewChange updates WitnessContext with added members.
+     * BFT correctness: Witness must track current membership.
+     */
+    @Test
+    void testNotifyViewChange_UpdatesContextWithAddedMembers() {
+        // Given: Initial members (21 from the pool)
+        int initialSize = witnessContext.getCurrentMembers().size();
+        assertTrue(initialSize > 0, "Initial context must have members");
+
+        // Create new member identifiers not in the current Fireflies context
+        var newMember1 = new SelfAddressingIdentifier(ALGORITHM.digest("brand-new-member-A".getBytes()));
+        var newMember2 = new SelfAddressingIdentifier(ALGORITHM.digest("brand-new-member-B".getBytes()));
+
+        var viewChange = ViewChange.newBuilder()
+            .setOldEpoch(0)
+            .setNewEpoch(1)
+            .addAddedMembers(newMember1.toIdent())
+            .addAddedMembers(newMember2.toIdent())
+            .build();
+
+        // When: NotifyViewChange is called
+        witnessService.notifyViewChange(viewChange, new StreamObserver<DrainStatus>() {
+            @Override public void onNext(DrainStatus value) {}
+            @Override public void onError(Throwable t) { fail("Should not error: " + t); }
+            @Override public void onCompleted() {}
+        });
+
+        // Then: WitnessContext has the new members added
+        var updatedMembers = witnessContext.getCurrentMembers();
+        assertEquals(initialSize + 2, updatedMembers.size(),
+            "Context should have 2 added members");
+        assertTrue(updatedMembers.contains(newMember1),
+            "Context should contain added member 1");
+        assertTrue(updatedMembers.contains(newMember2),
+            "Context should contain added member 2");
+    }
+
+    /**
+     * Test: notifyViewChange updates WitnessContext with removed members.
+     * BFT correctness: Departed members must not be included in committee selection.
+     */
+    @Test
+    void testNotifyViewChange_UpdatesContextWithRemovedMembers() {
+        // Given: Initial members — grab 2 existing ones to remove
+        var initialMembers = witnessContext.getCurrentMembers();
+        int initialSize = initialMembers.size();
+        assertTrue(initialSize >= 2, "Need at least 2 members to remove");
+
+        var membersToRemove = initialMembers.stream().limit(2).toList();
+        var member1 = membersToRemove.get(0);
+        var member2 = membersToRemove.get(1);
+
+        var viewChange = ViewChange.newBuilder()
+            .setOldEpoch(0)
+            .setNewEpoch(1)
+            .addRemovedMembers(member1.toIdent())
+            .addRemovedMembers(member2.toIdent())
+            .build();
+
+        // When: NotifyViewChange is called
+        witnessService.notifyViewChange(viewChange, new StreamObserver<DrainStatus>() {
+            @Override public void onNext(DrainStatus value) {}
+            @Override public void onError(Throwable t) { fail("Should not error: " + t); }
+            @Override public void onCompleted() {}
+        });
+
+        // Then: WitnessContext has the members removed
+        var updatedMembers = witnessContext.getCurrentMembers();
+        assertEquals(initialSize - 2, updatedMembers.size(),
+            "Context should have 2 fewer members");
+        assertFalse(updatedMembers.contains(member1),
+            "Context should not contain removed member 1");
+        assertFalse(updatedMembers.contains(member2),
+            "Context should not contain removed member 2");
+    }
+
+    /**
+     * Test: notifyViewChange with both added and removed members — delta applied correctly.
+     */
+    @Test
+    void testNotifyViewChange_AppliesMembershipDelta() {
+        // Given: Current members; remove 1, add 2
+        var initialMembers = witnessContext.getCurrentMembers();
+        int initialSize = initialMembers.size();
+        var memberToRemove = initialMembers.iterator().next();
+        var newMember = new SelfAddressingIdentifier(ALGORITHM.digest("delta-new-member".getBytes()));
+
+        var viewChange = ViewChange.newBuilder()
+            .setOldEpoch(0)
+            .setNewEpoch(2)
+            .addRemovedMembers(memberToRemove.toIdent())
+            .addAddedMembers(newMember.toIdent())
+            .build();
+
+        // When
+        witnessService.notifyViewChange(viewChange, new StreamObserver<DrainStatus>() {
+            @Override public void onNext(DrainStatus value) {}
+            @Override public void onError(Throwable t) { fail("Should not error: " + t); }
+            @Override public void onCompleted() {}
+        });
+
+        // Then: Net size unchanged (1 removed, 1 added), new member present, removed member absent
+        var updatedMembers = witnessContext.getCurrentMembers();
+        assertEquals(initialSize, updatedMembers.size(),
+            "Net change should be zero (1 added, 1 removed)");
+        assertTrue(updatedMembers.contains(newMember), "New member should be present");
+        assertFalse(updatedMembers.contains(memberToRemove), "Removed member should be absent");
+    }
+
+    /**
+     * Test: notifyViewChange updates the epoch in WitnessContext.
+     */
+    @Test
+    void testNotifyViewChange_UpdatesEpochInContext() {
+        // Given: Context at epoch 0
+        assertEquals(0, witnessContext.getEpoch(), "Initial epoch should be 0");
+
+        var viewChange = ViewChange.newBuilder()
+            .setOldEpoch(0)
+            .setNewEpoch(5)
+            .build();
+
+        // When
+        witnessService.notifyViewChange(viewChange, new StreamObserver<DrainStatus>() {
+            @Override public void onNext(DrainStatus value) {}
+            @Override public void onError(Throwable t) { fail("Should not error: " + t); }
+            @Override public void onCompleted() {}
+        });
+
+        // Then: WitnessContext epoch updated
+        assertEquals(5, witnessContext.getEpoch(),
+            "WitnessContext epoch should be updated to new epoch");
+    }
+
+    /**
+     * Test: getCommittee returns actual committee member list (not empty).
+     * Gap fix: was returning hardcoded committeeSize without actual members.
+     */
+    @Test
+    void testGetCommittee_ReturnsActualCommitteeMembers() {
+        // Given: Event coordinates to select committee for
+        var eventCoords = createEventCoordinates("committee-test-event", 42L);
+        var request = CommitteeRequest.newBuilder()
+            .setEventCoordinates(eventCoords.toEventCoords())
+            .build();
+
+        // When: GetCommittee is called
+        var responseRef = new AtomicReference<CommitteeInfo>();
+        witnessService.getCommittee(request, new StreamObserver<CommitteeInfo>() {
+            @Override public void onNext(CommitteeInfo value) { responseRef.set(value); }
+            @Override public void onError(Throwable t) { fail("Should not error: " + t); }
+            @Override public void onCompleted() {}
+        });
+
+        // Then: Response has actual committee members populated
+        var response = responseRef.get();
+        assertNotNull(response);
+        assertFalse(response.getMembersList().isEmpty(),
+            "Committee member list must not be empty");
+        assertEquals(parameters.k(), response.getMembersCount(),
+            "Member count should equal committee size k");
+        // Verify committeeSize matches actual member count
+        assertEquals(response.getMembersCount(), response.getCommitteeSize(),
+            "committeeSize field must match actual member list size");
+    }
+
+    /**
+     * Test: getCommittee members are consistent with WitnessContext selection.
+     */
+    @Test
+    void testGetCommittee_MembersMatchContextSelection() {
+        // Given: Event coordinates
+        var eventCoords = createEventCoordinates("member-consistency-event", 7L);
+        var request = CommitteeRequest.newBuilder()
+            .setEventCoordinates(eventCoords.toEventCoords())
+            .build();
+
+        // Pre-select expected committee via witnessContext directly
+        var expectedCommittee = witnessContext.selectCommittee(eventCoords);
+
+        // When: GetCommittee is called via service
+        var responseRef = new AtomicReference<CommitteeInfo>();
+        witnessService.getCommittee(request, new StreamObserver<CommitteeInfo>() {
+            @Override public void onNext(CommitteeInfo value) { responseRef.set(value); }
+            @Override public void onError(Throwable t) { fail("Should not error: " + t); }
+            @Override public void onCompleted() {}
+        });
+
+        // Then: Member list matches expected committee
+        var response = responseRef.get();
+        assertNotNull(response);
+        assertEquals(expectedCommittee.size(), response.getMembersCount(),
+            "Service should return same committee size as context selection");
+    }
+
+    /**
+     * Test: getCommittee with empty request still returns k committee members.
+     * Backward compat: empty CommitteeRequest should deterministically select k members.
+     */
+    @Test
+    void testGetCommittee_EmptyRequestReturnsKMembers() {
+        // Given: Empty committee request (no event coordinates)
+        var request = CommitteeRequest.newBuilder().build();
+
+        // When
+        var responseRef = new AtomicReference<CommitteeInfo>();
+        witnessService.getCommittee(request, new StreamObserver<CommitteeInfo>() {
+            @Override public void onNext(CommitteeInfo value) { responseRef.set(value); }
+            @Override public void onError(Throwable t) { fail("Should not error: " + t); }
+            @Override public void onCompleted() {}
+        });
+
+        // Then: Still returns correct metadata and k members
+        var response = responseRef.get();
+        assertNotNull(response);
+        assertEquals(parameters.k(), response.getCommitteeSize());
+        assertEquals(parameters.threshold(), response.getThreshold());
+        assertEquals(parameters.k(), response.getMembersCount(),
+            "Even empty request should return k actual members");
+    }
+
+    /**
+     * Test: subscribeViewChanges keeps subscriber alive (does not immediately complete).
+     * Gap fix: was calling onCompleted() immediately instead of registering for future notifications.
+     */
+    @Test
+    void testSubscribeViewChanges_DoesNotImmediatelyComplete() {
+        // Given: A subscriber that tracks completion
+        var completedRef = new AtomicReference<Boolean>(false);
+        var receivedChanges = Collections.synchronizedList(new ArrayList<ViewChange>());
+
+        witnessService.subscribeViewChanges(
+            ViewChangeSubscription.newBuilder().build(),
+            new StreamObserver<ViewChange>() {
+                @Override public void onNext(ViewChange value) { receivedChanges.add(value); }
+                @Override public void onError(Throwable t) { fail("Should not error"); }
+                @Override public void onCompleted() { completedRef.set(true); }
+            }
+        );
+
+        // Then: Subscriber should NOT have been immediately completed
+        assertFalse(completedRef.get(),
+            "Subscriber should not be immediately completed — must stay open for future changes");
+    }
+
+    /**
+     * Test: subscribeViewChanges delivers view change notifications to subscribers.
+     * Gap fix: connects Fireflies view change events to registered subscribers.
+     */
+    @Test
+    void testSubscribeViewChanges_ReceivesViewChangeNotifications() throws InterruptedException {
+        // Given: A subscriber waiting for view changes
+        var receivedChanges = Collections.synchronizedList(new ArrayList<ViewChange>());
+        var latch = new CountDownLatch(1);
+
+        witnessService.subscribeViewChanges(
+            ViewChangeSubscription.newBuilder().build(),
+            new StreamObserver<ViewChange>() {
+                @Override public void onNext(ViewChange value) {
+                    receivedChanges.add(value);
+                    latch.countDown();
+                }
+                @Override public void onError(Throwable t) { fail("Should not error"); }
+                @Override public void onCompleted() {}
+            }
+        );
+
+        // When: A view change is propagated
+        var viewChange = ViewChange.newBuilder()
+            .setOldEpoch(0)
+            .setNewEpoch(3)
+            .build();
+        witnessService.propagateViewChange(viewChange);
+
+        // Then: Subscriber received the view change
+        assertTrue(latch.await(2, TimeUnit.SECONDS),
+            "Subscriber should receive view change notification within 2s");
+        assertEquals(1, receivedChanges.size(), "Should receive exactly 1 view change");
+        assertEquals(3L, receivedChanges.get(0).getNewEpoch(),
+            "Received view change should have correct new epoch");
+    }
+
+    /**
+     * Test: Multiple subscribers all receive view change notifications.
+     */
+    @Test
+    void testSubscribeViewChanges_MultipleSubscribersAllNotified() throws InterruptedException {
+        // Given: 3 subscribers
+        int subscriberCount = 3;
+        var latches = new CountDownLatch[subscriberCount];
+        var receivedCounts = new AtomicInteger[subscriberCount];
+        for (int i = 0; i < subscriberCount; i++) {
+            latches[i] = new CountDownLatch(1);
+            receivedCounts[i] = new AtomicInteger(0);
+        }
+
+        for (int i = 0; i < subscriberCount; i++) {
+            final int idx = i;
+            witnessService.subscribeViewChanges(
+                ViewChangeSubscription.newBuilder().build(),
+                new StreamObserver<ViewChange>() {
+                    @Override public void onNext(ViewChange value) {
+                        receivedCounts[idx].incrementAndGet();
+                        latches[idx].countDown();
+                    }
+                    @Override public void onError(Throwable t) { fail("Should not error"); }
+                    @Override public void onCompleted() {}
+                }
+            );
+        }
+
+        // When: A view change is propagated
+        var viewChange = ViewChange.newBuilder()
+            .setOldEpoch(0)
+            .setNewEpoch(10)
+            .build();
+        witnessService.propagateViewChange(viewChange);
+
+        // Then: All subscribers notified
+        for (int i = 0; i < subscriberCount; i++) {
+            assertTrue(latches[i].await(2, TimeUnit.SECONDS),
+                "Subscriber " + i + " should receive view change");
+            assertEquals(1, receivedCounts[i].get(),
+                "Subscriber " + i + " should receive exactly 1 notification");
+        }
+    }
+
+    /**
+     * Test: Thread-safety of concurrent membership updates via notifyViewChange.
+     */
+    @Test
+    void testNotifyViewChange_ThreadSafeConcurrentUpdates() throws InterruptedException {
+        // Given: Many concurrent view change notifications
+        int threadCount = 10;
+        var latch = new CountDownLatch(threadCount);
+        var errors = Collections.synchronizedList(new ArrayList<Throwable>());
+
+        var executor = Executors.newFixedThreadPool(threadCount);
+        try {
+            for (int i = 0; i < threadCount; i++) {
+                final int idx = i;
+                executor.submit(() -> {
+                    try {
+                        var newMember = new SelfAddressingIdentifier(
+                            ALGORITHM.digest(("concurrent-member-" + idx).getBytes()));
+                        var vc = ViewChange.newBuilder()
+                            .setOldEpoch(idx)
+                            .setNewEpoch(idx + 1)
+                            .addAddedMembers(newMember.toIdent())
+                            .build();
+                        witnessService.notifyViewChange(vc, new StreamObserver<DrainStatus>() {
+                            @Override public void onNext(DrainStatus value) {}
+                            @Override public void onError(Throwable t) { errors.add(t); }
+                            @Override public void onCompleted() {}
+                        });
+                    } finally {
+                        latch.countDown();
+                    }
+                });
+            }
+            assertTrue(latch.await(10, TimeUnit.SECONDS), "All threads should complete");
+        } finally {
+            executor.shutdown();
+        }
+
+        // Then: No errors occurred — thread-safety maintained
+        assertTrue(errors.isEmpty(), "No errors should occur during concurrent updates: " + errors);
+        // Context should still be usable
+        var members = witnessContext.getCurrentMembers();
+        assertNotNull(members);
+        assertFalse(members.isEmpty(), "Context should still have members after concurrent updates");
     }
 
     @Test

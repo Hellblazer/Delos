@@ -196,8 +196,16 @@ public interface Committee {
         // (not consensus keys) because consensus keys haven't been exchanged yet.
         // Use member identity verifiers for validation.
         var reconfigure = hb.block.getGenesis().getInitialView();
-        var validators = identityValidatorsOf(reconfigure, params().context(), params().member().getId(), log());
-        return !validators.isEmpty() && validate(hb, validators);
+        try {
+            var validators = identityValidatorsOf(reconfigure, params().context(), params().member().getId(), log());
+            return !validators.isEmpty() && validate(hb, validators);
+        } catch (IllegalStateException e) {
+            // VERIFIER_VALIDATION is enabled and a member is missing from context.
+            // This indicates a Byzantine or malformed genesis block.
+            log().error("Genesis validation rejected: member missing from context: {} on: {}",
+                        e.getMessage(), params().member().getId());
+            return false;
+        }
     }
 
     /**
@@ -221,8 +229,18 @@ public interface Committee {
             var id = new Digest(e.getMember().getVm().getId());
             var m = context.getMember(id);
             if (m == null) {
-                log.info("No member identity verifier: {}, returning NO_VERIFIER on: {}", id, member);
-                return Verifier.NO_VERIFIER;
+                if (FeatureFlags.VERIFIER_VALIDATION.isEnabled()) {
+                    // Strict validation: reject member without identity verifier
+                    log.warn("Byzantine indicator: Member {} missing identity verifier on: {}. " +
+                             "Rejecting (VERIFIER_VALIDATION is enabled).",
+                             id, member);
+                    throw new IllegalStateException(
+                        String.format("Member missing identity verifier: %s on: %s", id, member));
+                } else {
+                    // Feature flag disabled: backward compatibility (return NO_VERIFIER)
+                    log.info("No member identity verifier: {}, returning NO_VERIFIER on: {}", id, member);
+                    return Verifier.NO_VERIFIER;
+                }
             } else {
                 // Member implements Verifier interface using its identity key
                 return (Verifier) m;

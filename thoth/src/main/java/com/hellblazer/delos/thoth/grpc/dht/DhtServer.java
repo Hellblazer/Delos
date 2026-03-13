@@ -8,29 +8,67 @@
 package com.hellblazer.delos.thoth.grpc.dht;
 
 import com.google.protobuf.Empty;
+import com.google.protobuf.MessageLite;
 import com.hellblazer.delos.archipelago.RoutableService;
+import com.hellblazer.delos.membership.SigningMember;
 import com.hellblazer.delos.stereotomy.event.proto.*;
 import com.hellblazer.delos.stereotomy.services.grpc.StereotomyMetrics;
 import com.hellblazer.delos.stereotomy.services.grpc.proto.*;
 import com.hellblazer.delos.stereotomy.services.proto.ProtoKERLService;
 import com.hellblazer.delos.thoth.proto.KerlDhtGrpc.KerlDhtImplBase;
+import com.hellblazer.delos.thoth.proto.SignedDhtResponse;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
 import org.joou.ULong;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
+ * gRPC server handler for DHT operations.
+ *
+ * <p>Phase A: Signs all read responses using the server member's signing key.
+ * The signature covers the serialized protobuf bytes of the response content.
+ * Clients SHOULD verify signatures when present, and MUST accept unsigned
+ * responses (for backward compatibility with older server versions).</p>
+ *
  * @author hal.hildebrand
  */
 public class DhtServer extends KerlDhtImplBase {
 
+    private static final Logger log = LoggerFactory.getLogger(DhtServer.class);
+
     private final StereotomyMetrics                 metrics;
     private final RoutableService<ProtoKERLService> routing;
+    private final SigningMember                     signer;
 
-    public DhtServer(RoutableService<ProtoKERLService> router, StereotomyMetrics metrics) {
+    /**
+     * Construct with signing support (Phase A).
+     *
+     * @param router  the routable KERL service
+     * @param metrics optional metrics
+     * @param signer  the member whose key is used to sign responses; may be null to
+     *                disable signing (backward-compatibility / legacy mode)
+     */
+    public DhtServer(RoutableService<ProtoKERLService> router, StereotomyMetrics metrics, SigningMember signer) {
         this.metrics = metrics;
         this.routing = router;
+        this.signer = signer;
     }
+
+    /**
+     * Backward-compatible constructor without signing.
+     *
+     * @deprecated Use {@link #DhtServer(RoutableService, StereotomyMetrics, SigningMember)} instead.
+     */
+    @Deprecated
+    public DhtServer(RoutableService<ProtoKERLService> router, StereotomyMetrics metrics) {
+        this(router, metrics, null);
+    }
+
+    // -------------------------------------------------------------------------
+    // Write operations — return raw KeyStates (unsigned in Phase A)
+    // -------------------------------------------------------------------------
 
     @Override
     public void append(KeyEventsContext request, StreamObserver<KeyStates> responseObserver) {
@@ -51,7 +89,6 @@ public class DhtServer extends KerlDhtImplBase {
                 responseObserver.onError(new StatusRuntimeException(Status.DATA_LOSS));
             }
         });
-
     }
 
     @Override
@@ -69,12 +106,8 @@ public class DhtServer extends KerlDhtImplBase {
                 if (metrics != null) {
                     metrics.recordAppendWithAttachmentsServiceDuration(System.nanoTime() - startTime);
                 }
-                if (result != null) {
-                    responseObserver.onNext(result);
-                    responseObserver.onCompleted();
-                } else {
-                    responseObserver.onError(new StatusRuntimeException(Status.DATA_LOSS));
-                }
+                responseObserver.onNext(result);
+                responseObserver.onCompleted();
             }
         });
     }
@@ -115,12 +148,8 @@ public class DhtServer extends KerlDhtImplBase {
                 if (metrics != null) {
                     metrics.recordAppendWithAttachmentsServiceDuration(System.nanoTime() - startTime);
                 }
-                if (result != null) {
-                    responseObserver.onNext(result);
-                    responseObserver.onCompleted();
-                } else {
-                    responseObserver.onError(new StatusRuntimeException(Status.DATA_LOSS));
-                }
+                responseObserver.onNext(result);
+                responseObserver.onCompleted();
             }
         });
     }
@@ -141,19 +170,18 @@ public class DhtServer extends KerlDhtImplBase {
                 if (metrics != null) {
                     metrics.recordAppendWithAttachmentsServiceDuration(System.nanoTime() - startTime);
                 }
-                if (result != null) {
-                    responseObserver.onNext(KeyStates.newBuilder().addAllKeyStates(result).build());
-                    responseObserver.onCompleted();
-                } else {
-                    responseObserver.onError(new StatusRuntimeException(Status.DATA_LOSS));
-                }
+                responseObserver.onNext(KeyStates.newBuilder().addAllKeyStates(result).build());
+                responseObserver.onCompleted();
             }
         });
-
     }
 
+    // -------------------------------------------------------------------------
+    // Read operations — return SignedDhtResponse (Phase A: signed content)
+    // -------------------------------------------------------------------------
+
     @Override
-    public void getAttachment(EventCoords request, StreamObserver<Attachment> responseObserver) {
+    public void getAttachment(EventCoords request, StreamObserver<SignedDhtResponse> responseObserver) {
         var startTime = System.nanoTime();
         if (metrics != null) {
             final var serializedSize = request.getSerializedSize();
@@ -162,30 +190,23 @@ public class DhtServer extends KerlDhtImplBase {
         }
         routing.evaluate(responseObserver, s -> {
             var response = s.getAttachment(request);
-            if (response == null) {
-                if (metrics != null) {
-                    metrics.recordGetAttachmentServiceDuration(System.nanoTime() - startTime);
-                }
-                responseObserver.onNext(Attachment.getDefaultInstance());
-                responseObserver.onCompleted();
-            } else {
-                if (metrics != null) {
-                    metrics.recordGetAttachmentServiceDuration(System.nanoTime() - startTime);
-                }
-                var attachment = response == null ? Attachment.getDefaultInstance() : response;
-                responseObserver.onNext(attachment);
-                responseObserver.onCompleted();
-                if (metrics != null) {
-                    final var serializedSize = attachment.getSerializedSize();
-                    metrics.recordOutboundBandwidth(serializedSize);
-                    metrics.recordOutboundGetAttachmentResponse(serializedSize);
-                }
+            if (metrics != null) {
+                metrics.recordGetAttachmentServiceDuration(System.nanoTime() - startTime);
+            }
+            var attachment = response == null ? Attachment.getDefaultInstance() : response;
+            var signed = signResponse(attachment);
+            responseObserver.onNext(signed);
+            responseObserver.onCompleted();
+            if (metrics != null) {
+                final var serializedSize = attachment.getSerializedSize();
+                metrics.recordOutboundBandwidth(serializedSize);
+                metrics.recordOutboundGetAttachmentResponse(serializedSize);
             }
         });
     }
 
     @Override
-    public void getKERL(Ident request, StreamObserver<KERL_> responseObserver) {
+    public void getKERL(Ident request, StreamObserver<SignedDhtResponse> responseObserver) {
         var startTime = System.nanoTime();
         if (metrics != null) {
             final var serializedSize = request.getSerializedSize();
@@ -194,30 +215,23 @@ public class DhtServer extends KerlDhtImplBase {
         }
         routing.evaluate(responseObserver, s -> {
             var response = s.getKERL(request);
-            if (response == null) {
-                if (metrics != null) {
-                    metrics.recordGetKERLServiceDuration(System.nanoTime() - startTime);
-                }
-                responseObserver.onNext(KERL_.getDefaultInstance());
-                responseObserver.onCompleted();
-            } else {
-                if (metrics != null) {
-                    metrics.recordGetKERLServiceDuration(System.nanoTime() - startTime);
-                }
-                var kerl = response == null ? KERL_.getDefaultInstance() : response;
-                responseObserver.onNext(kerl);
-                responseObserver.onCompleted();
-                if (metrics != null) {
-                    final var serializedSize = kerl.getSerializedSize();
-                    metrics.recordOutboundBandwidth(serializedSize);
-                    metrics.recordOutboundGetKERLResponse(serializedSize);
-                }
+            if (metrics != null) {
+                metrics.recordGetKERLServiceDuration(System.nanoTime() - startTime);
+            }
+            var kerl = response == null ? KERL_.getDefaultInstance() : response;
+            var signed = signResponse(kerl);
+            responseObserver.onNext(signed);
+            responseObserver.onCompleted();
+            if (metrics != null) {
+                final var serializedSize = kerl.getSerializedSize();
+                metrics.recordOutboundBandwidth(serializedSize);
+                metrics.recordOutboundGetKERLResponse(serializedSize);
             }
         });
     }
 
     @Override
-    public void getKeyEventCoords(EventCoords request, StreamObserver<KeyEvent_> responseObserver) {
+    public void getKeyEventCoords(EventCoords request, StreamObserver<SignedDhtResponse> responseObserver) {
         var startTime = System.nanoTime();
         if (metrics != null) {
             metrics.recordInboundBandwidth(request.getSerializedSize());
@@ -225,30 +239,23 @@ public class DhtServer extends KerlDhtImplBase {
         }
         routing.evaluate(responseObserver, s -> {
             var response = s.getKeyEvent(request);
-            if (response == null) {
-                if (metrics != null) {
-                    metrics.recordGetKeyEventCoordsServiceDuration(System.nanoTime() - startTime);
-                }
-                responseObserver.onNext(KeyEvent_.getDefaultInstance());
-                responseObserver.onCompleted();
-            } else {
-                if (metrics != null) {
-                    metrics.recordGetKeyEventCoordsServiceDuration(System.nanoTime() - startTime);
-                }
-                var event = response == null ? KeyEvent_.getDefaultInstance() : response;
-                responseObserver.onNext(event);
-                responseObserver.onCompleted();
-                if (metrics != null) {
-                    final var serializedSize = event.getSerializedSize();
-                    metrics.recordOutboundBandwidth(serializedSize);
-                    metrics.recordOutboundGetKeyEventCoordsResponse(serializedSize);
-                }
+            if (metrics != null) {
+                metrics.recordGetKeyEventCoordsServiceDuration(System.nanoTime() - startTime);
+            }
+            var event = response == null ? KeyEvent_.getDefaultInstance() : response;
+            var signed = signResponse(event);
+            responseObserver.onNext(signed);
+            responseObserver.onCompleted();
+            if (metrics != null) {
+                final var serializedSize = event.getSerializedSize();
+                metrics.recordOutboundBandwidth(serializedSize);
+                metrics.recordOutboundGetKeyEventCoordsResponse(serializedSize);
             }
         });
     }
 
     @Override
-    public void getKeyState(Ident request, StreamObserver<KeyState_> responseObserver) {
+    public void getKeyState(Ident request, StreamObserver<SignedDhtResponse> responseObserver) {
         var startTime = System.nanoTime();
         if (metrics != null) {
             final var serializedSize = request.getSerializedSize();
@@ -257,29 +264,22 @@ public class DhtServer extends KerlDhtImplBase {
         }
         routing.evaluate(responseObserver, s -> {
             var response = s.getKeyState(request);
-            if (response == null) {
-                if (metrics != null) {
-                    metrics.recordGetKeyStateServiceDuration(System.nanoTime() - startTime);
-                }
-                responseObserver.onNext(KeyState_.getDefaultInstance());
-                responseObserver.onCompleted();
-            } else {
-                if (metrics != null) {
-                    metrics.recordGetKeyStateServiceDuration(System.nanoTime() - startTime);
-                }
-                var state = response == null ? KeyState_.getDefaultInstance() : response;
-                responseObserver.onNext(state);
-                responseObserver.onCompleted();
-                if (metrics != null) {
-                    metrics.recordOutboundBandwidth(state.getSerializedSize());
-                    metrics.recordOutboundGetKeyStateResponse(state.getSerializedSize());
-                }
+            if (metrics != null) {
+                metrics.recordGetKeyStateServiceDuration(System.nanoTime() - startTime);
+            }
+            var state = response == null ? KeyState_.getDefaultInstance() : response;
+            var signed = signResponse(state);
+            responseObserver.onNext(signed);
+            responseObserver.onCompleted();
+            if (metrics != null) {
+                metrics.recordOutboundBandwidth(state.getSerializedSize());
+                metrics.recordOutboundGetKeyStateResponse(state.getSerializedSize());
             }
         });
     }
 
     @Override
-    public void getKeyStateCoords(EventCoords request, StreamObserver<KeyState_> responseObserver) {
+    public void getKeyStateCoords(EventCoords request, StreamObserver<SignedDhtResponse> responseObserver) {
         var startTime = System.nanoTime();
         if (metrics != null) {
             final var serializedSize = request.getSerializedSize();
@@ -288,18 +288,12 @@ public class DhtServer extends KerlDhtImplBase {
         }
         routing.evaluate(responseObserver, s -> {
             var response = s.getKeyState(request);
-            if (response == null) {
-                if (metrics != null) {
-                    metrics.recordGetKeyStateCoordsServiceDuration(System.nanoTime() - startTime);
-                }
-                responseObserver.onNext(KeyState_.getDefaultInstance());
-                responseObserver.onCompleted();
-            }
             if (metrics != null) {
                 metrics.recordGetKeyStateCoordsServiceDuration(System.nanoTime() - startTime);
             }
             var state = response == null ? KeyState_.getDefaultInstance() : response;
-            responseObserver.onNext(state);
+            var signed = signResponse(state);
+            responseObserver.onNext(signed);
             responseObserver.onCompleted();
             if (metrics != null) {
                 final var serializedSize = state.getSerializedSize();
@@ -310,7 +304,7 @@ public class DhtServer extends KerlDhtImplBase {
     }
 
     @Override
-    public void getKeyStateSeqNum(IdentAndSeq request, StreamObserver<KeyState_> responseObserver) {
+    public void getKeyStateSeqNum(IdentAndSeq request, StreamObserver<SignedDhtResponse> responseObserver) {
         var startTime = System.nanoTime();
         if (metrics != null) {
             final var serializedSize = request.getSerializedSize();
@@ -319,18 +313,12 @@ public class DhtServer extends KerlDhtImplBase {
         }
         routing.evaluate(responseObserver, s -> {
             var response = s.getKeyState(request.getIdentifier(), ULong.valueOf(request.getSequenceNumber()));
-            if (response == null) {
-                if (metrics != null) {
-                    metrics.recordGetKeyStateCoordsServiceDuration(System.nanoTime() - startTime);
-                }
-                responseObserver.onNext(KeyState_.getDefaultInstance());
-                responseObserver.onCompleted();
-            }
             if (metrics != null) {
                 metrics.recordGetKeyStateCoordsServiceDuration(System.nanoTime() - startTime);
             }
             var state = response == null ? KeyState_.getDefaultInstance() : response;
-            responseObserver.onNext(state);
+            var signed = signResponse(state);
+            responseObserver.onNext(signed);
             responseObserver.onCompleted();
             if (metrics != null) {
                 final var serializedSize = state.getSerializedSize();
@@ -342,7 +330,7 @@ public class DhtServer extends KerlDhtImplBase {
 
     @Override
     public void getKeyStateWithAttachments(EventCoords request,
-                                           StreamObserver<KeyStateWithAttachments_> responseObserver) {
+                                           StreamObserver<SignedDhtResponse> responseObserver) {
         var startTime = System.nanoTime();
         if (metrics != null) {
             final var serializedSize = request.getSerializedSize();
@@ -351,18 +339,12 @@ public class DhtServer extends KerlDhtImplBase {
         }
         routing.evaluate(responseObserver, s -> {
             var response = s.getKeyStateWithAttachments(request);
-            if (response == null) {
-                if (metrics != null) {
-                    metrics.recordGetKeyStateCoordsServiceDuration(System.nanoTime() - startTime);
-                }
-                responseObserver.onNext(KeyStateWithAttachments_.getDefaultInstance());
-                responseObserver.onCompleted();
-            }
             if (metrics != null) {
                 metrics.recordGetKeyStateCoordsServiceDuration(System.nanoTime() - startTime);
             }
             var state = response == null ? KeyStateWithAttachments_.getDefaultInstance() : response;
-            responseObserver.onNext(state);
+            var signed = signResponse(state);
+            responseObserver.onNext(signed);
             responseObserver.onCompleted();
             if (metrics != null) {
                 final var serializedSize = state.getSerializedSize();
@@ -374,7 +356,7 @@ public class DhtServer extends KerlDhtImplBase {
 
     @Override
     public void getKeyStateWithEndorsementsAndValidations(EventCoords request,
-                                                          StreamObserver<KeyStateWithEndorsementsAndValidations_> responseObserver) {
+                                                          StreamObserver<SignedDhtResponse> responseObserver) {
         var startTime = System.nanoTime();
         if (metrics != null) {
             final var serializedSize = request.getSerializedSize();
@@ -383,18 +365,12 @@ public class DhtServer extends KerlDhtImplBase {
         }
         routing.evaluate(responseObserver, s -> {
             var response = s.getKeyStateWithEndorsementsAndValidations(request);
-            if (response == null) {
-                if (metrics != null) {
-                    metrics.recordGetKeyStateCoordsServiceDuration(System.nanoTime() - startTime);
-                }
-                responseObserver.onNext(KeyStateWithEndorsementsAndValidations_.getDefaultInstance());
-                responseObserver.onCompleted();
-            }
             if (metrics != null) {
                 metrics.recordGetKeyStateCoordsServiceDuration(System.nanoTime() - startTime);
             }
             var state = response == null ? KeyStateWithEndorsementsAndValidations_.getDefaultInstance() : response;
-            responseObserver.onNext(state);
+            var signed = signResponse(state);
+            responseObserver.onNext(signed);
             responseObserver.onCompleted();
             if (metrics != null) {
                 final var serializedSize = state.getSerializedSize();
@@ -405,7 +381,7 @@ public class DhtServer extends KerlDhtImplBase {
     }
 
     @Override
-    public void getValidations(EventCoords request, StreamObserver<Validations> responseObserver) {
+    public void getValidations(EventCoords request, StreamObserver<SignedDhtResponse> responseObserver) {
         var startTime = System.nanoTime();
         if (metrics != null) {
             final var serializedSize = request.getSerializedSize();
@@ -414,25 +390,41 @@ public class DhtServer extends KerlDhtImplBase {
         }
         routing.evaluate(responseObserver, s -> {
             var response = s.getValidations(request);
-            if (response == null) {
-                if (metrics != null) {
-                    metrics.recordGetAttachmentServiceDuration(System.nanoTime() - startTime);
-                }
-                responseObserver.onNext(Validations.getDefaultInstance());
-                responseObserver.onCompleted();
-            } else {
-                if (metrics != null) {
-                    metrics.recordGetAttachmentServiceDuration(System.nanoTime() - startTime);
-                }
-                var attachment = response == null ? Validations.getDefaultInstance() : response;
-                responseObserver.onNext(attachment);
-                responseObserver.onCompleted();
-                if (metrics != null) {
-                    final var serializedSize = attachment.getSerializedSize();
-                    metrics.recordOutboundBandwidth(serializedSize);
-                    metrics.recordOutboundGetAttachmentResponse(serializedSize);
-                }
+            if (metrics != null) {
+                metrics.recordGetAttachmentServiceDuration(System.nanoTime() - startTime);
+            }
+            var validations = response == null ? Validations.getDefaultInstance() : response;
+            var signed = signResponse(validations);
+            responseObserver.onNext(signed);
+            responseObserver.onCompleted();
+            if (metrics != null) {
+                final var serializedSize = validations.getSerializedSize();
+                metrics.recordOutboundBandwidth(serializedSize);
+                metrics.recordOutboundGetAttachmentResponse(serializedSize);
             }
         });
+    }
+
+    // -------------------------------------------------------------------------
+    // Signing helper
+    // -------------------------------------------------------------------------
+
+    /**
+     * Serialize a protobuf message and sign it, returning a {@link SignedDhtResponse}.
+     * If {@code signer} is null (legacy/unsigned mode), returns an unsigned response.
+     */
+    private SignedDhtResponse signResponse(MessageLite message) {
+        var content = message.toByteString();
+        var builder = SignedDhtResponse.newBuilder().setContent(content);
+        if (signer != null) {
+            try {
+                var signature = signer.sign(content);
+                builder.setSig(signature.toSig());
+            } catch (Exception e) {
+                log.warn("Failed to sign DHT read response on: {}", signer.getId(), e);
+                // Send unsigned — client will accept (Phase A accept-but-don't-require semantics)
+            }
+        }
+        return builder.build();
     }
 }

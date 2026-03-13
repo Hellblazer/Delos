@@ -9,6 +9,7 @@
 package com.hellblazer.delos.choam.support;
 
 import com.chiralbehaviors.tron.Fsm;
+import com.hellblazer.delos.choam.FeatureFlags;
 import com.hellblazer.delos.choam.fsm.Combine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -226,18 +227,32 @@ public class ValidatingCombineTransitions implements Combine.Transitions {
     }
 
     /**
-     * Handle a validation violation.
-     * Logs the violation and optionally throws based on configuration.
+     * Handle a validation violation according to the configured {@link FeatureFlags.ValidationMode}.
+     * <ul>
+     *   <li>{@link FeatureFlags.ValidationMode#LOG_ONLY} — log and continue (default)</li>
+     *   <li>{@link FeatureFlags.ValidationMode#ENFORCE} — log and throw {@link IllegalStateException}</li>
+     *   <li>{@link FeatureFlags.ValidationMode#METRICS_ONLY} — metrics already recorded by the
+     *       validator; suppress logging</li>
+     * </ul>
      *
      * @param result Validation result with violations
+     * @throws IllegalStateException in {@link FeatureFlags.ValidationMode#ENFORCE} mode
      */
     private void handleViolation(ValidationResult result) {
-        // Always log violations
-        log.warn("State machine validation violation: {}", result.toDetailedString());
-
-        // TODO: Add enforcement mode in Phase 3
-        // If FeatureFlags.STATE_VALIDATION.isEnforced():
-        //   throw new IllegalStateException("Validation violation: " + result);
+        var mode = FeatureFlags.ValidationMode.current();
+        switch (mode) {
+            case METRICS_ONLY -> {
+                // Metrics counter already incremented by StateTransitionValidator; nothing more to do.
+            }
+            case ENFORCE -> {
+                log.warn("State machine validation violation: {}", result.toDetailedString());
+                throw new IllegalStateException("Validation violation: " + result);
+            }
+            default -> {
+                // LOG_ONLY: log and continue
+                log.warn("State machine validation violation: {}", result.toDetailedString());
+            }
+        }
     }
 
     /**

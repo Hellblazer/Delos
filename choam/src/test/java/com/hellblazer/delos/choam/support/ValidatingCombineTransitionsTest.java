@@ -9,8 +9,10 @@
 package com.hellblazer.delos.choam.support;
 
 import com.chiralbehaviors.tron.Fsm;
+import com.hellblazer.delos.choam.FeatureFlags;
 import com.hellblazer.delos.choam.fsm.Combine;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -36,6 +38,14 @@ public class ValidatingCombineTransitionsTest {
     private java.util.concurrent.atomic.AtomicInteger snapshotCallCount;
     private Supplier<CHOAMStateSnapshot> snapshotSupplier;
     private ValidatingCombineTransitions validatingTransitions;
+
+    private static final String VALIDATION_MODE_PROPERTY = "feature.state.validation.mode";
+
+    @AfterEach
+    public void tearDown() {
+        // Clean up the validation mode system property after each test
+        System.clearProperty(VALIDATION_MODE_PROPERTY);
+    }
 
     @BeforeEach
     public void setup() {
@@ -344,6 +354,186 @@ public class ValidatingCombineTransitionsTest {
     public void testGetters() {
         assertEquals(mockDelegate, validatingTransitions.getDelegate());
         assertEquals(validator, validatingTransitions.getValidator());
+    }
+
+    // -----------------------------------------------------------------------
+    // Enforcement mode tests (Delos-izm.2.2)
+    // -----------------------------------------------------------------------
+
+    @Test
+    public void testEnforceMode_ViolationThrowsIllegalStateException() {
+        // Set ENFORCE mode via system property
+        System.setProperty(VALIDATION_MODE_PROPERTY, "ENFORCE");
+
+        // Create an invalid precondition: start() when already started
+        currentSnapshot = new CHOAMStateSnapshot(
+            true, false,  // already started - violates INITIAL→start precondition
+            false, null,
+            false, false, -1,
+            false, -1, 0,
+            0, false, false,
+            "INITIAL"
+        );
+
+        when(mockDelegate.start()).thenReturn(RECOVERING);
+
+        // In ENFORCE mode a violation must throw IllegalStateException
+        assertThrows(IllegalStateException.class, () -> validatingTransitions.start());
+
+        // Delegate should NOT have been called (exception before execution)
+        // Actually: precondition is checked before delegation, so delegate never called
+        verify(mockDelegate, never()).start();
+    }
+
+    @Test
+    public void testEnforceMode_ValidTransitionDoesNotThrow() {
+        // Set ENFORCE mode
+        System.setProperty(VALIDATION_MODE_PROPERTY, "ENFORCE");
+
+        // Valid precondition: start() when NOT started in INITIAL
+        var preSnapshot = new CHOAMStateSnapshot(
+            false, false,  // not started
+            false, null,
+            false, false, -1,
+            false, -1, 0,
+            0, false, false,
+            "INITIAL"
+        );
+        var postSnapshot = new CHOAMStateSnapshot(
+            true, false,
+            false, null,
+            false, false, -1,
+            false, -1, 0,
+            0, false, false,
+            "RECOVERING"
+        );
+
+        var snapshots = new java.util.ArrayDeque<>(java.util.List.of(preSnapshot, postSnapshot));
+        var validating = new ValidatingCombineTransitions(
+            mockDelegate, validator, snapshots::poll);
+
+        when(mockDelegate.start()).thenReturn(RECOVERING);
+
+        // Should not throw — no violations
+        assertDoesNotThrow(() -> validating.start());
+        verify(mockDelegate, times(1)).start();
+    }
+
+    @Test
+    public void testLogOnlyMode_ViolationDoesNotThrow() {
+        // LOG_ONLY is the default; set it explicitly for clarity
+        System.setProperty(VALIDATION_MODE_PROPERTY, "LOG_ONLY");
+
+        // Invalid precondition: already started
+        currentSnapshot = new CHOAMStateSnapshot(
+            true, false,
+            false, null,
+            false, false, -1,
+            false, -1, 0,
+            0, false, false,
+            "INITIAL"
+        );
+
+        when(mockDelegate.start()).thenReturn(RECOVERING);
+
+        // LOG_ONLY must not throw
+        assertDoesNotThrow(() -> validatingTransitions.start());
+
+        // Delegate was still called
+        verify(mockDelegate, times(1)).start();
+
+        // Violation counter was incremented by the validator
+        assertEquals(1, metrics.counter("validation.violations").count());
+    }
+
+    @Test
+    public void testMetricsOnlyMode_ViolationDoesNotLogButCounterIncremented() {
+        // Set METRICS_ONLY mode
+        System.setProperty(VALIDATION_MODE_PROPERTY, "METRICS_ONLY");
+
+        // Invalid precondition: already started
+        currentSnapshot = new CHOAMStateSnapshot(
+            true, false,
+            false, null,
+            false, false, -1,
+            false, -1, 0,
+            0, false, false,
+            "INITIAL"
+        );
+
+        when(mockDelegate.start()).thenReturn(RECOVERING);
+
+        // METRICS_ONLY must not throw
+        assertDoesNotThrow(() -> validatingTransitions.start());
+
+        // Delegate was still called
+        verify(mockDelegate, times(1)).start();
+
+        // Counter still incremented (by the validator before handleViolation is called)
+        assertEquals(1, metrics.counter("validation.violations").count());
+    }
+
+    @Test
+    public void testDefaultMode_IsLogOnly() {
+        // No system property set — should behave as LOG_ONLY
+        assertEquals(FeatureFlags.ValidationMode.LOG_ONLY,
+                     FeatureFlags.ValidationMode.current(),
+                     "Default validation mode should be LOG_ONLY");
+    }
+
+    @Test
+    public void testValidationMode_ParsesFromSystemProperty() {
+        System.setProperty(VALIDATION_MODE_PROPERTY, "ENFORCE");
+        assertEquals(FeatureFlags.ValidationMode.ENFORCE, FeatureFlags.ValidationMode.current());
+
+        System.setProperty(VALIDATION_MODE_PROPERTY, "METRICS_ONLY");
+        assertEquals(FeatureFlags.ValidationMode.METRICS_ONLY, FeatureFlags.ValidationMode.current());
+
+        System.setProperty(VALIDATION_MODE_PROPERTY, "LOG_ONLY");
+        assertEquals(FeatureFlags.ValidationMode.LOG_ONLY, FeatureFlags.ValidationMode.current());
+    }
+
+    @Test
+    public void testValidationMode_InvalidProperty_DefaultsToLogOnly() {
+        System.setProperty(VALIDATION_MODE_PROPERTY, "TOTALLY_INVALID");
+        assertEquals(FeatureFlags.ValidationMode.LOG_ONLY,
+                     FeatureFlags.ValidationMode.current(),
+                     "Invalid property value should fall back to LOG_ONLY");
+    }
+
+    @Test
+    public void testEnforceMode_PostconditionViolationAlsoThrows() {
+        // Set ENFORCE mode
+        System.setProperty(VALIDATION_MODE_PROPERTY, "ENFORCE");
+
+        // Valid precondition snapshot
+        var preSnapshot = new CHOAMStateSnapshot(
+            false, false,
+            false, null,
+            false, false, -1,
+            false, -1, 0,
+            0, false, false,
+            "INITIAL"
+        );
+        // Post-snapshot that violates postcondition: start() should set started=true
+        // but postSnapshot still shows started=false
+        var postSnapshot = new CHOAMStateSnapshot(
+            false, false,  // started still false — violates postcondition for start()
+            false, null,
+            false, false, -1,
+            false, -1, 0,
+            0, false, false,
+            "RECOVERING"
+        );
+
+        var snapshots = new java.util.ArrayDeque<>(java.util.List.of(preSnapshot, postSnapshot));
+        var validating = new ValidatingCombineTransitions(
+            mockDelegate, validator, snapshots::poll);
+
+        when(mockDelegate.start()).thenReturn(RECOVERING);
+
+        // Postcondition violation must also throw in ENFORCE mode
+        assertThrows(IllegalStateException.class, () -> validating.start());
     }
 
     @Test
