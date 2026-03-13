@@ -28,6 +28,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -78,6 +79,10 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
     private final long serviceStartTime = System.currentTimeMillis();
     private long totalReceiptsIssued = 0;
     private String lastErrorMessage = "";
+
+    // Receipt latency tracking (running sum + count for average computation)
+    private final AtomicLong receiptLatencyTotalMs = new AtomicLong(0);
+    private final AtomicLong completedReceiptCount = new AtomicLong(0);
 
     /**
      * Create WitnessServiceImpl with migration compatibility support.
@@ -288,11 +293,13 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
 
             log.debug("GetAggregateReceipt: event={}, timeout={}ms", eventCoordinates, timeoutMs);
 
-            // Try immediate retrieval
+            // Try immediate retrieval (track start time for latency measurement)
+            long requestStartMs = System.currentTimeMillis();
             var aggregateReceiptOpt = receiptManager.getAggregateReceipt(eventCoordinates);
 
             if (aggregateReceiptOpt.isPresent()) {
-                // Found immediately - return
+                // Found immediately - record near-zero latency and return
+                recordReceiptLatency(System.currentTimeMillis() - requestStartMs);
                 returnAggregateReceipt(aggregateReceiptOpt.get(), responseObserver);
                 return;
             }
@@ -312,6 +319,7 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
             }
 
             if (found) {
+                recordReceiptLatency(System.currentTimeMillis() - requestStartMs);
                 returnAggregateReceipt(aggregateReceiptOpt.get(), responseObserver);
             } else {
                 // Timeout
@@ -616,8 +624,7 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
             .setStatus(mapStateToValidationStatus(sequence.state()))
             .setRequiredThreshold(parameters.threshold());
 
-        // TODO Phase 1A-3: Get actual signature count from WitnessReceiptManager
-        // For now, use placeholder based on state
+        // Use state-based estimate; TransactionSequence carries state but not raw signature count
         int sigCount = estimateSignatureCount(sequence.state());
         builder.setSignatureCount(sigCount);
 
@@ -643,10 +650,20 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
 
     /**
      * Estimate signature count based on collection state.
-     * TODO Phase 1A-3: Replace with actual signature count from WitnessReceiptManager.
+     * <p>
+     * Returns a state-based estimate since {@code TransactionSequence} does not
+     * carry a per-signature counter. Callers that need the exact count should
+     * retrieve the {@code WitnessStateMachine.ReceiptState} directly via the
+     * receipt manager.
+     * <ul>
+     *   <li>INITIATING: 0 — no signatures yet</li>
+     *   <li>COLLECTING: threshold/2 — midpoint best-effort estimate</li>
+     *   <li>THRESHOLD_MET / COMPLETE: threshold — at least threshold signatures present</li>
+     *   <li>TIMEOUT / FAILED: 0 — collection did not succeed</li>
+     * </ul>
      *
-     * @param state Collection state
-     * @return Estimated signature count
+     * @param state Collection state from the CHOAM transaction sequence
+     * @return State-based signature count estimate
      */
     private int estimateSignatureCount(WitnessStateMachine.ReceiptCollectionState state) {
         return switch (state) {
@@ -661,15 +678,55 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
     /**
      * Matches a collection against a ReceiptFilter.
      * Filters by controller, sequence range, ilk type, and epoch.
+     * <p>
+     * Mirrors the logic in {@link #matchesAggregateFilter} applied to
+     * {@link WitnessStateMachine.ReceiptState} fields.
      *
-     * @param filter Filter criteria
-     * @param collection Collection to check
-     * @return true if collection matches filter
+     * @param filter     Filter criteria (all fields optional; absent/zero means no constraint)
+     * @param collection Collection state to check
+     * @return true if collection matches all specified filter criteria
      */
     private boolean matchesFilter(ReceiptFilter filter, WitnessStateMachine.ReceiptState collection) {
-        // TODO Phase 1A-3: Implement full filtering logic when EventCoordinates available
-        // For now, accept all collections (no filtering)
-        return true;
+        var coords = collection.eventCoordinates();
+
+        // Filter by controller (identifier)
+        if (filter.getControllersCount() > 0) {
+            var eventIdentProto = coords.getIdentifier().toIdent();
+            boolean matchesController = false;
+            for (var filterIdent : filter.getControllersList()) {
+                if (eventIdentProto.equals(filterIdent)) {
+                    matchesController = true;
+                    break;
+                }
+            }
+            if (!matchesController) {
+                return false;
+            }
+        }
+
+        // Filter by sequence range
+        long sequence = coords.getSequenceNumber().longValue();
+        if (filter.getMinSequence() > 0 && sequence < filter.getMinSequence()) {
+            return false;
+        }
+        if (filter.getMaxSequence() > 0 && sequence > filter.getMaxSequence()) {
+            return false;
+        }
+
+        // Filter by ilk (event type)
+        if (filter.getIlksCount() > 0) {
+            String eventIlk = coords.getIlk();
+            if (!filter.getIlksList().contains(eventIlk)) {
+                return false;
+            }
+        }
+
+        // Filter by epoch
+        if (filter.getEpoch() > 0 && collection.epoch() != filter.getEpoch()) {
+            return false;
+        }
+
+        return true;  // Matches all criteria
     }
 
     /**
@@ -783,6 +840,16 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
     }
 
     /**
+     * Record the latency of a completed receipt retrieval into the running average.
+     *
+     * @param latencyMs Elapsed milliseconds from request start to receipt delivery
+     */
+    private void recordReceiptLatency(long latencyMs) {
+        receiptLatencyTotalMs.addAndGet(latencyMs);
+        completedReceiptCount.incrementAndGet();
+    }
+
+    /**
      * Subscription record for tracking active receipt subscriptions.
      */
     private record ReceiptSubscription(
@@ -879,8 +946,11 @@ public class WitnessServiceImpl extends WitnessServiceGrpc.WitnessServiceImplBas
 
             var stats = witnessCHOAM.getStatistics();
 
-            // Calculate average receipt latency (for now, placeholder)
-            double avgLatencyMs = 0.0;  // TODO Phase 1A-3: Get actual latency metrics
+            // Compute average receipt latency from running sum and count
+            long completed = completedReceiptCount.get();
+            double avgLatencyMs = completed > 0
+                ? (double) receiptLatencyTotalMs.get() / completed
+                : 0.0;
 
             var response = HealthStatus.newBuilder()
                 .setEpoch(parameters.epoch())
