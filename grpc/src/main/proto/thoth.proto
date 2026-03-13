@@ -13,8 +13,16 @@ import "crypto.proto";
 
 package thoth;
 
-// Phase A: Read operations return SignedDhtResponse (serialized inner type + optional Sig).
-// Write operations remain unchanged (Sig field not yet applied to mutation acks).
+// ─── KerlDht ─────────────────────────────────────────────────────────────────
+// DHT-distributed KERL access.  Mirrors stereotomy-services.proto's KERLService
+// with two differences:
+//   1. Read RPCs return SignedDhtResponse (BLS-signed envelope) for Byzantine
+//      response verification (Phase A).  Write RPCs reuse KERLService's message
+//      types directly via stereotomy.services.* imports.
+//   2. getKeyEvent(Digeste) is omitted — DHT does not expose digest-based lookups.
+// Proto3 does not support service inheritance, so the RPC duplication is
+// structural and intentional.  Keep KERLService in sync when adding/removing RPCs.
+// ─────────────────────────────────────────────────────────────────────────────
 service KerlDht {
   rpc append (stereotomy.services.KeyEventsContext) returns (stereotomy.services.KeyStates) {}
   rpc appendKERL (stereotomy.services.KERLContext) returns (stereotomy.services.KeyStates) {}

@@ -11,6 +11,14 @@ import "stereotomy.proto";
 
 package stereotomy.services;
 
+// ─── Shared KERL message types ───────────────────────────────────────────────
+// These message types are shared with thoth.proto's KerlDht service, which
+// imports this file and references them as stereotomy.services.*.
+// KerlDht adds DHT distribution (quorum reads/writes, reconciliation) on top
+// of the same KERL operations.  If you add or modify message types here,
+// verify thoth.proto's KerlDht service is updated accordingly.
+// ─────────────────────────────────────────────────────────────────────────────
+
 message KeyStates {
   repeated KeyState_ keyStates = 1;
 }
@@ -43,6 +51,16 @@ message AttachmentEvents {
   repeated AttachmentEvent attachments = 1;
 }
 
+// ─── KERLService ─────────────────────────────────────────────────────────────
+// Direct KERL access.  thoth.proto's KerlDht mirrors these RPCs with two
+// differences:
+//   1. Read RPCs return SignedDhtResponse (BLS-signed envelope) instead of
+//      unwrapped types — this is intentional for Byzantine response verification.
+//   2. KerlDht omits getKeyEvent(Digeste) — DHT doesn't expose digest-based
+//      lookups.
+// Proto3 does not support service inheritance, so the RPC duplication is
+// structural and intentional.  Keep KerlDht in sync when adding/removing RPCs.
+// ─────────────────────────────────────────────────────────────────────────────
 service KERLService {
   rpc append (KeyEventsContext) returns(KeyStates) {}
   rpc appendKERL (KERLContext) returns(KeyStates) {}
