@@ -8,12 +8,14 @@
 package com.hellblazer.delos.witness.aggregation.recursive;
 
 import com.hellblazer.delos.cryptography.Digest;
+import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.cryptography.bls.BLSAggregate;
 import com.hellblazer.delos.cryptography.bls.BLSOperations;
 import com.hellblazer.delos.cryptography.bls.BLSSignature;
 import com.hellblazer.delos.witness.aggregation.HierarchicalAggregate;
 import com.hellblazer.delos.witness.aggregation.TreeNode;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -403,10 +405,11 @@ public class RecursiveProofValidator {
             // Unchanged links have no new signature to verify
         }
 
-        // Step 3: Verify base hierarchical aggregate
+        // Step 3: Verify base hierarchical aggregate (thread rootHashLookup for leaf message construction)
         var aggregateResult = verifyHierarchicalAggregateBLS(
             receipt.baseAggregate(),
             keyResolver,
+            rootHashLookup,
             gracePeriodLookup
         );
         if (!aggregateResult.isValid()) {
@@ -627,7 +630,7 @@ public class RecursiveProofValidator {
      * <strong>Example</strong>:
      * <pre>{@code
      * var aggregate = receipt.baseAggregate();
-     * var result = validator.verifyHierarchicalAggregateBLS(aggregate, keyResolver, graceLookup);
+     * var result = validator.verifyHierarchicalAggregateBLS(aggregate, keyResolver, rootHashLookup, graceLookup);
      *
      * if (!result.isValid()) {
      *     // Identify which subtree failed
@@ -640,6 +643,7 @@ public class RecursiveProofValidator {
      *
      * @param aggregate The hierarchical aggregate to verify
      * @param keyResolver Committee key resolver
+     * @param rootHashLookup Function to get computed root hash for epochs (for leaf message construction)
      * @param gracePeriodLookup Lookup for deprecated keys
      * @return ValidationResult indicating success or failure
      * @throws NullPointerException if any parameter is null
@@ -647,10 +651,12 @@ public class RecursiveProofValidator {
     public ValidationResult verifyHierarchicalAggregateBLS(
         HierarchicalAggregate aggregate,
         RecursiveKeyResolver keyResolver,
+        Function<Long, Digest> rootHashLookup,
         GracePeriodKeyLookup gracePeriodLookup
     ) {
         Objects.requireNonNull(aggregate, "aggregate cannot be null");
         Objects.requireNonNull(keyResolver, "keyResolver cannot be null");
+        Objects.requireNonNull(rootHashLookup, "rootHashLookup cannot be null");
         Objects.requireNonNull(gracePeriodLookup, "gracePeriodLookup cannot be null");
 
         // Structural validation first
@@ -659,8 +665,8 @@ public class RecursiveProofValidator {
             return structuralResult;
         }
 
-        // Recursively verify root node and all children
-        return verifyTreeNodeBLS(aggregate.root(), keyResolver, gracePeriodLookup);
+        // Recursively verify root node and all children (rootHashLookup threaded for leaf message construction)
+        return verifyTreeNodeBLS(aggregate.root(), keyResolver, rootHashLookup, gracePeriodLookup);
     }
 
     /**
@@ -697,16 +703,19 @@ public class RecursiveProofValidator {
      *
      * @param node The tree node to verify
      * @param keyResolver Committee key resolver
+     * @param rootHashLookup Function to get computed root hash for epochs (for leaf message construction)
      * @param gracePeriodLookup Lookup for deprecated keys
      * @return ValidationResult indicating success or failure
      */
     private ValidationResult verifyTreeNodeBLS(
         TreeNode node,
         RecursiveKeyResolver keyResolver,
+        Function<Long, Digest> rootHashLookup,
         GracePeriodKeyLookup gracePeriodLookup
     ) {
         Objects.requireNonNull(node, "node cannot be null");
         Objects.requireNonNull(keyResolver, "keyResolver cannot be null");
+        Objects.requireNonNull(rootHashLookup, "rootHashLookup cannot be null");
         Objects.requireNonNull(gracePeriodLookup, "gracePeriodLookup cannot be null");
 
         return switch (node) {
@@ -717,9 +726,9 @@ public class RecursiveProofValidator {
                     yield formatResult;
                 }
 
-                // Extract epoch and committee index from committeeEpoch
-                // TODO: Define proper encoding/decoding for committeeEpoch
-                // For now, use committeeEpoch as epoch and leaf.index() as committee index
+                // committeeEpoch encoding: committeeEpoch field directly encodes the epoch number.
+                // leaf.index() provides the committee index within that epoch.
+                // This is the canonical encoding per design doc (2026-03-12).
                 var epochNumber = leaf.committeeEpoch();
                 var committeeIndex = leaf.index();
 
@@ -748,9 +757,10 @@ public class RecursiveProofValidator {
                 // Construct BLSAggregate from leaf fields
                 var aggregate = new BLSAggregate(leaf.aggregatedSignature(), leaf.signerBitmap());
 
-                // TODO: Message construction - need to know what message was signed
-                // For now, use a placeholder. In practice, this would be the event digest.
-                var message = new byte[32]; // Placeholder
+                // Leaf message: the epoch message that was signed by this committee.
+                // Uses committeeEpoch and the root hash for that epoch (from rootHashLookup).
+                var rootHashForEpoch = rootHashLookup.apply(epochNumber);
+                var message = constructEpochMessage(epochNumber, rootHashForEpoch);
 
                 // Verify with active keys
                 var verified = BLSOperations.verifyAggregate(keys, message, aggregate);
@@ -789,8 +799,9 @@ public class RecursiveProofValidator {
                     yield formatResult;
                 }
 
-                // For intermediate nodes, extract epoch from first child
-                // TODO: Define proper epoch resolution for intermediate nodes
+                // Epoch resolution: intermediate nodes derive epoch from first child.
+                // All children in a well-formed tree share the same epoch.
+                // TODO validation: assert all children have consistent epochs.
                 var epochNumber = extractEpochFromNode(intermediate);
                 var parentCommitteeIndex = intermediate.index();
 
@@ -815,22 +826,142 @@ public class RecursiveProofValidator {
                     );
                 }
 
-                // TODO: Message and aggregate construction for intermediate nodes
-                // This requires understanding how intermediate signatures are aggregated
-                var message = new byte[32]; // Placeholder
+                // Intermediate message: hash of concatenated child signature hashes.
+                // Each child's contribution is the hash of its aggregated signature bytes,
+                // chained together and hashed again for the parent level.
+                var message = constructIntermediateMessage(intermediate);
 
-                // Recursively verify all children first
+                // Recursively verify all children first (fail fast on first invalid child)
                 for (var child : intermediate.children()) {
-                    var childResult = verifyTreeNodeBLS(child, keyResolver, gracePeriodLookup);
+                    var childResult = verifyTreeNodeBLS(child, keyResolver, rootHashLookup, gracePeriodLookup);
                     if (!childResult.isValid()) {
                         yield childResult;
                     }
                 }
 
-                // All children verified, node is valid
-                yield ValidationResult.valid();
+                // All children valid; now verify this node's own aggregated signature
+                var bitmap = aggregateChildBitmaps(intermediate);
+                var nodeAggregate = new BLSAggregate(intermediate.aggregatedSignature(), bitmap);
+                var nodeVerified = BLSOperations.verifyAggregate(keys, message, nodeAggregate);
+                if (nodeVerified) {
+                    yield ValidationResult.valid();
+                }
+
+                // Try grace period keys
+                var deprecatedKeys = gracePeriodLookup.getDeprecatedKeys(epochNumber, parentCommitteeIndex);
+                if (!deprecatedKeys.isEmpty()) {
+                    var graceVerified = BLSOperations.verifyAggregate(deprecatedKeys, message, nodeAggregate);
+                    if (graceVerified) {
+                        yield ValidationResult.valid();
+                    } else {
+                        yield new ValidationResult.VerificationFailure(
+                            "Grace period keys also failed for intermediate node at depth " + intermediate.depth(),
+                            parentCommitteeIndex,
+                            epochNumber,
+                            BLSVerificationReason.GRACE_PERIOD_EXPIRED
+                        );
+                    }
+                } else {
+                    yield new ValidationResult.VerificationFailure(
+                        "Intermediate node BLS verification failed at depth " + intermediate.depth(),
+                        parentCommitteeIndex,
+                        epochNumber,
+                        BLSVerificationReason.AGGREGATE_MISMATCH
+                    );
+                }
             }
         };
+    }
+
+    /**
+     * Extract signature bytes from any TreeNode variant.
+     * <p>
+     * Used to compute per-child contributions to the intermediate node's message.
+     *
+     * @param node The tree node
+     * @return Raw bytes of the node's aggregated BLS signature
+     */
+    private byte[] extractSignatureBytes(TreeNode node) {
+        return switch (node) {
+            case TreeNode.LeafNode leaf -> leaf.aggregatedSignature().toBytes();
+            case TreeNode.IntermediateNode intermediate -> intermediate.aggregatedSignature().toBytes();
+        };
+    }
+
+    /**
+     * Construct the message for an intermediate node's BLS verification.
+     * <p>
+     * The intermediate message is the hash of concatenated per-child signature hashes:
+     * {@code BLAKE2B_256( Hash(child[0].sig) || Hash(child[1].sig) || ... )}
+     * <p>
+     * This binds the intermediate signature to the exact set of child signatures it aggregates.
+     *
+     * @param intermediate The intermediate node
+     * @return The constructed message bytes
+     */
+    private byte[] constructIntermediateMessage(TreeNode.IntermediateNode intermediate) {
+        var childData = ByteBuffer.allocate(intermediate.children().size() * DigestAlgorithm.DEFAULT.digestLength());
+        for (var child : intermediate.children()) {
+            var childSigBytes = extractSignatureBytes(child);
+            childData.put(DigestAlgorithm.DEFAULT.digest(childSigBytes).getBytes());
+        }
+        return DigestAlgorithm.DEFAULT.digest(childData.array()).getBytes();
+    }
+
+    /**
+     * Aggregate signer bitmaps from all descendant leaf nodes.
+     * <p>
+     * IntermediateNode does not carry its own signerBitmap, so we construct one
+     * by OR-combining all descendant {@link TreeNode.LeafNode#signerBitmap()} fields.
+     * This produces a bitmap representing all signers in the subtree.
+     * <p>
+     * The resulting bitmap is sized to cover all leaf bitmaps (max length, zero-extended).
+     *
+     * @param intermediate The intermediate node
+     * @return Combined signer bitmap covering all leaf descendants
+     */
+    private byte[] aggregateChildBitmaps(TreeNode.IntermediateNode intermediate) {
+        int maxLen = 1;
+        // First pass: find maximum bitmap length across all leaf descendants
+        for (var child : intermediate.children()) {
+            maxLen = Math.max(maxLen, findMaxBitmapLength(child));
+        }
+        var combined = new byte[maxLen];
+        // Second pass: OR all leaf bitmaps into combined
+        orBitmapsInto(combined, intermediate);
+        return combined;
+    }
+
+    /**
+     * Find the maximum signerBitmap length across all leaf descendants of a node.
+     */
+    private int findMaxBitmapLength(TreeNode node) {
+        return switch (node) {
+            case TreeNode.LeafNode leaf -> leaf.signerBitmap().length;
+            case TreeNode.IntermediateNode intermediate -> intermediate.children().stream()
+                .mapToInt(this::findMaxBitmapLength)
+                .max()
+                .orElse(1);
+        };
+    }
+
+    /**
+     * OR all leaf signerBitmaps in the subtree into the destination array.
+     */
+    private void orBitmapsInto(byte[] dest, TreeNode node) {
+        switch (node) {
+            case TreeNode.LeafNode leaf -> {
+                var bitmap = leaf.signerBitmap();
+                for (int i = 0; i < bitmap.length; i++) {
+                    dest[i] |= bitmap[i];
+                }
+            }
+            case TreeNode.IntermediateNode intermediate -> {
+                for (var child : intermediate.children()) {
+                    orBitmapsInto(dest, child);
+                }
+            }
+        }
     }
 
     /**
@@ -987,26 +1118,94 @@ public class RecursiveProofValidator {
             return formatResult;
         }
 
-        // For intermediate nodes, we need to determine which committee level this represents
-        // and get appropriate keys. For now, return valid as structure is sound.
-        // TODO: Implement proper intermediate node verification when message construction is defined
-        return ValidationResult.valid();
+        // Use depth and index to identify this node within the path hierarchy for key lookup.
+        // Proof path intermediate aggregations use index as the committee identifier.
+        var epochNumber = 0L; // proof path intermediate nodes use epoch context from surrounding path
+        var committeeIndex = intermediate.index();
+
+        // Get committee keys for this intermediate aggregation node
+        List<com.hellblazer.delos.cryptography.bls.BLSPublicKey> keys;
+        try {
+            keys = keyResolver.getCommitteeKeys(epochNumber, committeeIndex);
+            if (keys == null || keys.isEmpty()) {
+                return new ValidationResult.KeyResolutionFailure(
+                    "No keys for proof path intermediate node at depth " + intermediate.depth(),
+                    epochNumber,
+                    committeeIndex,
+                    KeyResolutionReason.KEYS_NOT_FOUND
+                );
+            }
+        } catch (Exception e) {
+            return new ValidationResult.KeyResolutionFailure(
+                "Key resolver error for proof path intermediate node: " + e.getMessage(),
+                epochNumber,
+                committeeIndex,
+                KeyResolutionReason.KEY_RESOLVER_ERROR
+            );
+        }
+
+        // Construct message from child hashes (each child hash is a Digest = 32 bytes for BLAKE2B_256)
+        var childData = ByteBuffer.allocate(intermediate.childHashes().size() * DigestAlgorithm.DEFAULT.digestLength());
+        for (var childHash : intermediate.childHashes()) {
+            childData.put(childHash.getBytes());
+        }
+        var nodeMessage = DigestAlgorithm.DEFAULT.digest(childData.array()).getBytes();
+
+        // Build a bitmap that indicates all positions are signers (full participation for path nodes)
+        var bitmap = new byte[]{(byte) 0xFF};
+        var aggregate = new BLSAggregate(intermediate.aggregatedSignature(), bitmap);
+
+        // Verify with active keys using the child-hash-derived message
+        var verified = BLSOperations.verifyAggregate(keys, nodeMessage, aggregate);
+        if (verified) {
+            return ValidationResult.valid();
+        }
+
+        // Try grace period keys
+        var deprecatedKeys = gracePeriodLookup.getDeprecatedKeys(epochNumber, committeeIndex);
+        if (!deprecatedKeys.isEmpty()) {
+            var graceVerified = BLSOperations.verifyAggregate(deprecatedKeys, nodeMessage, aggregate);
+            if (graceVerified) {
+                return ValidationResult.valid();
+            } else {
+                return new ValidationResult.VerificationFailure(
+                    "Grace period keys also failed for proof path intermediate node at depth " + intermediate.depth(),
+                    committeeIndex,
+                    epochNumber,
+                    BLSVerificationReason.GRACE_PERIOD_EXPIRED
+                );
+            }
+        } else {
+            return new ValidationResult.VerificationFailure(
+                "Intermediate aggregation BLS verification failed at depth " + intermediate.depth(),
+                committeeIndex,
+                epochNumber,
+                BLSVerificationReason.AGGREGATE_MISMATCH
+            );
+        }
     }
 
     /**
      * Construct epoch-specific message for epoch link verification.
      * <p>
      * Creates the message that was signed by the committee for this epoch.
-     * Format: Hash(epoch_number || previous_root_hash)
+     * Format: BLAKE2B_256(epoch_number_8bytes_BE || previous_root_hash.bytes)
+     * <p>
+     * This binding prevents replay attacks across epochs and ensures chain continuity.
      *
-     * @param epochNumber The epoch number
-     * @param previousRootHash The previous root hash
-     * @return The constructed message bytes
+     * @param epochNumber The epoch number (encoded as 8-byte big-endian)
+     * @param previousRootHash The previous root hash (hash bytes)
+     * @return The constructed message bytes (32-byte BLAKE2B_256 digest)
      */
     private byte[] constructEpochMessage(long epochNumber, Digest previousRootHash) {
-        // TODO: Implement proper message construction
-        // For now, return a placeholder
-        return new byte[32];
+        // Canonical epoch message: BLAKE2B_256(epochNumber_8bytes_BE || previousRootHash.bytes)
+        // This binds each epoch's message to both its number and the previous state,
+        // preventing replay attacks and ensuring chain continuity.
+        var rootHashBytes = previousRootHash.getBytes();
+        var buffer = ByteBuffer.allocate(8 + rootHashBytes.length);
+        buffer.putLong(epochNumber);  // 8 bytes big-endian
+        buffer.put(rootHashBytes);
+        return DigestAlgorithm.DEFAULT.digest(buffer.array()).getBytes();
     }
 
     /**
