@@ -13,6 +13,8 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
@@ -215,7 +217,7 @@ public class InMemoryNonceVerifier implements NonceVerifier {
 
         // Collect all entries sorted by expiry ascending (oldest first)
         var entries = new ArrayList<>(nonceMap.entrySet());
-        entries.sort(java.util.Comparator.comparingLong(java.util.Map.Entry::getValue));
+        entries.sort(Comparator.comparingLong(Map.Entry::getValue));
 
         int evicted = 0;
         for (var entry : entries) {

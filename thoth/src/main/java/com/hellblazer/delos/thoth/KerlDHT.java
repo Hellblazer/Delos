@@ -318,7 +318,7 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
     }
 
     /**
-     * Validates response freshness using timestamp comparison (Phase 2).
+     * Validates response freshness using timestamp comparison and cryptographic nonce verification.
      *
      * <h3>Phase 2: Timestamp freshness</h3>
      * <p>Responses older than {@code operationTimeout} are rejected as stale. This mitigates
