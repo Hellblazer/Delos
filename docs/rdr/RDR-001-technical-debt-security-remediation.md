@@ -2,8 +2,10 @@
 title: "Technical Debt & Security Gap Remediation"
 id: RDR-001
 type: design
-status: accepted
+status: closed
 accepted_date: 2026-03-12
+closed_date: 2026-03-14
+close_reason: implemented
 reviewed-by: self
 priority: P1
 created: 2026-03-12
