@@ -96,10 +96,11 @@ public class CommitteeTest {
     }
 
     /**
-     * Test that validators without consensus keys are rejected when feature flag is enabled.
+     * Test that validators without consensus keys are excluded and BFT sufficiency is checked.
+     * With 4 validators (BFT minimum), excluding 1 drops below BFT threshold → throws.
      */
     @Test
-    public void testStrictValidationRejectsValidatorsWithoutKeys() {
+    public void testStrictValidationExcludesValidatorsWithoutKeys() {
         // Enable strict validation
         FeatureFlags.VERIFIER_VALIDATION.setEnabled(true);
 
@@ -111,15 +112,13 @@ public class CommitteeTest {
             createViewMember(member4.getId(), generateFakeConsensusKey())
         );
 
-        // Should throw exception for validator without key
+        // Should throw because excluding 1 of 4 drops below BFT threshold (need >= 4)
         var exception = assertThrows(IllegalStateException.class, () -> {
             Committee.validatorsOf(reconfigure, context, member1.getId(), log);
         });
 
-        assertTrue(exception.getMessage().contains("Validator missing consensus key"),
-                   "Exception should indicate missing consensus key");
-        assertTrue(exception.getMessage().contains(member1.getId().toString()),
-                   "Exception should identify the problematic validator");
+        assertTrue(exception.getMessage().contains("Insufficient BFT validators"),
+                   "Exception should indicate insufficient BFT validators");
     }
 
     /**
@@ -160,11 +159,10 @@ public class CommitteeTest {
     }
 
     /**
-     * Test grace period documentation: validators without keys are rejected immediately,
-     * but grace period is documented for operational awareness (30s for slow publishers).
+     * Test that excluding a validator below BFT threshold reports the deficit.
      */
     @Test
-    public void testGracePeriodDocumentationInErrorMessage() {
+    public void testExcludingValidatorBelowBftThresholdReportsDeficit() {
         // Enable strict validation
         FeatureFlags.VERIFIER_VALIDATION.setEnabled(true);
 
@@ -175,7 +173,7 @@ public class CommitteeTest {
         context = new StaticContext<>(DigestAlgorithm.DEFAULT.getOrigin(), 0.1,
                                       List.of(member1, member2, member3, latePublisher), 3);
 
-        // Create reconfigure WITHOUT consensus key
+        // Create reconfigure WITHOUT consensus key for latePublisher
         var reconfigure = createReconfigure(
             createViewMember(member1.getId(), generateFakeConsensusKey()),
             createViewMember(member2.getId(), generateFakeConsensusKey()),
@@ -183,33 +181,32 @@ public class CommitteeTest {
             createViewMember(latePublisher.getId(), null)  // No key
         );
 
-        // Should reject immediately with grace period documentation in log
+        // Should throw because 3 remaining is below BFT threshold
         var exception = assertThrows(IllegalStateException.class, () -> {
             Committee.validatorsOf(reconfigure, context, member1.getId(), log);
         });
 
-        // Verify exception message
-        assertTrue(exception.getMessage().contains("Validator missing consensus key"),
-                   "Exception should indicate missing consensus key");
+        assertTrue(exception.getMessage().contains("Insufficient BFT validators"),
+                   "Exception should indicate insufficient BFT validators");
     }
 
     /**
-     * Test Byzantine monitoring: rejection rate exceeding 1% should trigger alert.
+     * Test Byzantine monitoring: validators missing keys are excluded and counted.
+     * When exclusions drop the set below BFT, an exception is thrown.
      */
     @Test
-    public void testByzantineMonitoringAlertsOnHighRejectionRate() {
+    public void testByzantineMonitoringCountsExclusions() {
         // Enable strict validation
         FeatureFlags.VERIFIER_VALIDATION.setEnabled(true);
 
-        // Track rejection rate
+        // Track how many iterations fail BFT threshold
         AtomicInteger totalValidations = new AtomicInteger(0);
-        AtomicInteger rejections = new AtomicInteger(0);
+        AtomicInteger bftFailures = new AtomicInteger(0);
 
-        // Simulate 100 validation attempts with 5% rejection rate (exceeds 1% threshold)
+        // Simulate 100 validation attempts — 5% have a missing key
         for (int i = 0; i < 100; i++) {
             totalValidations.incrementAndGet();
 
-            // 5% of validators lack consensus keys
             boolean hasKey = i % 20 != 0;
             var reconfigure = createReconfigure(
                 createViewMember(member1.getId(), hasKey ? generateFakeConsensusKey() : null),
@@ -219,28 +216,18 @@ public class CommitteeTest {
             );
 
             if (!hasKey) {
-                rejections.incrementAndGet();
-                try {
+                bftFailures.incrementAndGet();
+                // 1 of 4 excluded → 3 remaining → below BFT threshold → throws
+                assertThrows(IllegalStateException.class, () -> {
                     Committee.validatorsOf(reconfigure, context, member1.getId(), log);
-                    fail("Should have thrown exception for missing key");
-                } catch (IllegalStateException e) {
-                    // Expected
-                }
+                });
             } else {
-                // Should succeed
                 var validators = Committee.validatorsOf(reconfigure, context, member1.getId(), log);
                 assertNotNull(validators);
             }
         }
 
-        // Verify rejection rate
-        double rejectionRate = (double) rejections.get() / totalValidations.get();
-        assertTrue(rejectionRate > 0.01,
-                   "Rejection rate should exceed 1% threshold: " + (rejectionRate * 100) + "%");
-
-        // In production, this would trigger Byzantine alert logging
-        // We verify the rate calculation here
-        assertEquals(5, rejections.get(), "Should have 5 rejections out of 100");
+        assertEquals(5, bftFailures.get(), "Should have 5 BFT failures out of 100");
     }
 
     /**
@@ -278,7 +265,7 @@ public class CommitteeTest {
      */
     @Test
     public void testFeatureFlagRuntimeToggle() {
-        // Create reconfigure with validator lacking consensus key
+        // Create reconfigure with validator lacking consensus key (1 of 4 missing)
         var reconfigure = createReconfigure(
             createViewMember(member1.getId(), null),  // No consensus key
             createViewMember(member2.getId(), generateFakeConsensusKey()),
@@ -286,7 +273,7 @@ public class CommitteeTest {
             createViewMember(member4.getId(), generateFakeConsensusKey())
         );
 
-        // Feature flag enabled by default: should throw exception (secure by default)
+        // Feature flag enabled by default: should throw (excluded drops below BFT)
         assertTrue(FeatureFlags.VERIFIER_VALIDATION.isEnabled());
         assertThrows(IllegalStateException.class, () -> {
             Committee.validatorsOf(reconfigure, context, member1.getId(), log);
@@ -304,7 +291,7 @@ public class CommitteeTest {
         FeatureFlags.VERIFIER_VALIDATION.setEnabled(true);
         assertTrue(FeatureFlags.VERIFIER_VALIDATION.isEnabled());
 
-        // Back to throwing
+        // Back to throwing (excluded drops below BFT)
         assertThrows(IllegalStateException.class, () -> {
             Committee.validatorsOf(reconfigure, context, member1.getId(), log);
         });

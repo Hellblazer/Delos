@@ -99,30 +99,27 @@ public class CommitteeValidationTest {
     }
 
     @Test
-    public void testValidatorsOf_throwsWhenValidatorNotFound() {
+    public void testValidatorsOf_throwsWhenExclusionDropsBelowBft() {
         FeatureFlags.VERIFIER_VALIDATION.setEnabled(true);
         try {
             var reconfigure = createReconfigureWithoutConsensusKey(members.get(0));
             var exception = assertThrows(
                 IllegalStateException.class,
                 () -> Committee.validatorsOf(reconfigure, context, members.get(1).getId(), log),
-                "Expected validatorsOf to throw when validator lacks consensus key"
+                "Expected validatorsOf to throw when exclusion drops below BFT"
             );
-            // Check exception message contains indication of missing key
             var message = exception.getMessage();
             log.info("Exception message: {}", message);
-            assertTrue(message.contains("missing consensus key") ||
-                      message.contains("lacks consensus key") ||
-                      message.contains("after grace period"),
-                      "Exception message should indicate missing consensus key. Actual: " + message);
-            log.info("✓ Test 1 passed: Strict validation prevents NO_VERIFIER bypass");
+            assertTrue(message.contains("Insufficient BFT validators"),
+                      "Exception message should indicate insufficient BFT validators. Actual: " + message);
+            log.info("✓ Test 1 passed: Strict validation excludes keyless validators and checks BFT");
         } finally {
             FeatureFlags.VERIFIER_VALIDATION.setEnabled(false);
         }
     }
 
     @Test
-    public void testValidatorsOf_gracePeriodForSlowValidator() {
+    public void testValidatorsOf_exclusionIsImmediate() {
         FeatureFlags.VERIFIER_VALIDATION.setEnabled(true);
         try {
             var slowValidator = members.get(1);
@@ -130,12 +127,12 @@ public class CommitteeValidationTest {
             var startTime = System.currentTimeMillis();
             try {
                 Committee.validatorsOf(reconfigureWithoutKey, context, members.get(2).getId(), log);
-                fail("Should have thrown during grace period");
+                fail("Should have thrown when exclusion drops below BFT");
             } catch (IllegalStateException e) {
                 var elapsed = System.currentTimeMillis() - startTime;
-                assertTrue(elapsed < 5000, "Should fail quickly if no grace period mechanism");
+                assertTrue(elapsed < 5000, "Exclusion and BFT check should be immediate");
             }
-            log.info("✓ Test 2 passed: Grace period mechanism present");
+            log.info("✓ Test 2 passed: Validator exclusion is immediate");
         } finally {
             FeatureFlags.VERIFIER_VALIDATION.setEnabled(false);
         }
