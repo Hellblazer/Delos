@@ -52,8 +52,6 @@ import com.hellblazer.delos.ring.QuorumException;
 import com.hellblazer.delos.thoth.proto.Intervals;
 import com.hellblazer.delos.thoth.proto.Update;
 import com.hellblazer.delos.thoth.proto.Updating;
-import com.hellblazer.delos.utils.Entropy;
-import com.hellblazer.delos.utils.Utils;
 import liquibase.Liquibase;
 import liquibase.Scope;
 import liquibase.Scope.Attr;
@@ -71,7 +69,6 @@ import org.joou.ULong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
 import java.io.PrintStream;
 import java.sql.SQLException;
 import java.time.Duration;
@@ -101,8 +98,7 @@ import static com.hellblazer.delos.utils.Utils.b64;
  * @author hal.hildebrand
  */
 public class KerlDHT implements ProtoKERLService, AutoCloseable {
-    private final static Logger log          = LoggerFactory.getLogger(KerlDHT.class);
-    private final static Logger reconcileLog = LoggerFactory.getLogger(KerlSpace.class);
+    private final static Logger log = LoggerFactory.getLogger(KerlDHT.class);
 
     private final Ani                                                         ani;
     private final ThothByzantineStateProvider                                 byzantineProvider;
@@ -120,7 +116,6 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
     private final KerlSpace                                                   kerlSpace;
     private final SigningMember                                               member;
     private final CommonCommunications<ReconciliationService, Reconciliation> reconcileComms;
-    private final Reconcile                                                   reconciliation = new Reconcile();
     private final ScheduledExecutorService                                    scheduler;
     private final ExecutorService                                             validationExecutor;
     private final Service                                                     service        = new Service();
@@ -131,6 +126,7 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
     private final Map<String, RequestContext>                                 activeRequests      = new ConcurrentHashMap<>();
     private final NonceVerifier                                               nonceVerifier;
     private final DhtMetricsCollector                                         metricsCollector;
+    private final DhtReconciliationService                                    reconciliation;
 
     /**
      * Request context for freshness validation with cryptographic nonce (Phase 3).
@@ -182,6 +178,11 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         // Phase 3: Create default InMemoryNonceVerifier using the shared scheduler.
         // TTL matches operationTimeout so nonces expire when their request would have timed out.
         this.nonceVerifier = new InMemoryNonceVerifier(operationTimeout, 100_000, this.scheduler);
+        this.connectionPool = connectionPool;
+        kerlPool = new UniKERLDirectPooled(connectionPool, digestAlgorithm);
+        this.kerlSpace = new KerlSpace(connectionPool, member.getId(), digestAlgorithm);
+
+        initializeSchema();
         var kerlAdapter = new KERLAdapter(this, digestAlgorithm);
         this.cache = new CachingKERL(f -> {
             try {
@@ -191,21 +192,6 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
                 throw new DhtResourceException("Cache operation failed", e);
             }
         });
-        dhtComms = communications.create(member, context.getId(), service, service.getClass().getCanonicalName(),
-                                         r -> new DhtServer(r, metrics, member), DhtClient.getCreate(metrics),
-                                         DhtClient.getLocalLoopback(service, member));
-        reconcileComms = communications.create(member, context.getId(), reconciliation,
-                                               reconciliation.getClass().getCanonicalName(),
-                                               r -> new ReconciliationServer(r,
-                                                                             communications.getClientIdentityProvider(),
-                                                                             metrics),
-                                               ReconciliationClient.getCreate(context.getId(), metrics),
-                                               ReconciliationClient.getLocalLoopback(reconciliation, member));
-        this.connectionPool = connectionPool;
-        kerlPool = new UniKERLDirectPooled(connectionPool, digestAlgorithm);
-        this.kerlSpace = new KerlSpace(connectionPool, member.getId(), digestAlgorithm);
-
-        initializeSchema();
         kerl = new CachingKERL(f -> {
             try (var k = kerlPool.create()) {
                 return f.apply(wrap.apply(this, wrap(k)));
@@ -217,6 +203,20 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         this.ani = new Ani(member.getId(), asKERL());
         this.validationPipeline = new DhtValidationPipeline(ani, asKERL(), operationTimeout, byzantineProvider,
                                                              this.dhtMetrics, scheduler);
+        dhtComms = communications.create(member, context.getId(), service, service.getClass().getCanonicalName(),
+                                         r -> new DhtServer(r, metrics, member), DhtClient.getCreate(metrics),
+                                         DhtClient.getLocalLoopback(service, member));
+        this.reconciliation = new DhtReconciliationService(started::get, member, this.context, kerlPool,
+                                                            kerlSpace, kerl, fpr, validationPipeline,
+                                                            this.dhtMetrics, kerlPool.getDigestAlgorithm());
+        reconcileComms = communications.create(member, context.getId(), reconciliation,
+                                               reconciliation.getClass().getCanonicalName(),
+                                               r -> new ReconciliationServer(r,
+                                                                             communications.getClientIdentityProvider(),
+                                                                             metrics),
+                                               ReconciliationClient.getCreate(context.getId(), metrics),
+                                               ReconciliationClient.getLocalLoopback(reconciliation, member));
+        reconciliation.bind(reconcileComms);
         this.metricsCollector = new DhtMetricsCollector(this.dhtMetrics, connectionPool, scheduler,
                                                          operationsFrequency, member.getId(), started::get);
     }
@@ -1303,7 +1303,7 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         // Start connection pool monitoring
         metricsCollector.startPoolMonitoring();
 
-        schedule(duration);
+        reconciliation.schedule(duration);
     }
 
     public void stop() {
@@ -1492,26 +1492,6 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         }
     }
 
-    private CombinedIntervals keyIntervals() {
-        List<KeyInterval> intervals = new ArrayList<>();
-        for (int i = 0; i < context.getRingCount(); i++) {
-            Member predecessor = context.predecessor(i, member);
-            if (predecessor == null) {
-                continue;
-            }
-
-            Digest begin = context.hashFor(predecessor, i);
-            Digest end = context.hashFor(member, i);
-
-            if (begin.compareTo(end) > 0) { // wrap around the origin of the ring
-                intervals.add(new KeyInterval(end, digestAlgorithm().getLast()));
-                intervals.add(new KeyInterval(digestAlgorithm().getOrigin(), begin));
-            } else {
-                intervals.add(new KeyInterval(begin, end));
-            }
-        }
-        return new CombinedIntervals(intervals);
-    }
 
     private <T> Entry<T> max(QuorumResponseTracker<T> gathered) {
         return gathered.maxEntry();
@@ -1804,72 +1784,6 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         return true;
     }
 
-    private void reconcile(Update update, ReconciliationService link) {
-        if (!started.get()) {
-            return;
-        }
-        try {
-            if (update.getEventsCount() > 0) {
-                reconcileLog.trace("Received: {} events in interval reconciliation from: {} on: {}",
-                                   update.getEventsCount(), link.getMember().getId(), member.getId());
-                dhtMetrics.recordReconciliationEventsReceived(update.getEventsCount());
-                kerlSpace.update(update.getEventsList(), kerl);
-            }
-        } catch (NoSuchElementException e) {
-            reconcileLog.debug("null interval reconciliation with {} : {} on: {}", link.getMember().getId(),
-                               e.getMessage(), member.getId());
-        }
-    }
-
-    private Update reconcile(ReconciliationService link, Integer ring) {
-        if (member.equals(link.getMember())) {
-            return null;
-        }
-        CombinedIntervals keyIntervals = keyIntervals();
-        reconcileLog.trace("Interval reconciliation on ring: {} with: {} intervals: {} on: {} ", ring,
-                           link.getMember().getId(), keyIntervals, member.getId());
-        var update = link.reconcile(Intervals.newBuilder()
-                                             .setRing(ring)
-                                             .addAllIntervals(keyIntervals.toIntervals())
-                                             .setHave(kerlSpace.populate(Entropy.nextBitsStreamLong(), keyIntervals, fpr))
-                                             .build());
-        if (update != null && update.getEventsCount() > 0) {
-            dhtMetrics.recordReconciliationEventsSent(update.getEventsCount());
-        }
-        return update;
-    }
-
-    private void reconcile(Duration duration) {
-        if (!started.get()) {
-            return;
-        }
-        var startNanos = System.nanoTime();
-        try {
-            var successors = context.successors(member.getId(), m -> true, member);
-            Collections.shuffle(successors);
-            successors.forEach(i -> {
-                try (var link = reconcileComms.connect(i.m())) {
-                    if (link != null) {
-                        reconcile(reconcile(link, i.ring()), link);
-                    }
-                    try {
-                        Thread.sleep(duration.toMillis());
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
-                } catch (IOException e) {
-                    log.debug("Error reconciling with: {} on: {}", i.m(), member.getId(), e);
-                }
-            });
-        } finally {
-            dhtMetrics.recordReconciliationLatency(System.nanoTime() - startNanos);
-            schedule(duration);
-        }
-    }
-
-    private void schedule(Duration duration) {
-        Thread.ofVirtual().start(() -> Utils.wrapped(() -> reconcile(duration), log));
-    }
 
     private void updateLocationHash(Identifier identifier) {
         try (var connection = connectionPool.getConnection()) {
@@ -1884,24 +1798,6 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         }
     }
 
-    private boolean valid(Digest from, int ring) {
-        if (ring >= context.getRingCount() || ring < 0) {
-            log.warn("Invalid ring: {} (valid range: 0-{}) from: {} on: {}",
-                    ring, context.getRingCount() - 1, from, member.getId());
-            return false;
-        }
-        Member fromMember = context.getMember(from);
-        if (fromMember == null) {
-            log.warn("Unknown member: {} for ring: {} on: {}", from, ring, member.getId());
-            return false;
-        }
-        Member successor = context.successor(ring, fromMember);
-        if (successor == null) {
-            log.warn("No successor found for member: {} on ring: {} on: {}", from, ring, member.getId());
-            return false;
-        }
-        return successor.equals(member);
-    }
 
     private DelegatedKERL wrap(ClosableKERL k) {
         return new DelegatedKERL(k) {
@@ -1955,54 +1851,6 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         }
     }
 
-    private class Reconcile implements Reconciliation {
-
-        @Override
-        public Update reconcile(Intervals intervals, Digest from) {
-            var ring = intervals.getRing();
-            if (!valid(from, ring)) {
-                reconcileLog.trace("Invalid reconcile from: {} ring: {} on: {}", from, ring, member.getId());
-                return Update.getDefaultInstance();
-            }
-            reconcileLog.trace("Reconcile from: {} ring: {} on: {}", from, ring, member.getId());
-            try (var k = kerlPool.create()) {
-                final var builder = KerlDHT.this.kerlSpace.reconcile(intervals, k);
-                CombinedIntervals keyIntervals = keyIntervals();
-                builder.addAllIntervals(keyIntervals.toIntervals())
-                       .setHave(kerlSpace.populate(Entropy.nextBitsStreamLong(), keyIntervals, fpr));
-                if (builder.getEventsCount() > 0) {
-                    reconcileLog.trace("Reconcile for: {} ring: {} count: {} on: {}", from, ring,
-                                       builder.getEventsCount(), member.getId());
-                }
-                return builder.build();
-            } catch (IOException | SQLException e) {
-                reconcileLog.error("Cannot acquire KERL for reconciliation on: {}", member.getId(), e);
-                throw new IllegalStateException("Cannot acquire KERL", e);
-            } catch (Exception e) {
-                reconcileLog.error("Error during reconciliation on: {}", member.getId(), e);
-                return Update.getDefaultInstance();
-            }
-        }
-
-        @Override
-        public void update(Updating update, Digest from) {
-            var ring = update.getRing();
-            if (!valid(from, ring)) {
-                return;
-            }
-
-            // Phase A: Validate reconciliation events before insertion.
-            // A Byzantine peer can inject arbitrary KERI events via single-peer reconciliation;
-            // only validated events proceed to kerlSpace.update().
-            var validatedEvents = validationPipeline.validateReconciliationBatch(update.getEventsList(), from);
-            if (validatedEvents.isEmpty() && !update.getEventsList().isEmpty()) {
-                reconcileLog.warn("All {} reconciliation events rejected from peer: {} ring: {}",
-                                  update.getEventsList().size(), from, ring);
-                return;
-            }
-            KerlDHT.this.kerlSpace.update(validatedEvents, kerl);
-        }
-    }
 
     private class Service implements ProtoKERLService {
 
