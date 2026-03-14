@@ -24,6 +24,7 @@ import com.hellblazer.delos.membership.MockMember;
 import io.grpc.StatusRuntimeException;
 import org.slf4j.Logger;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -42,48 +43,38 @@ public interface Committee {
         assert Dag.validate(reconfigure.getJoinsCount()) : "Reconfigure joins: %s is not BFT".formatted(
         reconfigure.getJoinsCount());
 
-        // Track Byzantine rejection rate for monitoring
         final boolean strictValidation = FeatureFlags.VERIFIER_VALIDATION.isEnabled();
+        var validators = new HashMap<Member, Verifier>();
+        int excluded = 0;
 
-        var validators = reconfigure.getJoinsList().stream().collect(Collectors.toMap(e -> {
+        for (var e : reconfigure.getJoinsList()) {
             var id = new Digest(e.getMember().getVm().getId());
             var m = context.getMember(id);
-            if (m == null) {
-                log.info("No member for validator: {}, returning mock on: {}", id, member);
-                return new MockMember(id);
-            } else {
-                return m;
-            }
-        }, e -> {
+            Member memberKey = m != null ? m : new MockMember(id);
             var vm = e.getMember().getVm();
+
             if (vm.hasConsensusKey()) {
-                return new DefaultVerifier(publicKey(vm.getConsensusKey()));
+                validators.put(memberKey, new DefaultVerifier(publicKey(vm.getConsensusKey())));
+            } else if (strictValidation) {
+                // Exclude validator without consensus key — no NO_VERIFIER bypass
+                log.warn("Validator {} missing consensus key, excluded from committee on: {}",
+                         Digest.from(vm.getId()), member);
+                excluded++;
             } else {
-                var validatorId = Digest.from(vm.getId());
-
-                if (strictValidation) {
-                    // Feature flag enabled: Strict validation
-                    // Note: Grace period is a conceptual allowance, not a blocking retry.
-                    // In production, validators should publish keys before reconfiguration.
-                    // The grace period (30s default) is documented for operational awareness.
-
-                    // Byzantine monitoring: Log rejection for rate tracking
-                    log.warn("Byzantine indicator: Validator {} missing consensus key on: {}. " +
-                            "Rejecting validator (grace period documentation: 30s for slow publishers). " +
-                            "This may indicate Byzantine behavior or network issues.",
-                            validatorId, member);
-
-                    // Strict validation: Reject validator without consensus key
-                    throw new IllegalStateException(
-                        String.format("Validator missing consensus key: %s on: %s",
-                                     validatorId, member));
-                } else {
-                    // Feature flag disabled: Backward compatibility (return NO_VERIFIER)
-                    log.info("No member for validator: {}, returning mock on: {}", validatorId, member);
-                    return Verifier.NO_VERIFIER;
-                }
+                validators.put(memberKey, Verifier.NO_VERIFIER);
             }
-        }));
+        }
+
+        if (excluded > 0) {
+            log.warn("Excluded {} validators missing consensus keys ({} remaining of {} total) on: {}",
+                     excluded, validators.size(), reconfigure.getJoinsCount(), member);
+            if (!Dag.validate(validators.size())) {
+                throw new IllegalStateException(
+                    String.format("Insufficient BFT validators: %d remaining of %d after excluding %d missing keys on: %s",
+                                 validators.size(), reconfigure.getJoinsCount(), excluded, member));
+            }
+        }
+
         assert !validators.isEmpty() : "No validators in this reconfiguration of: " + context.getId();
         return validators;
     }
@@ -216,36 +207,37 @@ public interface Committee {
                                                        Logger log) {
         assert Dag.validate(reconfigure.getJoinsCount()) : "Reconfigure joins: %s is not BFT".formatted(
         reconfigure.getJoinsCount());
-        var validators = reconfigure.getJoinsList().stream().collect(Collectors.toMap(e -> {
+
+        var validators = new HashMap<Member, Verifier>();
+        int excluded = 0;
+
+        for (var e : reconfigure.getJoinsList()) {
             var id = new Digest(e.getMember().getVm().getId());
             var m = context.getMember(id);
-            if (m == null) {
-                log.info("No member for validator: {}, returning mock on: {}", id, member);
-                return new MockMember(id);
-            } else {
-                return m;
-            }
-        }, e -> {
-            var id = new Digest(e.getMember().getVm().getId());
-            var m = context.getMember(id);
+
             if (m == null) {
                 if (FeatureFlags.VERIFIER_VALIDATION.isEnabled()) {
-                    // Strict validation: reject member without identity verifier
-                    log.warn("Byzantine indicator: Member {} missing identity verifier on: {}. " +
-                             "Rejecting (VERIFIER_VALIDATION is enabled).",
-                             id, member);
-                    throw new IllegalStateException(
-                        String.format("Member missing identity verifier: %s on: %s", id, member));
+                    // Exclude member without identity verifier — no NO_VERIFIER bypass
+                    log.warn("Member {} missing identity verifier, excluded on: {}", id, member);
+                    excluded++;
                 } else {
-                    // Feature flag disabled: backward compatibility (return NO_VERIFIER)
-                    log.info("No member identity verifier: {}, returning NO_VERIFIER on: {}", id, member);
-                    return Verifier.NO_VERIFIER;
+                    validators.put(new MockMember(id), Verifier.NO_VERIFIER);
                 }
             } else {
-                // Member implements Verifier interface using its identity key
-                return (Verifier) m;
+                validators.put(m, (Verifier) m);
             }
-        }));
+        }
+
+        if (excluded > 0) {
+            log.warn("Excluded {} members missing identity verifiers ({} remaining of {} total) on: {}",
+                     excluded, validators.size(), reconfigure.getJoinsCount(), member);
+            if (!Dag.validate(validators.size())) {
+                throw new IllegalStateException(
+                    String.format("Insufficient BFT validators: %d remaining of %d after excluding %d missing identity on: %s",
+                                 validators.size(), reconfigure.getJoinsCount(), excluded, member));
+            }
+        }
+
         assert !validators.isEmpty() : "No validators in this reconfiguration of: " + context.getId();
         return validators;
     }

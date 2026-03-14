@@ -52,8 +52,6 @@ import com.hellblazer.delos.ring.QuorumException;
 import com.hellblazer.delos.thoth.proto.Intervals;
 import com.hellblazer.delos.thoth.proto.Update;
 import com.hellblazer.delos.thoth.proto.Updating;
-import com.hellblazer.delos.utils.Entropy;
-import com.hellblazer.delos.utils.Utils;
 import liquibase.Liquibase;
 import liquibase.Scope;
 import liquibase.Scope.Attr;
@@ -71,7 +69,6 @@ import org.joou.ULong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
 import java.io.PrintStream;
 import java.sql.SQLException;
 import java.time.Duration;
@@ -80,7 +77,6 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.Executors;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -101,8 +97,7 @@ import static com.hellblazer.delos.utils.Utils.b64;
  * @author hal.hildebrand
  */
 public class KerlDHT implements ProtoKERLService, AutoCloseable {
-    private final static Logger log          = LoggerFactory.getLogger(KerlDHT.class);
-    private final static Logger reconcileLog = LoggerFactory.getLogger(KerlSpace.class);
+    private final static Logger log = LoggerFactory.getLogger(KerlDHT.class);
 
     private final Ani                                                         ani;
     private final ThothByzantineStateProvider                                 byzantineProvider;
@@ -120,7 +115,6 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
     private final KerlSpace                                                   kerlSpace;
     private final SigningMember                                               member;
     private final CommonCommunications<ReconciliationService, Reconciliation> reconcileComms;
-    private final Reconcile                                                   reconciliation = new Reconcile();
     private final ScheduledExecutorService                                    scheduler;
     private final ExecutorService                                             validationExecutor;
     private final Service                                                     service        = new Service();
@@ -128,26 +122,9 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
     private final Duration                                                    operationTimeout;
     private final Duration                                                    shutdownTimeout;
     private final Set<CompletableFuture<Void>>                                inFlightValidations = Collections.newSetFromMap(new ConcurrentHashMap<>());
-    private final Map<String, RequestContext>                                 activeRequests      = new ConcurrentHashMap<>();
-    private final NonceVerifier                                               nonceVerifier;
-    private volatile ScheduledFuture<?>                                       poolMonitoringTask;
+    private final DhtMetricsCollector                                         metricsCollector;
+    private final DhtReconciliationService                                    reconciliation;
 
-    /**
-     * Request context for freshness validation with cryptographic nonce (Phase 3).
-     * Tracks operation, identifier, timestamp, and a unique nonce to prevent replay attacks.
-     * The nonce is generated per-request and verified by {@link NonceVerifier} on response.
-     *
-     * @param operation  Operation name (e.g., "getKeyState")
-     * @param identifier Identifier being queried
-     * @param timestamp  Request creation timestamp (milliseconds)
-     * @param nonce      Unique single-use value for replay protection
-     */
-    private record RequestContext(String operation, Digest identifier, long timestamp, String nonce) {
-    }
-
-    /**
-     * Backward-compatible constructor without shutdownTimeout (uses default 10s).
-     */
     public KerlDHT(Duration operationsFrequency, Context<? extends Member> context, SigningMember member,
                    BiFunction<KerlDHT, KERL.AppendKERL, KERL.AppendKERL> wrap, JdbcConnectionPool connectionPool,
                    DigestAlgorithm digestAlgorithm, Router communications, Duration operationTimeout,
@@ -157,9 +134,6 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
              operationTimeout, falsePositiveRate, metrics, dhtMetrics, byzantineCoordinator, Duration.ofSeconds(10));
     }
 
-    /**
-     * Main constructor with configurable shutdown timeout.
-     */
     public KerlDHT(Duration operationsFrequency, Context<? extends Member> context, SigningMember member,
                    BiFunction<KerlDHT, KERL.AppendKERL, KERL.AppendKERL> wrap, JdbcConnectionPool connectionPool,
                    DigestAlgorithm digestAlgorithm, Router communications, Duration operationTimeout,
@@ -179,9 +153,11 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
             .name("thoth-dht-", 0)
             .factory());
         this.validationExecutor = Executors.newVirtualThreadPerTaskExecutor();
-        // Phase 3: Create default InMemoryNonceVerifier using the shared scheduler.
-        // TTL matches operationTimeout so nonces expire when their request would have timed out.
-        this.nonceVerifier = new InMemoryNonceVerifier(operationTimeout, 100_000, this.scheduler);
+        this.connectionPool = connectionPool;
+        kerlPool = new UniKERLDirectPooled(connectionPool, digestAlgorithm);
+        this.kerlSpace = new KerlSpace(connectionPool, member.getId(), digestAlgorithm);
+
+        initializeSchema();
         var kerlAdapter = new KERLAdapter(this, digestAlgorithm);
         this.cache = new CachingKERL(f -> {
             try {
@@ -191,21 +167,6 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
                 throw new DhtResourceException("Cache operation failed", e);
             }
         });
-        dhtComms = communications.create(member, context.getId(), service, service.getClass().getCanonicalName(),
-                                         r -> new DhtServer(r, metrics, member), DhtClient.getCreate(metrics),
-                                         DhtClient.getLocalLoopback(service, member));
-        reconcileComms = communications.create(member, context.getId(), reconciliation,
-                                               reconciliation.getClass().getCanonicalName(),
-                                               r -> new ReconciliationServer(r,
-                                                                             communications.getClientIdentityProvider(),
-                                                                             metrics),
-                                               ReconciliationClient.getCreate(context.getId(), metrics),
-                                               ReconciliationClient.getLocalLoopback(reconciliation, member));
-        this.connectionPool = connectionPool;
-        kerlPool = new UniKERLDirectPooled(connectionPool, digestAlgorithm);
-        this.kerlSpace = new KerlSpace(connectionPool, member.getId(), digestAlgorithm);
-
-        initializeSchema();
         kerl = new CachingKERL(f -> {
             try (var k = kerlPool.create()) {
                 return f.apply(wrap.apply(this, wrap(k)));
@@ -217,11 +178,24 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         this.ani = new Ani(member.getId(), asKERL());
         this.validationPipeline = new DhtValidationPipeline(ani, asKERL(), operationTimeout, byzantineProvider,
                                                              this.dhtMetrics, scheduler);
+        dhtComms = communications.create(member, context.getId(), service, service.getClass().getCanonicalName(),
+                                         r -> new DhtServer(r, metrics, member), DhtClient.getCreate(metrics),
+                                         DhtClient.getLocalLoopback(service, member));
+        this.reconciliation = new DhtReconciliationService(started::get, member, this.context, kerlPool,
+                                                            kerlSpace, kerl, fpr, validationPipeline,
+                                                            this.dhtMetrics, kerlPool.getDigestAlgorithm());
+        reconcileComms = communications.create(member, context.getId(), reconciliation,
+                                               reconciliation.getClass().getCanonicalName(),
+                                               r -> new ReconciliationServer(r,
+                                                                             communications.getClientIdentityProvider(),
+                                                                             metrics),
+                                               ReconciliationClient.getCreate(context.getId(), metrics),
+                                               ReconciliationClient.getLocalLoopback(reconciliation, member));
+        reconciliation.bind(reconcileComms);
+        this.metricsCollector = new DhtMetricsCollector(this.dhtMetrics, connectionPool, scheduler,
+                                                         operationsFrequency, member.getId(), started::get);
     }
 
-    /**
-     * Backward-compatible constructor without KerlDhtMetrics (uses no-op metrics) and ByzantineCoordinator.
-     */
     public KerlDHT(Duration operationsFrequency, Context<? extends Member> context, SigningMember member,
                    BiFunction<KerlDHT, KERL.AppendKERL, KERL.AppendKERL> wrap, JdbcConnectionPool connectionPool,
                    DigestAlgorithm digestAlgorithm, Router communications, Duration operationTimeout,
@@ -230,9 +204,6 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
              operationTimeout, falsePositiveRate, metrics, dhtMetrics, null, Duration.ofSeconds(10));
     }
 
-    /**
-     * Backward-compatible constructor without KerlDhtMetrics (uses no-op metrics).
-     */
     public KerlDHT(Duration operationsFrequency, Context<? extends Member> context, SigningMember member,
                    BiFunction<KerlDHT, KERL.AppendKERL, KERL.AppendKERL> wrap, JdbcConnectionPool connectionPool,
                    DigestAlgorithm digestAlgorithm, Router communications, Duration operationTimeout,
@@ -248,142 +219,20 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
              operationTimeout, falsePositiveRate, metrics, null, null, Duration.ofSeconds(10));
     }
 
-    /**
-     * @return the Byzantine state provider for coordinator registration
-     */
     public ThothByzantineStateProvider getByzantineProvider() {
         return byzantineProvider;
     }
 
-    /**
-     * @return the DHT metrics
-     */
     public KerlDhtMetrics getDhtMetrics() {
         return dhtMetrics;
     }
 
-    /**
-     * Check if DHT is healthy based on current metrics.
-     * <p>
-     * Health criteria:
-     * - Validation success rate ≥ 95%
-     * - Connection pool utilization < 90%
-     * - Circuit breaker closed
-     * </p>
-     *
-     * @return true if DHT is operating within SLA thresholds
-     */
     public boolean isHealthy() {
-        return dhtMetrics.getSnapshot().isHealthy();
+        return metricsCollector.isHealthy();
     }
 
-    /**
-     * Get current health snapshot for monitoring dashboards.
-     *
-     * @return Current health snapshot
-     */
     public KerlDhtMetrics.Snapshot getHealthSnapshot() {
-        return dhtMetrics.getSnapshot();
-    }
-
-    /**
-     * Get current time in milliseconds. Protected for testing.
-     *
-     * @return current time in milliseconds since epoch
-     */
-    protected long currentTimeMillis() {
-        return System.currentTimeMillis();
-    }
-
-    /**
-     * Creates a request context for freshness validation with cryptographic nonce (Phase 3).
-     * Each request gets a unique nonce generated by the NonceVerifier, providing
-     * replay protection beyond simple timestamp comparison.
-     *
-     * @param operation  Operation name for tracking
-     * @param identifier Identifier being queried
-     * @return RequestContext with current timestamp and unique nonce
-     */
-    private RequestContext createRequestContext(String operation, Digest identifier) {
-        return new RequestContext(operation, identifier, currentTimeMillis(), nonceVerifier.generateNonce());
-    }
-
-    /**
-     * Generates a unique request ID for tracking active requests.
-     *
-     * @return UUID-based request ID
-     */
-    private String generateRequestId() {
-        return UUID.randomUUID().toString();
-    }
-
-    /**
-     * Validates response freshness using timestamp comparison and cryptographic nonce verification.
-     *
-     * <h3>Phase 2: Timestamp freshness</h3>
-     * <p>Responses older than {@code operationTimeout} are rejected as stale. This mitigates
-     * many replay scenarios but is still vulnerable to clock skew attacks on Byzantine nodes.</p>
-     *
-     * <h3>Phase 3: Nonce uniqueness (implemented)</h3>
-     * <p>Each request carries a unique cryptographic nonce generated by {@link NonceVerifier}.
-     * On response, the nonce is checked against the used-nonce store. A duplicate nonce
-     * indicates a replay attack, regardless of timestamp, and is rejected. The Byzantine
-     * provider records a validation failure signal for the offending member.</p>
-     *
-     * <p>Mitigation summary:
-     * <ul>
-     *   <li>Response signature verification prevents cross-identifier replay attacks</li>
-     *   <li>Quorum consensus requires majority agreement, limiting single-node impact</li>
-     *   <li>Cryptographic nonces close the window-of-opportunity replay attack</li>
-     * </ul>
-     * </p>
-     *
-     * @param content          Response content (unused, kept for API consistency)
-     * @param context          Original request context with timestamp and nonce
-     * @param respondingMember Member who sent the response
-     * @param requestId        Request ID for tracking
-     * @param <T>              Response content type
-     * @return true if response is fresh and nonce is unique, false if stale or replay detected
-     */
-    private <T> boolean validateResponseFreshness(T content, RequestContext context, Member respondingMember,
-                                                   String requestId) {
-        if (context == null) {
-            log.warn("Response freshness check failed: no request context for requestId={} from member={}", requestId,
-                     respondingMember.getId());
-            return false;
-        }
-
-        var currentTime = currentTimeMillis();
-        var responseAge = currentTime - context.timestamp;
-        var timeoutMillis = operationTimeout.toMillis();
-
-        if (responseAge > timeoutMillis) {
-            log.warn("Stale response detected: operation={}, identifier={}, age={}ms, timeout={}ms, member={}",
-                     context.operation, context.identifier, responseAge, timeoutMillis, respondingMember.getId());
-
-            // Record Byzantine signal for staleness (advisory only)
-            if (byzantineCoordinator != null) {
-                byzantineProvider.recordValidationFailure(respondingMember.getId(),
-                                                          "Stale response: age=%dms > timeout=%dms".formatted(
-                                                          responseAge, timeoutMillis));
-            }
-
-            dhtMetrics.incrementValidationFailure(context.operation, "stale_response");
-            return false;
-        }
-
-        // Phase 3: Cryptographic nonce verification — replay attack prevention
-        if (context.nonce() != null && !nonceVerifier.recordAndVerify(context.nonce(), respondingMember.getId())) {
-            log.warn("Replay attack detected: duplicate nonce for requestId={} from member={}", requestId,
-                     respondingMember.getId());
-            byzantineProvider.recordValidationFailure(respondingMember.getId(),
-                                                      "Replay attack: duplicate nonce for request=%s".formatted(
-                                                      requestId));
-            dhtMetrics.incrementValidationFailure(context.operation, "replay_attack");
-            return false;
-        }
-
-        return true;
+        return metricsCollector.getHealthSnapshot();
     }
 
     public static void updateLocationHash(Identifier identifier, DigestAlgorithm digestAlgorithm, DSLContext dsl) {
@@ -467,7 +316,7 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
 
         // Phase 2: Lightweight pre-quorum structural validation for all events in KERL
         for (var evt : kerl.getEventsList()) {
-            if (!validateEventWithAttachmentsStructure(evt)) {
+            if (!DhtValidationPipeline.validateEventWithAttachmentsStructure(evt)) {
                 var evtIdentifier = digestOf(evt, digestAlgorithm());
                 var reason = "STRUCTURAL_VALIDATION_FAILURE: KERL event has invalid structure";
                 log.warn("Pre-quorum structural validation failed: {} for event: {}", reason, evtIdentifier);
@@ -528,7 +377,7 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
 
         // Phase 2: Lightweight pre-quorum structural validation (Hybrid Validation)
         // Check basic event structure without cryptographic validation
-        if (!validateEventStructure(event)) {
+        if (!DhtValidationPipeline.validateEventStructure(event)) {
             var reason = "STRUCTURAL_VALIDATION_FAILURE: Event has invalid structure (missing identifier, signatures, or type)";
             log.warn("Pre-quorum structural validation failed: {} for identifier: {}", reason, identifier);
             byzantineProvider.recordValidationFailure(identifier, reason);
@@ -769,14 +618,11 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
             throw new DhtResourceException("getAttachment interrupted", e);
         } catch (ExecutionException e) {
             dhtMetrics.recordReadLatency("getAttachment", System.nanoTime() - startNanos);
+            dhtMetrics.incrementQuorumFailure("getAttachment");
             if (e.getCause() instanceof CompletionException ce) {
                 log.warn("error {} : {} on: {}", operation, ce.getMessage(), member.getId());
-                dhtMetrics.incrementQuorumFailure("getAttachment");
-                var majority = context.size() == 1 ? 1 : context.majority();
-                var achieved = gathered.maxCount();
-                throw new DhtQuorumException(majority, achieved, operation);
+                throw new DhtQuorumException(context.size() == 1 ? 1 : context.majority(), gathered.maxCount(), operation);
             }
-            dhtMetrics.incrementQuorumFailure("getAttachment");
             throw new DhtResourceException("Get attachment failed", e.getCause());
         }
     }
@@ -808,10 +654,10 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
                                                                    isTimedOut, destination, operation),
                      () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
         try {
-            var kerl = result.get();
+            var k = result.get();
             dhtMetrics.recordReadLatency("getKerl", System.nanoTime() - startNanos);
             dhtMetrics.incrementQuorumSuccess("getKerl");
-            return kerl;
+            return k;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             dhtMetrics.recordReadLatency("getKerl", System.nanoTime() - startNanos);
@@ -819,14 +665,11 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
             throw new DhtResourceException("getKERL interrupted", e);
         } catch (ExecutionException e) {
             dhtMetrics.recordReadLatency("getKerl", System.nanoTime() - startNanos);
+            dhtMetrics.incrementQuorumFailure("getKerl");
             if (e.getCause() instanceof CompletionException ce) {
                 log.warn("error {} : {} on: {}", operation, ce.getMessage(), member.getId());
-                dhtMetrics.incrementQuorumFailure("getKerl");
-                var majority = context.size() == 1 ? 1 : context.majority();
-                var achieved = gathered.maxCount();
-                throw new DhtQuorumException(majority, achieved, operation);
+                throw new DhtQuorumException(context.size() == 1 ? 1 : context.majority(), gathered.maxCount(), operation);
             }
-            dhtMetrics.incrementQuorumFailure("getKerl");
             throw new DhtResourceException("Get KERL failed", e.getCause());
         }
     }
@@ -857,31 +700,8 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         var iter = new SliceIterator<>(context.getId().toString(), member, slice, dhtComms, scheduler);
         result = iter.voteAsync(link -> link.getKeyEvent(coordinates), context.majority(), operationsFrequency,
                                 operationTimeout);
-        try {
-            var keyEvent = result.get();
-            dhtMetrics.recordReadLatency("getKeyEvent", System.nanoTime() - startNanos);
-            dhtMetrics.incrementQuorumSuccess("getKeyEvent");
-            return keyEvent;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            dhtMetrics.recordReadLatency("getKeyEvent", System.nanoTime() - startNanos);
-            dhtMetrics.incrementQuorumFailure("getKeyEvent");
-            return null;
-        } catch (ExecutionException e) {
-            dhtMetrics.recordReadLatency("getKeyEvent", System.nanoTime() - startNanos);
-            if (e.getCause() instanceof CompletionException ce) {
-                log.info("error {} : {} on: {}", operation, ce.getMessage(), member.getId());
-                dhtMetrics.incrementQuorumFailure("getKeyEvent");
-                return KeyEvent_.getDefaultInstance();
-            }
-            if (e.getCause() instanceof QuorumException qe) {
-                log.debug("Quorum not reached for {}: {} on: {}", operation, qe.getMessage(), member.getId());
-                dhtMetrics.incrementQuorumFailure("getKeyEvent");
-                return KeyEvent_.getDefaultInstance();
-            }
-            dhtMetrics.incrementQuorumFailure("getKeyEvent");
-            throw new DhtResourceException("Get key event failed", e.getCause());
-        }
+        return awaitQuorumRead(result, startNanos, "getKeyEvent", operation,
+                               KeyEvent_.getDefaultInstance(), "Get key event failed");
     }
 
     @Override
@@ -902,9 +722,9 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         }
 
         // Phase 2: Create request context for freshness validation
-        var requestId = generateRequestId();
-        var requestContext = createRequestContext(operation, digest);
-        activeRequests.put(requestId, requestContext);
+        var requestId = validationPipeline.generateRequestId();
+        var requestContext = validationPipeline.createRequestContext(operation, digest);
+        validationPipeline.storeRequestContext(requestId, requestContext);
 
         try {
             Instant timedOut = Instant.now().plus(operationTimeout);
@@ -919,29 +739,11 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
                                                                                       futureSailor, digest, isTimedOut,
                                                                                       destination, operation, requestId),
                          () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
-            try {
-                var keyState = result.get();
-                dhtMetrics.recordReadLatency("getKeyStateCoords", System.nanoTime() - startNanos);
-                dhtMetrics.incrementQuorumSuccess("getKeyStateCoords");
-                return keyState;
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                dhtMetrics.recordReadLatency("getKeyStateCoords", System.nanoTime() - startNanos);
-                dhtMetrics.incrementQuorumFailure("getKeyStateCoords");
-                return null;
-            } catch (ExecutionException e) {
-                dhtMetrics.recordReadLatency("getKeyStateCoords", System.nanoTime() - startNanos);
-                if (e.getCause() instanceof CompletionException ce) {
-                    log.warn("error {} : {} on: {}", operation, ce.getMessage(), member.getId());
-                    dhtMetrics.incrementQuorumFailure("getKeyStateCoords");
-                    return KeyState_.getDefaultInstance();
-                }
-                dhtMetrics.incrementQuorumFailure("getKeyStateCoords");
-                throw new DhtResourceException("Get key state failed", e.getCause());
-            }
+            return awaitQuorumRead(result, startNanos, "getKeyStateCoords", operation,
+                                   KeyState_.getDefaultInstance(), "Get key state failed");
         } finally {
             // Clean up request context after operation completes
-            activeRequests.remove(requestId);
+            validationPipeline.removeRequestContext(requestId);
         }
     }
 
@@ -976,26 +778,8 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
                                                                         tally, futureSailor, digest,
                                                                    isTimedOut, destination, operation),
                      () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
-        try {
-            var keyState = result.get();
-            dhtMetrics.recordReadLatency("getKeyStateSeq", System.nanoTime() - startNanos);
-            dhtMetrics.incrementQuorumSuccess("getKeyStateSeq");
-            return keyState;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            dhtMetrics.recordReadLatency("getKeyStateSeq", System.nanoTime() - startNanos);
-            dhtMetrics.incrementQuorumFailure("getKeyStateSeq");
-            return null;
-        } catch (ExecutionException e) {
-            dhtMetrics.recordReadLatency("getKeyStateSeq", System.nanoTime() - startNanos);
-            if (e.getCause() instanceof CompletionException ce) {
-                log.warn("error {} : {} on: {}", operation, ce.getMessage(), member.getId());
-                dhtMetrics.incrementQuorumFailure("getKeyStateSeq");
-                return KeyState_.getDefaultInstance();
-            }
-            dhtMetrics.incrementQuorumFailure("getKeyStateSeq");
-            throw new DhtResourceException("Get key state by sequence failed", e.getCause());
-        }
+        return awaitQuorumRead(result, startNanos, "getKeyStateSeq", operation,
+                               KeyState_.getDefaultInstance(), "Get key state by sequence failed");
     }
 
     @Override
@@ -1025,26 +809,8 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
                                                                         tally, futureSailor, digest,
                                                                    isTimedOut, destination, operation),
                      () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
-        try {
-            var keyState = result.get();
-            dhtMetrics.recordReadLatency("getKeyState", System.nanoTime() - startNanos);
-            dhtMetrics.incrementQuorumSuccess("getKeyState");
-            return keyState;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            dhtMetrics.recordReadLatency("getKeyState", System.nanoTime() - startNanos);
-            dhtMetrics.incrementQuorumFailure("getKeyState");
-            return null;
-        } catch (ExecutionException e) {
-            dhtMetrics.recordReadLatency("getKeyState", System.nanoTime() - startNanos);
-            if (e.getCause() instanceof CompletionException ce) {
-                log.warn("error {} : {} on: {}", operation, ce.getMessage(), member.getId());
-                dhtMetrics.incrementQuorumFailure("getKeyState");
-                return KeyState_.getDefaultInstance();
-            }
-            dhtMetrics.incrementQuorumFailure("getKeyState");
-            throw new DhtResourceException("Get key state by identifier failed", e.getCause());
-        }
+        return awaitQuorumRead(result, startNanos, "getKeyState", operation,
+                               KeyState_.getDefaultInstance(), "Get key state by identifier failed");
     }
 
     @Override
@@ -1080,26 +846,8 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
                                                                         tally, futureSailor, digest,
                                                                    isTimedOut, destination, operation),
                      () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
-        try {
-            var keyState = result.get();
-            dhtMetrics.recordReadLatency("getKeyStateSeqNum", System.nanoTime() - startNanos);
-            dhtMetrics.incrementQuorumSuccess("getKeyStateSeqNum");
-            return keyState;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            dhtMetrics.recordReadLatency("getKeyStateSeqNum", System.nanoTime() - startNanos);
-            dhtMetrics.incrementQuorumFailure("getKeyStateSeqNum");
-            return null;
-        } catch (ExecutionException e) {
-            dhtMetrics.recordReadLatency("getKeyStateSeqNum", System.nanoTime() - startNanos);
-            if (e.getCause() instanceof CompletionException ce) {
-                log.warn("error {} : {} on: {}", operation, ce.getMessage(), member.getId());
-                dhtMetrics.incrementQuorumFailure("getKeyStateSeqNum");
-                return KeyState_.getDefaultInstance();
-            }
-            dhtMetrics.incrementQuorumFailure("getKeyStateSeqNum");
-            throw new DhtResourceException("Get key state by sequence number failed", e.getCause());
-        }
+        return awaitQuorumRead(result, startNanos, "getKeyStateSeqNum", operation,
+                               KeyState_.getDefaultInstance(), "Get key state by sequence number failed");
     }
 
     @Override
@@ -1129,26 +877,8 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
                                                                         tally, futureSailor, digest,
                                                                    isTimedOut, destination, operation),
                      () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
-        try {
-            var keyStateWithAttachments = result.get();
-            dhtMetrics.recordReadLatency("getKeyStateWithAttachments", System.nanoTime() - startNanos);
-            dhtMetrics.incrementQuorumSuccess("getKeyStateWithAttachments");
-            return keyStateWithAttachments;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            dhtMetrics.recordReadLatency("getKeyStateWithAttachments", System.nanoTime() - startNanos);
-            dhtMetrics.incrementQuorumFailure("getKeyStateWithAttachments");
-            return null;
-        } catch (ExecutionException e) {
-            dhtMetrics.recordReadLatency("getKeyStateWithAttachments", System.nanoTime() - startNanos);
-            if (e.getCause() instanceof CompletionException ce) {
-                log.warn("error {} on: {}", operation, member.getId(), ce);
-                dhtMetrics.incrementQuorumFailure("getKeyStateWithAttachments");
-                return null;
-            }
-            dhtMetrics.incrementQuorumFailure("getKeyStateWithAttachments");
-            throw new DhtResourceException("Get key state with attachments failed", e.getCause());
-        }
+        return awaitQuorumRead(result, startNanos, "getKeyStateWithAttachments", operation,
+                               null, "Get key state with attachments failed");
     }
 
     @Override
@@ -1178,26 +908,8 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
                                                                         tally, futureSailor, digest,
                                                                    isTimedOut, destination, operation),
                      () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
-        try {
-            var keyStateWithEndorsementsAndValidations = result.get();
-            dhtMetrics.recordReadLatency("getKeyStateWithEndorsementsAndValidations", System.nanoTime() - startNanos);
-            dhtMetrics.incrementQuorumSuccess("getKeyStateWithEndorsementsAndValidations");
-            return keyStateWithEndorsementsAndValidations;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            dhtMetrics.recordReadLatency("getKeyStateWithEndorsementsAndValidations", System.nanoTime() - startNanos);
-            dhtMetrics.incrementQuorumFailure("getKeyStateWithEndorsementsAndValidations");
-            return null;
-        } catch (ExecutionException e) {
-            dhtMetrics.recordReadLatency("getKeyStateWithEndorsementsAndValidations", System.nanoTime() - startNanos);
-            if (e.getCause() instanceof CompletionException ce) {
-                log.warn("error {} : {} on: {}", operation, ce.getMessage(), member.getId());
-                dhtMetrics.incrementQuorumFailure("getKeyStateWithEndorsementsAndValidations");
-                return null;
-            }
-            dhtMetrics.incrementQuorumFailure("getKeyStateWithEndorsementsAndValidations");
-            throw new DhtResourceException("Get key state with endorsements and validations failed", e.getCause());
-        }
+        return awaitQuorumRead(result, startNanos, "getKeyStateWithEndorsementsAndValidations", operation,
+                               null, "Get key state with endorsements and validations failed");
     }
 
     @Override
@@ -1227,39 +939,10 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
                                                                         tally, futureSailor, identifier,
                                                                    isTimedOut, destination, operation),
                      () -> failedMajority(result, maxCount(gathered), operation), operationsFrequency);
-        try {
-            var validations = result.get();
-            dhtMetrics.recordReadLatency("getValidations", System.nanoTime() - startNanos);
-            dhtMetrics.incrementQuorumSuccess("getValidations");
-            return validations;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            dhtMetrics.recordReadLatency("getValidations", System.nanoTime() - startNanos);
-            dhtMetrics.incrementQuorumFailure("getValidations");
-            return null;
-        } catch (ExecutionException e) {
-            dhtMetrics.recordReadLatency("getValidations", System.nanoTime() - startNanos);
-            if (e.getCause() instanceof CompletionException ce) {
-                log.warn("error {} : {} on: {}", operation, ce.getMessage(), member.getId());
-                dhtMetrics.incrementQuorumFailure("getValidations");
-                return null;
-            }
-            dhtMetrics.incrementQuorumFailure("getValidations");
-            throw new DhtResourceException("Get validations failed", e.getCause());
-        }
+        return awaitQuorumRead(result, startNanos, "getValidations", operation,
+                               null, "Get validations failed");
     }
 
-    /**
-     * Get the Byzantine state provider for coordinator registration.
-     * <p>
-     * The returned provider:
-     * - Reports layer name as {@link IntelligenceConfig#LAYER_THOTH}
-     * - Tracks validation failures, quorum failures, and timeouts
-     * - Can be registered with {@link ByzantineIntelligenceCoordinator#registerProvider(ByzantineStateProvider)}
-     * </p>
-     *
-     * @return The Byzantine state provider for this DHT instance
-     */
     public ThothByzantineStateProvider getByzantineStateProvider() {
         return byzantineProvider;
     }
@@ -1305,9 +988,9 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         }
 
         // Start connection pool monitoring
-        startPoolMonitoring();
+        metricsCollector.startPoolMonitoring();
 
-        schedule(duration);
+        reconciliation.schedule(duration);
     }
 
     public void stop() {
@@ -1317,7 +1000,7 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         log.info("Stopping KerlDHT on: {}", member.getId());
 
         // 1. Stop connection pool monitoring
-        stopPoolMonitoring();
+        metricsCollector.stopPoolMonitoring();
 
         // 2. Deregister Byzantine provider from coordinator (Phase 5)
         // Note: Providers use CopyOnWriteArrayList, so removal is safe during coordinator polling
@@ -1347,57 +1030,30 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
             }
         }
 
-        // 3a. Close NonceVerifier to cancel its eviction task (uses the shared scheduler)
-        nonceVerifier.close();
-
-        // 3b. Graceful scheduler shutdown, then force if needed
-        scheduler.shutdown();
-        try {
-            if (!scheduler.awaitTermination(shutdownTimeout.toSeconds(), TimeUnit.SECONDS)) {
-                log.warn("Scheduler did not terminate gracefully, forcing on: {}", member.getId());
-                var droppedTasks = scheduler.shutdownNow();
-                if (!droppedTasks.isEmpty()) {
-                    log.warn("Dropped {} scheduler tasks during forced shutdown on: {}", droppedTasks.size(),
-                             member.getId());
-                }
-            }
-        } catch (InterruptedException e) {
-            scheduler.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
-
-        // 4. Shutdown validation executor (separate from scheduler to avoid deadlock)
-        validationExecutor.shutdown();
-        try {
-            if (!validationExecutor.awaitTermination(shutdownTimeout.toSeconds(), TimeUnit.SECONDS)) {
-                log.warn("Validation executor did not terminate gracefully, forcing on: {}", member.getId());
-                var droppedTasks = validationExecutor.shutdownNow();
-                if (!droppedTasks.isEmpty()) {
-                    log.warn("Dropped {} validation tasks during forced shutdown on: {}", droppedTasks.size(),
-                             member.getId());
-                }
-            }
-        } catch (InterruptedException e) {
-            validationExecutor.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
-
-        // 5. Dispose connection pool
+        validationPipeline.closeNonceVerifier();
+        shutdownExecutor(scheduler, "Scheduler");
+        shutdownExecutor(validationExecutor, "Validation executor");
         connectionPool.dispose();
 
         log.info("KerlDHT stopped on: {}", member.getId());
     }
 
-    /**
-     * Implements AutoCloseable to support try-with-resources pattern.
-     * Delegates to {@link #stop()} to ensure proper resource cleanup.
-     * <p>
-     * Safe to call multiple times - subsequent calls are no-ops due to started AtomicBoolean guard in stop().
-     * </p>
-     */
     @Override
     public void close() {
         stop();
+    }
+
+    private void shutdownExecutor(ExecutorService executor, String name) {
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(shutdownTimeout.toSeconds(), TimeUnit.SECONDS)) {
+                log.warn("{} did not terminate gracefully, forcing on: {}", name, member.getId());
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
     private <T> T complete(Function<ProtoKERLAdapter, T> func) {
@@ -1409,16 +1065,41 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         }
     }
 
+    private <T> T awaitQuorumRead(CompletableFuture<T> result, long startNanos, String metricName,
+                                   String operation, T defaultValue, String errorMessage) {
+        try {
+            var value = result.get();
+            dhtMetrics.recordReadLatency(metricName, System.nanoTime() - startNanos);
+            dhtMetrics.incrementQuorumSuccess(metricName);
+            return value;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            dhtMetrics.recordReadLatency(metricName, System.nanoTime() - startNanos);
+            dhtMetrics.incrementQuorumFailure(metricName);
+            return null;
+        } catch (ExecutionException e) {
+            dhtMetrics.recordReadLatency(metricName, System.nanoTime() - startNanos);
+            dhtMetrics.incrementQuorumFailure(metricName);
+            if (e.getCause() instanceof CompletionException ce) {
+                log.warn("error {} : {} on: {}", operation, ce.getMessage(), member.getId());
+                return defaultValue;
+            }
+            if (e.getCause() instanceof QuorumException qe) {
+                log.debug("Quorum not reached for {}: {} on: {}", operation, qe.getMessage(), member.getId());
+                return defaultValue;
+            }
+            throw new DhtResourceException(errorMessage, e.getCause());
+        }
+    }
+
     private <T> void completeIt(CompletableFuture<T> result, QuorumResponseTracker<T> gathered, String operation) {
         var max = gathered.maxEntry();
         var majority = context.size() == 1 ? 1 : context.majority();
         if (max != null) {
             if (max.getCount() >= majority) {
                 var element = max.getElement();
-                // Record quorum metrics
                 dhtMetrics.recordQuorumRespondentCount(operation, gathered.size());
 
-                // Complete result immediately to reduce tail latency
                 try {
                     result.complete(element);
                 } catch (Exception e) {
@@ -1426,10 +1107,8 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
                 }
 
                 // Detect divergent responses (potential Byzantine behavior)
-                var allResponses = gathered.allResponsesWithProviders();
-                for (var entry : allResponses.entrySet()) {
+                for (var entry : gathered.allResponsesWithProviders().entrySet()) {
                     if (!entry.getKey().equals(element)) {
-                        // Minority response differs from majority
                         for (var provider : entry.getValue()) {
                             byzantineProvider.recordQuorumFailure(provider.getId());
                             log.debug("Member {} returned divergent response (minority)", provider.getId());
@@ -1438,26 +1117,7 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
                     }
                 }
 
-                // Phase 4: Post-quorum validation for KeyStates responses (async, advisory only)
-                if (element instanceof KeyStates keyStates) {
-                    @SuppressWarnings("unchecked")
-                    var providers = ((QuorumResponseTracker<KeyStates>) gathered).providersOf(keyStates);
-                    // Run validation asynchronously - don't block result completion
-                    // Use separate validationExecutor to avoid scheduler deadlock (see ADR-0013)
-                    var validationFuture = CompletableFuture.runAsync(() -> {
-                        try {
-                            var validationResult = validationPipeline.validateKeyStates(keyStates, providers);
-                            if (!validationResult.valid()) {
-                                validationPipeline.reportFailure(validationResult);
-                                log.warn("Advisory: KeyStates validation failed but accepted response");
-                            }
-                        } catch (Exception e) {
-                            log.error("Validation failed with exception", e);
-                        }
-                    }, validationExecutor);
-                    inFlightValidations.add(validationFuture);
-                    validationFuture.whenComplete((v, ex) -> inFlightValidations.remove(validationFuture));
-                }
+                schedulePostQuorumValidation(element, gathered, operation);
                 return;
             }
         } else {
@@ -1496,31 +1156,6 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         }
     }
 
-    private CombinedIntervals keyIntervals() {
-        List<KeyInterval> intervals = new ArrayList<>();
-        for (int i = 0; i < context.getRingCount(); i++) {
-            Member predecessor = context.predecessor(i, member);
-            if (predecessor == null) {
-                continue;
-            }
-
-            Digest begin = context.hashFor(predecessor, i);
-            Digest end = context.hashFor(member, i);
-
-            if (begin.compareTo(end) > 0) { // wrap around the origin of the ring
-                intervals.add(new KeyInterval(end, digestAlgorithm().getLast()));
-                intervals.add(new KeyInterval(digestAlgorithm().getOrigin(), begin));
-            } else {
-                intervals.add(new KeyInterval(begin, end));
-            }
-        }
-        return new CombinedIntervals(intervals);
-    }
-
-    private <T> Entry<T> max(QuorumResponseTracker<T> gathered) {
-        return gathered.maxEntry();
-    }
-
     private int maxCount(QuorumResponseTracker<?> gathered) {
         return gathered.maxCount();
     }
@@ -1529,39 +1164,63 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
                                Digest identifier, Supplier<Boolean> isTimedOut, AtomicInteger tally,
                                DhtService destination, String action) {
         if (futureSailor.isEmpty()) {
-            var destinationId = destination != null && destination.getMember() != null ?
-                                destination.getMember().getId().toString() : "<null>";
-            if (destination == null) {
-                log.warn("Failed {}: {} tally: {} from: <null destination>  on: {} - connection failure",
-                         action, identifier, tally.get(), member.getId());
-            } else {
-                log.debug("Failed {}: {} tally: {} from: {}  on: {}", action, identifier, tally.get(), destinationId,
-                          member.getId());
-            }
-            // Record Byzantine provider signals for failure tracking
-            if (destination != null && destination.getMember() != null) {
-                if (isTimedOut.get()) {
-                    byzantineProvider.recordTimeout(destination.getMember().getId());
-                } else {
-                    byzantineProvider.recordQuorumFailure(destination.getMember().getId());
-                }
-            } else {
-                // Connection failed before we could identify remote member
-                // Record as environmental anomaly for local member's operations
-                byzantineProvider.recordConnectionFailure(member.getId(),
-                    "Connection failure during %s for %s".formatted(action, identifier));
-            }
+            logFailure(action, identifier, tally, destination);
+            recordFailureSignal(destination, isTimedOut, action, identifier);
             return !isTimedOut.get();
         }
         T content = futureSailor.get();
 
         // Verify write acknowledgment authenticity before adding to quorum
-        if (!verifyWriteAcknowledgment(content, respondingMember, destination)) {
+        if (!validationPipeline.verifyWriteAcknowledgment(content, respondingMember, destination)) {
             log.warn("Write acknowledgment verification failed for {} from: {} on: {}", action,
                      respondingMember.getId(), member.getId());
             byzantineProvider.recordSignatureFailure(respondingMember.getId(),
                                                      "Write acknowledgment verification failed");
+            return !isTimedOut.get();
+        }
+
+        gathered.add(content, respondingMember, byzantineProvider);
+        var max = gathered.maxEntry();
+        if (max != null) {
+            tally.set(max.getCount());
+        }
+        logResponse(action, identifier, tally, destination);
+        return !isTimedOut.get();
+    }
+
+    private <T> boolean read(CompletableFuture<T> result, QuorumResponseTracker<T> gathered, Member respondingMember,
+                             AtomicInteger tally, Optional<T> futureSailor, Digest identifier,
+                             Supplier<Boolean> isTimedOut, DhtService destination, String action) {
+        return read(result, gathered, respondingMember, tally, futureSailor, identifier, isTimedOut, destination,
+                    action, null);
+    }
+
+    private <T> boolean read(CompletableFuture<T> result, QuorumResponseTracker<T> gathered, Member respondingMember,
+                             AtomicInteger tally, Optional<T> futureSailor, Digest identifier,
+                             Supplier<Boolean> isTimedOut, DhtService destination, String action, String requestId) {
+        if (futureSailor.isEmpty()) {
+            logFailure(action, identifier, tally, destination);
+            recordFailureSignal(destination, isTimedOut, action, identifier);
+            return !isTimedOut.get();
+        }
+        T content = futureSailor.get();
+        logResponse(action, identifier, tally, destination);
+
+        // Phase 2: Verify response signature before adding to quorum (advisory only)
+        if (!validationPipeline.verifyResponseSignature(content, respondingMember, destination)) {
+            log.warn("Signature verification failed for {} from: {} on: {}", action, respondingMember.getId(),
+                     member.getId());
+            byzantineProvider.recordSignatureFailure(respondingMember.getId(),
+                                                     "Response signature verification failed");
             return !isTimedOut.get();  // Reject this response, continue with quorum
+        }
+
+        // Phase 2: Validate response freshness when requestId is provided (timestamp-based)
+        if (requestId != null) {
+            var requestContext = validationPipeline.getRequestContext(requestId);
+            if (!validationPipeline.validateResponseFreshness(content, requestContext, respondingMember, requestId)) {
+                return !isTimedOut.get();  // Reject stale response, continue with quorum
+            }
         }
 
         // Add response with equivocation detection
@@ -1569,48 +1228,33 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         var max = gathered.maxEntry();
         if (max != null) {
             tally.set(max.getCount());
-        }
-        var destinationId = destination != null && destination.getMember() != null ?
-                            destination.getMember().getId().toString() : "<null>";
-        if (destination == null) {
-            log.warn("{}: {} tally: {} from: <null destination>  on: {} - connection failure", action,
-                     identifier, tally.get(), member.getId());
-        } else {
-            log.trace("{}: {} tally: {} from: {} on: {}", action, identifier, tally.get(), destinationId,
-                      member.getId());
+            var ctxMajority = context.size() == 1 ? 1 : context.majority();
+            final var majority = tally.get() >= ctxMajority;
+            if (majority) {
+                var element = max.getElement();
+                result.complete(element);
+                schedulePostQuorumValidation(element, gathered, action);
+                log.debug("Majority: {} achieved: {}: {} tally: {} on: {}", max.getCount(), action, identifier,
+                          tally.get(), member.getId());
+                return false;
+            }
         }
         return !isTimedOut.get();
     }
 
-    private <T> boolean read(CompletableFuture<T> result, QuorumResponseTracker<T> gathered, Member respondingMember,
-                             AtomicInteger tally, Optional<T> futureSailor, Digest identifier,
-                             Supplier<Boolean> isTimedOut, DhtService destination, String action) {
-        if (futureSailor.isEmpty()) {
-            var destinationId = destination != null && destination.getMember() != null ?
-                                destination.getMember().getId().toString() : "<null>";
-            if (destination == null) {
-                log.warn("Failed {}: {} tally: {} from: <null destination>  on: {} - this should not happen",
-                         action, identifier, tally, member.getId());
-            } else {
-                log.debug("Failed {}: {} tally: {} from: {}  on: {}", action, identifier, tally, destinationId,
-                          member.getId());
-            }
-            // Record Byzantine provider signals for failure tracking
-            if (destination != null && destination.getMember() != null) {
-                if (isTimedOut.get()) {
-                    byzantineProvider.recordTimeout(destination.getMember().getId());
-                } else {
-                    byzantineProvider.recordQuorumFailure(destination.getMember().getId());
-                }
-            } else {
-                // Connection failed before we could identify remote member
-                // Record as environmental anomaly for local member's operations
-                byzantineProvider.recordConnectionFailure(member.getId(),
-                    "Connection failure during %s for %s".formatted(action, identifier));
-            }
-            return !isTimedOut.get();
+    private void logFailure(String action, Digest identifier, AtomicInteger tally, DhtService destination) {
+        var destinationId = destination != null && destination.getMember() != null ?
+                            destination.getMember().getId().toString() : "<null>";
+        if (destination == null) {
+            log.warn("Failed {}: {} tally: {} from: <null destination>  on: {} - this should not happen",
+                     action, identifier, tally, member.getId());
+        } else {
+            log.debug("Failed {}: {} tally: {} from: {}  on: {}", action, identifier, tally, destinationId,
+                      member.getId());
         }
-        T content = futureSailor.get();
+    }
+
+    private void logResponse(String action, Digest identifier, AtomicInteger tally, DhtService destination) {
         var destinationId = destination != null && destination.getMember() != null ?
                             destination.getMember().getId().toString() : "<null>";
         if (destination == null) {
@@ -1620,259 +1264,56 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
             log.trace("{}: {} tally: {} from: {}  on: {}", action, identifier, tally.get(), destinationId,
                       member.getId());
         }
-
-        // Phase 2: Verify response signature before adding to quorum (advisory only)
-        if (!verifyResponseSignature(content, respondingMember, destination)) {
-            log.warn("Signature verification failed for {} from: {} on: {}", action, respondingMember.getId(),
-                     member.getId());
-            byzantineProvider.recordSignatureFailure(respondingMember.getId(),
-                                                     "Response signature verification failed");
-            return !isTimedOut.get();  // Reject this response, continue with quorum
-        }
-
-        // Add response with equivocation detection
-        gathered.add(content, respondingMember, byzantineProvider);
-        var max = max(gathered);
-        if (max != null) {
-            tally.set(max.getCount());
-            var ctxMajority = context.size() == 1 ? 1 : context.majority();
-            final var majority = tally.get() >= ctxMajority;
-            if (majority) {
-                var element = max.getElement();
-                // Complete result immediately to reduce tail latency
-                result.complete(element);
-
-                // Phase 3: Post-quorum validation for KeyState_ responses (async, advisory only)
-                if (element instanceof KeyState_ keyState) {
-                    @SuppressWarnings("unchecked")
-                    var providers = ((QuorumResponseTracker<KeyState_>) gathered).providersOf(keyState);
-                    // Run validation asynchronously - don't block result completion
-                    // Use separate validationExecutor to avoid scheduler deadlock (see ADR-0013)
-                    var validationFuture = CompletableFuture.runAsync(() -> {
-                        try {
-                            var validationResult = validationPipeline.validateKeyState(keyState, providers);
-                            if (!validationResult.valid()) {
-                                validationPipeline.reportFailure(validationResult);
-                                log.warn("Advisory: KeyState validation failed but accepted response: {}", action);
-                            }
-                        } catch (Exception e) {
-                            log.error("Validation failed with exception", e);
-                        }
-                    }, validationExecutor);
-                    inFlightValidations.add(validationFuture);
-                    validationFuture.whenComplete((v, ex) -> inFlightValidations.remove(validationFuture));
-                }
-                log.debug("Majority: {} achieved: {}: {} tally: {} on: {}", max.getCount(), action, identifier,
-                          tally.get(), member.getId());
-                return false;
-            }
-        }
-        return !isTimedOut.get();
     }
 
-    /**
-     * Read callback with freshness validation (Phase 2).
-     * Overloaded version that validates response freshness before adding to quorum.
-     *
-     * @param result CompletableFuture to complete with result
-     * @param gathered Quorum response tracker
-     * @param respondingMember Member providing response
-     * @param tally Current quorum tally
-     * @param futureSailor Response content
-     * @param identifier Identifier being queried
-     * @param isTimedOut Timeout predicate
-     * @param destination Destination service
-     * @param action Operation name for logging
-     * @param requestId Request ID for context lookup
-     * @param <T> Response type
-     * @return true to continue iteration, false to stop
-     */
-    private <T> boolean read(CompletableFuture<T> result, QuorumResponseTracker<T> gathered, Member respondingMember,
-                             AtomicInteger tally, Optional<T> futureSailor, Digest identifier,
-                             Supplier<Boolean> isTimedOut, DhtService destination, String action, String requestId) {
-        if (futureSailor.isEmpty()) {
-            var destinationId = destination != null && destination.getMember() != null ?
-                                destination.getMember().getId().toString() : "<null>";
-            if (destination == null) {
-                log.warn("Failed {}: {} tally: {} from: <null destination>  on: {} - this should not happen",
-                         action, identifier, tally, member.getId());
+    private void recordFailureSignal(DhtService destination, Supplier<Boolean> isTimedOut,
+                                     String action, Digest identifier) {
+        if (destination != null && destination.getMember() != null) {
+            if (isTimedOut.get()) {
+                byzantineProvider.recordTimeout(destination.getMember().getId());
             } else {
-                log.debug("Failed {}: {} tally: {} from: {}  on: {}", action, identifier, tally, destinationId,
-                          member.getId());
+                byzantineProvider.recordQuorumFailure(destination.getMember().getId());
             }
-            // Record Byzantine provider signals for failure tracking
-            if (destination != null && destination.getMember() != null) {
-                if (isTimedOut.get()) {
-                    byzantineProvider.recordTimeout(destination.getMember().getId());
-                } else {
-                    byzantineProvider.recordQuorumFailure(destination.getMember().getId());
-                }
-            } else {
-                // Connection failed before we could identify remote member
-                // Record as environmental anomaly for local member's operations
-                byzantineProvider.recordConnectionFailure(member.getId(),
-                    "Connection failure during %s for %s".formatted(action, identifier));
-            }
-            return !isTimedOut.get();
-        }
-        T content = futureSailor.get();
-        var destinationId = destination != null && destination.getMember() != null ?
-                            destination.getMember().getId().toString() : "<null>";
-        if (destination == null) {
-            log.warn("{}: {} tally: {} from: <null destination>  on: {} - this should not happen", action,
-                     identifier, tally.get(), member.getId());
         } else {
-            log.trace("{}: {} tally: {} from: {}  on: {}", action, identifier, tally.get(), destinationId,
-                      member.getId());
+            byzantineProvider.recordConnectionFailure(member.getId(),
+                "Connection failure during %s for %s".formatted(action, identifier));
         }
+    }
 
-        // Phase 2: Verify response signature before adding to quorum (advisory only)
-        if (!verifyResponseSignature(content, respondingMember, destination)) {
-            log.warn("Signature verification failed for {} from: {} on: {}", action, respondingMember.getId(),
-                     member.getId());
-            byzantineProvider.recordSignatureFailure(respondingMember.getId(),
-                                                     "Response signature verification failed");
-            return !isTimedOut.get();  // Reject this response, continue with quorum
-        }
-
-        // Phase 2: Validate response freshness (timestamp-based)
-        var requestContext = activeRequests.get(requestId);
-        if (!validateResponseFreshness(content, requestContext, respondingMember, requestId)) {
-            // Validation logged and Byzantine signal recorded by validateResponseFreshness()
-            return !isTimedOut.get();  // Reject stale response, continue with quorum
-        }
-
-        // Add response with equivocation detection
-        gathered.add(content, respondingMember, byzantineProvider);
-        var max = max(gathered);
-        if (max != null) {
-            tally.set(max.getCount());
-            var ctxMajority = context.size() == 1 ? 1 : context.majority();
-            final var majority = tally.get() >= ctxMajority;
-            if (majority) {
-                var element = max.getElement();
-                // Complete result immediately to reduce tail latency
-                result.complete(element);
-
-                // Phase 3: Post-quorum validation for KeyState_ responses (async, advisory only)
-                if (element instanceof KeyState_ keyState) {
-                    @SuppressWarnings("unchecked")
-                    var providers = ((QuorumResponseTracker<KeyState_>) gathered).providersOf(keyState);
-                    // Run validation asynchronously - don't block result completion
-                    // Use separate validationExecutor to avoid scheduler deadlock (see ADR-0013)
-                    var validationFuture = CompletableFuture.runAsync(() -> {
-                        try {
-                            var validationResult = validationPipeline.validateKeyState(keyState, providers);
-                            if (!validationResult.valid()) {
-                                validationPipeline.reportFailure(validationResult);
-                                log.warn("Advisory: KeyState validation failed but accepted response: {}", action);
-                            }
-                        } catch (Exception e) {
-                            log.error("Validation failed with exception", e);
-                        }
-                    }, validationExecutor);
-                    inFlightValidations.add(validationFuture);
-                    validationFuture.whenComplete((v, ex) -> inFlightValidations.remove(validationFuture));
+    @SuppressWarnings("unchecked")
+    private <T> void schedulePostQuorumValidation(T element, QuorumResponseTracker<T> gathered, String action) {
+        Runnable validation = null;
+        if (element instanceof KeyState_ keyState) {
+            var providers = ((QuorumResponseTracker<KeyState_>) gathered).providersOf(keyState);
+            validation = () -> {
+                var result = validationPipeline.validateKeyState(keyState, providers);
+                if (!result.valid()) {
+                    validationPipeline.reportFailure(result);
+                    log.warn("Advisory: KeyState validation failed but accepted response: {}", action);
                 }
-                log.debug("Majority: {} achieved: {}: {} tally: {} on: {}", max.getCount(), action, identifier,
-                          tally.get(), member.getId());
-                return false;
-            }
-        }
-        return !isTimedOut.get();
-    }
-
-    /**
-     * Verify read-response signature authenticity (Phase A implementation).
-     *
-     * <p>Delegates to {@link DhtClient#wasLastVerificationValid()} which stores the
-     * result of the cryptographic verification performed inside the gRPC client at
-     * the network boundary.  For the local loopback service there is no network hop
-     * and no signature, so we accept unconditionally.</p>
-     *
-     * <p>Phase A semantics: absent signatures are accepted (backward compat with
-     * mixed-version clusters).  Present-but-invalid signatures return {@code false}
-     * so the caller records a Byzantine signal and rejects the response from quorum.</p>
-     *
-     * @param content          Response content to verify (already deserialized)
-     * @param respondingMember Member that provided the response
-     * @param destination      Service endpoint that returned the response
-     * @return {@code true} if the signature was absent or verified;
-     *         {@code false} if a signature was present but failed verification
-     */
-    private <T> boolean verifyResponseSignature(T content, Member respondingMember, DhtService destination) {
-        if (destination instanceof DhtClient dhtClient) {
-            return dhtClient.wasLastVerificationValid();
-        }
-        // Local loopback — no network, no signature needed
-        return true;
-    }
-
-    private void reconcile(Update update, ReconciliationService link) {
-        if (!started.get()) {
-            return;
-        }
-        try {
-            if (update.getEventsCount() > 0) {
-                reconcileLog.trace("Received: {} events in interval reconciliation from: {} on: {}",
-                                   update.getEventsCount(), link.getMember().getId(), member.getId());
-                dhtMetrics.recordReconciliationEventsReceived(update.getEventsCount());
-                kerlSpace.update(update.getEventsList(), kerl);
-            }
-        } catch (NoSuchElementException e) {
-            reconcileLog.debug("null interval reconciliation with {} : {} on: {}", link.getMember().getId(),
-                               e.getMessage(), member.getId());
-        }
-    }
-
-    private Update reconcile(ReconciliationService link, Integer ring) {
-        if (member.equals(link.getMember())) {
-            return null;
-        }
-        CombinedIntervals keyIntervals = keyIntervals();
-        reconcileLog.trace("Interval reconciliation on ring: {} with: {} intervals: {} on: {} ", ring,
-                           link.getMember().getId(), keyIntervals, member.getId());
-        var update = link.reconcile(Intervals.newBuilder()
-                                             .setRing(ring)
-                                             .addAllIntervals(keyIntervals.toIntervals())
-                                             .setHave(kerlSpace.populate(Entropy.nextBitsStreamLong(), keyIntervals, fpr))
-                                             .build());
-        if (update != null && update.getEventsCount() > 0) {
-            dhtMetrics.recordReconciliationEventsSent(update.getEventsCount());
-        }
-        return update;
-    }
-
-    private void reconcile(Duration duration) {
-        if (!started.get()) {
-            return;
-        }
-        var startNanos = System.nanoTime();
-        try {
-            var successors = context.successors(member.getId(), m -> true, member);
-            Collections.shuffle(successors);
-            successors.forEach(i -> {
-                try (var link = reconcileComms.connect(i.m())) {
-                    if (link != null) {
-                        reconcile(reconcile(link, i.ring()), link);
-                    }
-                    try {
-                        Thread.sleep(duration.toMillis());
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
-                } catch (IOException e) {
-                    log.debug("Error reconciling with: {} on: {}", i.m(), member.getId(), e);
+            };
+        } else if (element instanceof KeyStates keyStates) {
+            var providers = ((QuorumResponseTracker<KeyStates>) gathered).providersOf(keyStates);
+            validation = () -> {
+                var result = validationPipeline.validateKeyStates(keyStates, providers);
+                if (!result.valid()) {
+                    validationPipeline.reportFailure(result);
+                    log.warn("Advisory: KeyStates validation failed but accepted response: {}", action);
                 }
-            });
-        } finally {
-            dhtMetrics.recordReconciliationLatency(System.nanoTime() - startNanos);
-            schedule(duration);
+            };
         }
-    }
-
-    private void schedule(Duration duration) {
-        Thread.ofVirtual().start(() -> Utils.wrapped(() -> reconcile(duration), log));
+        if (validation != null) {
+            final Runnable task = validation;
+            var validationFuture = CompletableFuture.runAsync(() -> {
+                try {
+                    task.run();
+                } catch (Exception e) {
+                    log.error("Validation failed with exception", e);
+                }
+            }, validationExecutor);
+            inFlightValidations.add(validationFuture);
+            validationFuture.whenComplete((v, ex) -> inFlightValidations.remove(validationFuture));
+        }
     }
 
     private void updateLocationHash(Identifier identifier) {
@@ -1886,25 +1327,6 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         } catch (DataAccessException e) {
             log.trace("Duplicate location hash for: {} on: {}", identifier, member.getId());
         }
-    }
-
-    private boolean valid(Digest from, int ring) {
-        if (ring >= context.getRingCount() || ring < 0) {
-            log.warn("Invalid ring: {} (valid range: 0-{}) from: {} on: {}",
-                    ring, context.getRingCount() - 1, from, member.getId());
-            return false;
-        }
-        Member fromMember = context.getMember(from);
-        if (fromMember == null) {
-            log.warn("Unknown member: {} for ring: {} on: {}", from, ring, member.getId());
-            return false;
-        }
-        Member successor = context.successor(ring, fromMember);
-        if (successor == null) {
-            log.warn("No successor found for member: {} on ring: {} on: {}", from, ring, member.getId());
-            return false;
-        }
-        return successor.equals(member);
     }
 
     private DelegatedKERL wrap(ClosableKERL k) {
@@ -1940,61 +1362,8 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         };
     }
 
-    /**
-     * Check if connection pool is exhausted (≥90% utilization).
-     * Returns false if DHT is stopped or pool is disposed.
-     *
-     * @return true if pool utilization ≥ 90%
-     */
     public boolean isPoolExhausted() {
-        if (!started.get()) {
-            return false; // DHT stopped, pool monitoring not active
-        }
-        try {
-            var active = connectionPool.getActiveConnections();
-            var max = connectionPool.getMaxConnections();
-            return active >= (max * 0.9);
-        } catch (Exception e) {
-            // Pool may be disposed during shutdown
-            log.trace("Unable to check pool exhaustion on: {}", member.getId(), e);
-            return false;
-        }
-    }
-
-    /**
-     * Start periodic connection pool monitoring.
-     * Scheduled task samples pool state and records metrics at operationsFrequency interval.
-     */
-    private void startPoolMonitoring() {
-        poolMonitoringTask = scheduler.scheduleAtFixedRate(() -> {
-            try {
-                var active = connectionPool.getActiveConnections();
-                var max = connectionPool.getMaxConnections();
-                var idle = max - active;
-
-                dhtMetrics.recordConnectionPoolActive(active);
-                dhtMetrics.recordConnectionPoolIdle(idle);
-
-                log.trace("Pool state on {}: active={}, idle={}, max={}", member.getId(), active, idle, max);
-            } catch (Exception e) {
-                // Pool may be disposed during shutdown, log at trace to avoid noise
-                log.trace("Error sampling connection pool on: {}", member.getId(), e);
-            }
-        }, 0, operationsFrequency.toMillis(), TimeUnit.MILLISECONDS);
-
-        log.debug("Started connection pool monitoring on: {}", member.getId());
-    }
-
-    /**
-     * Stop periodic connection pool monitoring.
-     * Cancels the scheduled monitoring task.
-     */
-    private void stopPoolMonitoring() {
-        if (poolMonitoringTask != null) {
-            poolMonitoringTask.cancel(false); // Don't interrupt if running
-            poolMonitoringTask = null;
-            log.debug("Stopped connection pool monitoring on: {}", member.getId());
-        }
+        return metricsCollector.isPoolExhausted();
     }
 
     public static class CompletionException extends Exception {
@@ -2003,49 +1372,6 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
 
         public CompletionException(String message) {
             super(message);
-        }
-    }
-
-    private class Reconcile implements Reconciliation {
-
-        @Override
-        public Update reconcile(Intervals intervals, Digest from) {
-            var ring = intervals.getRing();
-            if (!valid(from, ring)) {
-                reconcileLog.trace("Invalid reconcile from: {} ring: {} on: {}", from, ring, member.getId());
-                return Update.getDefaultInstance();
-            }
-            reconcileLog.trace("Reconcile from: {} ring: {} on: {}", from, ring, member.getId());
-            try (var k = kerlPool.create()) {
-                final var builder = KerlDHT.this.kerlSpace.reconcile(intervals, k);
-                CombinedIntervals keyIntervals = keyIntervals();
-                builder.addAllIntervals(keyIntervals.toIntervals())
-                       .setHave(kerlSpace.populate(Entropy.nextBitsStreamLong(), keyIntervals, fpr));
-                if (builder.getEventsCount() > 0) {
-                    reconcileLog.trace("Reconcile for: {} ring: {} count: {} on: {}", from, ring,
-                                       builder.getEventsCount(), member.getId());
-                }
-                return builder.build();
-            } catch (IOException | SQLException e) {
-                reconcileLog.error("Cannot acquire KERL for reconciliation on: {}", member.getId(), e);
-                throw new IllegalStateException("Cannot acquire KERL", e);
-            } catch (Exception e) {
-                reconcileLog.error("Error during reconciliation on: {}", member.getId(), e);
-                return Update.getDefaultInstance();
-            }
-        }
-
-        @Override
-        public void update(Updating update, Digest from) {
-            var ring = update.getRing();
-            if (!valid(from, ring)) {
-                return;
-            }
-
-            // TODO Phase 5: Add reconciliation validation once correct event coordinate extraction is implemented
-            // Reconciliation events are KeyEventWithAttachments which require extracting coordinates from
-            // the nested event type (InceptionEvent/RotationEvent/InteractionEvent via EventCommon)
-            KerlDHT.this.kerlSpace.update(update.getEventsList(), kerl);
         }
     }
 
@@ -2157,223 +1483,4 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
         }
     }
 
-    /**
-     * Verify write-acknowledgment authenticity before adding to quorum.
-     *
-     * <p>Write responses (e.g. {@link KeyStates}) are not yet wrapped in
-     * {@link com.hellblazer.delos.thoth.proto.SignedDhtResponse} — that is
-     * planned for Phase B.  For now we perform structural validation only.</p>
-     *
-     * @param content          Response content from member
-     * @param respondingMember Member that sent the response
-     * @param destination      Destination service
-     * @return {@code true} if structurally valid, {@code false} if malformed
-     */
-    private <T> boolean verifyWriteAcknowledgment(T content, Member respondingMember, DhtService destination) {
-        if (content instanceof KeyStates keyStates) {
-            return validateKeyStatesStructure(keyStates);
-        }
-        return true;
-    }
-
-    /**
-     * Validate KeyStates structural integrity.
-     *
-     * @param keyStates KeyStates response to validate
-     * @return true if structurally valid, false otherwise
-     */
-    private boolean validateKeyStatesStructure(KeyStates keyStates) {
-        if (keyStates == null || !keyStates.isInitialized()) {
-            return false;
-        }
-        // Empty KeyStates is a valid acknowledgment (e.g., new event appends, enrollment)
-        // Only null or uninitialized responses are invalid
-        return true;
-    }
-
-    /**
-     * Lightweight pre-quorum structural validation for KeyEventWithAttachments (Phase 2 - Hybrid Validation).
-     * <p>
-     * Validates KeyEventWithAttachments has the same structural requirements as KeyEvent_.
-     * </p>
-     *
-     * @param event Event with attachments to validate
-     * @return true if structurally valid, false otherwise
-     */
-    private static boolean validateEventWithAttachmentsStructure(KeyEventWithAttachments event) {
-        // Check event not null
-        if (event == null) {
-            return false;
-        }
-
-        // Check event has valid type (inception, rotation, or interaction)
-        if (!event.hasInception() && !event.hasRotation() && !event.hasInteraction()) {
-            return false;
-        }
-
-        // Extract identifier and common based on event type (same logic as KeyEvent_)
-        Ident identifier;
-        EventCommon common;
-
-        if (event.hasInception()) {
-            var inception = event.getInception();
-            identifier = inception.getIdentifier();
-            common = inception.getCommon();
-        } else if (event.hasRotation()) {
-            var rotation = event.getRotation();
-            if (!rotation.hasSpecification() || !rotation.getSpecification().hasHeader()) {
-                return false;
-            }
-            identifier = rotation.getSpecification().getHeader().getIdentifier();
-            common = rotation.getCommon();
-        } else {
-            // Interaction event
-            var interaction = event.getInteraction();
-            if (!interaction.hasSpecification() || !interaction.getSpecification().hasHeader()) {
-                return false;
-            }
-            identifier = interaction.getSpecification().getHeader().getIdentifier();
-            common = interaction.getCommon();
-        }
-
-        // Check identifier is valid and has a type set (not default, not NONE)
-        if (identifier == null || (!identifier.hasBasic() && !identifier.hasSelfAddressing()
-                                   && !identifier.hasSelfSigning())) {
-            return false;
-        }
-
-        // Validate identifier content is non-empty and meets minimum requirements
-        if (identifier.hasBasic()) {
-            var basic = identifier.getBasic();
-            // PubKey.encoded must be non-empty and at least 32 bytes
-            if (basic.getEncoded().isEmpty() || basic.getEncoded().size() < 32) {
-                return false;
-            }
-        }
-        if (identifier.hasSelfAddressing()) {
-            var selfAddr = identifier.getSelfAddressing();
-            // Digeste.hash must be non-empty (repeated uint64)
-            if (selfAddr.getHashCount() == 0) {
-                return false;
-            }
-        }
-        if (identifier.hasSelfSigning()) {
-            var selfSign = identifier.getSelfSigning();
-            // Sig.signatures must be non-empty and each signature at least 32 bytes
-            if (selfSign.getSignaturesCount() == 0) {
-                return false;
-            }
-            for (var sig : selfSign.getSignaturesList()) {
-                if (sig.isEmpty() || sig.size() < 32) {
-                    return false;
-                }
-            }
-        }
-
-        // Check authentication signature has non-empty signatures list
-        if (common == null || !common.hasAuthentication() || common.getAuthentication().getSignaturesCount() == 0) {
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
-     * Lightweight pre-quorum structural validation (Phase 2 - Hybrid Validation).
-     * <p>
-     * Checks basic event structure without cryptographic validation.
-     * Post-quorum crypto validation happens via DhtValidationPipeline.
-     * </p>
-     * <p>
-     * Validates:
-     * <ul>
-     *   <li>Event has valid type (inception, rotation, or interaction)</li>
-     *   <li>Event has valid identifier (not null, initialized)</li>
-     *   <li>Event has authentication signature (not empty)</li>
-     * </ul>
-     * </p>
-     * <p>
-     * This method is package-private to enable unit testing.
-     * </p>
-     *
-     * @param event Event to validate
-     * @return true if structurally valid, false otherwise
-     */
-    static boolean validateEventStructure(KeyEvent_ event) {
-        // Check event not null (caller should check, but defensive)
-        if (event == null) {
-            return false;
-        }
-
-        // Check event has valid type (inception, rotation, or interaction)
-        if (!event.hasInception() && !event.hasRotation() && !event.hasInteraction()) {
-            return false;
-        }
-
-        // Extract identifier and common based on event type
-        Ident identifier;
-        EventCommon common;
-
-        if (event.hasInception()) {
-            var inception = event.getInception();
-            identifier = inception.getIdentifier();
-            common = inception.getCommon();
-        } else if (event.hasRotation()) {
-            var rotation = event.getRotation();
-            if (!rotation.hasSpecification() || !rotation.getSpecification().hasHeader()) {
-                return false;
-            }
-            identifier = rotation.getSpecification().getHeader().getIdentifier();
-            common = rotation.getCommon();
-        } else {
-            // Interaction event
-            var interaction = event.getInteraction();
-            if (!interaction.hasSpecification() || !interaction.getSpecification().hasHeader()) {
-                return false;
-            }
-            identifier = interaction.getSpecification().getHeader().getIdentifier();
-            common = interaction.getCommon();
-        }
-
-        // Check identifier is valid and has a type set (not default, not NONE)
-        if (identifier == null || (!identifier.hasBasic() && !identifier.hasSelfAddressing()
-                                   && !identifier.hasSelfSigning())) {
-            return false;
-        }
-
-        // Validate identifier content is non-empty and meets minimum requirements
-        if (identifier.hasBasic()) {
-            var basic = identifier.getBasic();
-            // PubKey.encoded must be non-empty and at least 32 bytes
-            if (basic.getEncoded().isEmpty() || basic.getEncoded().size() < 32) {
-                return false;
-            }
-        }
-        if (identifier.hasSelfAddressing()) {
-            var selfAddr = identifier.getSelfAddressing();
-            // Digeste.hash must be non-empty (repeated uint64)
-            if (selfAddr.getHashCount() == 0) {
-                return false;
-            }
-        }
-        if (identifier.hasSelfSigning()) {
-            var selfSign = identifier.getSelfSigning();
-            // Sig.signatures must be non-empty and each signature at least 32 bytes
-            if (selfSign.getSignaturesCount() == 0) {
-                return false;
-            }
-            for (var sig : selfSign.getSignaturesList()) {
-                if (sig.isEmpty() || sig.size() < 32) {
-                    return false;
-                }
-            }
-        }
-
-        // Check authentication signature has non-empty signatures list
-        if (common == null || !common.hasAuthentication() || common.getAuthentication().getSignaturesCount() == 0) {
-            return false;
-        }
-
-        return true;
-    }
 }

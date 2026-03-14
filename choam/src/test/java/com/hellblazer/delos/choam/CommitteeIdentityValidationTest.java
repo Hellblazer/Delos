@@ -132,11 +132,11 @@ public class CommitteeIdentityValidationTest {
     }
 
     /**
-     * With VERIFIER_VALIDATION=true, identityValidatorsOf must throw when a member
-     * is missing from the context (unconditional NO_VERIFIER bypass path closed).
+     * With VERIFIER_VALIDATION=true, identityValidatorsOf excludes members missing
+     * from context. With 4 members and 1 excluded, 3 remaining is below BFT → throws.
      */
     @Test
-    public void testIdentityValidatorsOf_throwsWhenMemberMissingAndFlagEnabled() {
+    public void testIdentityValidatorsOf_throwsWhenExclusionDropsBelowBft() {
         // Default is now true (secure)
         assertTrue(FeatureFlags.VERIFIER_VALIDATION.isEnabled());
 
@@ -147,12 +147,11 @@ public class CommitteeIdentityValidationTest {
         // Build reconfigure that includes the outsider (not in context)
         var reconfigure = buildReconfigureWithMember(outsider);
 
-        // identityValidatorsOf must reject this - member not in context
+        // identityValidatorsOf excludes the outsider; 3 remaining is below BFT threshold
         assertThrows(IllegalStateException.class,
                      () -> Committee.identityValidatorsOf(reconfigure, context,
                                                           members.get(0).getId(), log),
-                     "identityValidatorsOf must throw when a member is missing from context " +
-                     "and VERIFIER_VALIDATION is enabled");
+                     "identityValidatorsOf must throw when exclusions drop below BFT threshold");
     }
 
     /**
@@ -219,28 +218,28 @@ public class CommitteeIdentityValidationTest {
 
     /**
      * Integration test: BOTH NO_VERIFIER bypass paths in Committee are closed when flag is ON.
-     * Path 1: validatorsOf - missing consensus key
-     * Path 2: identityValidatorsOf - missing member in context
+     * Path 1: validatorsOf - missing consensus key → excluded → below BFT → throws
+     * Path 2: identityValidatorsOf - missing member → excluded → below BFT → throws
      */
     @Test
     public void testBothNoVerifierBypassPathsClosedWhenFlagEnabled() {
         // Default is true
         assertTrue(FeatureFlags.VERIFIER_VALIDATION.isEnabled());
 
-        // Path 1: validatorsOf rejects missing consensus key
+        // Path 1: validatorsOf excludes missing key, 3 remaining < BFT threshold
         var reconfigureNoKey = buildReconfigureWithMissingConsensusKey();
         assertThrows(IllegalStateException.class,
                      () -> Committee.validatorsOf(reconfigureNoKey, context,
                                                   members.get(0).getId(), log),
-                     "Path 1 (validatorsOf): must reject missing consensus key when flag enabled");
+                     "Path 1 (validatorsOf): must fail BFT check when excluding validator");
 
-        // Path 2: identityValidatorsOf rejects missing member
+        // Path 2: identityValidatorsOf excludes missing member, 3 remaining < BFT threshold
         var outsider = createMemberNotInContext(new SecureRandom());
         var reconfigureWithOutsider = buildReconfigureWithMember(outsider);
         assertThrows(IllegalStateException.class,
                      () -> Committee.identityValidatorsOf(reconfigureWithOutsider, context,
                                                           members.get(0).getId(), log),
-                     "Path 2 (identityValidatorsOf): must reject missing member when flag enabled");
+                     "Path 2 (identityValidatorsOf): must fail BFT check when excluding member");
     }
 
     /**
