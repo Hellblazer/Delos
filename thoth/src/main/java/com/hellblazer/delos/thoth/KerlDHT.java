@@ -2042,10 +2042,16 @@ public class KerlDHT implements ProtoKERLService, AutoCloseable {
                 return;
             }
 
-            // TODO Phase 5: Add reconciliation validation once correct event coordinate extraction is implemented
-            // Reconciliation events are KeyEventWithAttachments which require extracting coordinates from
-            // the nested event type (InceptionEvent/RotationEvent/InteractionEvent via EventCommon)
-            KerlDHT.this.kerlSpace.update(update.getEventsList(), kerl);
+            // Phase A: Validate reconciliation events before insertion.
+            // A Byzantine peer can inject arbitrary KERI events via single-peer reconciliation;
+            // only validated events proceed to kerlSpace.update().
+            var validatedEvents = validationPipeline.validateReconciliationBatch(update.getEventsList(), from);
+            if (validatedEvents.isEmpty() && !update.getEventsList().isEmpty()) {
+                reconcileLog.warn("All {} reconciliation events rejected from peer: {} ring: {}",
+                                  update.getEventsList().size(), from, ring);
+                return;
+            }
+            KerlDHT.this.kerlSpace.update(validatedEvents, kerl);
         }
     }
 

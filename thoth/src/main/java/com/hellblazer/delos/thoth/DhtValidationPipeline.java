@@ -10,23 +10,28 @@ package com.hellblazer.delos.thoth;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.protobuf.Empty;
+import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.stereotomy.KERL;
 import com.hellblazer.delos.stereotomy.event.EstablishmentEvent;
 import com.hellblazer.delos.stereotomy.event.InceptionEvent;
 import com.hellblazer.delos.stereotomy.event.KeyEvent;
+import com.hellblazer.delos.stereotomy.event.proto.KeyEventWithAttachmentAndValidations_;
+import com.hellblazer.delos.stereotomy.event.proto.KeyEvent_;
 import com.hellblazer.delos.stereotomy.event.proto.KeyState_;
+import com.hellblazer.delos.stereotomy.event.protobuf.ProtobufEventFactory;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
 import com.hellblazer.delos.thoth.metrics.KerlDhtMetrics;
+import com.hellblazer.delos.thoth.support.ValidationCircuitBreaker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.hellblazer.delos.thoth.support.ValidationCircuitBreaker;
-
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 
 /**
@@ -320,6 +325,203 @@ public class DhtValidationPipeline {
             current = current.getCause();
         }
         return false;
+    }
+
+    /**
+     * Validate a batch of reconciliation events received from a single peer.
+     * <p>
+     * Phase A implementation: Pre-insertion validation for reconciliation path. Filters out
+     * invalid events before they reach {@code KerlSpace.update()}. Invalid events trigger
+     * Byzantine signals against the sender.
+     * </p>
+     * <p>
+     * Two-pass ordering: Establishment events (inception/rotation, seqNum 0) are validated
+     * first in pass 1, so that trust bootstrapped by an inception event is available when
+     * dependent interaction events are validated in pass 2.
+     * </p>
+     * <p>
+     * Circuit Breaker Fail-Open: If the circuit breaker is open (infrastructure failing),
+     * the unfiltered list is returned to prevent blocking reconciliation during outages.
+     * </p>
+     *
+     * @param events List of reconciliation events from a peer; may be null or empty
+     * @param peerId Digest identifying the sending peer (used for Byzantine signal recording)
+     * @return Filtered list containing only validated events; never null
+     */
+    public List<KeyEventWithAttachmentAndValidations_> validateReconciliationBatch(
+        List<KeyEventWithAttachmentAndValidations_> events, Digest peerId) {
+
+        if (events == null || events.isEmpty()) {
+            return List.of();
+        }
+
+        // Circuit breaker fail-open: return unfiltered list during infrastructure failures
+        if (circuitBreaker.isOpen()) {
+            log.debug("Validation circuit breaker OPEN - skipping reconciliation batch validation, {} events",
+                      events.size());
+            metrics.incrementValidationSkipped("reconciliation", "circuit_breaker_open");
+            return events;
+        }
+
+        // Two-pass ordering: sort by (seqNum ASC) — inception events (seqNum 0) come first
+        // within their identifier, which allows trust bootstrapping for dependent events.
+        var sorted = events.stream()
+                           .sorted(Comparator.comparingLong(DhtValidationPipeline::extractSequenceNumber))
+                           .toList();
+
+        var validated = new ArrayList<KeyEventWithAttachmentAndValidations_>(sorted.size());
+        for (var event : sorted) {
+            if (validateSingleReconciliationEvent(event, peerId)) {
+                validated.add(event);
+            }
+        }
+
+        log.debug("Reconciliation batch: {} in, {} validated, {} rejected from peer: {}",
+                  events.size(), validated.size(), events.size() - validated.size(), peerId);
+        return validated;
+    }
+
+    /**
+     * Validate a single reconciliation event.
+     * <p>
+     * Converts proto event to domain object, then validates:
+     * <ul>
+     *   <li>Structural validity (event type present, identifier set)</li>
+     *   <li>EstablishmentEvent: Ani validation if event is in local KERL</li>
+     *   <li>InceptionEvent: Self-addressing identifier digest check</li>
+     *   <li>Interaction events: accepted (no independent cryptographic check without prior state)</li>
+     * </ul>
+     * </p>
+     *
+     * @param wrapper event wrapper containing KeyEvent_ and optional attachment/validations
+     * @param peerId  peer digest for Byzantine signal recording
+     * @return true if event passes validation, false if rejected
+     */
+    private boolean validateSingleReconciliationEvent(KeyEventWithAttachmentAndValidations_ wrapper, Digest peerId) {
+        var startTime = System.nanoTime();
+        try {
+            var keyEvent_ = wrapper.getEvent();
+            if (keyEvent_ == null || keyEvent_.getEventCase() == KeyEvent_.EventCase.EVENT_NOT_SET) {
+                recordReconciliationRejection(peerId, "event has no type set", startTime);
+                return false;
+            }
+
+            // Convert proto to domain object
+            var keyEvent = ProtobufEventFactory.from(keyEvent_);
+            if (keyEvent == null) {
+                recordReconciliationRejection(peerId, "event conversion failed (unknown event type)", startTime);
+                return false;
+            }
+
+            // Establishment events (inception, rotation): attempt Ani validation
+            if (keyEvent instanceof EstablishmentEvent est) {
+                var coords = est.getCoordinates();
+
+                // Check cache first, then KERL — for new events not yet inserted, this returns null
+                var localEvent = eventCache.get(coords, k -> kerl.getKeyEvent(coords));
+                if (localEvent == null) {
+                    // New event not yet in local KERL — acceptable for reconciliation.
+                    // For inception events, check self-addressing identifier integrity.
+                    if (est instanceof InceptionEvent icp) {
+                        var identifier = icp.getIdentifier();
+                        if (identifier instanceof SelfAddressingIdentifier sai) {
+                            var computed = sai.getDigest().getAlgorithm().digest(icp.getInceptionStatement());
+                            if (!sai.getDigest().equals(computed)) {
+                                var reason = "Self-addressing identifier digest mismatch for inception event "
+                                             + coords;
+                                recordReconciliationRejection(peerId, reason, startTime);
+                                return false;
+                            }
+                        }
+                    }
+                    // New event accepted — let kerlSpace.update() do full insertion validation
+                    metrics.recordValidationLatency("reconciliation", System.nanoTime() - startTime);
+                    return true;
+                }
+
+                // Event is already in local KERL — validate via Ani
+                if (!(localEvent instanceof EstablishmentEvent localEst)) {
+                    var reason = "Expected EstablishmentEvent in local KERL but got "
+                                 + localEvent.getClass().getSimpleName() + " for " + coords;
+                    recordReconciliationRejection(peerId, reason, startTime);
+                    return false;
+                }
+                var validation = ani.eventValidation(validationTimeout);
+                if (!validation.validate(localEst)) {
+                    var reason = "Establishment event validation failed for " + coords;
+                    recordReconciliationRejection(peerId, reason, startTime);
+                    circuitBreaker.recordSuccess(); // Validation executed — infrastructure is OK
+                    return false;
+                }
+                circuitBreaker.recordSuccess();
+                metrics.recordValidationLatency("reconciliation", System.nanoTime() - startTime);
+                return true;
+            }
+
+            // Interaction events: accept without independent cryptographic check
+            // (full validation occurs when kerlSpace.update() processes the event)
+            metrics.recordValidationLatency("reconciliation", System.nanoTime() - startTime);
+            return true;
+
+        } catch (Exception e) {
+            if (isInfrastructureException(e)) {
+                circuitBreaker.recordFailure();
+                log.warn("KERL access failure during reconciliation event validation - accepting event: {}",
+                         e.getMessage());
+                metrics.incrementValidationSkipped("reconciliation", "kerl_access_failure");
+                metrics.recordValidationLatency("reconciliation", System.nanoTime() - startTime);
+                return true; // Fail-open for infrastructure failures
+            }
+            var reason = "Unexpected error during reconciliation validation: " + e.getClass().getSimpleName() + ": "
+                         + e.getMessage();
+            log.error("Rejecting reconciliation event due to unexpected validation error: {}", reason, e);
+            recordReconciliationRejection(peerId, reason, startTime);
+            return false;
+        }
+    }
+
+    /**
+     * Record a reconciliation event rejection: log warning, increment metrics, and signal Byzantine detection.
+     *
+     * @param peerId    peer that sent the rejected event
+     * @param reason    human-readable rejection reason
+     * @param startTime nanosecond start time for latency recording
+     */
+    private void recordReconciliationRejection(Digest peerId, String reason, long startTime) {
+        log.warn("Reconciliation event rejected: {} from peer: {}", reason, peerId);
+        metrics.recordValidationLatency("reconciliation", System.nanoTime() - startTime);
+        metrics.incrementValidationFailure("reconciliation", reason);
+        metrics.incrementByzantineDetection("RECONCILIATION");
+        if (peerId != null) {
+            byzantineProvider.recordValidationFailure(peerId, reason);
+        }
+    }
+
+    /**
+     * Extract the sequence number from a reconciliation event wrapper for sorting purposes.
+     * <p>
+     * Uses the Header.sequenceNumber field which is present on all three event types:
+     * InceptionEvent (via specification.header), RotationEvent (via specification.header),
+     * InteractionEvent (via specification.header).
+     * </p>
+     *
+     * @param wrapper event wrapper
+     * @return sequence number, or Long.MAX_VALUE if extraction fails
+     */
+    static long extractSequenceNumber(KeyEventWithAttachmentAndValidations_ wrapper) {
+        if (wrapper == null) {
+            return Long.MAX_VALUE;
+        }
+        var keyEvent = wrapper.getEvent();
+        if (keyEvent == null) {
+            return Long.MAX_VALUE;
+        }
+        return switch (keyEvent.getEventCase()) {
+            case INCEPTION -> keyEvent.getInception().getSpecification().getHeader().getSequenceNumber();
+            case ROTATION -> keyEvent.getRotation().getSpecification().getHeader().getSequenceNumber();
+            case INTERACTION -> keyEvent.getInteraction().getSpecification().getHeader().getSequenceNumber();
+            default -> Long.MAX_VALUE;
+        };
     }
 
     /**
