@@ -73,7 +73,7 @@ public class DhtValidationPipeline {
     private final        Duration                    validationTimeout;
     private final        ThothByzantineStateProvider byzantineProvider;
     private final        KerlDhtMetrics              metrics;
-    private final        ValidationCircuitBreaker    circuitBreaker;
+    final                ValidationCircuitBreaker    circuitBreaker; // package-private for testing
     private final        ScheduledExecutorService    scheduler;
     // LRU cache for establishment events to reduce KERL lookups
     private final        Cache<EventCoordinates, KeyEvent> eventCache;

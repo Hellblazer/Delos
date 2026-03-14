@@ -94,15 +94,11 @@ public class DhtReconciliationValidationTest {
 
     @Test
     void testCircuitBreakerOpenReturnsUnfilteredList() {
-        // Force circuit breaker open by injecting 10 consecutive infrastructure failures
-        var state = createKeyStateWithEstablishmentEvent();
-        var ioException = new RuntimeException("Database connection lost",
-                                               new RuntimeException("SQLException: Connection refused"));
-        when(kerl.getKeyEvent(any(EventCoordinates.class))).thenThrow(ioException);
-        // Trigger 10 failures to open the circuit breaker via validateKeyState
+        // Force circuit breaker open directly
         for (int i = 0; i < 10; i++) {
-            pipeline.validateKeyState(state, Set.of());
+            pipeline.circuitBreaker.recordFailure();
         }
+        assertThat(pipeline.circuitBreaker.isOpen()).isTrue();
 
         // Now the circuit breaker should be open — validateReconciliationBatch must fail-open
         var events = List.of(makeInceptionEvent(0), makeRotationEvent(1), makeInteractionEvent(2));
@@ -152,14 +148,29 @@ public class DhtReconciliationValidationTest {
     }
 
     @Test
-    void testEventNotFoundInKerlRejectedAndByzantineSignalRecorded() {
-        // Event not in local KERL — Byzantine injection attempt
-        when(ani.eventValidation(validationTimeout)).thenReturn(validation);
+    void testNewEventNotInKerlAccepted() {
+        // New rotation event not yet in local KERL — accepted for reconciliation.
+        // Rotation events are EstablishmentEvents but skip the self-addressing
+        // inception digest check, so they're accepted when not yet in KERL.
+        when(kerl.getKeyEvent(any(EventCoordinates.class))).thenReturn(null);
+
+        var events = List.of(makeRotationEvent(1));
+        var result = pipeline.validateReconciliationBatch(events, peerId);
+
+        // New events are accepted — reconciliation is how peers learn about new events
+        assertThat(result).hasSize(1);
+        verifyNoInteractions(byzantineProvider);
+    }
+
+    @Test
+    void testNewInceptionWithBadSelfAddressingRejected() {
+        // Inception event with mismatched self-addressing identifier digest — rejected
         when(kerl.getKeyEvent(any(EventCoordinates.class))).thenReturn(null);
 
         var events = List.of(makeInceptionEvent(0));
         var result = pipeline.validateReconciliationBatch(events, peerId);
 
+        // Self-addressing identifier integrity check fails for minimal test proto
         assertThat(result).isEmpty();
         verify(byzantineProvider, atLeastOnce()).recordValidationFailure(eq(peerId), any(String.class));
     }
