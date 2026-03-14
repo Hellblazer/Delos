@@ -17,21 +17,20 @@ import com.hellblazer.delos.stereotomy.KERL;
 import com.hellblazer.delos.stereotomy.event.EstablishmentEvent;
 import com.hellblazer.delos.stereotomy.event.InceptionEvent;
 import com.hellblazer.delos.stereotomy.event.KeyEvent;
-import com.hellblazer.delos.stereotomy.event.proto.KeyEventWithAttachmentAndValidations_;
-import com.hellblazer.delos.stereotomy.event.proto.KeyEvent_;
-import com.hellblazer.delos.stereotomy.event.proto.KeyState_;
+import com.hellblazer.delos.stereotomy.event.proto.*;
 import com.hellblazer.delos.stereotomy.event.protobuf.ProtobufEventFactory;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
+import com.hellblazer.delos.stereotomy.services.grpc.proto.KeyStates;
+import com.hellblazer.delos.thoth.grpc.dht.DhtClient;
+import com.hellblazer.delos.thoth.grpc.dht.DhtService;
 import com.hellblazer.delos.thoth.metrics.KerlDhtMetrics;
 import com.hellblazer.delos.thoth.support.ValidationCircuitBreaker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 
 /**
@@ -75,8 +74,17 @@ public class DhtValidationPipeline {
     private final        KerlDhtMetrics              metrics;
     final                ValidationCircuitBreaker    circuitBreaker; // package-private for testing
     private final        ScheduledExecutorService    scheduler;
+    private final        NonceVerifier               nonceVerifier;
+    private final        Map<String, RequestContext> activeRequests = new ConcurrentHashMap<>();
     // LRU cache for establishment events to reduce KERL lookups
     private final        Cache<EventCoordinates, KeyEvent> eventCache;
+
+    /**
+     * Request context for freshness validation with cryptographic nonce.
+     * Tracks operation, identifier, timestamp, and a unique nonce to prevent replay attacks.
+     */
+    record RequestContext(String operation, Digest identifier, long timestamp, String nonce) {
+    }
 
     public DhtValidationPipeline(Ani ani, KERL kerl, Duration validationTimeout,
                                  ThothByzantineStateProvider byzantineProvider, KerlDhtMetrics metrics,
@@ -88,6 +96,7 @@ public class DhtValidationPipeline {
         this.metrics = metrics;
         this.circuitBreaker = new ValidationCircuitBreaker(); // 10 failures, 1 minute timeout
         this.scheduler = scheduler;
+        this.nonceVerifier = new InMemoryNonceVerifier(validationTimeout, 100_000, scheduler);
         this.eventCache = Caffeine.newBuilder()
             .maximumSize(100)
             .expireAfterWrite(Duration.ofMinutes(5))
@@ -524,6 +533,298 @@ public class DhtValidationPipeline {
         };
     }
 
+    // ─── Request context and freshness validation ────────────────────────
+
+    /**
+     * Creates a request context for freshness validation with cryptographic nonce.
+     *
+     * @param operation  Operation name for tracking
+     * @param identifier Identifier being queried
+     * @return RequestContext with current timestamp and unique nonce
+     */
+    public RequestContext createRequestContext(String operation, Digest identifier) {
+        return new RequestContext(operation, identifier, currentTimeMillis(), nonceVerifier.generateNonce());
+    }
+
+    /**
+     * Generates a unique request ID for tracking active requests.
+     *
+     * @return UUID-based request ID
+     */
+    public String generateRequestId() {
+        return UUID.randomUUID().toString();
+    }
+
+    /**
+     * Store a request context for later freshness validation.
+     */
+    public void storeRequestContext(String requestId, RequestContext context) {
+        activeRequests.put(requestId, context);
+    }
+
+    /**
+     * Retrieve and remove a stored request context.
+     */
+    public RequestContext getRequestContext(String requestId) {
+        return activeRequests.get(requestId);
+    }
+
+    /**
+     * Remove a stored request context after operation completes.
+     */
+    public void removeRequestContext(String requestId) {
+        activeRequests.remove(requestId);
+    }
+
+    /**
+     * Get current time in milliseconds. Protected for testing.
+     */
+    protected long currentTimeMillis() {
+        return System.currentTimeMillis();
+    }
+
+    /**
+     * Validates response freshness using timestamp comparison and cryptographic nonce verification.
+     *
+     * @param content          Response content (unused, kept for API consistency)
+     * @param context          Original request context with timestamp and nonce
+     * @param respondingMember Member who sent the response
+     * @param requestId        Request ID for tracking
+     * @param <T>              Response content type
+     * @return true if response is fresh and nonce is unique, false if stale or replay detected
+     */
+    public <T> boolean validateResponseFreshness(T content, RequestContext context, Member respondingMember,
+                                                  String requestId) {
+        if (context == null) {
+            log.warn("Response freshness check failed: no request context for requestId={} from member={}", requestId,
+                     respondingMember.getId());
+            return false;
+        }
+
+        var currentTime = currentTimeMillis();
+        var responseAge = currentTime - context.timestamp;
+        var timeoutMillis = validationTimeout.toMillis();
+
+        if (responseAge > timeoutMillis) {
+            log.warn("Stale response detected: operation={}, identifier={}, age={}ms, timeout={}ms, member={}",
+                     context.operation, context.identifier, responseAge, timeoutMillis, respondingMember.getId());
+
+            byzantineProvider.recordValidationFailure(respondingMember.getId(),
+                                                      "Stale response: age=%dms > timeout=%dms".formatted(
+                                                      responseAge, timeoutMillis));
+
+            metrics.incrementValidationFailure(context.operation, "stale_response");
+            return false;
+        }
+
+        // Cryptographic nonce verification — replay attack prevention
+        if (context.nonce() != null && !nonceVerifier.recordAndVerify(context.nonce(), respondingMember.getId())) {
+            log.warn("Replay attack detected: duplicate nonce for requestId={} from member={}", requestId,
+                     respondingMember.getId());
+            byzantineProvider.recordValidationFailure(respondingMember.getId(),
+                                                      "Replay attack: duplicate nonce for request=%s".formatted(
+                                                      requestId));
+            metrics.incrementValidationFailure(context.operation, "replay_attack");
+            return false;
+        }
+
+        return true;
+    }
+
+    // ─── Response verification ──────────────────────────────────────────
+
+    /**
+     * Verify response signature from a DHT service endpoint.
+     *
+     * @param content          Response content
+     * @param respondingMember Member that provided the response
+     * @param destination      Service endpoint
+     * @return true if signature absent or valid; false if present but invalid
+     */
+    public <T> boolean verifyResponseSignature(T content, Member respondingMember, DhtService destination) {
+        if (destination instanceof DhtClient dhtClient) {
+            return dhtClient.wasLastVerificationValid();
+        }
+        return true;
+    }
+
+    /**
+     * Verify write-acknowledgment authenticity.
+     *
+     * @param content          Response content from member
+     * @param respondingMember Member that sent the response
+     * @param destination      Destination service
+     * @return true if structurally valid, false if malformed
+     */
+    public <T> boolean verifyWriteAcknowledgment(T content, Member respondingMember, DhtService destination) {
+        if (content instanceof KeyStates keyStates) {
+            return validateKeyStatesStructure(keyStates);
+        }
+        return true;
+    }
+
+    /**
+     * Validate KeyStates structural integrity.
+     */
+    boolean validateKeyStatesStructure(KeyStates keyStates) {
+        if (keyStates == null || !keyStates.isInitialized()) {
+            return false;
+        }
+        return true;
+    }
+
+    // ─── Structural validation ──────────────────────────────────────────
+
+    /**
+     * Lightweight pre-quorum structural validation for KeyEvent_.
+     *
+     * @param event Event to validate
+     * @return true if structurally valid, false otherwise
+     */
+    public static boolean validateEventStructure(KeyEvent_ event) {
+        if (event == null) {
+            return false;
+        }
+
+        if (!event.hasInception() && !event.hasRotation() && !event.hasInteraction()) {
+            return false;
+        }
+
+        Ident identifier;
+        EventCommon common;
+
+        if (event.hasInception()) {
+            var inception = event.getInception();
+            identifier = inception.getIdentifier();
+            common = inception.getCommon();
+        } else if (event.hasRotation()) {
+            var rotation = event.getRotation();
+            if (!rotation.hasSpecification() || !rotation.getSpecification().hasHeader()) {
+                return false;
+            }
+            identifier = rotation.getSpecification().getHeader().getIdentifier();
+            common = rotation.getCommon();
+        } else {
+            var interaction = event.getInteraction();
+            if (!interaction.hasSpecification() || !interaction.getSpecification().hasHeader()) {
+                return false;
+            }
+            identifier = interaction.getSpecification().getHeader().getIdentifier();
+            common = interaction.getCommon();
+        }
+
+        if (identifier == null || (!identifier.hasBasic() && !identifier.hasSelfAddressing()
+                                   && !identifier.hasSelfSigning())) {
+            return false;
+        }
+
+        if (identifier.hasBasic()) {
+            var basic = identifier.getBasic();
+            if (basic.getEncoded().isEmpty() || basic.getEncoded().size() < 32) {
+                return false;
+            }
+        }
+        if (identifier.hasSelfAddressing()) {
+            var selfAddr = identifier.getSelfAddressing();
+            if (selfAddr.getHashCount() == 0) {
+                return false;
+            }
+        }
+        if (identifier.hasSelfSigning()) {
+            var selfSign = identifier.getSelfSigning();
+            if (selfSign.getSignaturesCount() == 0) {
+                return false;
+            }
+            for (var sig : selfSign.getSignaturesList()) {
+                if (sig.isEmpty() || sig.size() < 32) {
+                    return false;
+                }
+            }
+        }
+
+        if (common == null || !common.hasAuthentication() || common.getAuthentication().getSignaturesCount() == 0) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Lightweight pre-quorum structural validation for KeyEventWithAttachments.
+     *
+     * @param event Event with attachments to validate
+     * @return true if structurally valid, false otherwise
+     */
+    public static boolean validateEventWithAttachmentsStructure(KeyEventWithAttachments event) {
+        if (event == null) {
+            return false;
+        }
+
+        if (!event.hasInception() && !event.hasRotation() && !event.hasInteraction()) {
+            return false;
+        }
+
+        Ident identifier;
+        EventCommon common;
+
+        if (event.hasInception()) {
+            var inception = event.getInception();
+            identifier = inception.getIdentifier();
+            common = inception.getCommon();
+        } else if (event.hasRotation()) {
+            var rotation = event.getRotation();
+            if (!rotation.hasSpecification() || !rotation.getSpecification().hasHeader()) {
+                return false;
+            }
+            identifier = rotation.getSpecification().getHeader().getIdentifier();
+            common = rotation.getCommon();
+        } else {
+            var interaction = event.getInteraction();
+            if (!interaction.hasSpecification() || !interaction.getSpecification().hasHeader()) {
+                return false;
+            }
+            identifier = interaction.getSpecification().getHeader().getIdentifier();
+            common = interaction.getCommon();
+        }
+
+        if (identifier == null || (!identifier.hasBasic() && !identifier.hasSelfAddressing()
+                                   && !identifier.hasSelfSigning())) {
+            return false;
+        }
+
+        if (identifier.hasBasic()) {
+            var basic = identifier.getBasic();
+            if (basic.getEncoded().isEmpty() || basic.getEncoded().size() < 32) {
+                return false;
+            }
+        }
+        if (identifier.hasSelfAddressing()) {
+            var selfAddr = identifier.getSelfAddressing();
+            if (selfAddr.getHashCount() == 0) {
+                return false;
+            }
+        }
+        if (identifier.hasSelfSigning()) {
+            var selfSign = identifier.getSelfSigning();
+            if (selfSign.getSignaturesCount() == 0) {
+                return false;
+            }
+            for (var sig : selfSign.getSignaturesList()) {
+                if (sig.isEmpty() || sig.size() < 32) {
+                    return false;
+                }
+            }
+        }
+
+        if (common == null || !common.hasAuthentication() || common.getAuthentication().getSignaturesCount() == 0) {
+            return false;
+        }
+
+        return true;
+    }
+
+    // ─── Failure reporting ──────────────────────────────────────────────
+
     /**
      * Report validation failure to Byzantine detection infrastructure.
      * <p>
@@ -546,5 +847,13 @@ public class DhtValidationPipeline {
 
         log.info("Reported validation failure: {} for {} suspect members", result.failureReason(),
                  result.suspects().size());
+    }
+
+    /**
+     * Close the nonce verifier, cancelling its scheduled eviction task.
+     * Called during KerlDHT shutdown before the shared scheduler is terminated.
+     */
+    void closeNonceVerifier() {
+        nonceVerifier.close();
     }
 }

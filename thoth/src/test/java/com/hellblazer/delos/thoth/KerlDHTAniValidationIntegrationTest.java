@@ -59,7 +59,7 @@ public class KerlDHTAniValidationIntegrationTest {
         var event = createValidInceptionEvent();
 
         // When: Structural validation is performed
-        var result = KerlDHT.validateEventStructure(event);
+        var result = DhtValidationPipeline.validateEventStructure(event);
 
         // Then: Event passes validation
         assertThat(result).isTrue();
@@ -72,7 +72,7 @@ public class KerlDHTAniValidationIntegrationTest {
         var event = createValidRotationEvent();
 
         // When: Structural validation is performed
-        var result = KerlDHT.validateEventStructure(event);
+        var result = DhtValidationPipeline.validateEventStructure(event);
 
         // Then: Event passes validation
         assertThat(result).isTrue();
@@ -85,7 +85,7 @@ public class KerlDHTAniValidationIntegrationTest {
         var event = createValidInteractionEvent();
 
         // When: Structural validation is performed
-        var result = KerlDHT.validateEventStructure(event);
+        var result = DhtValidationPipeline.validateEventStructure(event);
 
         // Then: Event passes validation
         assertThat(result).isTrue();
@@ -102,7 +102,7 @@ public class KerlDHTAniValidationIntegrationTest {
             .build();
 
         // When: Structural validation is performed
-        var result = KerlDHT.validateEventStructure(event);
+        var result = DhtValidationPipeline.validateEventStructure(event);
 
         // Then: Event fails validation
         assertThat(result).isFalse();
@@ -120,7 +120,7 @@ public class KerlDHTAniValidationIntegrationTest {
             .build();
 
         // When: Structural validation is performed
-        var result = KerlDHT.validateEventStructure(event);
+        var result = DhtValidationPipeline.validateEventStructure(event);
 
         // Then: Event fails validation
         assertThat(result).isFalse();
@@ -138,7 +138,7 @@ public class KerlDHTAniValidationIntegrationTest {
             .build();
 
         // When: Structural validation is performed
-        var result = KerlDHT.validateEventStructure(event);
+        var result = DhtValidationPipeline.validateEventStructure(event);
 
         // Then: Event fails validation
         assertThat(result).isFalse();
@@ -158,7 +158,7 @@ public class KerlDHTAniValidationIntegrationTest {
             .build();
 
         // When: Structural validation is performed
-        var result = KerlDHT.validateEventStructure(event);
+        var result = DhtValidationPipeline.validateEventStructure(event);
 
         // Then: Event fails validation
         assertThat(result).isFalse();
@@ -171,7 +171,7 @@ public class KerlDHTAniValidationIntegrationTest {
         var event = KeyEvent_.newBuilder().build();
 
         // When: Structural validation is performed
-        var result = KerlDHT.validateEventStructure(event);
+        var result = DhtValidationPipeline.validateEventStructure(event);
 
         // Then: Event fails validation
         assertThat(result).isFalse();
@@ -184,7 +184,7 @@ public class KerlDHTAniValidationIntegrationTest {
         KeyEvent_ event = null;
 
         // When: Structural validation is performed with null check
-        var result = KerlDHT.validateEventStructure(event);
+        var result = DhtValidationPipeline.validateEventStructure(event);
 
         // Then: Validation fails
         assertThat(result).isFalse();
@@ -201,7 +201,7 @@ public class KerlDHTAniValidationIntegrationTest {
             .build();
 
         // When: Structural validation is performed
-        var result = KerlDHT.validateEventStructure(event);
+        var result = DhtValidationPipeline.validateEventStructure(event);
 
         // Then: Event fails validation
         assertThat(result).isFalse();
@@ -219,7 +219,7 @@ public class KerlDHTAniValidationIntegrationTest {
             .build();
 
         // When: Structural validation is performed
-        var result = KerlDHT.validateEventStructure(event);
+        var result = DhtValidationPipeline.validateEventStructure(event);
 
         // Then: Event fails validation
         assertThat(result).isFalse();
@@ -240,7 +240,7 @@ public class KerlDHTAniValidationIntegrationTest {
             .build();
 
         // When: Structural validation is performed
-        var result = KerlDHT.validateEventStructure(event);
+        var result = DhtValidationPipeline.validateEventStructure(event);
 
         // Then: Event fails validation
         assertThat(result).isFalse();
@@ -262,7 +262,7 @@ public class KerlDHTAniValidationIntegrationTest {
             .build();
 
         // When: Structural validation is performed
-        var result = KerlDHT.validateEventStructure(event);
+        var result = DhtValidationPipeline.validateEventStructure(event);
 
         // Then: Event fails validation
         assertThat(result).isFalse();
@@ -284,7 +284,7 @@ public class KerlDHTAniValidationIntegrationTest {
             .build();
 
         // When: Structural validation is performed
-        var result = KerlDHT.validateEventStructure(event);
+        var result = DhtValidationPipeline.validateEventStructure(event);
 
         // Then: Event fails validation
         assertThat(result).isFalse();
@@ -305,7 +305,7 @@ public class KerlDHTAniValidationIntegrationTest {
             .build();
 
         // When: Structural validation is performed
-        var result = KerlDHT.validateEventStructure(event);
+        var result = DhtValidationPipeline.validateEventStructure(event);
 
         // Then: Event fails validation
         assertThat(result).isFalse();
@@ -327,7 +327,7 @@ public class KerlDHTAniValidationIntegrationTest {
             .build();
 
         // When: Structural validation is performed
-        var result = KerlDHT.validateEventStructure(event);
+        var result = DhtValidationPipeline.validateEventStructure(event);
 
         // Then: Event fails validation
         assertThat(result).isFalse();
