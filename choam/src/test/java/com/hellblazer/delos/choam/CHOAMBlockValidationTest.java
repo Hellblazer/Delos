@@ -7,6 +7,7 @@
 package com.hellblazer.delos.choam;
 
 import com.hellblazer.delos.choam.FeatureFlagManager;
+import org.junit.jupiter.api.Tag;
 import com.hellblazer.delos.archipelago.LocalServer;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
@@ -62,6 +63,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * @author hal.hildebrand
  */
+@Tag("stress")
 public class CHOAMBlockValidationTest {
     private static final boolean IS_CI       = Boolean.parseBoolean(System.getenv().getOrDefault("CI", "false"));
     private static final boolean LARGE_TESTS = Boolean.getBoolean("large_tests");
