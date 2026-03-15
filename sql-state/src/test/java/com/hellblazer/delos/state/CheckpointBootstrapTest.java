@@ -70,7 +70,7 @@ public class CheckpointBootstrapTest extends AbstractLifecycleTest {
         choam.start();
         routers.get(testSubject.getId()).start();
 
-        assertTrue(Utils.waitForCondition(30_000, 1_000, choam::active),
+        assertTrue(Utils.waitForCondition(IS_CI ? 60_000 : 30_000, 1_000, choam::active),
                    "Test subject did not become active: " + choam.logState());
         members.add(testSubject);
         post();
