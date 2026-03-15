@@ -46,7 +46,7 @@ import static org.junit.jupiter.api.Assertions.*;
 public class RegressionTestHarness {
 
     private static final int CARDINALITY = 4;  // Reduced from 12 for faster bootstrap
-    private static final int BIAS = 1;
+    private static final int BIAS = 2;
     private static final double P_BYZ = 0.1;
     private static final long SEED = 42L;
 
@@ -109,7 +109,7 @@ public class RegressionTestHarness {
 
             views.add(new View(
                 context, node,
-                EndpointProvider.allocatePort(),
+                "0",
                 EventValidation.NONE,
                 Verifiers.from(kerl),
                 comms, parameters, gateway,
@@ -319,8 +319,8 @@ public class RegressionTestHarness {
 
     private void bootstrapCluster() throws Exception {
         var seeds = members.values().stream()
-            .map(m -> new Seed(m.getIdentifier().getIdentifier(), EndpointProvider.allocatePort()))
-            .limit(3)
+            .map(m -> new Seed(m.getIdentifier().getIdentifier(), "0"))
+            .limit(1)  // Only the kernel — other members aren't joined yet
             .toList();
 
         var gossipDuration = Duration.ofMillis(5);
