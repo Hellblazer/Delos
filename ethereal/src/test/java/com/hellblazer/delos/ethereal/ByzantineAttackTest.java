@@ -577,10 +577,18 @@ public class ByzantineAttackTest {
                     );
                 } else {
                     for (var k = 0; k < refBlock.size(); k++) {
-                        if (!refBlock.get(k).equals(outBlock.get(k))) {
+                        var refEntry = refBlock.get(k);
+                        var outEntry = outBlock.get(k);
+                        if (refEntry == null || outEntry == null) {
+                            if (refEntry != outEntry) {
+                                failed.add(i);
+                            }
+                            continue;
+                        }
+                        if (!refEntry.equals(outEntry)) {
                             failed.add(i);
-                            var refMsg = ByteMessage.parseFrom(refBlock.get(k));
-                            var outMsg = ByteMessage.parseFrom(outBlock.get(k));
+                            var refMsg = ByteMessage.parseFrom(refEntry);
+                            var outMsg = ByteMessage.parseFrom(outEntry);
                             System.out.println(
                                 scenarioName + " - Mismatch at block " + j + " unit " + k +
                                 " node " + i + ": expected " +
