@@ -38,12 +38,20 @@ Registration flow:
 1. ProcessContainerDomain.spawn() creates subdomain
 2. Subdomain establishes Unix socket at deterministic path
 3. Parent calls `register(SubContext)` with context + socket address
-4. Portal can now route `Portal.link(contextDigest)` to correct socket
+4. Requests routed to subdomain via `METADATA_CONTEXT_KEY` on the Portal's inbound endpoint
 
 Deregistration flow:
-1. Subdomain.stop() called or crash detected
+1. DemesneImpl.stop() triggers cooperative deregistration
 2. Parent calls `deregister(contextDigest)`
-3. Routes entry removed (socket cleanup handled separately)
+3. Full map cleanup: routes, hostedDomains, and spawnedHandles removed
+
+Channel access:
+- `SubDomainHandle.getChannel()` returns a cached `ManagedChannel` connected to the Portal's inbound endpoint (`portalEndpoint`) with `METADATA_CONTEXT_KEY` pre-set via `RouterImpl.clientInterceptor()`
+
+Portal endpoints:
+- **portalEndpoint** (inbound): Routes requests to subdomains via `METADATA_CONTEXT_KEY`
+- **bridge** (outbound): Subdomain-to-external communication via `METADATA_TARGET_KEY`
+- **outerContextEndpoint**: KERL and registration services
 
 **Rationale**
 
@@ -115,7 +123,9 @@ Deregistration flow:
 - ADR-0008: Subdomain isolation strategy (JniBridge vs DemesneImpl)
 - ADR-0012: Unix domain socket architecture
 
-**Implementation Status:**
-- ConcurrentHashMap: ✅ Complete (Delos-ae0f)
-- Registration: ⏸️ Blocked on protobuf changes (Delos-mka0)
-- Deregistration: ⏸️ Not implemented
+**Implementation Status (RDR-002):**
+- ConcurrentHashMap routing: ✅ Complete (Delos-ae0f)
+- Registration (Phase 1): ✅ Complete — Bridge gRPC server with KERL+OuterContext starts in startServices()
+- Deregistration (Phase 2): ✅ Complete — Cooperative deregistration on DemesneImpl.stop(), full map cleanup (routes, hostedDomains, spawnedHandles)
+- getChannel() API: ✅ Complete — Portal routing via METADATA_CONTEXT_KEY with RouterImpl.clientInterceptor()
+- E2E production validation: ⏸️ Pending (Delos-i9f)

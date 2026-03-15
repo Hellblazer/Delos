@@ -50,13 +50,14 @@ This document tracks known issues across Delos components with their status, wor
 - **Fix**: Pending (P2 priority, non-blocking)
 - **Estimated Fix**: TBD
 
-**6. Portal Routing Registration** ⏸️ BLOCKED (Delos-mka0) - Priority P0
-- **Issue**: Portal created but route registration disabled (line 206 commented out)
-- **Impact**: Portal routing does not work (multi-tenant communication broken)
-- **Workaround**: Do not use Portal in single-tenant mode
-- **Fix**: Blocked on protobuf changes (add portal_address field to SubContext)
-- **Dependencies**: Design approval needed
-- **Estimated Fix**: 3-4 days after design approval
+**6. Portal Routing Registration** ✅ PHASES 1-2 COMPLETE (Delos-mka0) - Priority P0
+- **Issue**: Portal routing infrastructure implemented (RDR-002 Phases 1-2)
+- **Implementation**:
+  - Bridge gRPC server with KERL+OuterContext starts in startServices()
+  - Cooperative deregistration on DemesneImpl.stop()
+  - Full map cleanup (routes, hostedDomains, spawnedHandles) on deregister
+  - getChannel() API with Portal routing via METADATA_CONTEXT_KEY
+- **Remaining**: E2E validation in production pending (Delos-i9f)
 - **Details**: See ADR-0009 (Portal Routing Semantics)
 
 **7. Subdomain Lifecycle Management** ⏸️ OPEN (Delos-mj8z) - Priority P1
@@ -157,8 +158,8 @@ This document tracks known issues across Delos components with their status, wor
 |-----------|--------|---------------------|---------|
 | **Domain** | ✅ Production-ready | Yes | None |
 | **ProcessDomain** | ✅ Production-ready | Yes | None |
-| **ProcessContainerDomain (single-tenant)** | ⚠️ Caution | Yes, with monitoring | All critical fixes applied (ae0f, c3k3, we2d). Event loop logging cosmetic (773l). Portal routing disabled (mka0). |
-| **ProcessContainerDomain (multi-tenant)** | ❌ Not ready | No | Portal routing broken (mka0), lifecycle API missing (mj8z), delegation gossip untested. Requires P0 fixes. |
+| **ProcessContainerDomain (single-tenant)** | ⚠️ Caution | Yes, with monitoring | All critical fixes applied (ae0f, c3k3, we2d). Event loop logging cosmetic (773l). Portal routing implemented (mka0, RDR-002 P1-P2). |
+| **ProcessContainerDomain (multi-tenant)** | ⚠️ Caution | Yes, single-tenant only | Portal routing implemented (RDR-002 P1-P2), E2E validation pending (Delos-i9f). Lifecycle API missing (mj8z), delegation gossip untested. |
 | **DelegatedDomain** | ⚠️ Caution | Yes, for single-tenant only | Scheduler leak fixed (c3k3). Delegation gossip implemented (4hby) but untested in production. |
 
 ### Thoth Module (KERI DHT)
@@ -229,13 +230,12 @@ jcmd <pid> GC.heap_info
 **Breaking Changes:**
 - None (all fixes are backwards-compatible)
 
-### Future Upgrades (Post-mka0)
+### Future Upgrades (Post-RDR-002)
 
-When Portal routing is implemented (Delos-mka0):
-- **Protobuf changes**: SubContext message will add portal_address field
-- **API changes**: ProcessContainerDomain.register() will be uncommented
+Portal routing infrastructure implemented (RDR-002 Phases 1-2, Delos-mka0):
+- **Routing**: Bridge gRPC server, METADATA_CONTEXT_KEY routing, getChannel() API
 - **Migration**: Existing single-tenant deployments unaffected
-- **Multi-tenant**: Will become production-ready
+- **Remaining**: E2E validation (Delos-i9f), lifecycle API (Delos-mj8z)
 
 ---
 
@@ -291,5 +291,5 @@ Found a new issue? Please report via:
 
 ---
 
-**Last Updated**: 2026-02-14
+**Last Updated**: 2026-03-14
 **Maintainer**: Delos Core Team

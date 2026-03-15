@@ -171,6 +171,12 @@ public class DemesneImpl implements Demesne {
         if (!started.compareAndSet(true, false)) {
             return;
         }
+        // Cooperative deregistration: remove routes before stopping domain
+        try {
+            outer.deregister(context.getId().toDigeste());
+        } catch (Exception e) {
+            log.warn("Failed to deregister context {} during stop", context.getId(), e);
+        }
         final var current = domain;
         if (current != null) {
             current.stop();

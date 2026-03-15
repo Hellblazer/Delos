@@ -20,6 +20,7 @@ import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.membership.stereotomy.ControlledIdentifierMember;
 import com.hellblazer.delos.model.demesnes.Demesne;
 import com.hellblazer.delos.model.demesnes.JniBridge;
+import com.hellblazer.delos.model.demesnes.comm.DemesneKERLServer;
 import com.hellblazer.delos.model.demesnes.comm.OuterContextServer;
 import com.hellblazer.delos.model.demesnes.comm.OuterContextService;
 import com.hellblazer.delos.stereotomy.event.Seal;
@@ -32,6 +33,7 @@ import com.hellblazer.delos.stereotomy.identifier.spec.InteractionSpecification;
 import com.hellblazer.delos.stereotomy.services.grpc.StereotomyMetrics;
 import io.grpc.BindableService;
 import io.grpc.ManagedChannel;
+import io.grpc.Server;
 import io.grpc.netty.DomainSocketNegotiatorHandler;
 import io.grpc.netty.NettyChannelBuilder;
 import io.grpc.netty.NettyServerBuilder;
@@ -71,6 +73,8 @@ public class ProcessContainerDomain extends ProcessDomain {
     private final        UnixDomainSocketAddress                                   bridge;
     private final        EventLoopGroup                                            clientEventLoopGroup  = new NioEventLoopGroup();
     private final        Path                                                      communicationsDirectory;
+    private final        UnixDomainSocketAddress                                   outerContextEndpoint;
+    private final        String                                                    outerContextFilename;
     private final        EventLoopGroup                                            contextEventLoopGroup = new NioEventLoopGroup();
     private final        Map<Digest, Demesne>                                      hostedDomains         = new ConcurrentHashMap<>();
     private final        Portal<Member>                                            portal;
@@ -79,6 +83,7 @@ public class ProcessContainerDomain extends ProcessDomain {
     private final        Map<String, UnixDomainSocketAddress>                      routes                = new ConcurrentHashMap<>();
     private final        Map<Digest, SubDomainHandleImpl>                          spawnedHandles        = new ConcurrentHashMap<>();
     private final        Thread                                                     shutdownHook;
+    private volatile     Server                                                     bridgeServer;
     private final        IdentifierSpecification.Builder<SelfAddressingIdentifier> subDomainSpecification;
 
     public ProcessContainerDomain(Digest group, ControlledIdentifierMember member, ProcessDomainParameters parameters,
@@ -90,6 +95,8 @@ public class ProcessContainerDomain extends ProcessDomain {
         super(group, member, parameters, builder, runtime, endpoint, ff, stereotomyMetrics);
         communicationsDirectory = commDirectory;
         bridge = UnixDomainSocketAddress.of(communicationsDirectory.resolve(UUID.randomUUID().toString()));
+        outerContextFilename = UUID.randomUUID().toString();
+        outerContextEndpoint = UnixDomainSocketAddress.of(communicationsDirectory.resolve(outerContextFilename));
         portalEndpoint = UnixDomainSocketAddress.of(communicationsDirectory.resolve(UUID.randomUUID().toString()));
         portal = new Portal<>(member.getId(), NettyServerBuilder.forAddress(portalEndpoint)
                                                                 .protocolNegotiator(
@@ -125,6 +132,7 @@ public class ProcessContainerDomain extends ProcessDomain {
         final var cloned = prototype.clone();
         var parameters = cloned.setCommDirectory(communicationsDirectory.toString())
                                .setPortal(portalEndpoint.getPath().toString())
+                               .setParent(outerContextFilename)
                                .build();
         var ctxId = Digest.from(parameters.getContext());
         final AtomicBoolean added = new AtomicBoolean();
@@ -154,7 +162,8 @@ public class ProcessContainerDomain extends ProcessDomain {
 
             // Create handle before commit/start - starts in STARTING status
             SelfAddressingIdentifier subdomainId = (SelfAddressingIdentifier) incp.getIdentifier();
-            SubDomainHandleImpl handle = new SubDomainHandleImpl(subdomainId, demesne);
+            SubDomainHandleImpl handle = new SubDomainHandleImpl(subdomainId, ctxId, demesne, portalEndpoint,
+                                                                  clientEventLoopGroup);
             spawnedHandles.put(ctxId, handle);
 
             demesne.commit(coords.toEventCoords());
@@ -194,6 +203,29 @@ public class ProcessContainerDomain extends ProcessDomain {
             throw new IllegalStateException(
             "Unable to start portal, local address: " + bridge.getPath() + " on: " + params.member().getId());
         }
+
+        // Start outer context gRPC server with both KERL and OuterContext services.
+        // Separate from Portal's bridge (which handles outbound routing).
+        // Subdomains connect to outerContextEndpoint for KERL operations and route registration.
+        try {
+            bridgeServer = NettyServerBuilder.forAddress(outerContextEndpoint)
+                                             .protocolNegotiator(
+                                             new DomainSocketNegotiatorHandler.DomainSocketNegotiator())
+                                             .channelType(NioServerDomainSocketChannel.class)
+                                             .addService(new DemesneKERLServer(dht, null))
+                                             .addService(outerContextService())
+                                             .workerEventLoopGroup(contextEventLoopGroup)
+                                             .bossEventLoopGroup(contextEventLoopGroup)
+                                             .intercept(new DomainSocketServerInterceptor())
+                                             .build();
+            bridgeServer.start();
+            log.info("Outer context server started at: {} on: {}", outerContextEndpoint.getPath(),
+                     params.member().getId());
+        } catch (IOException e) {
+            throw new IllegalStateException(
+            "Unable to start outer context server, address: " + outerContextEndpoint.getPath() + " on: "
+            + params.member().getId(), e);
+        }
     }
 
     @Override
@@ -206,6 +238,21 @@ public class ProcessContainerDomain extends ProcessDomain {
         } catch (IllegalStateException e) {
             // JVM already shutting down - hook will still run, which is fine
             log.debug("Shutdown hook removal skipped: {}", e.getMessage());
+        }
+
+        // Shut down bridge server before portal to allow in-flight registrations to complete
+        if (bridgeServer != null) {
+            bridgeServer.shutdown();
+            try {
+                if (!bridgeServer.awaitTermination(30, TimeUnit.SECONDS)) {
+                    bridgeServer.shutdownNow();
+                    log.warn("Bridge server did not shutdown within 30 seconds for process: {}", member.getId());
+                }
+            } catch (InterruptedException e) {
+                bridgeServer.shutdownNow();
+                Thread.currentThread().interrupt();
+                return;
+            }
         }
 
         portal.close(Duration.ofSeconds(30));
@@ -258,8 +305,11 @@ public class ProcessContainerDomain extends ProcessDomain {
 
             @Override
             public void deregister(Digeste context) {
-                String routingKey = qb64(Digest.from(context));
+                Digest ctxId = Digest.from(context);
+                String routingKey = qb64(ctxId);
                 UnixDomainSocketAddress removed = routes.remove(routingKey);
+                hostedDomains.remove(ctxId);
+                spawnedHandles.remove(ctxId);
                 if (removed != null) {
                     log.info("Deregistered route for context: {} path: {}", routingKey, removed.getPath());
                 } else {
@@ -348,6 +398,7 @@ public class ProcessContainerDomain extends ProcessDomain {
      */
     private void cleanupSocketFiles() {
         deleteSocketFile(bridge.getPath());
+        deleteSocketFile(outerContextEndpoint.getPath());
         deleteSocketFile(portalEndpoint.getPath());
     }
 
