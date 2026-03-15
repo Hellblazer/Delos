@@ -86,18 +86,4 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <configuration>
-                    <!-- Lifecycle tests (GenesisBootstrap, CheckpointBootstrap) leak JVM-level
-                         static state that causes PROTOCOL_FAILURE in subsequent cluster tests.
-                         Fork per test class to isolate. -->
-                    <reuseForks>false</reuseForks>
-                </configuration>
-            </plugin>
-        </plugins>
-    </build>
 </project>

@@ -12,6 +12,7 @@ import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
 import java.util.concurrent.Executors;
 import com.hellblazer.delos.choam.CHOAM;
+import com.hellblazer.delos.choam.FeatureFlagManager;
 import com.hellblazer.delos.choam.Parameters;
 import com.hellblazer.delos.choam.Parameters.BootstrapParameters;
 import com.hellblazer.delos.choam.Parameters.Builder;
@@ -123,16 +124,10 @@ abstract public class AbstractLifecycleTest {
         }
         if (scheduler != null) {
             scheduler.shutdownNow();
-            if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-                System.err.println("Scheduler did not terminate within 5 seconds");
-            }
             scheduler = null;
         }
         if (executor != null) {
             executor.shutdown();
-            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
-                executor.shutdownNow();
-            }
         }
         updaters.values().forEach(up -> up.close());
         updaters.clear();
@@ -140,6 +135,8 @@ abstract public class AbstractLifecycleTest {
         members = null;
         transactioneers = null;
         context = null;
+        // Reset static singleton state to prevent leaking between test classes
+        FeatureFlagManager.getInstance().resetAll();
     }
 
     @BeforeEach
