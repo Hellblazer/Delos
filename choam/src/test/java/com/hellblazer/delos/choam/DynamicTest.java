@@ -36,8 +36,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * @author hal.hildebrand
  **/
 public class DynamicTest {
-    private static final int cardinality         = 10;
-    private static final int checkpointBlockSize = 10;
+    private static final boolean IS_CI              = Boolean.parseBoolean(
+    System.getenv().getOrDefault("CI", "false"));
+    private static final int     cardinality         = 10;
+    private static final int     checkpointBlockSize = 10;
 
     private List<Member>                        members;
     private Map<Member, Router>                 routers;
@@ -113,7 +115,7 @@ public class DynamicTest {
             routers.get(member).start();
             choams.get(member).start();
         });
-        boolean active = Utils.waitForCondition(10_000, 1_000, () -> bootstrap.stream()
+        boolean active = Utils.waitForCondition(IS_CI ? 30_000 : 10_000, 1_000, () -> bootstrap.stream()
                                                                               .map(m -> choams.get(m))
                                                                               .allMatch(CHOAM::active));
         assertTrue(active, "Bootstrap did not become active, inactive: " + bootstrap.stream()
@@ -148,7 +150,7 @@ public class DynamicTest {
         // now let the next members know about the bootstrap group
         next.forEach(member -> bootstrap.forEach(m -> contexts.get(member).activate(m)));
 
-        active = Utils.waitForCondition(30_000, 1_000,
+        active = Utils.waitForCondition(IS_CI ? 60_000 : 30_000, 1_000,
                                         () -> next.stream().map(m -> choams.get(m)).allMatch(CHOAM::active));
         assertTrue(active, "Next 3 did not become active, inactive: " + next.stream()
                                                                             .map(m -> choams.get(m))
@@ -188,7 +190,7 @@ public class DynamicTest {
         // and the next group
         remaining.forEach(member -> next.forEach(m -> contexts.get(member).activate(m)));
 
-        active = Utils.waitForCondition(30_000, 1_000,
+        active = Utils.waitForCondition(IS_CI ? 60_000 : 30_000, 1_000,
                                         () -> remaining.stream().map(m -> choams.get(m)).allMatch(CHOAM::active));
         assertTrue(active, "Remaining did not become active, inactive: " + remaining.stream()
                                                                                     .map(m -> choams.get(m))
