@@ -152,7 +152,7 @@ jobs:
           fail-on-cache-miss: false
       - name: Test Identity (KERI stack + examples, excluding stress/performance tests via @Tag)
         run: |
-          CI=true ./mvnw -batch-mode surefire:test -pl stereotomy,thoth,gorgoneion,gorgoneion-client,stereotomy-services,delphinius --file pom.xml
+          CI=true ./mvnw -batch-mode surefire:test -pl stereotomy,thoth,gorgoneion,gorgoneion-client,stereotomy-services,delphinius -DexcludedTestGroups='stress,performance' --file pom.xml
           CI=true ./mvnw -batch-mode surefire:test -pl examples/simple-kv-store,examples/local-demo,examples/multi-tenant-demo,examples/fsm-workflow --file pom.xml
           CI=true ./mvnw -batch-mode surefire:test -pl witness-service -DexcludedTestGroups='stress,performance' --file pom.xml
           CI=true ./mvnw -batch-mode surefire:test -pl model -DexcludedTestGroups='stress,performance' --file pom.xml
