@@ -32,7 +32,7 @@ jobs:
       - name: Install h2-deterministic (required shaded dependency)
         run: ./mvnw -batch-mode install -DskipTests -pl h2-deterministic
       - name: Compile all modules
-        run: ./mvnw -batch-mode clean install -DskipTests --file pom.xml
+        run: ./mvnw -batch-mode -T4 clean install -DskipTests --file pom.xml
       - name: Save Maven cache after compile
         uses: actions/cache@v4
         with:
@@ -92,9 +92,9 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test CHOAM Core (regression tests only, no stress/concurrency)
+      - name: Test CHOAM (excluding stress and performance tests via @Tag)
         run: |
-          CI=true ./mvnw -batch-mode surefire:test -pl choam -Dtest='DynamicTest,SessionTest,PendingQueueBoundsTest,TransactionSignatureTest,VersionCompatibilityTest,CHOAMCheckpointTest,SynchronizationCircuitBreakerTest,CheckpointValidationRaceTest,CHOAMBlockValidationTest,GenesisAssemblyTest,ByzantineFaultInjectionTest,DeterminismVerificationTest,ViewStateContractTest,NestedLockDetectionTest' --file pom.xml
+          CI=true ./mvnw -batch-mode surefire:test -pl choam -DexcludedTestGroups='stress,performance' --file pom.xml
           CI=true ./mvnw -batch-mode surefire:test -pl sql-state --file pom.xml
 
   test-consensus:
@@ -121,8 +121,10 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Consensus (fireflies + ethereal, excluding stress tests)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl fireflies -Dtest='!ChurnTest,!LargeGossipPropagationTest' --file pom.xml && CI=true ./mvnw -batch-mode surefire:test -pl ethereal --file pom.xml
+      - name: Test Consensus (fireflies + ethereal, excluding stress tests via @Tag)
+        run: |
+          CI=true ./mvnw -batch-mode surefire:test -pl fireflies -DexcludedTestGroups='stress,performance' --file pom.xml
+          CI=true ./mvnw -batch-mode surefire:test -pl ethereal --file pom.xml
 
   test-identity:
     needs: compile
@@ -148,12 +150,12 @@ jobs:
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
-      - name: Test Identity (KERI stack + examples, excluding performance tests)
+      - name: Test Identity (KERI stack + examples, excluding stress/performance tests via @Tag)
         run: |
-          CI=true ./mvnw -batch-mode surefire:test -pl stereotomy,thoth,gorgoneion,gorgoneion-client,stereotomy-services,delphinius --file pom.xml
+          CI=true ./mvnw -batch-mode surefire:test -pl stereotomy,thoth,gorgoneion,gorgoneion-client,stereotomy-services,delphinius -DexcludedTestGroups='stress,performance' --file pom.xml
           CI=true ./mvnw -batch-mode surefire:test -pl examples/simple-kv-store,examples/local-demo,examples/multi-tenant-demo,examples/fsm-workflow --file pom.xml
-          CI=true ./mvnw -batch-mode surefire:test -pl witness-service -Dtest='!Phase1CProductionSimulationTest,!FullPathPerformanceTest,!WitnessConsensusPerformanceTest,!RateAnomalyDetectorTest,!BLSPerformanceBenchmarkTest,!ByzantineDetectionPerformanceTest' --file pom.xml
-          CI=true ./mvnw -batch-mode surefire:test -pl model -Dtest='!FireFliesTest' --file pom.xml
+          CI=true ./mvnw -batch-mode surefire:test -pl witness-service -DexcludedTestGroups='stress,performance' --file pom.xml
+          CI=true ./mvnw -batch-mode surefire:test -pl model -DexcludedTestGroups='stress,performance' --file pom.xml
 
   build-status:
     needs: [test-units, test-choam, test-consensus, test-identity]

@@ -27,6 +27,7 @@ import com.hellblazer.delos.utils.Utils;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.joou.ULong;
 
@@ -54,6 +55,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * @author hal.hildebrand
  */
+@Tag("stress")
 public class CHOAMCheckpointTest {
     private static final boolean IS_CI       = Boolean.parseBoolean(System.getenv().getOrDefault("CI", "false"));
     private static final int     CARDINALITY = 4;

@@ -13,6 +13,7 @@ import com.hellblazer.delos.stereotomy.identifier.Identifier;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
 import com.hellblazer.delos.witness.aggregation.ValidationResult;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -28,6 +29,7 @@ import static org.mockito.Mockito.mock;
  *
  * @author hal.hildebrand
  */
+@Tag("performance")
 class RateAnomalyDetectorTest {
 
     private RateAnomalyDetector detector;

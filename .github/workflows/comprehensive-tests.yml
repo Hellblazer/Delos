@@ -21,7 +21,7 @@ jobs:
       - name: Install h2-deterministic
         run: ./mvnw -batch-mode install -DskipTests -pl h2-deterministic
       - name: Compile all modules
-        run: ./mvnw -batch-mode clean install -DskipTests --file pom.xml
+        run: ./mvnw -batch-mode -T4 clean install -DskipTests --file pom.xml
       - name: Save Maven cache
         uses: actions/cache@v4
         with:
@@ -53,7 +53,7 @@ jobs:
             delos-maven-comprehensive-
           fail-on-cache-miss: false
       - name: Test Stress & Concurrency (with -Dlarge_tests=true)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl choam -Dtest='ZeroDowntimeUpgradeTest' -Dlarge_tests=true --file pom.xml
+        run: CI=true ./mvnw -batch-mode surefire:test -pl choam -Dgroups='stress' -Dlarge_tests=true --file pom.xml
 
   test-comprehensive-choam:
     needs: compile
@@ -103,7 +103,7 @@ jobs:
             delos-maven-comprehensive-
           fail-on-cache-miss: false
       - name: Test Witness Performance (long-running simulation and performance tests)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl witness-service -Dtest='Phase1CProductionSimulationTest,FullPathPerformanceTest,WitnessConsensusPerformanceTest,RateAnomalyDetectorTest,BLSPerformanceBenchmarkTest,ByzantineDetectionPerformanceTest' --file pom.xml
+        run: CI=true ./mvnw -batch-mode surefire:test -pl witness-service -Dgroups='performance' --file pom.xml
 
   test-canaries:
     needs: compile
@@ -127,10 +127,10 @@ jobs:
           restore-keys: |
             delos-maven-comprehensive-
           fail-on-cache-miss: false
-      - name: Test Canary & Stress Tests (ChurnTest, LargeGossipPropagationTest, FireFliesTest)
+      - name: Test Canary & Stress Tests (tagged @stress in fireflies and model)
         run: |
-          CI=true ./mvnw -batch-mode surefire:test -pl fireflies -Dtest='ChurnTest,LargeGossipPropagationTest' --file pom.xml
-          CI=true ./mvnw -batch-mode surefire:test -pl model -Dtest='FireFliesTest' --file pom.xml
+          CI=true ./mvnw -batch-mode surefire:test -pl fireflies -Dgroups='stress' --file pom.xml
+          CI=true ./mvnw -batch-mode surefire:test -pl model -Dgroups='stress' --file pom.xml
 
   build-status:
     needs: [test-stress, test-comprehensive-choam, test-witness-performance, test-canaries]

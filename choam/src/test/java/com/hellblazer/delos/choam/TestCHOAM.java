@@ -6,6 +6,7 @@
  */
 package com.hellblazer.delos.choam;
 
+import com.hellblazer.delos.choam.FeatureFlagManager;
 import com.hellblazer.delos.archipelago.LocalServer;
 import com.hellblazer.delos.archipelago.MicrometerServerConnectionCacheMetrics;
 import com.hellblazer.delos.archipelago.Router;
@@ -91,6 +92,7 @@ public class TestCHOAM {
         }
         members = null;
         registry = null;
+        FeatureFlagManager.getInstance().resetAll();
     }
 
     @BeforeEach

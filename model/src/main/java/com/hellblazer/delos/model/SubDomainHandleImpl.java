@@ -7,17 +7,28 @@
  */
 package com.hellblazer.delos.model;
 
+import com.hellblazer.delos.cryptography.Digest;
 import com.hellblazer.delos.model.demesnes.Demesne;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
+import io.grpc.ManagedChannel;
+import io.grpc.netty.NettyChannelBuilder;
+import io.netty.channel.ChannelOption;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.socket.nio.NioDomainSocketChannel;
 
+import java.net.UnixDomainSocketAddress;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+
+import static com.hellblazer.delos.archipelago.RouterImpl.clientInterceptor;
 
 /**
  * Implementation of SubDomainHandle for managing subdomain lifecycle.
@@ -28,24 +39,35 @@ import java.util.concurrent.atomic.AtomicReference;
  * @author hal.hildebrand
  */
 class SubDomainHandleImpl implements SubDomainHandle {
-    private final SelfAddressingIdentifier      id;
-    private final Demesne                       demesne;
-    private final Instant                       spawnTime;
+    private final SelfAddressingIdentifier         id;
+    private final Digest                           contextId;
+    private final Demesne                          demesne;
+    private final UnixDomainSocketAddress          portalEndpoint;
+    private final EventLoopGroup                   clientEventLoopGroup;
+    private final Instant                          spawnTime;
     private final AtomicReference<SubDomainStatus> status;
-    private final AtomicLong                    requestCount;
-    private final AtomicLong                    errorCount;
-    private final List<Long>                    latencies; // Thread-safe synchronized list
-    private final AtomicReference<ResourceLimits> resourceLimits;
+    private final AtomicLong                       requestCount;
+    private final AtomicLong                       errorCount;
+    private final List<Long>                       latencies; // Thread-safe synchronized list
+    private final AtomicReference<ResourceLimits>  resourceLimits;
+    private volatile ManagedChannel                channel;
 
     /**
      * Create a handle for a spawned subdomain.
      *
-     * @param id      KERI identifier
-     * @param demesne subdomain instance for lifecycle control
+     * @param id                   KERI identifier
+     * @param contextId            context digest for Portal routing metadata
+     * @param demesne              subdomain instance for lifecycle control
+     * @param portalEndpoint       Portal inbound endpoint address
+     * @param clientEventLoopGroup event loop group for channel I/O
      */
-    SubDomainHandleImpl(SelfAddressingIdentifier id, Demesne demesne) {
+    SubDomainHandleImpl(SelfAddressingIdentifier id, Digest contextId, Demesne demesne,
+                        UnixDomainSocketAddress portalEndpoint, EventLoopGroup clientEventLoopGroup) {
         this.id = id;
+        this.contextId = contextId;
         this.demesne = demesne;
+        this.portalEndpoint = portalEndpoint;
+        this.clientEventLoopGroup = clientEventLoopGroup;
         this.spawnTime = Instant.now();
         this.status = new AtomicReference<>(SubDomainStatus.STARTING);
         this.requestCount = new AtomicLong(0);
@@ -74,10 +96,9 @@ class SubDomainHandleImpl implements SubDomainHandle {
         requestCount.incrementAndGet();
         long startTime = System.nanoTime();
 
-        // TODO: Implement actual Portal routing when Portal API is available
-        // For now, return a failed future indicating not implemented
+        // send() is deprecated — use getChannel() to create typed stubs (RDR-002)
         CompletableFuture<R> future = CompletableFuture.failedFuture(
-        new UnsupportedOperationException("Portal routing not yet implemented - requires Portal.link() API"));
+        new UnsupportedOperationException("send() is deprecated — use getChannel() to create typed stubs. See RDR-002"));
 
         // Track latency and errors
         future.whenComplete((response, error) -> {
@@ -92,10 +113,43 @@ class SubDomainHandleImpl implements SubDomainHandle {
     }
 
     @Override
+    public ManagedChannel getChannel() {
+        if (status.get() == SubDomainStatus.STARTING) {
+            throw new IllegalStateException("Subdomain not yet running: " + id);
+        }
+        if (channel == null) {
+            synchronized (this) {
+                if (channel == null) {
+                    channel = NettyChannelBuilder.forAddress(portalEndpoint)
+                                                 .withOption(ChannelOption.TCP_NODELAY, true)
+                                                 .executor(Executors.newVirtualThreadPerTaskExecutor())
+                                                 .eventLoopGroup(clientEventLoopGroup)
+                                                 .channelType(NioDomainSocketChannel.class)
+                                                 .intercept(clientInterceptor(contextId))
+                                                 .usePlaintext()
+                                                 .build();
+                }
+            }
+        }
+        return channel;
+    }
+
+    @Override
     public void stop() {
         if (status.compareAndSet(SubDomainStatus.RUNNING, SubDomainStatus.STOPPING) || status.compareAndSet(
         SubDomainStatus.STARTING, SubDomainStatus.STOPPING)) {
             try {
+                // Shut down cached channel before stopping demesne
+                var ch = channel;
+                if (ch != null) {
+                    ch.shutdown();
+                    try {
+                        ch.awaitTermination(5, TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        ch.shutdownNow();
+                        Thread.currentThread().interrupt();
+                    }
+                }
                 demesne.stop();
                 status.set(SubDomainStatus.STOPPED);
             } catch (Exception e) {

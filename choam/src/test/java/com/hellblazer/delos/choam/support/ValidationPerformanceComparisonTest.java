@@ -12,6 +12,7 @@ import com.hellblazer.delos.choam.fsm.Combine;
 import java.security.SecureRandom;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -38,6 +39,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * @author hal.hildebrand
  */
+@Tag("performance")
 public class ValidationPerformanceComparisonTest {
     private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
 

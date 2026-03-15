@@ -25,6 +25,7 @@ import com.hellblazer.delos.witness.validation.graceful.GracefulDegradationConfi
 import org.joou.ULong;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
@@ -60,6 +61,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * @author hal.hildebrand
  */
+@Tag("performance")
 @DisplayName("Phase 1C Production Simulation (72-hour Stability)")
 class Phase1CProductionSimulationTest {
 

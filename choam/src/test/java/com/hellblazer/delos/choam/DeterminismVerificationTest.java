@@ -11,6 +11,7 @@ import com.hellblazer.delos.archipelago.MicrometerServerConnectionCacheMetrics;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
 import java.util.concurrent.Executors;
+import com.hellblazer.delos.choam.FeatureFlagManager;
 import com.hellblazer.delos.choam.TransactionExecutor;
 import com.hellblazer.delos.choam.proto.Transaction;
 import com.hellblazer.delos.choam.support.MicrometerChoamMetrics;
@@ -165,6 +166,7 @@ public class DeterminismVerificationTest {
         }
         members = null;
         registry = null;
+        FeatureFlagManager.getInstance().resetAll();
     }
 
     @Test
@@ -173,7 +175,7 @@ public class DeterminismVerificationTest {
         choams.values().forEach(CHOAM::start);
 
         // Wait for consensus to form
-        boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 20_000, 1_000,
+        boolean activated = Utils.waitForCondition(IS_CI ? 60_000 : (LARGE_TESTS ? 30_000 : 20_000), 1_000,
                                                    () -> choams.values().stream().allMatch(c -> c.active()));
         assertTrue(activated, "System did not become active");
 

@@ -13,6 +13,7 @@ import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
 import java.util.concurrent.Executors;
 import com.hellblazer.delos.choam.CHOAM;
+import com.hellblazer.delos.choam.FeatureFlagManager;
 import com.hellblazer.delos.choam.TransactionExecutor;
 import com.hellblazer.delos.choam.Parameters;
 import com.hellblazer.delos.choam.Parameters.Builder;
@@ -118,6 +119,7 @@ public class CHOAMTest {
         members = null;
         System.out.println();
         registry = null;
+        FeatureFlagManager.getInstance().resetAll();
     }
 
     @BeforeEach

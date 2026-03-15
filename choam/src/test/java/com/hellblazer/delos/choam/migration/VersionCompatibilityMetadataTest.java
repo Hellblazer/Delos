@@ -31,6 +31,7 @@ import com.hellblazer.delos.stereotomy.mem.MemKeyStore;
 import com.hellblazer.delos.utils.Utils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -73,6 +74,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * @author hal.hildebrand
  */
+@Tag("stress")
 public class VersionCompatibilityMetadataTest {
     private static final Logger log = LoggerFactory.getLogger(VersionCompatibilityMetadataTest.class);
     private static final boolean LARGE_TESTS = Boolean.getBoolean("large_tests");

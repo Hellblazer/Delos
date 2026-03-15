@@ -20,6 +20,7 @@ import com.hellblazer.delos.thoth.metrics.MicrometerKerlDhtMetrics;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.h2.jdbcx.JdbcConnectionPool;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
@@ -42,6 +43,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * @author hal.hildebrand
  */
+@Tag("performance")
 public class PerformanceSLATest extends AbstractDhtTest {
 
     private static final int WARMUP_ITERATIONS = 100;

@@ -7,6 +7,7 @@
  */
 package com.hellblazer.delos.choam;
 
+import com.hellblazer.delos.choam.FeatureFlagManager;
 import com.hellblazer.delos.choam.proto.Join;
 import com.hellblazer.delos.choam.proto.Reconfigure;
 import com.hellblazer.delos.choam.proto.SignedViewMember;
@@ -96,6 +97,7 @@ public class CommitteeValidationTest {
     public void tearDown() {
         // Clean up system property
         System.clearProperty("verifier.grace.period.ms");
+        FeatureFlagManager.getInstance().resetAll();
     }
 
     @Test

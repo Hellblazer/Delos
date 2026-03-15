@@ -29,6 +29,7 @@ import com.hellblazer.delos.stereotomy.mem.MemKeyStore;
 import com.hellblazer.delos.test.proto.ByteMessage;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,6 +66,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * @author hal.hildebrand
  */
+@Tag("performance")
 public class PerformanceBaselineTest {
     private static final Logger log = LoggerFactory.getLogger(PerformanceBaselineTest.class);
     private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));

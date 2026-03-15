@@ -20,6 +20,7 @@ import com.hellblazer.delos.witness.aggregation.SignatureAccumulator;
 import org.joou.ULong;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
@@ -58,6 +59,7 @@ import static org.assertj.core.api.Assertions.*;
  *
  * @author hal.hildebrand
  */
+@Tag("performance")
 @DisplayName("Full-Path Performance Tests (Phase 1C-1-B)")
 class FullPathPerformanceTest {
 

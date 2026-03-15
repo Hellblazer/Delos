@@ -18,6 +18,7 @@ import com.hellblazer.delos.witness.validation.BLSAdversarialTestHelpers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.joou.ULong;
 
@@ -52,6 +53,7 @@ import static org.assertj.core.api.Assertions.*;
  * @author hal.hildebrand
  * @see <a href="docs/PHASE_1C_PERFORMANCE_BASELINES.md">Phase 1C Performance Baselines</a>
  */
+@Tag("performance")
 @DisplayName("Byzantine Detection Performance Validation (Delos-3969)")
 class ByzantineDetectionPerformanceTest {
 

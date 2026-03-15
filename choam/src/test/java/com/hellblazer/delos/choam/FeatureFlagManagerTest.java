@@ -33,10 +33,11 @@ public class FeatureFlagManagerTest {
 
     @AfterEach
     public void tearDown() {
-        // Clean up system properties
+        // Clean up system properties and runtime overrides
         for (FeatureFlags flag : FeatureFlags.values()) {
             System.clearProperty(flag.getSystemProperty());
         }
+        manager.resetAll();
     }
 
     @Test

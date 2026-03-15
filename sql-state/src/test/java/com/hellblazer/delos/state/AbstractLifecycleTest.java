@@ -12,6 +12,7 @@ import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
 import java.util.concurrent.Executors;
 import com.hellblazer.delos.choam.CHOAM;
+import com.hellblazer.delos.choam.FeatureFlagManager;
 import com.hellblazer.delos.choam.Parameters;
 import com.hellblazer.delos.choam.Parameters.BootstrapParameters;
 import com.hellblazer.delos.choam.Parameters.Builder;
@@ -57,6 +58,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * @author hal.hildebrand
  */
 abstract public class AbstractLifecycleTest {
+    protected static final boolean                      IS_CI            = Boolean.parseBoolean(
+    System.getenv().getOrDefault("CI", "false"));
     protected static final int                          CARDINALITY      = 5;
     private static final   Digest                       GENESIS_VIEW_ID  = DigestAlgorithm.DEFAULT.digest(
     "Give me food or give me slack or kill me".getBytes());
@@ -110,13 +113,14 @@ abstract public class AbstractLifecycleTest {
 
     @AfterEach
     public void after() throws Exception {
-        if (routers != null) {
-            routers.values().forEach(e -> e.close(Duration.ofSeconds(0)));
-            routers = null;
-        }
+        // Stop CHOAMs first to halt gossip before closing routers
         if (choams != null) {
             choams.values().forEach(e -> e.stop());
             choams = null;
+        }
+        if (routers != null) {
+            routers.values().forEach(e -> e.close(Duration.ofSeconds(1)));
+            routers = null;
         }
         if (scheduler != null) {
             scheduler.shutdownNow();
@@ -131,6 +135,8 @@ abstract public class AbstractLifecycleTest {
         members = null;
         transactioneers = null;
         context = null;
+        // Reset static singleton state to prevent leaking between test classes
+        FeatureFlagManager.getInstance().resetAll();
     }
 
     @BeforeEach
@@ -294,7 +300,7 @@ abstract public class AbstractLifecycleTest {
 
         var txneer = updaters.get(members.getLast());
 
-        final var activated = Utils.waitForCondition(30_000, 1_000, () -> choams.entrySet()
+        final var activated = Utils.waitForCondition(IS_CI ? 60_000 : 30_000, 1_000, () -> choams.entrySet()
                                                                                 .stream()
                                                                                 .filter(e -> !e.getKey()
                                                                                                .equals(

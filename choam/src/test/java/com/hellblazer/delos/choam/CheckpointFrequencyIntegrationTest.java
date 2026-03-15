@@ -7,6 +7,7 @@
  */
 package com.hellblazer.delos.choam;
 
+import com.hellblazer.delos.choam.FeatureFlagManager;
 import com.google.protobuf.ByteString;
 import com.hellblazer.delos.archipelago.LocalServer;
 import com.hellblazer.delos.archipelago.Router;
@@ -76,6 +77,7 @@ class CheckpointFrequencyIntegrationTest {
             executor = null;
         }
         members = null;
+        FeatureFlagManager.getInstance().resetAll();
     }
 
     @Test

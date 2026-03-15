@@ -141,6 +141,14 @@ public class FeatureFlagManager implements FeatureFlagManagerMBean {
     }
 
     /**
+     * Reset all overrides, returning all flags to their default values.
+     * Intended for test isolation — call in @AfterEach to prevent state leaking between tests.
+     */
+    public void resetAll() {
+        overrides.clear();
+    }
+
+    /**
      * Emergency: Disable all security features (rollback)
      */
     @Override

@@ -8,6 +8,7 @@
 package com.hellblazer.delos.model;
 
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
+import io.grpc.ManagedChannel;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
@@ -33,15 +34,14 @@ public interface SubDomainHandle {
 
     /**
      * Send a message to the subdomain asynchronously.
-     * <p>
-     * Uses Portal routing to deliver the message via Unix domain socket.
-     * The returned future completes when the subdomain responds or times out.
      *
      * @param request message to send
      * @param <T>     request type
      * @param <R>     response type
      * @return future that completes with the response or exceptionally on error
+     * @deprecated Use {@code getChannel()} to obtain a gRPC channel and create typed stubs instead. See RDR-002.
      */
+    @Deprecated
     <T, R> CompletableFuture<R> send(T request);
 
     /**
@@ -52,7 +52,9 @@ public interface SubDomainHandle {
      * @param <T>     request type
      * @param <R>     response type
      * @return future that completes with the response or exceptionally on timeout/error
+     * @deprecated Use {@code getChannel()} to obtain a gRPC channel and create typed stubs instead. See RDR-002.
      */
+    @Deprecated
     <T, R> CompletableFuture<R> send(T request, Duration timeout);
 
     /**
@@ -106,4 +108,16 @@ public interface SubDomainHandle {
      * @param limits resource constraints to enforce
      */
     void setResourceLimits(ResourceLimits limits);
+
+    /**
+     * Get a gRPC channel to this subdomain via Portal routing.
+     * <p>
+     * Returns a cached {@link ManagedChannel} connected to the Portal's inbound endpoint
+     * with {@code METADATA_CONTEXT_KEY} pre-set to this subdomain's context digest.
+     * Callers create typed stubs from this channel to invoke subdomain services.
+     *
+     * @return cached ManagedChannel with routing metadata pre-configured
+     * @throws IllegalStateException if subdomain is not yet running (still in STARTING state)
+     */
+    ManagedChannel getChannel();
 }

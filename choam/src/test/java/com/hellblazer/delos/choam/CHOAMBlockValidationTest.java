@@ -6,6 +6,7 @@
  */
 package com.hellblazer.delos.choam;
 
+import com.hellblazer.delos.choam.FeatureFlagManager;
 import com.hellblazer.delos.archipelago.LocalServer;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
@@ -180,6 +181,7 @@ public class CHOAMBlockValidationTest {
         }
         members = null;
         registry = null;
+        FeatureFlagManager.getInstance().resetAll();
     }
 
     @Test
@@ -206,7 +208,7 @@ public class CHOAMBlockValidationTest {
             });
 
             transactioneers.forEach(Transactioneer::start);
-            boolean completed = countdown.await(IS_CI ? 180 : 30, TimeUnit.SECONDS);
+            boolean completed = countdown.await(IS_CI ? 300 : 30, TimeUnit.SECONDS);
             assertTrue(completed, "Round " + round + " block validation should complete");
         }
 

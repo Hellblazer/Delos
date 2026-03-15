@@ -24,6 +24,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.h2.jdbcx.JdbcConnectionPool;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import com.hellblazer.delos.utils.Utils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
@@ -212,8 +213,10 @@ public class ByzantineDetectionIntegrationTest extends AbstractDhtTest {
         var byzantineDht = dhts.get(byzantineMember);
         byzantineDht.getByzantineStateProvider().recordQuorumFailure(testId);
 
-        // Verify Byzantine member is tracked but quorum continues
-        Thread.sleep(200);
+        // Wait for coordinator to process the Byzantine signal
+        var detected = Utils.waitForCondition(5_000, 100,
+                                              () -> coordinator.getMemberProfile(testId).isPresent());
+        assertThat(detected).as("Coordinator should detect Byzantine member within timeout").isTrue();
 
         var profile = coordinator.getMemberProfile(testId);
         assertThat(profile).isPresent();

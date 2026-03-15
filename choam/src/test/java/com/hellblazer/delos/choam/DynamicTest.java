@@ -1,5 +1,6 @@
 package com.hellblazer.delos.choam;
 
+import com.hellblazer.delos.choam.FeatureFlagManager;
 import com.hellblazer.delos.archipelago.LocalServer;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
@@ -213,6 +214,7 @@ public class DynamicTest {
         if (executor != null) {
             executor.shutdown();
         }
+        FeatureFlagManager.getInstance().resetAll();
     }
 
     private CHOAM constructCHOAM(SigningMember m, Parameters.Builder params, Context<Member> context) {
