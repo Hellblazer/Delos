@@ -13,6 +13,7 @@ import com.hellblazer.delos.membership.Member;
 import com.hellblazer.delos.membership.MockMember;
 import org.joou.ULong;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.security.PublicKey;
@@ -34,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * @author hal.hildebrand
  */
+@Tag("performance")
 class BatchVerificationPerformanceTest {
 
     private static final byte[] TEST_MESSAGE = "Test block header for batch verification".getBytes();

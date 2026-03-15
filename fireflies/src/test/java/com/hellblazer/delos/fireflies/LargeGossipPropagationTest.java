@@ -21,6 +21,7 @@ import com.hellblazer.delos.stereotomy.mem.MemKeyStore;
 import com.hellblazer.delos.utils.Utils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.security.SecureRandom;
@@ -47,6 +48,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * This test isolates the gossip propagation issue from the churn (node removal) phase.
  */
+@Tag("stress")
 public class LargeGossipPropagationTest {
 
     private static final int CARDINALITY = 50;  // Same as ChurnTest

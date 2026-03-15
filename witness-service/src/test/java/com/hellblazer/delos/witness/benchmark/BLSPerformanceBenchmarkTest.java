@@ -25,6 +25,7 @@ import com.hellblazer.delos.witness.proto.WitnessReceipt;
 import org.joou.ULong;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
@@ -68,6 +69,7 @@ import static org.assertj.core.api.Assertions.*;
  *
  * @author hal.hildebrand
  */
+@Tag("performance")
 @DisplayName("BLS Performance Benchmarks (Phase 1B-2-D-2)")
 class BLSPerformanceBenchmarkTest {
 

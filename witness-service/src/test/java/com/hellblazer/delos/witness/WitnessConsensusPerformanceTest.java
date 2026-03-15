@@ -10,6 +10,7 @@ package com.hellblazer.delos.witness;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.witness.WitnessReceiptTestHelper.TestSigner;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -40,6 +41,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * <p>
  * Target: 5+ tests with performance targets met
  */
+@Tag("performance")
 @DisplayName("D.4: Performance Validation Tests")
 class WitnessConsensusPerformanceTest {
 

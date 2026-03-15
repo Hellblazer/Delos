@@ -81,6 +81,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * @author hal.hildebrand
  */
+@Tag("stress")
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class DeadlockDetectionTest {
     private static final boolean LARGE_TESTS = Boolean.getBoolean("large_tests");

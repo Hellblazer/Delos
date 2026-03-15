@@ -27,6 +27,7 @@ import com.hellblazer.delos.utils.Entropy;
 import com.hellblazer.delos.utils.Utils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -47,6 +48,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * @author hal.hildebrand
  */
+@Tag("stress")
 public class FireFliesTest {
     private static final boolean IS_CI          = "true".equalsIgnoreCase(System.getenv("CI"));
     private static final int     CARDINALITY    = 5;

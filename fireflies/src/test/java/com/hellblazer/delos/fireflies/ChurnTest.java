@@ -22,6 +22,7 @@ import com.hellblazer.delos.stereotomy.mem.MemKeyStore;
 import com.hellblazer.delos.utils.Utils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.security.SecureRandom;
@@ -56,6 +57,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * @author hal.hildebrand
  */
+@Tag("stress")
 public class ChurnTest {
 
     private static final boolean                                                     IS_CI          = Boolean.parseBoolean(System.getenv().getOrDefault("CI", "false"));

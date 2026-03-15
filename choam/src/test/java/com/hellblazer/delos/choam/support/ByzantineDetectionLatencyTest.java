@@ -11,6 +11,7 @@ package com.hellblazer.delos.choam.support;
 import com.hellblazer.delos.choam.fsm.Combine;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -31,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * @author hal.hildebrand
  */
+@Tag("performance")
 public class ByzantineDetectionLatencyTest {
 
     private StateTransitionValidator validator;

@@ -10,6 +10,7 @@ package com.hellblazer.delos.choam.migration;
 import com.hellblazer.delos.choam.migration.example.V1ToV2Migrator;
 import com.hellblazer.delos.choam.migration.example.V2ToV1Migrator;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.io.*;
@@ -35,6 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * @author hal.hildebrand
  */
+@Tag("stress")
 public class ZeroDowntimeUpgradeTest {
 
     private MigrationRegistry registry;

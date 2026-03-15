@@ -49,6 +49,7 @@
     </modules>
 
     <properties>
+        <excludedTestGroups/>
         <micrometer.version>1.9.5</micrometer.version>
         <jackson.version>2.17.2</jackson.version>
         <h2.version>2.2.224</h2.version>
@@ -743,6 +744,7 @@
                 <version>3.1.2</version>
                 <configuration>
                     <argLine>--enable-native-access=ALL-UNNAMED</argLine>
+                    <excludedGroups>${excludedTestGroups}</excludedGroups>
                 </configuration>
             </plugin>
             <plugin>
