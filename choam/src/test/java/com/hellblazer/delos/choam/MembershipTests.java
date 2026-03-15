@@ -6,6 +6,7 @@
  */
 package com.hellblazer.delos.choam;
 
+import com.hellblazer.delos.choam.FeatureFlagManager;
 import com.hellblazer.delos.archipelago.LocalServer;
 import com.hellblazer.delos.archipelago.Router;
 import com.hellblazer.delos.archipelago.ServerConnectionCache;
@@ -70,6 +71,7 @@ public class MembershipTests {
         members = null;
         context = null;
         scheduler.shutdownNow();
+        FeatureFlagManager.getInstance().resetAll();
     }
 
     @Test
