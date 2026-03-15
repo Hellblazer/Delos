@@ -130,7 +130,7 @@ public class PortalRoutingIntegrationTest {
 
         try {
             // Create SubDomainHandleImpl with a stub demesne
-            var handle = new SubDomainHandleImpl(null, contextId, new StubDemesne(), portalEndpoint, eventLoopGroup);
+            var handle = new SubDomainHandleImpl(null, contextId, new StubDemesne(), portalEndpoint, eventLoopGroup, () -> {});
 
             // Verify getChannel() throws while STARTING
             assertThrows(IllegalStateException.class, handle::getChannel, "Should throw when STARTING");
@@ -170,7 +170,7 @@ public class PortalRoutingIntegrationTest {
     public void handleLifecycle() {
         final var contextId = DigestAlgorithm.DEFAULT.getOrigin().prefix(0xBEEF);
         final var portalEndpoint = socketAddress();
-        var handle = new SubDomainHandleImpl(null, contextId, new StubDemesne(), portalEndpoint, eventLoopGroup);
+        var handle = new SubDomainHandleImpl(null, contextId, new StubDemesne(), portalEndpoint, eventLoopGroup, () -> {});
 
         // Initial state
         assertEquals(SubDomainStatus.STARTING, handle.getStatus());
