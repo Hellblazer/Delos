@@ -162,8 +162,12 @@ public class ProcessContainerDomain extends ProcessDomain {
 
             // Create handle before commit/start - starts in STARTING status
             SelfAddressingIdentifier subdomainId = (SelfAddressingIdentifier) incp.getIdentifier();
+            Runnable onTerminal = () -> {
+                spawnedHandles.remove(ctxId);
+                hostedDomains.remove(ctxId);
+            };
             SubDomainHandleImpl handle = new SubDomainHandleImpl(subdomainId, ctxId, demesne, portalEndpoint,
-                                                                  clientEventLoopGroup);
+                                                                  clientEventLoopGroup, onTerminal);
             spawnedHandles.put(ctxId, handle);
 
             demesne.commit(coords.toEventCoords());

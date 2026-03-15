@@ -19,14 +19,15 @@ import io.netty.channel.socket.nio.NioDomainSocketChannel;
 import java.net.UnixDomainSocketAddress;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static com.hellblazer.delos.archipelago.RouterImpl.clientInterceptor;
 
@@ -39,17 +40,24 @@ import static com.hellblazer.delos.archipelago.RouterImpl.clientInterceptor;
  * @author hal.hildebrand
  */
 class SubDomainHandleImpl implements SubDomainHandle {
+    private static final Logger                        log = LoggerFactory.getLogger(SubDomainHandleImpl.class);
+
     private final SelfAddressingIdentifier         id;
     private final Digest                           contextId;
     private final Demesne                          demesne;
     private final UnixDomainSocketAddress          portalEndpoint;
     private final EventLoopGroup                   clientEventLoopGroup;
+    private final Runnable                         onTerminal;
+    private final AtomicBoolean                    terminalFired = new AtomicBoolean(false);
     private final Instant                          spawnTime;
     private final AtomicReference<SubDomainStatus> status;
     private final AtomicLong                       requestCount;
     private final AtomicLong                       errorCount;
-    private final List<Long>                       latencies; // Thread-safe synchronized list
+    private final long[]                           latencies;
+    private int                                    latencyIndex;
+    private int                                    latencyCount;
     private final AtomicReference<ResourceLimits>  resourceLimits;
+    private final AtomicBoolean                    limitsSet = new AtomicBoolean(false);
     private volatile ManagedChannel                channel;
 
     /**
@@ -60,19 +68,22 @@ class SubDomainHandleImpl implements SubDomainHandle {
      * @param demesne              subdomain instance for lifecycle control
      * @param portalEndpoint       Portal inbound endpoint address
      * @param clientEventLoopGroup event loop group for channel I/O
+     * @param onTerminal           callback invoked exactly once on terminal state (STOPPED/FAILED)
      */
     SubDomainHandleImpl(SelfAddressingIdentifier id, Digest contextId, Demesne demesne,
-                        UnixDomainSocketAddress portalEndpoint, EventLoopGroup clientEventLoopGroup) {
+                        UnixDomainSocketAddress portalEndpoint, EventLoopGroup clientEventLoopGroup,
+                        Runnable onTerminal) {
         this.id = id;
         this.contextId = contextId;
         this.demesne = demesne;
         this.portalEndpoint = portalEndpoint;
         this.clientEventLoopGroup = clientEventLoopGroup;
+        this.onTerminal = onTerminal;
         this.spawnTime = Instant.now();
         this.status = new AtomicReference<>(SubDomainStatus.STARTING);
         this.requestCount = new AtomicLong(0);
         this.errorCount = new AtomicLong(0);
-        this.latencies = Collections.synchronizedList(new ArrayList<>());
+        this.latencies = new long[1024];
         this.resourceLimits = new AtomicReference<>(ResourceLimits.newBuilder().build());
     }
 
@@ -103,7 +114,7 @@ class SubDomainHandleImpl implements SubDomainHandle {
         // Track latency and errors
         future.whenComplete((response, error) -> {
             long latencyNanos = System.nanoTime() - startTime;
-            latencies.add(Duration.ofNanos(latencyNanos).toMillis());
+            recordLatency(Duration.ofNanos(latencyNanos).toMillis());
             if (error != null) {
                 errorCount.incrementAndGet();
             }
@@ -152,8 +163,10 @@ class SubDomainHandleImpl implements SubDomainHandle {
                 }
                 demesne.stop();
                 status.set(SubDomainStatus.STOPPED);
+                fireTerminal();
             } catch (Exception e) {
                 status.set(SubDomainStatus.FAILED);
+                fireTerminal();
                 throw new RuntimeException("Failed to stop subdomain: " + id, e);
             }
         }
@@ -166,10 +179,9 @@ class SubDomainHandleImpl implements SubDomainHandle {
             // For now, just call stop() immediately
             stop();
         }).orTimeout(timeout.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS).exceptionally(throwable -> {
-            // If timeout expires, force stop
-            status.set(SubDomainStatus.STOPPING);
-            demesne.stop();
-            status.set(SubDomainStatus.STOPPED);
+            // If timeout expires, force stop via this.stop() which handles
+            // compareAndSet guard, FAILED transitions, and onTerminal cleanup
+            stop();
             return null;
         });
     }
@@ -199,8 +211,27 @@ class SubDomainHandleImpl implements SubDomainHandle {
 
     @Override
     public void setResourceLimits(ResourceLimits limits) {
+        if (!limitsSet.compareAndSet(false, true)) {
+            log.warn("setResourceLimits() already called for {}; ignoring (set-once semantics)", id);
+            return;
+        }
         this.resourceLimits.set(limits);
-        // TODO: Enforce limits via isolate configuration when available
+        // True isolate enforcement requires future JNI API extension (deferred).
+        // JniBridge has no native limit API; limits stored for future use.
+        log.info("Resource limits stored for {} (enforcement deferred — no native isolate limit API)", id);
+    }
+
+    /**
+     * Fire terminal callback exactly once. Idempotent — safe to call multiple times.
+     */
+    private void fireTerminal() {
+        if (terminalFired.compareAndSet(false, true)) {
+            try {
+                onTerminal.run();
+            } catch (Exception e) {
+                log.warn("onTerminal callback failed for {}", id, e);
+            }
+        }
     }
 
     /**
@@ -219,25 +250,33 @@ class SubDomainHandleImpl implements SubDomainHandle {
         return resourceLimits.get();
     }
 
-    private Duration calculateAverageLatency() {
-        synchronized (latencies) {
-            if (latencies.isEmpty()) {
-                return Duration.ZERO;
-            }
-            long sum = latencies.stream().mapToLong(Long::longValue).sum();
-            return Duration.ofMillis(sum / latencies.size());
+    private synchronized void recordLatency(long millis) {
+        latencies[latencyIndex] = millis;
+        latencyIndex = (latencyIndex + 1) % latencies.length;
+        if (latencyCount < latencies.length) {
+            latencyCount++;
         }
     }
 
-    private Duration calculatePercentile(double percentile) {
-        synchronized (latencies) {
-            if (latencies.isEmpty()) {
-                return Duration.ZERO;
-            }
-            List<Long> sorted = new ArrayList<>(latencies);
-            Collections.sort(sorted);
-            int index = (int) Math.ceil(percentile * sorted.size()) - 1;
-            return Duration.ofMillis(sorted.get(Math.max(0, index)));
+    private synchronized Duration calculateAverageLatency() {
+        if (latencyCount == 0) {
+            return Duration.ZERO;
         }
+        long sum = 0;
+        for (int i = 0; i < latencyCount; i++) {
+            sum += latencies[i];
+        }
+        return Duration.ofMillis(sum / latencyCount);
+    }
+
+    private synchronized Duration calculatePercentile(double percentile) {
+        if (latencyCount == 0) {
+            return Duration.ZERO;
+        }
+        long[] sorted = new long[latencyCount];
+        System.arraycopy(latencies, 0, sorted, 0, latencyCount);
+        java.util.Arrays.sort(sorted);
+        int index = (int) Math.ceil(percentile * latencyCount) - 1;
+        return Duration.ofMillis(sorted[Math.max(0, index)]);
     }
 }
