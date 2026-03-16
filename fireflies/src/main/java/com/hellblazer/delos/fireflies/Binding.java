@@ -138,6 +138,11 @@ class Binding {
             return false;
         }
         final var r = futureSailor.get();
+        // Reject empty/default Redirects — these indicate the seed is not yet ready
+        if (r.equals(Redirect.getDefaultInstance())) {
+            log.debug("Skipping empty redirect from: {} on: {}", m.getId(), node.getId());
+            return true;
+        }
         if (redirect.complete(r)) {
             log.info("Redirected to view: {} context: {} from: {} on: {}", Digest.from(r.getView()),
                      this.context.getId(), m.getId(), node.getId());

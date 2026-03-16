@@ -876,8 +876,8 @@ public class ViewManagement {
                  from, requestView, joined(), node.getId());
 
         if (!joined()) {
-            log.warn("ViewManagement.seed() NOT JOINED - returning empty from: {} on: {}", from, node.getId());
-            return Redirect.getDefaultInstance();
+            log.info("Seed request from: {} rejected — not yet joined on: {}", from, node.getId());
+            throw new StatusRuntimeException(Status.FAILED_PRECONDITION.withDescription("Not yet joined"));
         }
         if (!bootstrapView.equals(requestView)) {
             log.warn("ViewManagement.seed() INVALID BOOTSTRAP VIEW - expected: {} got: {} from: {} on: {}",
