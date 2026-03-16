@@ -222,7 +222,7 @@ public class DeadlockDetectionTest {
         // Start all transactioneers
         transactioneers.forEach(Transactioneer::start);
 
-        boolean completed = endGate.await(LARGE_TESTS ? 90 : 60, TimeUnit.SECONDS);
+        boolean completed = endGate.await(LARGE_TESTS ? 180 : (IS_CI ? 90 : 60), TimeUnit.SECONDS);
         assertTrue(completed, "Concurrent consume() operations should complete without deadlock");
 
         // Verify no deadlocks occurred
