@@ -72,7 +72,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class PerformanceBaselineTest extends AbstractDhtTest {
 
     // CI runners are slower than local dev machines - adjust thresholds
-    private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
+    private static final boolean IS_CI = Boolean.parseBoolean(System.getenv().getOrDefault("CI", "false"));
     private static final double CI_LATENCY_MULTIPLIER = IS_CI ? 3.5 : 1.0;
 
     private static final int WARMUP_ITERATIONS = 50;

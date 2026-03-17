@@ -21,6 +21,7 @@ import com.hellblazer.delos.choam.proto.SubmitResult.Result;
 import com.hellblazer.delos.choam.support.HashedCertifiedBlock;
 import com.hellblazer.delos.choam.support.InvalidTransaction;
 import com.hellblazer.delos.choam.support.SubmittedTransaction;
+import com.hellblazer.delos.utils.Utils;
 import com.hellblazer.delos.context.StaticContext;
 import com.hellblazer.delos.cryptography.DigestAlgorithm;
 import com.hellblazer.delos.membership.Member;
@@ -42,6 +43,7 @@ import java.util.concurrent.Executors;
 import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * @author hal.hildebrand
@@ -101,7 +103,9 @@ public class SessionTest {
         assertEquals(1, session.submitted());
         gate.countDown();
         assertEquals(content, result.get(1, TimeUnit.SECONDS));
-        assertEquals(0, session.submitted());
+        // submitted() decrements in a whenComplete callback that may not have run yet
+        assertTrue(Utils.waitForCondition(2_000, 50, () -> session.submitted() == 0),
+                   "submitted count should reach 0 after completion");
     }
 
     @Test

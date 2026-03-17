@@ -62,7 +62,7 @@ class ByzantineDetectionPerformanceTest {
     private static final double MAX_OVERHEAD_PERCENT = 1.0; // <1% requirement
 
     // CI environment detection for performance threshold adjustment
-    private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
+    private static final boolean IS_CI = Boolean.parseBoolean(System.getenv().getOrDefault("CI", "false"));
     private static final double CI_THROUGHPUT_DIVISOR = IS_CI ? 2.5 : 1.0;  // CI ~2.5x slower (1200 / 2.5 = 480 ops/sec)
     private static final double MAX_OVERHEAD_PERCENT_CI = 2.5; // Relaxed threshold for CI due to resource contention
 

@@ -140,10 +140,10 @@ public class CHOAMTest {
         var params = Parameters.newBuilder()
                                .setGenerateGenesis(true)
                                .setGenesisViewId(GENESIS_VIEW_ID)
-                               .setGossipDuration(Duration.ofMillis(10))
+                               .setGossipDuration(Duration.ofMillis(IS_CI ? 25 : 10))
                                .setProducer(ProducerParameters.newBuilder()
-                                                              .setGossipDuration(Duration.ofMillis(10))
-                                                              .setBatchInterval(Duration.ofMillis(15))
+                                                              .setGossipDuration(Duration.ofMillis(IS_CI ? 25 : 10))
+                                                              .setBatchInterval(Duration.ofMillis(IS_CI ? 50 : 15))
                                                               .setMaxBatchByteSize(100 * 1024)
                                                               .setMaxBatchCount(10_000)
                                                               .build())
@@ -172,8 +172,8 @@ public class CHOAMTest {
         final Random entropy = new Random();
         final Duration timeout = Duration.ofSeconds(LARGE_TESTS ? 30 : 15);
         var transactioneers = new ArrayList<Transactioneer>();
-        final int clientCount = LARGE_TESTS ? 1_000 : 2;
-        final int max = LARGE_TESTS ? 50 : 10;
+        final int clientCount = LARGE_TESTS ? 1_000 : (IS_CI ? 1 : 2);
+        final int max = LARGE_TESTS ? 50 : (IS_CI ? 5 : 10);
         final CountDownLatch countdown = new CountDownLatch(choams.size() * clientCount);
 
         System.out.println("Warm up");

@@ -43,7 +43,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 public class BallotConsensusTest {
 
-    private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
+    private static final boolean IS_CI = Boolean.parseBoolean(System.getenv().getOrDefault("CI", "false"));
     private static final int CARDINALITY = 8;  // 4 seeds + 4 joiners
     private static final int SEED_COUNT = 4;
     private static final double P_BYZ = 0.2;

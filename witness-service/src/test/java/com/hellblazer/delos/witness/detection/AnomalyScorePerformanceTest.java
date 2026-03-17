@@ -28,7 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AnomalyScorePerformanceTest {
 
     private static final Logger log = LoggerFactory.getLogger(AnomalyScorePerformanceTest.class);
-    private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
+    private static final boolean IS_CI = Boolean.parseBoolean(System.getenv().getOrDefault("CI", "false"));
 
     @Test
     void recordEventPerformance() {

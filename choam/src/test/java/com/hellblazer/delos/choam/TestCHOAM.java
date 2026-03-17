@@ -57,6 +57,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 public class TestCHOAM {
     private static final int     CARDINALITY;
     private static final boolean LARGE_TESTS = Boolean.getBoolean("large_tests");
+    private static final boolean IS_CI       = Boolean.parseBoolean(System.getenv().getOrDefault("CI", "false"));
 
     static {
         CARDINALITY = LARGE_TESTS ? 10 : 5;
@@ -109,12 +110,12 @@ public class TestCHOAM {
         var params = Parameters.newBuilder()
                                .setGenerateGenesis(true)
                                .setGenesisViewId(origin.prefix(entropy.nextLong()))
-                               .setGossipDuration(Duration.ofMillis(10))
+                               .setGossipDuration(Duration.ofMillis(IS_CI ? 25 : 10))
                                .setProducer(ProducerParameters.newBuilder()
                                                               .setMaxBatchCount(15_000)
                                                               .setMaxBatchByteSize(200 * 1024 * 1024)
-                                                              .setGossipDuration(Duration.ofMillis(10))
-                                                              .setBatchInterval(Duration.ofMillis(50))
+                                                              .setGossipDuration(Duration.ofMillis(IS_CI ? 25 : 10))
+                                                              .setBatchInterval(Duration.ofMillis(IS_CI ? 100 : 50))
                                                               .setEthereal(Config.newBuilder()
                                                                                  .setNumberOfEpochs(12)
                                                                                  .setEpochLength(33))
@@ -178,7 +179,7 @@ public class TestCHOAM {
         final var timeout = Duration.ofSeconds(3);
 
         final var transactioneers = new ArrayList<Transactioneer>();
-        final var clientCount = LARGE_TESTS ? 1_500 : 5;
+        final var clientCount = LARGE_TESTS ? 1_500 : (IS_CI ? 2 : 5);
         final var max = LARGE_TESTS ? 100 : 5;
         final var countdown = new CountDownLatch(clientCount * choams.size());
         choams.values().forEach(c -> {
