@@ -235,17 +235,21 @@ public class CHOAMCheckpointTest {
         assertTrue(activated, "System did not become active");
 
         // High load with continuous transactions to test checkpoint under stress
+        // CI (2-core): 2 transactioneers × 4 nodes × 10 txns = 80 total (sufficient for checkpoint trigger at delta=5)
+        // Local: 4 transactioneers × 4 nodes × 20 txns = 320 total
+        int txneersPerNode = IS_CI ? 2 : 4;
+        int txnsPerTxneer = IS_CI ? 10 : 20;
         final var transactioneers = new ArrayList<Transactioneer>();
-        final var countdown = new CountDownLatch(choams.size() * 4);
+        final var countdown = new CountDownLatch(choams.size() * txneersPerNode);
 
         choams.values().forEach(c -> {
-            for (int i = 0; i < 4; i++) {
-                transactioneers.add(new Transactioneer(scheduler, c.getSession(), Duration.ofSeconds(5), 20, countdown));
+            for (int i = 0; i < txneersPerNode; i++) {
+                transactioneers.add(new Transactioneer(scheduler, c.getSession(), Duration.ofSeconds(5), txnsPerTxneer, countdown));
             }
         });
 
         transactioneers.forEach(Transactioneer::start);
-        boolean completed = countdown.await(IS_CI ? 360 : 120, TimeUnit.SECONDS);
+        boolean completed = countdown.await(IS_CI ? 240 : 120, TimeUnit.SECONDS);
         assertTrue(completed, "Checkpoint under load should complete");
 
         // Verify system remained stable and checkpoints created

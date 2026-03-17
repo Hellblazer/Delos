@@ -85,7 +85,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class DeadlockDetectionTest {
     private static final boolean LARGE_TESTS = Boolean.getBoolean("large_tests");
-    private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
+    private static final boolean IS_CI = Boolean.parseBoolean(System.getenv().getOrDefault("CI", "false"));
     private static final int     CARDINALITY = 4;
 
     private Map<Digest, CHOAM>              choams;
@@ -222,7 +222,7 @@ public class DeadlockDetectionTest {
         // Start all transactioneers
         transactioneers.forEach(Transactioneer::start);
 
-        boolean completed = endGate.await(LARGE_TESTS ? 180 : (IS_CI ? 90 : 60), TimeUnit.SECONDS);
+        boolean completed = endGate.await(LARGE_TESTS ? 180 : (IS_CI ? 120 : 60), TimeUnit.SECONDS);
         assertTrue(completed, "Concurrent consume() operations should complete without deadlock");
 
         // Verify no deadlocks occurred

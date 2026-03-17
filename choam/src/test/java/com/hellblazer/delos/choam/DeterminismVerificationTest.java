@@ -61,7 +61,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 public class DeterminismVerificationTest {
     private static final boolean LARGE_TESTS = Boolean.getBoolean("large_tests");
-    private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
+    private static final boolean IS_CI = Boolean.parseBoolean(System.getenv().getOrDefault("CI", "false"));
     private static final int CARDINALITY = 4;  // f=1 Byzantine tolerance (4 = 3f+1)
     private static final int TRANSACTION_BATCH_SIZE = 10;
 

@@ -42,7 +42,7 @@ public class ConcurrentStressValidationTest {
     private SecureRandom random;
 
     // Test configuration
-    private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
+    private static final boolean IS_CI = Boolean.parseBoolean(System.getenv().getOrDefault("CI", "false"));
     private static final int CONCURRENT_THREADS = 100;
     private static final int VALIDATIONS_PER_THREAD = 100;
 
