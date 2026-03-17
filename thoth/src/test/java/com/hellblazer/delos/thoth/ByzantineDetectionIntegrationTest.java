@@ -251,8 +251,10 @@ public class ByzantineDetectionIntegrationTest extends AbstractDhtTest {
         Thread.sleep(50);
         provider.recordTimeout(testId);
 
-        // Wait for coordinator to aggregate signals
-        Thread.sleep(300);
+        // Wait for coordinator to aggregate signals (poll-based; CI needs more time)
+        assertTrue(Utils.waitForCondition(5_000, 100,
+                   () -> coordinator.getMemberProfile(testId).isPresent()),
+                   "Coordinator should aggregate Byzantine signals");
 
         // Verify Byzantine detection
         var profile = coordinator.getMemberProfile(testId);
