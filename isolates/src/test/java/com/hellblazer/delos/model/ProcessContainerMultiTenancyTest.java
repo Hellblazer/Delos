@@ -61,7 +61,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Disabled("Requires JniBridge native library - work in progress")
 public class ProcessContainerMultiTenancyTest {
-    private static final boolean IS_CI       = "true".equalsIgnoreCase(System.getenv("CI"));
+    private static final boolean IS_CI       = Boolean.parseBoolean(System.getenv().getOrDefault("CI", "false"));
     private static final int     CARDINALITY = 5;
     private static final Digest  GENESIS_VIEW_ID = DigestAlgorithm.DEFAULT.digest(
     "Give me food or give me slack or kill me".getBytes());

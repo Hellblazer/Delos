@@ -46,7 +46,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class ReceiptGossipIntegrationTest {
 
-    private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
+    private static final boolean IS_CI = Boolean.parseBoolean(System.getenv().getOrDefault("CI", "false"));
     private static final DigestAlgorithm DIGEST_ALGO = DigestAlgorithm.DEFAULT;
     private static final long BLOOM_SEED = 42L;
     private static final double BLOOM_FPR = 0.01;

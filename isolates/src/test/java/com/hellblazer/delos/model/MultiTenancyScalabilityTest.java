@@ -42,7 +42,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 @Disabled("Requires JniBridge native library - work in progress")
 public class MultiTenancyScalabilityTest {
-    private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
+    private static final boolean IS_CI = Boolean.parseBoolean(System.getenv().getOrDefault("CI", "false"));
 
     private ExecutorService executor;
     private Path            checkpointDirBase;

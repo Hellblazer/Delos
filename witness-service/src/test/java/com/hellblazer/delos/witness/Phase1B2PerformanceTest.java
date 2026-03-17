@@ -44,7 +44,7 @@ import static org.assertj.core.api.Assertions.*;
 class Phase1B2PerformanceTest {
 
     // CI environment detection for performance threshold adjustment
-    private static final boolean IS_CI = "true".equalsIgnoreCase(System.getenv("CI"));
+    private static final boolean IS_CI = Boolean.parseBoolean(System.getenv().getOrDefault("CI", "false"));
     private static final double CI_LATENCY_MULTIPLIER = IS_CI ? 2.0 : 1.0;
 
     private WitnessReceiptTestHelper testHelper;
