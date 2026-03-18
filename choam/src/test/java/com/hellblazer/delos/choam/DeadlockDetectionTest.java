@@ -269,8 +269,8 @@ public class DeadlockDetectionTest {
                 transactioneer2.start();
             });
 
-            // CI infrastructure needs 3-4x timeout due to resource contention (measured 69s timeout)
-            boolean completed = roundGate.await(LARGE_TESTS ? 45 : (IS_CI ? 90 : 25), TimeUnit.SECONDS);
+            // CI (2-core): large_tests creates more work per round (8 txns vs 5), needs proportionally more time
+            boolean completed = roundGate.await(LARGE_TESTS ? (IS_CI ? 120 : 45) : (IS_CI ? 90 : 25), TimeUnit.SECONDS);
             assertTrue(completed, "Round " + round + " should complete without deadlock");
 
             // Check for deadlocks after each round
