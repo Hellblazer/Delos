@@ -174,8 +174,12 @@ public class FireFliesTest {
         + " members");
         System.out.println("******");
         System.out.println();
+        // CI (2-core): let consensus layer stabilize after 5-node domain activation before submitting transactions
+        if (IS_CI) {
+            Thread.sleep(5_000);
+        }
         var oracle = domains.getFirst().getDelphi();
-        oracle.add(new Oracle.Namespace("test")).get();
+        oracle.add(new Oracle.Namespace("test")).get(IS_CI ? 180 : 60, TimeUnit.SECONDS);
         DomainTest.smoke(oracle);
     }
 

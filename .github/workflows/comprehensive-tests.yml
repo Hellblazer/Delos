@@ -30,31 +30,7 @@ jobs:
             **/target/
           key: delos-maven-comprehensive-${{ github.sha }}
 
-  test-stress:
-    needs: compile
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: graalvm/setup-graalvm@v1
-        with:
-          java-version: '25'
-          distribution: 'graalvm'
-          cache: 'maven'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Restore Maven cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.m2/repository
-            **/target/
-          key: delos-maven-comprehensive-${{ github.sha }}
-          restore-keys: |
-            delos-maven-comprehensive-
-          fail-on-cache-miss: false
-      - name: Test Stress & Concurrency (with -Dlarge_tests=true)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl choam -Dgroups='stress' -Dlarge_tests=true --file pom.xml
-
+  # Run test jobs serially to avoid resource contention across parallel runners
   test-comprehensive-choam:
     needs: compile
     runs-on: ubuntu-latest
@@ -80,8 +56,33 @@ jobs:
       - name: Test All CHOAM (comprehensive)
         run: CI=true ./mvnw -batch-mode test -pl choam --file pom.xml
 
+  test-stress:
+    needs: test-comprehensive-choam
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          cache: 'maven'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore Maven cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            **/target/
+          key: delos-maven-comprehensive-${{ github.sha }}
+          restore-keys: |
+            delos-maven-comprehensive-
+          fail-on-cache-miss: false
+      - name: Test Stress & Concurrency (with -Dlarge_tests=true)
+        run: CI=true ./mvnw -batch-mode surefire:test -pl choam -Dgroups='stress' -Dlarge_tests=true --file pom.xml
+
   test-witness-performance:
-    needs: compile
+    needs: test-stress
     runs-on: ubuntu-latest
 
     steps:
@@ -106,7 +107,7 @@ jobs:
         run: CI=true ./mvnw -batch-mode surefire:test -pl witness-service -Dgroups='performance' --file pom.xml
 
   test-canaries:
-    needs: compile
+    needs: test-witness-performance
     runs-on: ubuntu-latest
 
     steps:
@@ -140,11 +141,12 @@ jobs:
     steps:
       - name: Check Test Results
         run: |
-          if [ "${{ needs.test-stress.result }}" != "success" ] || [ "${{ needs.test-comprehensive-choam.result }}" != "success" ] || [ "${{ needs.test-witness-performance.result }}" != "success" ]; then
-            echo "❌ Comprehensive Tests FAILED"
-            echo "  test-stress: ${{ needs.test-stress.result }}"
+          if [ "${{ needs.test-stress.result }}" != "success" ] || [ "${{ needs.test-comprehensive-choam.result }}" != "success" ] || [ "${{ needs.test-witness-performance.result }}" != "success" ] || [ "${{ needs.test-canaries.result }}" != "success" ]; then
+            echo "Comprehensive Tests FAILED"
             echo "  test-comprehensive-choam: ${{ needs.test-comprehensive-choam.result }}"
+            echo "  test-stress: ${{ needs.test-stress.result }}"
             echo "  test-witness-performance: ${{ needs.test-witness-performance.result }}"
+            echo "  test-canaries: ${{ needs.test-canaries.result }}"
             exit 1
           fi
-          echo "✅ Comprehensive Tests PASSED"
+          echo "Comprehensive Tests PASSED"
