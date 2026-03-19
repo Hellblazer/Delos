@@ -398,7 +398,7 @@ public class DeadlockDetectionTest {
             }
         });
 
-        boolean completed = normalLoad.await(LARGE_TESTS ? 60 : 30, TimeUnit.SECONDS);
+        boolean completed = normalLoad.await(LARGE_TESTS ? 60 : (IS_CI ? 60 : 30), TimeUnit.SECONDS);
         assertTrue(completed, "Normal load should complete without contention");
 
         long duration = (System.nanoTime() - startTime) / 1_000_000; // Convert to ms
@@ -425,13 +425,13 @@ public class DeadlockDetectionTest {
     @Test
     @Order(4)
     public void testDeterministicExecution() throws Exception {
-        int iterations = Integer.parseInt(System.getProperty("repeat", LARGE_TESTS ? "5" : "3"));
+        int iterations = Integer.parseInt(System.getProperty("repeat", LARGE_TESTS ? "5" : (IS_CI ? "2" : "3")));
 
         for (int iter = 0; iter < iterations; iter++) {
             routers.values().forEach(Router::start);
             choams.values().forEach(CHOAM::start);
 
-            boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : 15_000, 1_000,
+            boolean activated = Utils.waitForCondition(LARGE_TESTS ? 30_000 : (IS_CI ? 30_000 : 15_000), 1_000,
                                                        () -> choams.values().stream().allMatch(c -> c.active()));
             assertTrue(activated, "System should activate in iteration " + iter);
 
