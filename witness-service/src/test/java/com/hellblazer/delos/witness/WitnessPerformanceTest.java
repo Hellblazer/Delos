@@ -15,6 +15,7 @@ import com.hellblazer.delos.stereotomy.EventCoordinates;
 import com.hellblazer.delos.stereotomy.identifier.SelfAddressingIdentifier;
 import org.joou.ULong;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -32,6 +33,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 3. Memory efficiency (minimal GC overhead)
  * 4. Lock contention under high concurrency
  */
+@Tag("performance")
 class WitnessPerformanceTest {
 
     private static final int COMMITTEE_SIZE = 7;

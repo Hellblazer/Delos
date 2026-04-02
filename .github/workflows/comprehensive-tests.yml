@@ -15,16 +15,26 @@ jobs:
           distribution: 'graalvm'
           cache: 'maven'
           github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore Maven cache from previous builds
+        id: cache-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.m2/repository
+          key: delos-maven-comprehensive-${{ github.sha }}
+          restore-keys: |
+            delos-maven-comprehensive-
+            delos-maven-
       - name: Install h2-deterministic
         run: ./mvnw -batch-mode install -DskipTests -pl h2-deterministic
       - name: Compile all modules
         run: ./mvnw -batch-mode -T4 clean install -DskipTests --file pom.xml
-      - name: Save Maven cache
-        uses: actions/cache@v4
+      - name: Save Maven cache after compile
+        if: steps.cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
         with:
           path: |
             ~/.m2/repository
-            **/target/
           key: delos-maven-comprehensive-${{ github.sha }}
 
   # Run test jobs serially to avoid resource contention across parallel runners
@@ -41,15 +51,21 @@ jobs:
           cache: 'maven'
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Restore Maven cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.m2/repository
-            **/target/
           key: delos-maven-comprehensive-${{ github.sha }}
           restore-keys: |
             delos-maven-comprehensive-
+            delos-maven-
           fail-on-cache-miss: false
+      - name: Rebuild if cache missed
+        run: |
+          if [ ! -d ~/.m2/repository/com/hellblazer/delos/ethereal ]; then
+            echo "Cache miss detected - rebuilding dependencies"
+            ./mvnw -batch-mode -T4 install -DskipTests --file pom.xml
+          fi
       - name: Test All CHOAM (comprehensive)
         run: CI=true ./mvnw -batch-mode test -pl choam --file pom.xml
 
@@ -66,17 +82,23 @@ jobs:
           cache: 'maven'
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Restore Maven cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.m2/repository
-            **/target/
           key: delos-maven-comprehensive-${{ github.sha }}
           restore-keys: |
             delos-maven-comprehensive-
+            delos-maven-
           fail-on-cache-miss: false
+      - name: Rebuild if cache missed
+        run: |
+          if [ ! -d ~/.m2/repository/com/hellblazer/delos/ethereal ]; then
+            echo "Cache miss detected - rebuilding dependencies"
+            ./mvnw -batch-mode -T4 install -DskipTests --file pom.xml
+          fi
       - name: Test Stress & Concurrency (with -Dlarge_tests=true)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl choam -Dgroups='stress' -Dlarge_tests=true --file pom.xml
+        run: CI=true ./mvnw -batch-mode test -pl choam -Dgroups='stress' -Dlarge_tests=true --file pom.xml
 
   test-witness-performance:
     needs: test-stress
@@ -91,17 +113,23 @@ jobs:
           cache: 'maven'
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Restore Maven cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.m2/repository
-            **/target/
           key: delos-maven-comprehensive-${{ github.sha }}
           restore-keys: |
             delos-maven-comprehensive-
+            delos-maven-
           fail-on-cache-miss: false
+      - name: Rebuild if cache missed
+        run: |
+          if [ ! -d ~/.m2/repository/com/hellblazer/delos/stereotomy ]; then
+            echo "Cache miss detected - rebuilding dependencies"
+            ./mvnw -batch-mode -T4 install -DskipTests --file pom.xml
+          fi
       - name: Test Witness Performance (long-running simulation and performance tests)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl witness-service -Dgroups='performance' --file pom.xml
+        run: CI=true ./mvnw -batch-mode test -pl witness-service -Dgroups='performance' --file pom.xml
 
   test-canaries:
     needs: test-witness-performance
@@ -116,19 +144,25 @@ jobs:
           cache: 'maven'
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Restore Maven cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.m2/repository
-            **/target/
           key: delos-maven-comprehensive-${{ github.sha }}
           restore-keys: |
             delos-maven-comprehensive-
+            delos-maven-
           fail-on-cache-miss: false
+      - name: Rebuild if cache missed
+        run: |
+          if [ ! -d ~/.m2/repository/com/hellblazer/delos/fireflies ]; then
+            echo "Cache miss detected - rebuilding dependencies"
+            ./mvnw -batch-mode -T4 install -DskipTests --file pom.xml
+          fi
       - name: Test Canary & Stress Tests (tagged @stress in fireflies and model)
         run: |
-          CI=true ./mvnw -batch-mode surefire:test -pl fireflies -Dgroups='stress' --file pom.xml
-          CI=true ./mvnw -batch-mode surefire:test -pl model -Dgroups='stress' --file pom.xml
+          CI=true ./mvnw -batch-mode test -pl fireflies -Dgroups='stress' --file pom.xml
+          CI=true ./mvnw -batch-mode test -pl model -Dgroups='stress' --file pom.xml
 
   build-status:
     needs: [test-stress, test-comprehensive-choam, test-witness-performance, test-canaries]
