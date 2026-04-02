@@ -19,11 +19,11 @@ jobs:
           cache: 'maven'
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Restore Maven cache from previous builds
-        uses: actions/cache@v4
+        id: cache-restore
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.m2/repository
-            **/target/
           key: delos-maven-${{ github.sha }}
           restore-keys: |
             delos-maven-${{ github.ref }}-
@@ -34,11 +34,11 @@ jobs:
       - name: Compile all modules
         run: ./mvnw -batch-mode -T4 clean install -DskipTests --file pom.xml
       - name: Save Maven cache after compile
-        uses: actions/cache@v4
+        if: steps.cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
         with:
           path: |
             ~/.m2/repository
-            **/target/
           key: delos-maven-${{ github.sha }}
 
   test-units:
@@ -54,19 +54,24 @@ jobs:
           cache: 'maven'
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Restore Maven cache from compile job
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.m2/repository
-            **/target/
           key: delos-maven-${{ github.sha }}
           restore-keys: |
             delos-maven-${{ github.ref }}-
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
+      - name: Rebuild if cache missed
+        run: |
+          if [ ! -d ~/.m2/repository/com/hellblazer/delos/memberships ]; then
+            echo "Cache miss detected - rebuilding dependencies"
+            ./mvnw -batch-mode -T4 install -DskipTests --file pom.xml
+          fi
       - name: Test Units (Infrastructure + Platform)
-        run: CI=true ./mvnw -batch-mode surefire:test -pl cryptography,java-noise,protocols,memberships,grpc,tron,schemas,vm-socket,leyden --file pom.xml
+        run: CI=true ./mvnw -batch-mode test -pl cryptography,java-noise,protocols,memberships,grpc,tron,schemas,vm-socket,leyden --file pom.xml
 
   test-choam:
     needs: compile
@@ -81,21 +86,26 @@ jobs:
           cache: 'maven'
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Restore Maven cache from compile job
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.m2/repository
-            **/target/
           key: delos-maven-${{ github.sha }}
           restore-keys: |
             delos-maven-${{ github.ref }}-
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
+      - name: Rebuild if cache missed
+        run: |
+          if [ ! -d ~/.m2/repository/com/hellblazer/delos/ethereal ]; then
+            echo "Cache miss detected - rebuilding dependencies"
+            ./mvnw -batch-mode -T4 install -DskipTests --file pom.xml
+          fi
       - name: Test CHOAM (excluding stress and performance tests via @Tag)
         run: |
-          CI=true ./mvnw -batch-mode surefire:test -pl choam -DexcludedTestGroups='stress,performance' --file pom.xml
-          CI=true ./mvnw -batch-mode surefire:test -pl sql-state --file pom.xml
+          CI=true ./mvnw -batch-mode test -pl choam -DexcludedTestGroups='stress,performance' --file pom.xml
+          CI=true ./mvnw -batch-mode test -pl sql-state --file pom.xml
 
   test-consensus:
     needs: compile
@@ -110,21 +120,26 @@ jobs:
           cache: 'maven'
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Restore Maven cache from compile job
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.m2/repository
-            **/target/
           key: delos-maven-${{ github.sha }}
           restore-keys: |
             delos-maven-${{ github.ref }}-
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
+      - name: Rebuild if cache missed
+        run: |
+          if [ ! -d ~/.m2/repository/com/hellblazer/delos/fireflies ]; then
+            echo "Cache miss detected - rebuilding dependencies"
+            ./mvnw -batch-mode -T4 install -DskipTests --file pom.xml
+          fi
       - name: Test Consensus (fireflies + ethereal, excluding stress tests via @Tag)
         run: |
-          CI=true ./mvnw -batch-mode surefire:test -pl fireflies -DexcludedTestGroups='stress,performance' --file pom.xml
-          CI=true ./mvnw -batch-mode surefire:test -pl ethereal --file pom.xml
+          CI=true ./mvnw -batch-mode test -pl fireflies -DexcludedTestGroups='stress,performance' --file pom.xml
+          CI=true ./mvnw -batch-mode test -pl ethereal --file pom.xml
 
   test-identity:
     needs: compile
@@ -139,23 +154,28 @@ jobs:
           cache: 'maven'
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Restore Maven cache from compile job
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.m2/repository
-            **/target/
           key: delos-maven-${{ github.sha }}
           restore-keys: |
             delos-maven-${{ github.ref }}-
             delos-maven-refs/heads/main-
             delos-maven-
           fail-on-cache-miss: false
+      - name: Rebuild if cache missed
+        run: |
+          if [ ! -d ~/.m2/repository/com/hellblazer/delos/stereotomy ]; then
+            echo "Cache miss detected - rebuilding dependencies"
+            ./mvnw -batch-mode -T4 install -DskipTests --file pom.xml
+          fi
       - name: Test Identity (KERI stack + examples, excluding stress/performance tests via @Tag)
         run: |
-          CI=true ./mvnw -batch-mode surefire:test -pl stereotomy,thoth,gorgoneion,gorgoneion-client,stereotomy-services,delphinius -DexcludedTestGroups='stress,performance' --file pom.xml
-          CI=true ./mvnw -batch-mode surefire:test -pl examples/simple-kv-store,examples/local-demo,examples/multi-tenant-demo,examples/fsm-workflow --file pom.xml
-          CI=true ./mvnw -batch-mode surefire:test -pl witness-service -DexcludedTestGroups='stress,performance' --file pom.xml
-          CI=true ./mvnw -batch-mode surefire:test -pl model -DexcludedTestGroups='stress,performance' --file pom.xml
+          CI=true ./mvnw -batch-mode test -pl stereotomy,thoth,gorgoneion,gorgoneion-client,stereotomy-services,delphinius -DexcludedTestGroups='stress,performance' --file pom.xml
+          CI=true ./mvnw -batch-mode test -pl examples/simple-kv-store,examples/local-demo,examples/multi-tenant-demo,examples/fsm-workflow --file pom.xml
+          CI=true ./mvnw -batch-mode test -pl witness-service -DexcludedTestGroups='stress,performance' --file pom.xml
+          CI=true ./mvnw -batch-mode test -pl model -DexcludedTestGroups='stress,performance' --file pom.xml
 
   build-status:
     needs: [test-units, test-choam, test-consensus, test-identity]
