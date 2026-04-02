@@ -171,7 +171,11 @@ class ByzantineIntelligenceCoordinatorTest {
         coordinator.registerProvider(provider);
         coordinator.start();
 
-        Thread.sleep(100);
+        // Poll until the coordinator has tracked at least one member (poll interval is 50ms)
+        var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (coordinator.getTrackedMemberCount() < 1 && System.nanoTime() < deadline) {
+            Thread.sleep(50);
+        }
         assertThat(coordinator.getTrackedMemberCount()).isGreaterThanOrEqualTo(1);
 
         // Close coordinator to stop polling before checking reset state
